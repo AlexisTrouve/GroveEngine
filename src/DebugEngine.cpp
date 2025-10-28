@@ -1,10 +1,15 @@
 #include <grove/DebugEngine.h>
+#include <grove/JsonDataNode.h>
+#include <grove/JsonDataValue.h>
+#include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
 namespace grove {
+
+using json = nlohmann::json;
 
 DebugEngine::DebugEngine() {
     // Create comprehensive logger with multiple sinks
@@ -294,7 +299,7 @@ bool DebugEngine::isPaused() const {
     return paused;
 }
 
-json DebugEngine::getDetailedStatus() const {
+std::unique_ptr<IDataNode> DebugEngine::getDetailedStatus() const {
     logger->debug("📊 Detailed status requested");
 
     json status = {
@@ -315,8 +320,8 @@ json DebugEngine::getDetailedStatus() const {
         status["average_fps"] = frameCount / totalTime;
     }
 
-    logger->trace("📄 Status JSON: {}", status.dump());
-    return status;
+    logger->trace("📄 Status: {}", status.dump());
+    return std::make_unique<JsonDataNode>("status", status);
 }
 
 void DebugEngine::setLogLevel(spdlog::level::level_enum level) {
@@ -425,8 +430,9 @@ void DebugEngine::processClientMessages() {
             for (int j = 0; j < messagesToProcess; ++j) {
                 try {
                     auto message = socket->pullMessage();
-                    logger->debug("📩 Client {} message: topic='{}', data size={}",
-                                i, message.topic, message.data.dump().size());
+                    std::string dataPreview = message.data ? message.data->getData()->toString() : "null";
+                    logger->debug("📩 Client {} message: topic='{}', data present={}",
+                                i, message.topic, message.data != nullptr);
 
                     // TODO: Route message to appropriate module or process it
                     logger->trace("🚧 TODO: Route client message to modules");
@@ -451,8 +457,8 @@ void DebugEngine::processCoordinatorMessages() {
         for (int i = 0; i < messagesToProcess; ++i) {
             try {
                 auto message = coordinatorSocket->pullMessage();
-                logger->debug("📩 Coordinator message: topic='{}', data size={}",
-                            message.topic, message.data.dump().size());
+                logger->debug("📩 Coordinator message: topic='{}', data present={}",
+                            message.topic, message.data != nullptr);
 
                 // TODO: Handle coordinator commands (shutdown, config reload, etc.)
                 logger->trace("🚧 TODO: Handle coordinator commands");

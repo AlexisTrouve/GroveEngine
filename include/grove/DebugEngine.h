@@ -7,13 +7,11 @@
 #include <thread>
 #include <atomic>
 #include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
 
 #include "IEngine.h"
 #include "IModuleSystem.h"
 #include "IIO.h"
-
-using json = nlohmann::json;
+#include "IDataNode.h"
 
 namespace grove {
 
@@ -48,7 +46,7 @@ private:
     size_t frameCount = 0;
 
     // Configuration
-    json engineConfig;
+    std::unique_ptr<IDataNode> engineConfig;
 
     // Helper methods
     void logEngineStart();
@@ -82,7 +80,7 @@ public:
     void resumeExecution();
     void stepSingleFrame();
     bool isPaused() const;
-    json getDetailedStatus() const;
+    std::unique_ptr<IDataNode> getDetailedStatus() const;
     void setLogLevel(spdlog::level::level_enum level);
 };
 
