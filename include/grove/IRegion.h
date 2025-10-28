@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Interface for geological regions during world generation
@@ -47,4 +47,4 @@ public:
     virtual bool canFuseWith(const IRegion* other) const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

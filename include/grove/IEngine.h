@@ -4,12 +4,12 @@
 #include <memory>
 
 // Forward declarations to avoid circular dependencies
-namespace warfactory {
+namespace grove {
     class IModuleSystem;
     class IIO;
 }
 
-namespace warfactory {
+namespace grove {
 
 enum class EngineType {
     DEBUG = 0,
@@ -120,4 +120,4 @@ public:
     virtual EngineType getType() const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

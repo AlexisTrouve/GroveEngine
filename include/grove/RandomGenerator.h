@@ -3,7 +3,7 @@
 #include <random>
 #include <cstdint>
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Centralized random number generator singleton
@@ -86,4 +86,4 @@ public:
     }
 };
 
-} // namespace warfactory
+} // namespace grove

@@ -11,7 +11,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Factory for creating IO transport implementations
@@ -131,4 +131,4 @@ private:
     static std::string generateEndpoint(IOType ioType);
 };
 
-} // namespace warfactory
+} // namespace grove

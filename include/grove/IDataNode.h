@@ -6,7 +6,7 @@
 #include <functional>
 #include "IDataValue.h"
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Interface for a single node in the data tree
@@ -226,6 +226,36 @@ public:
      * @return Node type identifier
      */
     virtual std::string getNodeType() const = 0;
+
+    // ========================================
+    // TREE MODIFICATION (For data/ and runtime/ nodes)
+    // ========================================
+
+    /**
+     * @brief Add or update a child node
+     * @param name Child name
+     * @param node Child node to add/replace
+     *
+     * If a child with this name already exists, it will be replaced.
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setChild(const std::string& name, std::unique_ptr<IDataNode> node) = 0;
+
+    /**
+     * @brief Remove a child node
+     * @param name Child name to remove
+     * @return true if child was found and removed
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual bool removeChild(const std::string& name) = 0;
+
+    /**
+     * @brief Clear all children from this node
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void clearChildren() = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

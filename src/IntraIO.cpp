@@ -6,7 +6,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-namespace warfactory {
+namespace grove {
 
 // Factory function for IntraIOManager to avoid circular include
 std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId) {
@@ -481,4 +481,4 @@ const std::string& IntraIO::getInstanceId() const {
     return instanceId;
 }
 
-} // namespace warfactory
+} // namespace grove

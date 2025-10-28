@@ -10,7 +10,7 @@
 // #include "ThreadPoolModuleSystem.h"
 // #include "ClusterModuleSystem.h"
 
-namespace warfactory {
+namespace grove {
 
 std::unique_ptr<IModuleSystem> ModuleSystemFactory::create(const std::string& strategy) {
     auto logger = getFactoryLogger();
@@ -236,4 +236,4 @@ int ModuleSystemFactory::detectCpuCores() {
     return cores;
 }
 
-} // namespace warfactory
+} // namespace grove

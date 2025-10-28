@@ -13,7 +13,7 @@
 #include <functional>
 #include <chrono>
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief ImGui implementation of IUI interface
@@ -704,4 +704,4 @@ private:
     void renderLogConsole();
 };
 
-} // namespace warfactory
+} // namespace grove

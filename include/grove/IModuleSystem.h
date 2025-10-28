@@ -5,12 +5,12 @@
 #include "ITaskScheduler.h"
 
 // Forward declarations to avoid circular dependencies
-namespace warfactory {
+namespace grove {
     class IModule;
     class IIO;
 }
 
-namespace warfactory {
+namespace grove {
 
 enum class ModuleSystemType {
     SEQUENTIAL = 0,
@@ -89,4 +89,4 @@ public:
     virtual ModuleSystemType getType() const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

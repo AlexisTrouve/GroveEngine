@@ -11,7 +11,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Factory for creating ModuleSystem implementations
@@ -113,4 +113,4 @@ private:
     static int detectCpuCores();
 };
 
-} // namespace warfactory
+} // namespace grove

@@ -15,7 +15,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Debug engine implementation with comprehensive logging
@@ -86,4 +86,4 @@ public:
     void setLogLevel(spdlog::level::level_enum level);
 };
 
-} // namespace warfactory
+} // namespace grove

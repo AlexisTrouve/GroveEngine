@@ -4,7 +4,7 @@
 #include <memory>
 #include "IDataNode.h"
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Task scheduling interface for module delegation to execution system
@@ -100,4 +100,4 @@ public:
     virtual std::unique_ptr<IDataNode> getCompletedTask() = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

@@ -17,7 +17,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 // Interface for message delivery to avoid circular include
 class IIntraIODelivery {
@@ -132,4 +132,4 @@ public:
     const std::string& getInstanceId() const;
 };
 
-} // namespace warfactory
+} // namespace grove

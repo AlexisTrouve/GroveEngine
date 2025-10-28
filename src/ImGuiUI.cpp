@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <iostream>
 
-namespace warfactory {
+namespace grove {
 
 // ========================================
 // IUI INTERFACE IMPLEMENTATION - REQUESTS & EVENTS
@@ -543,4 +543,4 @@ void ImGuiUI::renderLogConsole() {
     ImGui::End();
 }
 
-} // namespace warfactory
+} // namespace grove

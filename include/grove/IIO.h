@@ -6,7 +6,7 @@
 #include <memory>
 #include "IDataNode.h"
 
-namespace warfactory {
+namespace grove {
 
 enum class IOType {
     INTRA = 0,      // Same process
@@ -98,4 +98,4 @@ public:
     virtual IOType getType() const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

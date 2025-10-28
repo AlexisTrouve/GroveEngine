@@ -6,11 +6,11 @@
 #include "ITaskScheduler.h"
 
 // Forward declarations
-namespace warfactory {
+namespace grove {
     class IIO;
 }
 
-namespace warfactory {
+namespace grove {
 
 
 
@@ -108,4 +108,4 @@ public:
     virtual std::string getType() const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

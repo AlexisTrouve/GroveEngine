@@ -37,11 +37,19 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
     add_library(grove_impl STATIC
         src/ImGuiUI.cpp
         src/ResourceRegistry.cpp
+        src/JsonDataValue.cpp
+        src/JsonDataNode.cpp
+        src/JsonDataTree.cpp
+        src/DataTreeFactory.cpp
     )
 
     target_link_libraries(grove_impl PUBLIC
         GroveEngine::core
+        OpenSSL::Crypto
     )
+
+    # Find OpenSSL for SHA256 hashing
+    find_package(OpenSSL REQUIRED)
 
     # If imgui is available from parent project, link it
     if(TARGET imgui_backends)

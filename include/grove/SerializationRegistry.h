@@ -7,7 +7,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 class ASerializable;
 
@@ -35,4 +35,4 @@ public:
     void clear();
 };
 
-} // namespace warfactory
+} // namespace grove

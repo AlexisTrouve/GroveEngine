@@ -11,7 +11,7 @@
 // #include "LocalIO.h"
 // #include "NetworkIO.h"
 
-namespace warfactory {
+namespace grove {
 
 std::unique_ptr<IIO> IOFactory::create(const std::string& transportType, const std::string& instanceId) {
     auto logger = getFactoryLogger();
@@ -308,4 +308,4 @@ std::string IOFactory::generateEndpoint(IOType ioType) {
     }
 }
 
-} // namespace warfactory
+} // namespace grove

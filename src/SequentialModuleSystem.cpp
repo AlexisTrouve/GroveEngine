@@ -3,7 +3,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-namespace warfactory {
+namespace grove {
 
 SequentialModuleSystem::SequentialModuleSystem() {
     // Create logger with file and console output
@@ -273,4 +273,4 @@ void SequentialModuleSystem::validateModule() const {
     }
 }
 
-} // namespace warfactory
+} // namespace grove

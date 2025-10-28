@@ -4,7 +4,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-namespace warfactory {
+namespace grove {
 
 IntraIOManager::IntraIOManager() {
     // Create logger
@@ -266,4 +266,4 @@ IntraIOManager& IntraIOManager::getInstance() {
     return instance;
 }
 
-} // namespace warfactory
+} // namespace grove

@@ -4,7 +4,7 @@
 #include <string>
 #include <memory>
 
-namespace warfactory {
+namespace grove {
 
 class SerializationRegistry;
 
@@ -26,4 +26,4 @@ protected:
     void unregisterFromSerialization();
 };
 
-} // namespace warfactory
+} // namespace grove

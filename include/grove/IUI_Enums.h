@@ -4,7 +4,7 @@
 #include <string>
 #include <functional>
 
-namespace warfactory {
+namespace grove {
 
 using json = nlohmann::json;
 
@@ -337,4 +337,4 @@ constexpr const char* toString(Orientation orient) {
     }
 }
 
-} // namespace warfactory
+} // namespace grove

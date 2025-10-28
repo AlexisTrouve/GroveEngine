@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory>
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Interface for data values - abstracts underlying data format
@@ -40,4 +40,4 @@ public:
     virtual std::string toString() const = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

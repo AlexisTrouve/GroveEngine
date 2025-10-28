@@ -4,7 +4,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-namespace warfactory {
+namespace grove {
 
 DebugEngine::DebugEngine() {
     // Create comprehensive logger with multiple sinks
@@ -484,4 +484,4 @@ void DebugEngine::validateConfiguration() {
     logger->trace("🚧 TODO: Implement comprehensive config validation");
 }
 
-} // namespace warfactory
+} // namespace grove

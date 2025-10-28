@@ -6,7 +6,7 @@
 #include <string>
 #include <memory>
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Singleton registry for all game resources with fast uint32_t ID lookup
@@ -110,4 +110,4 @@ public:
 #define GET_RESOURCE(id) warfactory::ResourceRegistry::getInstance().getResource(id)
 #define VALID_RESOURCE(id) warfactory::ResourceRegistry::getInstance().isValidResourceId(id)
 
-} // namespace warfactory
+} // namespace grove

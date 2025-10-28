@@ -11,7 +11,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Factory for loading and creating modules from shared libraries (.so files)
@@ -99,4 +99,4 @@ private:
     void logModuleError(const std::string& operation, const std::string& details) const;
 };
 
-} // namespace warfactory
+} // namespace grove

@@ -4,7 +4,7 @@
 #include <string>
 #include <functional>
 
-namespace warfactory {
+namespace grove {
 
 using json = nlohmann::json;
 
@@ -126,4 +126,4 @@ public:
     virtual void setState(const json& state) = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

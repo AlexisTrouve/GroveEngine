@@ -7,7 +7,7 @@
 
 namespace fs = std::filesystem;
 
-namespace warfactory {
+namespace grove {
 
 ModuleFactory::ModuleFactory() {
     // Create logger with file and console output
@@ -506,4 +506,4 @@ void ModuleFactory::logModuleError(const std::string& operation, const std::stri
     logger->error("❌ Module {} error: {}", operation, details);
 }
 
-} // namespace warfactory
+} // namespace grove

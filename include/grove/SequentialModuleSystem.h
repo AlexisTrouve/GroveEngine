@@ -12,7 +12,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Sequential module system implementation for debug and testing
@@ -84,4 +84,4 @@ public:
     void setLogLevel(spdlog::level::level_enum level);
 };
 
-} // namespace warfactory
+} // namespace grove

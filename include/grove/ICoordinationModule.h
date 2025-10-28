@@ -8,12 +8,12 @@
 #include "IDataTree.h"
 
 // Forward declarations
-namespace warfactory {
+namespace grove {
     class IEngine;
     class IModuleSystem;
 }
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Global system orchestrator - First launched, last shutdown
@@ -158,4 +158,4 @@ public:
     virtual json getSystemHealthReport() = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

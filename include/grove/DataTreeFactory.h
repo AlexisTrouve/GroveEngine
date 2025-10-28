@@ -4,7 +4,7 @@
 #include <memory>
 #include "IDataTree.h"
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Factory for creating data tree instances
@@ -20,4 +20,4 @@ public:
     static std::unique_ptr<IDataTree> create(const std::string& type, const std::string& sourcePath);
 };
 
-} // namespace warfactory
+} // namespace grove

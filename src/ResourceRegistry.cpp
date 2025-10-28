@@ -1,7 +1,7 @@
 #include <grove/ResourceRegistry.h>
 #include <algorithm>
 
-namespace warfactory {
+namespace grove {
 
 // Static member initialization
 std::unique_ptr<ResourceRegistry> ResourceRegistry::instance = nullptr;
@@ -117,4 +117,4 @@ void ResourceRegistry::clear() {
     next_id = 1;
 }
 
-} // namespace warfactory
+} // namespace grove

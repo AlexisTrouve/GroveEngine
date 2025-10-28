@@ -5,7 +5,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 class Resource {
 private:
@@ -34,4 +34,4 @@ public:
     static Resource loadFromJson(const std::string& resource_id, const json& resource_data);
 };
 
-} // namespace warfactory
+} // namespace grove

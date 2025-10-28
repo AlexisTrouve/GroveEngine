@@ -8,7 +8,7 @@
 #include "IEngine.h"
 #include "DebugEngine.h"
 
-namespace warfactory {
+namespace grove {
 
 /**
  * @brief Factory for creating engine implementations
@@ -102,4 +102,4 @@ private:
     static std::string toLowercase(const std::string& str);
 };
 
-} // namespace warfactory
+} // namespace grove

@@ -3,7 +3,7 @@
 #include "IDataNode.h"
 #include <memory>
 
-namespace warfactory {
+namespace grove {
 
 class ISerializable {
 public:
@@ -13,4 +13,4 @@ public:
     virtual void deserialize(const IDataNode& data) = 0;
 };
 
-} // namespace warfactory
+} // namespace grove

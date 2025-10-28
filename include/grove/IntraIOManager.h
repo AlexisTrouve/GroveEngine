@@ -13,7 +13,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 class IntraIO; // Forward declaration
 class IIntraIODelivery; // Forward declaration
@@ -88,4 +88,4 @@ public:
     static IntraIOManager& getInstance();
 };
 
-} // namespace warfactory
+} // namespace grove

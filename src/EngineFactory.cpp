@@ -6,7 +6,7 @@
 
 using json = nlohmann::json;
 
-namespace warfactory {
+namespace grove {
 
 std::unique_ptr<IEngine> EngineFactory::createEngine(const std::string& engineType) {
     auto logger = getFactoryLogger();
@@ -204,4 +204,4 @@ std::string EngineFactory::toLowercase(const std::string& str) {
     return result;
 }
 
-} // namespace warfactory
+} // namespace grove
