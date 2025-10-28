@@ -21,17 +21,19 @@ namespace grove {
  * 200-300 lines of pure game logic with zero infrastructure code.
  *
  * Key design principles:
- * - PURE FUNCTION: process() method has no side effects beyond return value
- * - CONFIG VIA DATATREE: Configuration via immutable IDataNode references
- * - JSON ONLY: All communication via JSON input/output
+ * - PURE FUNCTION: process() method has minimal side effects
+ * - CONFIG VIA IDATANODE: Configuration via immutable IDataNode references
+ * - IDATANODE COMMUNICATION: All data via IDataNode abstraction (backend agnostic)
+ * - IIO FOR PERSISTENCE: Save requests via IIO publish (Engine handles persistence)
  * - NO INFRASTRUCTURE: No threading, networking, or framework dependencies
  * - HOT-RELOAD READY: State serialization for seamless module replacement
  * - CLAUDE OPTIMIZED: Micro-context size for AI development efficiency
  *
- * BREAKING CHANGES:
- * - Removed initialize() method - use setConfiguration() instead
- * - Configuration via const IDataNode& for immutability
- * - Health check returns detailed JSON status
+ * DATA FLOW:
+ * - Configuration: Read-only via setConfiguration(const IDataNode&)
+ * - Input: Read-only via process(const IDataNode&)
+ * - Save: Publish via IIO: m_io->publish("save:module:state", data)
+ * - State: Serialized via getState() for hot-reload
  *
  * Module constraint: Maximum 300 lines per module (Exception: ProductionModule 500-800 lines)
  */
