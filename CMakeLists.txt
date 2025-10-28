@@ -43,6 +43,11 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         GroveEngine::core
     )
 
+    # If imgui is available from parent project, link it
+    if(TARGET imgui_backends)
+        target_link_libraries(grove_impl PUBLIC imgui_backends)
+    endif()
+
     add_library(GroveEngine::impl ALIAS grove_impl)
 endif()
 

@@ -1,4 +1,4 @@
-#include <warfactory/SequentialModuleSystem.h>
+#include <grove/SequentialModuleSystem.h>
 #include <stdexcept>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>

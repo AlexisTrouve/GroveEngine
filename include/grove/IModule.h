@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <nlohmann/json.hpp>
+#include <memory>
 #include "IDataNode.h"
 #include "ITaskScheduler.h"
 
@@ -9,8 +9,6 @@
 namespace warfactory {
     class IIO;
 }
-
-using json = nlohmann::json;
 
 namespace warfactory {
 
@@ -43,13 +41,13 @@ public:
 
     /**
      * @brief Process game logic
-     * @param input JSON input from other modules or the module system
+     * @param input Data input from other modules or the module system
      *
      * This is the core method where all module logic is implemented.
      * Modules communicate via IIO pub/sub and can delegate tasks via ITaskScheduler.
      * Must handle state properly through getState/setState for hot-reload.
      */
-    virtual void process(const json& input) = 0;
+    virtual void process(const IDataNode& input) = 0;
 
     /**
      * @brief Set module configuration (replaces initialize)
@@ -70,9 +68,9 @@ public:
 
     /**
      * @brief Get detailed health status of the module
-     * @return JSON health report with status, metrics, and diagnostics
+     * @return Health report with status, metrics, and diagnostics
      */
-    virtual json getHealthStatus() = 0;
+    virtual std::unique_ptr<IDataNode> getHealthStatus() = 0;
 
     /**
      * @brief Cleanup and shutdown the module
@@ -84,24 +82,24 @@ public:
 
     /**
      * @brief Get current module state for hot-reload support
-     * @return JSON representation of all module state
+     * @return Data representation of all module state
      *
      * Critical for hot-reload functionality. Must serialize all internal
      * state that needs to be preserved when the module is replaced.
-     * The returned JSON should be sufficient to restore the module to
+     * The returned data should be sufficient to restore the module to
      * its current state via setState().
      */
-    virtual json getState() = 0;
+    virtual std::unique_ptr<IDataNode> getState() = 0;
 
     /**
      * @brief Restore module state after hot-reload
-     * @param state JSON state previously returned by getState()
+     * @param state State previously returned by getState()
      *
      * Called after module replacement to restore the previous state.
-     * Must be able to reconstruct all internal state from the JSON
+     * Must be able to reconstruct all internal state from the data
      * to ensure seamless hot-reload without game disruption.
      */
-    virtual void setState(const json& state) = 0;
+    virtual void setState(const IDataNode& state) = 0;
 
     /**
      * @brief Get module type identifier

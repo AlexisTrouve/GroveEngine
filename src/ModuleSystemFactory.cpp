@@ -1,10 +1,10 @@
-#include <warfactory/ModuleSystemFactory.h>
+#include <grove/ModuleSystemFactory.h>
 #include <algorithm>
 #include <thread>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 // Include implemented systems
-#include <warfactory/SequentialModuleSystem.h>
+#include <grove/SequentialModuleSystem.h>
 // Forward declarations for future implementations
 // #include "ThreadedModuleSystem.h"
 // #include "ThreadPoolModuleSystem.h"

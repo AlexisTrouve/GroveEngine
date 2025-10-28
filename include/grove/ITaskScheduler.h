@@ -1,9 +1,8 @@
 #pragma once
 
 #include <string>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include <memory>
+#include "IDataNode.h"
 
 namespace warfactory {
 
@@ -43,26 +42,28 @@ public:
     /**
      * @brief Schedule a task for execution
      * @param taskType Type of task (e.g., "pathfinding", "market_analysis", "belt_optimization")
-     * @param taskData JSON data for the task
+     * @param taskData Data for the task
      *
      * Example usage:
      * ```cpp
      * // TankModule delegates pathfinding
-     * scheduler->scheduleTask("pathfinding", {
+     * auto taskData = createDataNode({
      *     {"start", {x: 100, y: 200}},
      *     {"target", {x: 500, y: 600}},
      *     {"unit_id", "tank_001"}
      * });
+     * scheduler->scheduleTask("pathfinding", std::move(taskData));
      *
      * // ProductionModule delegates belt calculation
-     * scheduler->scheduleTask("belt_optimization", {
+     * auto beltData = createDataNode({
      *     {"factory_id", "main_base"},
      *     {"item_type", "iron_plate"},
      *     {"throughput_target", 240}
      * });
+     * scheduler->scheduleTask("belt_optimization", std::move(beltData));
      * ```
      */
-    virtual void scheduleTask(const std::string& taskType, const json& taskData) = 0;
+    virtual void scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> taskData) = 0;
 
     /**
      * @brief Check if completed tasks are available
@@ -75,7 +76,7 @@ public:
 
     /**
      * @brief Pull and consume one completed task
-     * @return Task result JSON. Task is removed from completed queue.
+     * @return Task result data. Task is removed from completed queue.
      *
      * Example results:
      * ```cpp
@@ -96,7 +97,7 @@ public:
      * }
      * ```
      */
-    virtual json getCompletedTask() = 0;
+    virtual std::unique_ptr<IDataNode> getCompletedTask() = 0;
 };
 
 } // namespace warfactory

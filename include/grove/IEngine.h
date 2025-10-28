@@ -2,14 +2,12 @@
 
 #include <string>
 #include <memory>
-#include <nlohmann/json.hpp>
 
 // Forward declarations to avoid circular dependencies
 namespace warfactory {
     class IModuleSystem;
+    class IIO;
 }
-
-using json = nlohmann::json;
 
 namespace warfactory {
 

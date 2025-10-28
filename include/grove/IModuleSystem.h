@@ -2,7 +2,6 @@
 
 #include <string>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include "ITaskScheduler.h"
 
 // Forward declarations to avoid circular dependencies
@@ -10,8 +9,6 @@ namespace warfactory {
     class IModule;
     class IIO;
 }
-
-using json = nlohmann::json;
 
 namespace warfactory {
 
@@ -76,14 +73,14 @@ public:
     /**
      * @brief Query a specific module directly
      * @param name Name of the module to query
-     * @param input JSON input to send to the module
-     * @return JSON response from the module
+     * @param input Input data to send to the module
+     * @return Response data from the module
      *
      * This provides direct access to module functionality for debugging,
      * testing, or administrative purposes. The query bypasses normal
      * execution flow and calls the module's process() method directly.
      */
-    virtual json queryModule(const std::string& name, const json& input) = 0;
+    virtual std::unique_ptr<IDataNode> queryModule(const std::string& name, const IDataNode& input) = 0;
 
     /**
      * @brief Get module system type identifier

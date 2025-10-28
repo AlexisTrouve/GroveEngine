@@ -3,9 +3,8 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include <memory>
+#include "IDataNode.h"
 
 namespace warfactory {
 
@@ -24,7 +23,7 @@ struct SubscriptionConfig {
 
 struct Message {
     std::string topic;
-    json data;
+    std::unique_ptr<IDataNode> data;
     uint64_t timestamp;
 };
 
@@ -55,9 +54,9 @@ public:
     /**
      * @brief Publish message to a topic
      * @param topic Topic name (e.g., "player:123", "economy:prices")
-     * @param message JSON message data
+     * @param message Message data
      */
-    virtual void publish(const std::string& topic, const json& message) = 0;
+    virtual void publish(const std::string& topic, std::unique_ptr<IDataNode> message) = 0;
 
     /**
      * @brief Subscribe to topic pattern (high-frequency)

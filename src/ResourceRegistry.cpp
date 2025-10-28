@@ -1,4 +1,4 @@
-#include "warfactory/ResourceRegistry.h"
+#include <grove/ResourceRegistry.h>
 #include <algorithm>
 
 namespace warfactory {

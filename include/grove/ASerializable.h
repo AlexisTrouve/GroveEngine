@@ -1,9 +1,8 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include "IDataNode.h"
 #include <string>
-
-using json = nlohmann::json;
+#include <memory>
 
 namespace warfactory {
 
@@ -19,8 +18,8 @@ public:
 
     const std::string& getInstanceId() const { return instance_id; }
 
-    virtual json serialize() const = 0;
-    virtual void deserialize(const json& data) = 0;
+    virtual std::unique_ptr<IDataNode> serialize() const = 0;
+    virtual void deserialize(const IDataNode& data) = 0;
 
 protected:
     void registerForSerialization();

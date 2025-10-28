@@ -4,18 +4,16 @@
 #include <vector>
 #include <memory>
 #include <functional>
-#include <nlohmann/json.hpp>
+#include "IDataValue.h"
 
 namespace warfactory {
-
-using json = nlohmann::json;
 
 /**
  * @brief Interface for a single node in the data tree
  *
  * Each node can have:
  * - Children nodes (tree navigation)
- * - Its own data blob (JSON)
+ * - Its own data blob (IDataValue)
  * - Properties accessible by name with type safety
  */
 class IDataNode {
@@ -112,12 +110,12 @@ public:
      *
      * Example:
      * // Find all tanks with armor > 150
-     * queryByProperty("armor", [](const json& val) {
-     *     return val.is_number() && val.get<int>() > 150;
+     * queryByProperty("armor", [](const IDataValue& val) {
+     *     return val.isNumber() && val.asInt() > 150;
      * });
      */
     virtual std::vector<IDataNode*> queryByProperty(const std::string& propName,
-                                                   const std::function<bool(const json&)>& predicate) = 0;
+                                                   const std::function<bool(const IDataValue&)>& predicate) = 0;
 
     // ========================================
     // NODE'S OWN DATA
@@ -125,9 +123,9 @@ public:
 
     /**
      * @brief Get this node's data blob
-     * @return JSON data or empty JSON if no data
+     * @return Data value or null if no data
      */
-    virtual json getData() const = 0;
+    virtual std::unique_ptr<IDataValue> getData() const = 0;
 
     /**
      * @brief Check if this node has data
@@ -137,9 +135,9 @@ public:
 
     /**
      * @brief Set this node's data
-     * @param data JSON data to set
+     * @param data Data to set
      */
-    virtual void setData(const json& data) = 0;
+    virtual void setData(std::unique_ptr<IDataValue> data) = 0;
 
     // ========================================
     // TYPED DATA ACCESS BY PROPERTY NAME
