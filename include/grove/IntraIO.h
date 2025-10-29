@@ -23,7 +23,7 @@ namespace grove {
 class IIntraIODelivery {
 public:
     virtual ~IIntraIODelivery() = default;
-    virtual void deliverMessage(const std::string& topic, const json& message, bool isLowFreq) = 0;
+    virtual void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) = 0;
     virtual const std::string& getInstanceId() const = 0;
 };
 
@@ -94,7 +94,7 @@ private:
     void flushBatchedMessages(Subscription& sub);
     void updateHealthMetrics() const;
     void enforceQueueLimits();
-    void logPublish(const std::string& topic, const json& message) const;
+    void logPublish(const std::string& topic, const IDataNode& message) const;
     void logSubscription(const std::string& pattern, bool isLowFreq) const;
     void logPull(const Message& message) const;
 
@@ -103,7 +103,7 @@ public:
     virtual ~IntraIO();
 
     // IIO implementation
-    void publish(const std::string& topic, const json& message) override;
+    void publish(const std::string& topic, std::unique_ptr<IDataNode> message) override;
     void subscribe(const std::string& topicPattern, const SubscriptionConfig& config = {}) override;
     void subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config = {}) override;
     int hasMessages() const override;
@@ -128,8 +128,8 @@ public:
     void forceProcessLowFreqBatches();
 
     // Manager interface (called by IntraIOManager)
-    void deliverMessage(const std::string& topic, const json& message, bool isLowFreq);
-    const std::string& getInstanceId() const;
+    void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) override;
+    const std::string& getInstanceId() const override;
 };
 
 } // namespace grove

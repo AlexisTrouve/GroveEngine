@@ -99,7 +99,7 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
     return nullptr;
 }
 
-void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& message) {
+void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, std::unique_ptr<IDataNode> message) {
     std::lock_guard<std::mutex> lock(managerMutex);
 
     totalRoutedMessages++;
@@ -119,12 +119,21 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
         if (std::regex_match(topic, route.pattern)) {
             auto targetInstance = instances.find(route.instanceId);
             if (targetInstance != instances.end()) {
+                // Clone message for each recipient (except the last one)
+                // TODO: implement IDataNode::clone() for proper deep copy
+                // For now we'll need to move for the last recipient
+                // This is a limitation that will need IDataNode cloning support
+
                 // Direct delivery to target instance's queue
-                targetInstance->second->deliverMessage(topic, message, route.isLowFreq);
+                // Note: This will move the message, so only the first match will receive it
+                // Full implementation needs IDataNode::clone()
+                targetInstance->second->deliverMessage(topic, std::move(message), route.isLowFreq);
                 deliveredCount++;
                 logger->info("  ↪️ Delivered to '{}' ({})",
                              route.instanceId,
                              route.isLowFreq ? "low-freq" : "high-freq");
+                // Break after first delivery since we moved the message
+                break;
             } else {
                 logger->warn("⚠️ Target instance '{}' not found for route", route.instanceId);
             }

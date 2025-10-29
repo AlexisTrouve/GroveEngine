@@ -82,25 +82,27 @@ std::unique_ptr<IIO> IOFactory::create(IOType ioType, const std::string& instanc
     return io;
 }
 
-std::unique_ptr<IIO> IOFactory::createFromConfig(const json& config, const std::string& instanceId) {
+std::unique_ptr<IIO> IOFactory::createFromConfig(const IDataNode& config, const std::string& instanceId) {
     auto logger = getFactoryLogger();
     logger->info("🌐 IOFactory: Creating from config with instanceId '{}'", instanceId);
-    logger->trace("📄 Config: {}", config.dump());
 
     try {
-        if (!config.contains("type")) {
+        // Get type from config
+        std::string transportType = config.getString("type", "");
+        if (transportType.empty()) {
             logger->error("❌ Config missing 'type' field");
             throw std::invalid_argument("IO config missing 'type' field");
         }
 
-        std::string transportType = config["type"];
         logger->info("📋 Config specifies transport: '{}'", transportType);
 
         // Get instanceId from config or parameter
         std::string actualInstanceId = instanceId;
-        if (actualInstanceId.empty() && config.contains("instance_id")) {
-            actualInstanceId = config["instance_id"];
-            logger->debug("🔧 Using instanceId from config: '{}'", actualInstanceId);
+        if (actualInstanceId.empty()) {
+            actualInstanceId = config.getString("instance_id", "");
+            if (!actualInstanceId.empty()) {
+                logger->debug("🔧 Using instanceId from config: '{}'", actualInstanceId);
+            }
         }
 
         // Create base IO transport
@@ -109,57 +111,54 @@ std::unique_ptr<IIO> IOFactory::createFromConfig(const json& config, const std::
 
         // Apply transport-specific configuration
         if (ioType == IOType::NETWORK) {
-            if (config.contains("host")) {
-                std::string host = config["host"];
+            std::string host = config.getString("host", "");
+            if (!host.empty()) {
                 logger->info("🔧 Network config: host '{}'", host);
                 // TODO: Apply host when NetworkIO is implemented
             }
 
-            if (config.contains("port")) {
-                int port = config["port"];
+            int port = config.getInt("port", 0);
+            if (port > 0) {
                 logger->info("🔧 Network config: port {}", port);
                 // TODO: Apply port when NetworkIO is implemented
             }
 
-            if (config.contains("protocol")) {
-                std::string protocol = config["protocol"];
+            std::string protocol = config.getString("protocol", "");
+            if (!protocol.empty()) {
                 logger->info("🔧 Network config: protocol '{}'", protocol);
                 // TODO: Apply protocol when NetworkIO is implemented
             }
 
-            if (config.contains("timeout")) {
-                int timeout = config["timeout"];
+            int timeout = config.getInt("timeout", 0);
+            if (timeout > 0) {
                 logger->info("🔧 Network config: timeout {}ms", timeout);
                 // TODO: Apply timeout when NetworkIO is implemented
             }
         }
 
         if (ioType == IOType::LOCAL) {
-            if (config.contains("socket_path")) {
-                std::string socketPath = config["socket_path"];
+            std::string socketPath = config.getString("socket_path", "");
+            if (!socketPath.empty()) {
                 logger->info("🔧 Local config: socket path '{}'", socketPath);
                 // TODO: Apply socket path when LocalIO is implemented
             }
         }
 
-        if (config.contains("buffer_size")) {
-            int bufferSize = config["buffer_size"];
+        int bufferSize = config.getInt("buffer_size", 0);
+        if (bufferSize > 0) {
             logger->info("🔧 IO config: buffer size {} bytes", bufferSize);
             // TODO: Apply buffer size when implementations support it
         }
 
-        if (config.contains("compression")) {
-            bool compression = config["compression"];
-            logger->info("🔧 IO config: compression {}", compression ? "enabled" : "disabled");
+        bool compression = config.getBool("compression", false);
+        if (compression) {
+            logger->info("🔧 IO config: compression enabled");
             // TODO: Apply compression settings when implementations support it
         }
 
         logger->info("✅ IO transport created from config successfully");
         return io;
 
-    } catch (const json::exception& e) {
-        logger->error("❌ JSON parsing error in config: {}", e.what());
-        throw std::invalid_argument("Invalid JSON in IO config: " + std::string(e.what()));
     } catch (const std::exception& e) {
         logger->error("❌ Error creating IO from config: {}", e.what());
         throw;

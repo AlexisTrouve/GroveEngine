@@ -1,4 +1,5 @@
 #include <grove/SequentialModuleSystem.h>
+#include <grove/JsonDataNode.h>
 #include <stdexcept>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -38,11 +39,12 @@ SequentialModuleSystem::~SequentialModuleSystem() {
     logger->trace("🏗️ SequentialModuleSystem destroyed");
 }
 
-void SequentialModuleSystem::setModule(std::unique_ptr<IModule> newModule) {
-    logger->info("🔧 Setting module in SequentialModuleSystem");
+// IModuleSystem implementation
+void SequentialModuleSystem::registerModule(const std::string& name, std::unique_ptr<IModule> newModule) {
+    logger->info("🔧 Registering module '{}' in SequentialModuleSystem", name);
 
     if (module) {
-        logger->warn("⚠️ Replacing existing module '{}' with new module", moduleName);
+        logger->warn("⚠️ Replacing existing module '{}' with '{}'", moduleName, name);
         try {
             module->shutdown();
             logger->debug("✅ Previous module shut down successfully");
@@ -52,32 +54,21 @@ void SequentialModuleSystem::setModule(std::unique_ptr<IModule> newModule) {
     }
 
     if (!newModule) {
-        logger->error("❌ Cannot set null module");
-        throw std::invalid_argument("Cannot set null module");
+        logger->error("❌ Cannot register null module");
+        throw std::invalid_argument("Cannot register null module");
     }
 
     module = std::move(newModule);
+    moduleName = name;
 
-    // Get module type for better logging
-    try {
-        moduleName = module->getType();
-        logger->info("✅ Module set successfully: type '{}'", moduleName);
-    } catch (const std::exception& e) {
-        logger->warn("⚠️ Could not get module type: {} - using 'unknown'", e.what());
-        moduleName = "unknown";
-    }
+    logger->info("✅ Module '{}' registered successfully", moduleName);
 
     // Reset performance metrics for new module
     resetPerformanceMetrics();
     logger->debug("📊 Performance metrics reset for new module");
 }
 
-IModule* SequentialModuleSystem::getModule() const {
-    logger->trace("🔍 Module pointer requested");
-    return module.get();
-}
-
-int SequentialModuleSystem::processModule(float deltaTime) {
+void SequentialModuleSystem::processModules(float deltaTime) {
     logProcessStart(deltaTime);
 
     auto processStartTime = std::chrono::high_resolution_clock::now();
@@ -85,8 +76,8 @@ int SequentialModuleSystem::processModule(float deltaTime) {
     try {
         validateModule();
 
-        // Create input JSON for module
-        json moduleInput = {
+        // Create input IDataNode for module
+        nlohmann::json inputJson = {
             {"deltaTime", deltaTime},
             {"frameCount", processCallCount},
             {"system", "sequential"},
@@ -94,10 +85,12 @@ int SequentialModuleSystem::processModule(float deltaTime) {
                 processStartTime.time_since_epoch()).count()}
         };
 
-        logger->trace("📥 Calling module process() with input: {}", moduleInput.dump());
+        auto moduleInput = std::make_unique<JsonDataNode>("input", inputJson);
+
+        logger->trace("📥 Calling module process() with deltaTime: {:.3f}ms", deltaTime * 1000);
 
         // Process the module
-        module->process(moduleInput);
+        module->process(*moduleInput);
 
         processCallCount++;
 
@@ -113,7 +106,6 @@ int SequentialModuleSystem::processModule(float deltaTime) {
         }
 
         logger->trace("✅ Module processing completed successfully");
-        return 0; // Success
 
     } catch (const std::exception& e) {
         logger->error("❌ Error processing module '{}': {}", moduleName, e.what());
@@ -123,8 +115,41 @@ int SequentialModuleSystem::processModule(float deltaTime) {
         lastProcessDuration = std::chrono::duration<float, std::milli>(processEndTime - processStartTime).count();
 
         logProcessEnd(lastProcessDuration);
+        throw;
+    }
+}
 
-        return 1; // Error
+void SequentialModuleSystem::setIOLayer(std::unique_ptr<IIO> io) {
+    logger->info("🌐 Setting IO layer for SequentialModuleSystem");
+    ioLayer = std::move(io);
+    logger->debug("✅ IO layer set successfully");
+}
+
+std::unique_ptr<IDataNode> SequentialModuleSystem::queryModule(const std::string& name, const IDataNode& input) {
+    logger->debug("🔍 Querying module '{}' directly", name);
+
+    if (name != moduleName) {
+        logger->warn("⚠️ Query for module '{}' but loaded module is '{}'", name, moduleName);
+    }
+
+    validateModule();
+
+    try {
+        // Clone input for processing
+        // Note: We need to pass the input directly since IDataNode doesn't have clone yet
+        logger->trace("📥 Querying module with input");
+
+        // Process and return result
+        // Since process() is void, we get state as result
+        module->process(input);
+        auto result = module->getState();
+
+        logger->debug("✅ Module query completed");
+        return result;
+
+    } catch (const std::exception& e) {
+        logger->error("❌ Error querying module '{}': {}", name, e.what());
+        throw;
     }
 }
 
@@ -133,16 +158,16 @@ ModuleSystemType SequentialModuleSystem::getType() const {
     return ModuleSystemType::SEQUENTIAL;
 }
 
-void SequentialModuleSystem::scheduleTask(const std::string& taskType, const json& taskData) {
+// ITaskScheduler implementation
+void SequentialModuleSystem::scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> taskData) {
     logger->debug("⚙️ Task scheduled for immediate execution: '{}'", taskType);
-    logTaskExecution(taskType, taskData);
+    logTaskExecution(taskType, *taskData);
 
     try {
         // In sequential system, tasks execute immediately
-        // This is just a placeholder - real task execution would happen here
         logger->trace("🔧 Executing task '{}' immediately", taskType);
 
-        // TODO: Implement actual task execution
+        // TODO: Implement actual task execution logic
         // For now, we just log and count
         taskExecutionCount++;
 
@@ -160,15 +185,16 @@ int SequentialModuleSystem::hasCompletedTasks() const {
     return 0;
 }
 
-json SequentialModuleSystem::getCompletedTask() {
+std::unique_ptr<IDataNode> SequentialModuleSystem::getCompletedTask() {
     logger->warn("⚠️ getCompletedTask() called on sequential system - no queued tasks");
     throw std::runtime_error("SequentialModuleSystem executes tasks immediately - no completed tasks queue");
 }
 
-json SequentialModuleSystem::getPerformanceMetrics() const {
+// Debug and monitoring methods
+nlohmann::json SequentialModuleSystem::getPerformanceMetrics() const {
     logger->debug("📊 Performance metrics requested");
 
-    json metrics = {
+    nlohmann::json metrics = {
         {"system_type", "sequential"},
         {"module_name", moduleName},
         {"process_calls", processCallCount},
@@ -219,11 +245,27 @@ void SequentialModuleSystem::setLogLevel(spdlog::level::level_enum level) {
     logger->set_level(level);
 }
 
+// Hot-reload support
+std::unique_ptr<IModule> SequentialModuleSystem::extractModule() {
+    logger->info("🔓 Extracting module from system");
+
+    if (!module) {
+        logger->warn("⚠️ No module to extract");
+        return nullptr;
+    }
+
+    auto extractedModule = std::move(module);
+    moduleName = "unknown";
+
+    logger->info("✅ Module extracted successfully");
+    return extractedModule;
+}
+
 // Private helper methods
 void SequentialModuleSystem::logSystemStart() {
-    logger->info("=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=");
+    logger->info("================================================================");
     logger->info("⚙️ SEQUENTIAL MODULE SYSTEM INITIALIZED");
-    logger->info("=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=" "=");
+    logger->info("================================================================");
     logger->info("🎯 System Type: SEQUENTIAL (Debug/Test mode)");
     logger->info("🔧 Features: Immediate execution, comprehensive logging");
     logger->info("📊 Performance: Single-threaded, deterministic");
@@ -245,25 +287,14 @@ void SequentialModuleSystem::logProcessEnd(float processTime) {
     }
 }
 
-void SequentialModuleSystem::logTaskExecution(const std::string& taskType, const json& taskData) {
-    logger->trace("⚙️ Task execution {} - type: '{}', data size: {} bytes",
-                 taskExecutionCount + 1, taskType, taskData.dump().size());
-    logger->trace("📄 Task data: {}", taskData.dump());
-}
+void SequentialModuleSystem::logTaskExecution(const std::string& taskType, const IDataNode& taskData) {
+    logger->trace("⚙️ Task execution {} - type: '{}'",
+                 taskExecutionCount + 1, taskType);
 
-std::unique_ptr<IModule> SequentialModuleSystem::extractModule() {
-    logger->info("🔓 Extracting module from system");
-
-    if (!module) {
-        logger->warn("⚠️ No module to extract");
-        return nullptr;
+    // Log data if available
+    if (taskData.hasData()) {
+        logger->trace("📄 Task data: {}", taskData.getData()->toString());
     }
-
-    auto extractedModule = std::move(module);
-    moduleName = "unknown";
-
-    logger->info("✅ Module extracted successfully");
-    return extractedModule;
 }
 
 void SequentialModuleSystem::validateModule() const {

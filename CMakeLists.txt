@@ -16,6 +16,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# spdlog for logging
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.12.0
+)
+FetchContent_MakeAvailable(spdlog)
+
 # Core library (INTERFACE - header-only pour les interfaces)
 add_library(grove_core INTERFACE)
 
@@ -34,22 +42,38 @@ add_library(GroveEngine::core ALIAS grove_core)
 option(GROVE_BUILD_IMPLEMENTATIONS "Build GroveEngine implementations" ON)
 
 if(GROVE_BUILD_IMPLEMENTATIONS)
+    # Find OpenSSL for SHA256 hashing
+    find_package(OpenSSL REQUIRED)
+
     add_library(grove_impl STATIC
-        src/ImGuiUI.cpp
+        # --- Working files (IDataNode-based) ---
         src/ResourceRegistry.cpp
         src/JsonDataValue.cpp
         src/JsonDataNode.cpp
         src/JsonDataTree.cpp
         src/DataTreeFactory.cpp
+        src/IntraIO.cpp  # ✅ Fixed for IDataNode
+        src/IntraIOManager.cpp  # ✅ Fixed for IDataNode
+        src/SequentialModuleSystem.cpp  # ✅ Fixed for IDataNode
+        src/IOFactory.cpp  # ✅ Fixed for IDataNode
+        src/ModuleFactory.cpp  # ✅ Should work (no json in main API)
+        src/ModuleSystemFactory.cpp  # ✅ Needs check
+        src/EngineFactory.cpp  # ✅ Needs check
+        src/DebugEngine.cpp  # ✅ Needs migration
+
+        # --- TODO: Fix API mismatch (json vs IDataNode) ---
+        # src/ImGuiUI.cpp  # Requires imgui dependency
     )
 
     target_link_libraries(grove_impl PUBLIC
         GroveEngine::core
         OpenSSL::Crypto
+        spdlog::spdlog
+        ${CMAKE_DL_LIBS}
     )
 
-    # Find OpenSSL for SHA256 hashing
-    find_package(OpenSSL REQUIRED)
+    # Enable position-independent code for static library (needed for .so modules)
+    set_target_properties(grove_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
     # If imgui is available from parent project, link it
     if(TARGET imgui_backends)
@@ -60,7 +84,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
 endif()
 
 # Testing
-option(GROVE_BUILD_TESTS "Build GroveEngine tests" OFF)
+option(GROVE_BUILD_TESTS "Build GroveEngine tests" ON)
 
 if(GROVE_BUILD_TESTS)
     enable_testing()

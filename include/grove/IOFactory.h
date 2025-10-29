@@ -53,13 +53,13 @@ public:
     static std::unique_ptr<IIO> create(IOType ioType, const std::string& instanceId = "");
 
     /**
-     * @brief Create IO transport from JSON configuration
-     * @param config JSON configuration object
+     * @brief Create IO transport from IDataNode configuration
+     * @param config IDataNode configuration object
      * @param instanceId Unique identifier for this IO instance (required for IntraIO)
      * @return Unique pointer to configured IO transport
      * @throws std::invalid_argument if config is invalid
      *
-     * Expected config format:
+     * Expected config format (as JSON representation):
      * ```json
      * {
      *   "type": "network",
@@ -73,7 +73,7 @@ public:
      * }
      * ```
      */
-    static std::unique_ptr<IIO> createFromConfig(const json& config, const std::string& instanceId = "");
+    static std::unique_ptr<IIO> createFromConfig(const IDataNode& config, const std::string& instanceId = "");
 
     /**
      * @brief Get list of available transport types

@@ -71,7 +71,7 @@ public:
     std::shared_ptr<IntraIO> getInstance(const std::string& instanceId) const;
 
     // Routing (called by IntraIO instances)
-    void routeMessage(const std::string& sourceid, const std::string& topic, const json& message);
+    void routeMessage(const std::string& sourceid, const std::string& topic, std::unique_ptr<IDataNode> message);
     void registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq);
     void unregisterSubscription(const std::string& instanceId, const std::string& pattern);
 

@@ -9,6 +9,7 @@
 
 #include "IModuleSystem.h"
 #include "IModule.h"
+#include "IIO.h"
 
 using json = nlohmann::json;
 
@@ -38,6 +39,7 @@ private:
     std::shared_ptr<spdlog::logger> logger;
     std::unique_ptr<IModule> module;
     std::string moduleName = "unknown";
+    std::unique_ptr<IIO> ioLayer;
 
     // Performance tracking
     std::chrono::high_resolution_clock::time_point lastProcessTime;
@@ -52,7 +54,7 @@ private:
     void logSystemStart();
     void logProcessStart(float deltaTime);
     void logProcessEnd(float processTime);
-    void logTaskExecution(const std::string& taskType, const json& taskData);
+    void logTaskExecution(const std::string& taskType, const IDataNode& taskData);
     void validateModule() const;
 
 public:
@@ -60,18 +62,19 @@ public:
     virtual ~SequentialModuleSystem();
 
     // IModuleSystem implementation
-    void setModule(std::unique_ptr<IModule> module) override;
-    IModule* getModule() const override;
-    int processModule(float deltaTime) override;
+    void registerModule(const std::string& name, std::unique_ptr<IModule> module) override;
+    void processModules(float deltaTime) override;
+    void setIOLayer(std::unique_ptr<IIO> ioLayer) override;
+    std::unique_ptr<IDataNode> queryModule(const std::string& name, const IDataNode& input) override;
     ModuleSystemType getType() const override;
 
     // Hot-reload support
     std::unique_ptr<IModule> extractModule();
 
     // ITaskScheduler implementation (inherited)
-    void scheduleTask(const std::string& taskType, const json& taskData) override;
+    void scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> taskData) override;
     int hasCompletedTasks() const override;
-    json getCompletedTask() override;
+    std::unique_ptr<IDataNode> getCompletedTask() override;
 
     // Debug and monitoring methods
     json getPerformanceMetrics() const;
