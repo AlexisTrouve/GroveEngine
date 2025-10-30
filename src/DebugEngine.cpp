@@ -1,6 +1,7 @@
 #include <grove/DebugEngine.h>
 #include <grove/JsonDataNode.h>
 #include <grove/JsonDataValue.h>
+#include <grove/ModuleSystemFactory.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -407,8 +408,7 @@ void DebugEngine::processModuleSystems(float deltaTime) {
         logger->trace("🔧 Processing module system: {}", moduleNames[i]);
 
         try {
-            // TODO: Call moduleSystem->processModule(deltaTime) when implemented
-            logger->trace("🚧 TODO: Call processModule() on {}", moduleNames[i]);
+            moduleSystems[i]->processModules(deltaTime);
 
         } catch (const std::exception& e) {
             logger->error("❌ Error processing module '{}': {}", moduleNames[i], e.what());
@@ -488,6 +488,100 @@ void DebugEngine::validateConfiguration() {
     logger->debug("✅ Configuration validation passed");
     // TODO: Add actual validation logic
     logger->trace("🚧 TODO: Implement comprehensive config validation");
+}
+
+// Hot-reload methods
+void DebugEngine::registerModuleFromFile(const std::string& name, const std::string& modulePath, ModuleSystemType strategy) {
+    logger->info("📦 Registering module '{}' from file: {}", name, modulePath);
+    logger->debug("⚙️ Module system strategy: {}", static_cast<int>(strategy));
+
+    try {
+        // Create module loader
+        auto loader = std::make_unique<ModuleLoader>();
+
+        // Load module from .so file
+        logger->debug("📥 Loading module from: {}", modulePath);
+        auto module = loader->load(modulePath, name);
+
+        // Create module system with specified strategy
+        logger->debug("🏗️ Creating module system with strategy {}", static_cast<int>(strategy));
+        auto moduleSystem = ModuleSystemFactory::create(strategy);
+
+        // Register module with system
+        logger->debug("🔗 Registering module with system");
+        moduleSystem->registerModule(name, std::move(module));
+
+        // Store everything
+        moduleLoaders.push_back(std::move(loader));
+        moduleSystems.push_back(std::move(moduleSystem));
+        moduleNames.push_back(name);
+
+        logger->info("✅ Module '{}' registered successfully", name);
+        logger->debug("📊 Total modules loaded: {}", moduleNames.size());
+
+    } catch (const std::exception& e) {
+        logger->error("❌ Failed to register module '{}': {}", name, e.what());
+        throw;
+    }
+}
+
+void DebugEngine::reloadModule(const std::string& name) {
+    logger->info("🔄 Hot-reloading module '{}'", name);
+
+    auto reloadStartTime = std::chrono::high_resolution_clock::now();
+
+    try {
+        // Find module index
+        auto it = std::find(moduleNames.begin(), moduleNames.end(), name);
+        if (it == moduleNames.end()) {
+            logger->error("❌ Module '{}' not found", name);
+            throw std::runtime_error("Module not found: " + name);
+        }
+
+        size_t index = std::distance(moduleNames.begin(), it);
+        logger->debug("🔍 Found module '{}' at index {}", name, index);
+
+        // Get references
+        auto& moduleSystem = moduleSystems[index];
+        auto& loader = moduleLoaders[index];
+
+        // Step 1: Extract module from system (SequentialModuleSystem has extractModule)
+        logger->debug("📤 Step 1/3: Extracting module from system");
+        // We need to cast to SequentialModuleSystem to access extractModule
+        // For now, we'll work around this by getting the current module state
+
+        // Step 2: Reload via loader (handles state preservation)
+        logger->debug("🔄 Step 2/3: Reloading module via loader");
+
+        // For SequentialModuleSystem, we need to extract the module first
+        // This is a limitation of the current IModuleSystem interface
+        // We'll need to get the state via queryModule as a workaround
+
+        nlohmann::json queryInput = {{"command", "getState"}};
+        auto queryData = std::make_unique<JsonDataNode>("query", queryInput);
+        auto currentState = moduleSystem->queryModule(name, *queryData);
+
+        // Unload and reload the .so
+        std::string modulePath = loader->getLoadedPath();
+        loader->unload();
+        auto newModule = loader->load(modulePath, name);
+
+        // Restore state
+        newModule->setState(*currentState);
+
+        // Step 3: Register new module with system
+        logger->debug("🔗 Step 3/3: Registering new module with system");
+        moduleSystem->registerModule(name, std::move(newModule));
+
+        auto reloadEndTime = std::chrono::high_resolution_clock::now();
+        float reloadTime = std::chrono::duration<float, std::milli>(reloadEndTime - reloadStartTime).count();
+
+        logger->info("✅ Hot-reload of '{}' completed in {:.3f}ms", name, reloadTime);
+
+    } catch (const std::exception& e) {
+        logger->error("❌ Hot-reload failed for '{}': {}", name, e.what());
+        throw;
+    }
 }
 
 } // namespace grove

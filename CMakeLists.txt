@@ -60,6 +60,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/ModuleSystemFactory.cpp  # ✅ Needs check
         src/EngineFactory.cpp  # ✅ Needs check
         src/DebugEngine.cpp  # ✅ Needs migration
+        src/ModuleLoader.cpp  # ✅ Hot-reload support
 
         # --- TODO: Fix API mismatch (json vs IDataNode) ---
         # src/ImGuiUI.cpp  # Requires imgui dependency

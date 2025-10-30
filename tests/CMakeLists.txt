@@ -14,7 +14,7 @@ target_link_libraries(TestModule PRIVATE
 set_target_properties(TestModule PROPERTIES PREFIX "lib")
 set_target_properties(TestModule PROPERTIES OUTPUT_NAME "TestModule")
 
-# Hot-reload test executable
+# Basic hot-reload test executable (manual dlopen/dlclose)
 add_executable(test_hotreload
     hotreload/test_hotreload.cpp
 )
@@ -34,4 +34,24 @@ add_custom_command(TARGET test_hotreload POST_BUILD
         $<TARGET_FILE:TestModule>
         $<TARGET_FILE_DIR:test_hotreload>/
     COMMENT "Copying TestModule.so to test directory"
+)
+
+# Engine hot-reload test (uses DebugEngine + SequentialModuleSystem + FileWatcher)
+add_executable(test_engine_hotreload
+    hotreload/test_engine_hotreload.cpp
+)
+
+target_link_libraries(test_engine_hotreload PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    ${CMAKE_DL_LIBS}
+)
+
+add_dependencies(test_engine_hotreload TestModule)
+
+add_custom_command(TARGET test_engine_hotreload POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        $<TARGET_FILE:TestModule>
+        $<TARGET_FILE_DIR:test_engine_hotreload>/
+    COMMENT "Copying TestModule.so to engine test directory"
 )
