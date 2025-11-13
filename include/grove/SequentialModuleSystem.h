@@ -67,6 +67,7 @@ public:
     void setIOLayer(std::unique_ptr<IIO> ioLayer) override;
     std::unique_ptr<IDataNode> queryModule(const std::string& name, const IDataNode& input) override;
     ModuleSystemType getType() const override;
+    int getPendingTaskCount(const std::string& moduleName) const override;
 
     // Hot-reload support
     std::unique_ptr<IModule> extractModule();

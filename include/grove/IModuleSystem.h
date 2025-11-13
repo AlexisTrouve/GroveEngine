@@ -87,6 +87,17 @@ public:
      * @return Module system type enum value for identification
      */
     virtual ModuleSystemType getType() const = 0;
+
+    /**
+     * @brief Get count of pending async tasks for a specific module
+     * @param moduleName Name of the module to check
+     * @return Number of tasks still pending (scheduled or executing)
+     *
+     * Used by hot-reload system to ensure all async operations complete
+     * before module replacement. Returns 0 if module has no pending tasks
+     * or module name is unknown.
+     */
+    virtual int getPendingTaskCount(const std::string& moduleName) const = 0;
 };
 
 } // namespace grove

@@ -104,6 +104,9 @@ int main(int argc, char** argv) {
                     std::cout << "✅ Hot-reload completed in " << reloadTime << "ms" << std::endl;
                     std::cout << "📊 State should be preserved - check counter continues!\n" << std::endl;
 
+                    // Reset watcher to avoid re-detecting the same change
+                    watcher.reset(modulePath);
+
                 } catch (const std::exception& e) {
                     std::cerr << "❌ Hot-reload failed: " << e.what() << std::endl;
                 }
@@ -125,6 +128,11 @@ int main(int argc, char** argv) {
                 std::cout << "📊 Status: Frame " << frameCount
                          << " | Runtime: " << static_cast<int>(totalElapsed) << "s"
                          << " | FPS: " << static_cast<int>(actualFPS) << std::endl;
+
+                // Dump module state every 2 seconds
+                std::cout << "\n📊 Dumping module state:\n" << std::endl;
+                debugEngine->dumpModuleState(moduleName);
+                std::cout << std::endl;
 
                 lastStatusTime = currentTime;
             }

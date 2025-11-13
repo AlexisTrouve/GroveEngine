@@ -108,6 +108,24 @@ public:
      * @return Module type as string (e.g., "tank", "economy", "production")
      */
     virtual std::string getType() const = 0;
+
+    /**
+     * @brief Check if module is idle (no processing in progress)
+     * @return True if module has no active processing and can be safely hot-reloaded
+     *
+     * Used by hot-reload system to ensure safe reload timing.
+     * A module is considered idle when:
+     * - No synchronous processing in progress
+     * - Not waiting for critical state updates
+     * - Safe to extract state via getState()
+     *
+     * Note: Async tasks scheduled via ITaskScheduler are tracked separately
+     * by the module system and don't affect idle status.
+     *
+     * Default implementation should return true unless module explicitly
+     * tracks long-running synchronous operations.
+     */
+    virtual bool isIdle() const = 0;
 };
 
 } // namespace grove

@@ -17,6 +17,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 # spdlog for logging
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # Force PIC for all targets
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git

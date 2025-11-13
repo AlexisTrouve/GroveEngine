@@ -17,7 +17,7 @@ namespace grove {
 class TestModule : public IModule {
 private:
     int counter = 0;
-    std::string moduleVersion = "v1.0";
+    std::string moduleVersion = "v2.0 RELOADED";
     IIO* io = nullptr;
     ITaskScheduler* scheduler = nullptr;
     std::unique_ptr<IDataNode> config;
@@ -52,8 +52,8 @@ public:
         // Clone configuration for storage
         config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
 
-        // Extract version if available
-        moduleVersion = configNode.getString("version", "v1.0");
+        // Extract version if available (use current moduleVersion as default)
+        moduleVersion = configNode.getString("version", moduleVersion);
         std::cout << "[TestModule] Version set to: " << moduleVersion << std::endl;
     }
 
@@ -98,6 +98,11 @@ public:
 
     std::string getType() const override {
         return "TestModule";
+    }
+
+    bool isIdle() const override {
+        // TestModule has no async operations, always idle
+        return true;
     }
 };
 

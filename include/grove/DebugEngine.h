@@ -111,6 +111,23 @@ public:
      * @brief Get list of all registered module names
      */
     std::vector<std::string> getModuleNames() const { return moduleNames; }
+
+    /**
+     * @brief Dump the current state of a specific module to logs
+     * @param name Module identifier
+     *
+     * Retrieves the module's state via getState() and pretty-prints it
+     * as formatted JSON in the logs. Useful for debugging and inspection.
+     */
+    void dumpModuleState(const std::string& name);
+
+    /**
+     * @brief Dump the state of all registered modules to logs
+     *
+     * Iterates through all modules and dumps their state.
+     * Useful for comprehensive system state snapshots.
+     */
+    void dumpAllModulesState();
 };
 
 } // namespace grove

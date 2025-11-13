@@ -11,7 +11,7 @@ SequentialModuleSystem::SequentialModuleSystem() {
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/sequential_system.log", true);
 
-    console_sink->set_level(spdlog::level::debug);
+    console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
     file_sink->set_level(spdlog::level::trace);
 
     logger = std::make_shared<spdlog::logger>("SequentialModuleSystem",
@@ -156,6 +156,12 @@ std::unique_ptr<IDataNode> SequentialModuleSystem::queryModule(const std::string
 ModuleSystemType SequentialModuleSystem::getType() const {
     logger->trace("🏷️ ModuleSystem type requested: SEQUENTIAL");
     return ModuleSystemType::SEQUENTIAL;
+}
+
+int SequentialModuleSystem::getPendingTaskCount(const std::string& moduleName) const {
+    // SequentialModuleSystem executes tasks immediately, so never has pending tasks
+    logger->trace("🔍 Pending task count for '{}': 0 (sequential execution)", moduleName);
+    return 0;
 }
 
 // ITaskScheduler implementation

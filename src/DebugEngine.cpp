@@ -2,9 +2,11 @@
 #include <grove/JsonDataNode.h>
 #include <grove/JsonDataValue.h>
 #include <grove/ModuleSystemFactory.h>
+#include <grove/SequentialModuleSystem.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -17,7 +19,7 @@ DebugEngine::DebugEngine() {
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/debug_engine.log", true);
 
-    console_sink->set_level(spdlog::level::debug);
+    console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
     file_sink->set_level(spdlog::level::trace);
 
     logger = std::make_shared<spdlog::logger>("DebugEngine",
@@ -85,11 +87,8 @@ void DebugEngine::run() {
         float deltaTime = calculateDeltaTime();
         step(deltaTime);
 
-        // Log every 60 frames (roughly every second at 60fps)
-        if (frameCount % 60 == 0) {
-            logger->debug("📊 Frame {}: Running smoothly, deltaTime: {:.3f}ms",
-                         frameCount, deltaTime * 1000);
-        }
+        // FULL VERBOSE: Log EVERY frame
+        logger->trace("📊 Frame {}: deltaTime: {:.3f}ms", frameCount, deltaTime * 1000);
     }
 
     logger->info("🏁 DebugEngine main loop ended");
@@ -411,7 +410,23 @@ void DebugEngine::processModuleSystems(float deltaTime) {
             moduleSystems[i]->processModules(deltaTime);
 
         } catch (const std::exception& e) {
-            logger->error("❌ Error processing module '{}': {}", moduleNames[i], e.what());
+            logger->error("❌ Module '{}' crashed: {}", moduleNames[i], e.what());
+            logger->error("🔍 Frame: {}, deltaTime: {:.3f}ms", frameCount, deltaTime * 1000);
+
+            // Automatic recovery attempt
+            try {
+                logger->info("🔄 Attempting automatic recovery for module '{}'...", moduleNames[i]);
+
+                // Reload the module (will preserve state if possible)
+                reloadModule(moduleNames[i]);
+
+                logger->info("✅ Recovery successful for module '{}'", moduleNames[i]);
+
+            } catch (const std::exception& recoveryError) {
+                logger->critical("❌ Recovery failed for module '{}': {}", moduleNames[i], recoveryError.what());
+                logger->critical("⚠️ Module '{}' is now in a failed state and will be skipped", moduleNames[i]);
+                // Continue processing other modules - don't crash the entire engine
+            }
         }
     }
 }
@@ -545,33 +560,47 @@ void DebugEngine::reloadModule(const std::string& name) {
         auto& moduleSystem = moduleSystems[index];
         auto& loader = moduleLoaders[index];
 
-        // Step 1: Extract module from system (SequentialModuleSystem has extractModule)
-        logger->debug("📤 Step 1/3: Extracting module from system");
-        // We need to cast to SequentialModuleSystem to access extractModule
-        // For now, we'll work around this by getting the current module state
+        // Step 1: Extract module from system
+        logger->debug("📤 Step 1/4: Extracting module from system");
 
-        // Step 2: Reload via loader (handles state preservation)
-        logger->debug("🔄 Step 2/3: Reloading module via loader");
+        // Try to cast to SequentialModuleSystem to access extractModule()
+        auto* seqSystem = dynamic_cast<SequentialModuleSystem*>(moduleSystem.get());
+        if (!seqSystem) {
+            logger->error("❌ Hot-reload only supported for SequentialModuleSystem currently");
+            throw std::runtime_error("Hot-reload not supported for this module system type");
+        }
 
-        // For SequentialModuleSystem, we need to extract the module first
-        // This is a limitation of the current IModuleSystem interface
-        // We'll need to get the state via queryModule as a workaround
+        auto currentModule = seqSystem->extractModule();
+        if (!currentModule) {
+            logger->error("❌ Failed to extract module from system");
+            throw std::runtime_error("Failed to extract module");
+        }
 
-        nlohmann::json queryInput = {{"command", "getState"}};
-        auto queryData = std::make_unique<JsonDataNode>("query", queryInput);
-        auto currentState = moduleSystem->queryModule(name, *queryData);
+        logger->debug("✅ Module extracted successfully");
 
-        // Unload and reload the .so
-        std::string modulePath = loader->getLoadedPath();
-        loader->unload();
-        auto newModule = loader->load(modulePath, name);
+        // Step 2: Wait for clean state (module idle + no pending tasks)
+        logger->debug("⏳ Step 2/5: Waiting for clean state");
+        bool cleanState = loader->waitForCleanState(currentModule.get(), seqSystem, 5.0f);
+        if (!cleanState) {
+            logger->error("❌ Module did not reach clean state within timeout");
+            throw std::runtime_error("Hot-reload timeout - module not idle or has pending tasks");
+        }
+        logger->debug("✅ Clean state reached");
 
-        // Restore state
-        newModule->setState(*currentState);
+        // Step 3: Get current state
+        logger->debug("💾 Step 3/5: Extracting module state");
+        auto currentState = currentModule->getState();
+        logger->debug("✅ State extracted successfully");
 
-        // Step 3: Register new module with system
-        logger->debug("🔗 Step 3/3: Registering new module with system");
+        // Step 4: Reload module via loader
+        logger->debug("🔄 Step 4/5: Reloading .so file");
+        auto newModule = loader->reload(std::move(currentModule));
+        logger->debug("✅ Module reloaded successfully");
+
+        // Step 5: Register new module back with system
+        logger->debug("🔗 Step 5/5: Registering new module with system");
         moduleSystem->registerModule(name, std::move(newModule));
+        logger->debug("✅ Module registered successfully");
 
         auto reloadEndTime = std::chrono::high_resolution_clock::now();
         float reloadTime = std::chrono::duration<float, std::milli>(reloadEndTime - reloadStartTime).count();
@@ -582,6 +611,86 @@ void DebugEngine::reloadModule(const std::string& name) {
         logger->error("❌ Hot-reload failed for '{}': {}", name, e.what());
         throw;
     }
+}
+
+void DebugEngine::dumpModuleState(const std::string& name) {
+    logger->info("╔══════════════════════════════════════════════════════════════");
+    logger->info("║ 📊 STATE DUMP: {}", name);
+    logger->info("╠══════════════════════════════════════════════════════════════");
+
+    try {
+        // Find module index
+        auto it = std::find(moduleNames.begin(), moduleNames.end(), name);
+        if (it == moduleNames.end()) {
+            logger->error("║ ❌ Module '{}' not found", name);
+            logger->info("╚══════════════════════════════════════════════════════════════");
+            return;
+        }
+
+        size_t index = std::distance(moduleNames.begin(), it);
+        auto& moduleSystem = moduleSystems[index];
+
+        // Try to cast to SequentialModuleSystem to access module
+        auto* seqSystem = dynamic_cast<SequentialModuleSystem*>(moduleSystem.get());
+        if (!seqSystem) {
+            logger->warn("║ ⚠️ State dump only supported for SequentialModuleSystem currently");
+            logger->info("╚══════════════════════════════════════════════════════════════");
+            return;
+        }
+
+        // Extract module temporarily
+        auto module = seqSystem->extractModule();
+        if (!module) {
+            logger->error("║ ❌ Failed to extract module");
+            logger->info("╚══════════════════════════════════════════════════════════════");
+            return;
+        }
+
+        // Get state
+        auto state = module->getState();
+
+        // Cast to JsonDataNode to access JSON
+        auto* jsonNode = dynamic_cast<JsonDataNode*>(state.get());
+        if (!jsonNode) {
+            logger->warn("║ ⚠️ State is not JsonDataNode, cannot dump as JSON");
+            moduleSystem->registerModule(name, std::move(module));
+            logger->info("╚══════════════════════════════════════════════════════════════");
+            return;
+        }
+
+        // Convert to JSON and pretty print
+        const auto& jsonState = jsonNode->getJsonData();
+        std::string prettyJson = jsonState.dump(2);  // 2 spaces indentation
+
+        // Split into lines and print with border
+        std::istringstream stream(prettyJson);
+        std::string line;
+        while (std::getline(stream, line)) {
+            logger->info("║ {}", line);
+        }
+
+        // Re-register module (we only borrowed it)
+        moduleSystem->registerModule(name, std::move(module));
+
+        logger->info("╚══════════════════════════════════════════════════════════════");
+
+    } catch (const std::exception& e) {
+        logger->error("║ ❌ Error dumping state: {}", e.what());
+        logger->info("╚══════════════════════════════════════════════════════════════");
+    }
+}
+
+void DebugEngine::dumpAllModulesState() {
+    logger->info("╔══════════════════════════════════════════════════════════════");
+    logger->info("║ 📊 DUMPING ALL MODULE STATES ({} modules)", moduleNames.size());
+    logger->info("╚══════════════════════════════════════════════════════════════");
+
+    for (const auto& moduleName : moduleNames) {
+        dumpModuleState(moduleName);
+        logger->info("");  // Blank line between modules
+    }
+
+    logger->info("✅ All module states dumped");
 }
 
 } // namespace grove

@@ -55,3 +55,110 @@ add_custom_command(TARGET test_engine_hotreload POST_BUILD
         $<TARGET_FILE_DIR:test_engine_hotreload>/
     COMMENT "Copying TestModule.so to engine test directory"
 )
+
+# ================================================================================
+# Integration Tests
+# ================================================================================
+
+# Helpers library (partagée par tous les tests)
+add_library(test_helpers STATIC
+    helpers/TestMetrics.cpp
+    helpers/TestReporter.cpp
+    helpers/SystemUtils.cpp
+)
+
+target_include_directories(test_helpers PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(test_helpers PUBLIC
+    GroveEngine::core
+    spdlog::spdlog
+)
+
+# Set PIC for static library
+set_target_properties(test_helpers PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# TankModule pour tests d'intégration
+add_library(TankModule SHARED
+    modules/TankModule.cpp
+)
+
+target_link_libraries(TankModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Ensure spdlog is compiled with PIC
+set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Test 01: Production Hot-Reload
+add_executable(test_01_production_hotreload
+    integration/test_01_production_hotreload.cpp
+)
+
+target_link_libraries(test_01_production_hotreload PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_01_production_hotreload TankModule)
+
+# CTest integration
+add_test(NAME ProductionHotReload COMMAND test_01_production_hotreload)
+
+# ChaosModule pour tests de robustesse
+add_library(ChaosModule SHARED
+    modules/ChaosModule.cpp
+)
+
+target_link_libraries(ChaosModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 02: Chaos Monkey
+add_executable(test_02_chaos_monkey
+    integration/test_02_chaos_monkey.cpp
+)
+
+target_link_libraries(test_02_chaos_monkey PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_02_chaos_monkey ChaosModule)
+
+# CTest integration
+add_test(NAME ChaosMonkey COMMAND test_02_chaos_monkey)
+
+# StressModule pour tests de stabilité long-terme
+add_library(StressModule SHARED
+    modules/StressModule.cpp
+)
+
+target_link_libraries(StressModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 03: Stress Test - 10 minutes stability
+add_executable(test_03_stress_test
+    integration/test_03_stress_test.cpp
+)
+
+target_link_libraries(test_03_stress_test PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_03_stress_test StressModule)
+
+# CTest integration
+add_test(NAME StressTest COMMAND test_03_stress_test)
