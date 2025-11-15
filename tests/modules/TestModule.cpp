@@ -4,6 +4,9 @@
 #include <iostream>
 #include <memory>
 
+// This line will be modified by AutoCompiler during race condition tests
+std::string moduleVersion = "v1";
+
 namespace grove {
 
 /**
@@ -17,7 +20,6 @@ namespace grove {
 class TestModule : public IModule {
 private:
     int counter = 0;
-    std::string moduleVersion = "v2.0 RELOADED";
     IIO* io = nullptr;
     ITaskScheduler* scheduler = nullptr;
     std::unique_ptr<IDataNode> config;

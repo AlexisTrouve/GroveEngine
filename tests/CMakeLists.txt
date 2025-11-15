@@ -65,6 +65,7 @@ add_library(test_helpers STATIC
     helpers/TestMetrics.cpp
     helpers/TestReporter.cpp
     helpers/SystemUtils.cpp
+    helpers/AutoCompiler.cpp
 )
 
 target_include_directories(test_helpers PUBLIC
@@ -162,3 +163,20 @@ add_dependencies(test_03_stress_test StressModule)
 
 # CTest integration
 add_test(NAME StressTest COMMAND test_03_stress_test)
+
+# Test 04: Race Condition Hunter - Concurrent compilation & reload
+add_executable(test_04_race_condition
+    integration/test_04_race_condition.cpp
+)
+
+target_link_libraries(test_04_race_condition PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# This test uses TestModule (not TankModule)
+add_dependencies(test_04_race_condition TestModule)
+
+# CTest integration
+add_test(NAME RaceConditionHunter COMMAND test_04_race_condition)

@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "n8n-local": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "supergateway@latest",
+        "--streamableHttp",
+        "http://localhost:3333/mcp",
+        "--oauth2Bearer",
+        "mon-super-token-secret-123",
+        "--logLevel",
+        "debug"
+      ]
+    },
+    "blender": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "uvx",
+        "blender-mcp"
+      ]
+    }
+  }
+}
