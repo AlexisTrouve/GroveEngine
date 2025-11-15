@@ -67,8 +67,7 @@ int main() {
 
     try {
         auto module = loader.load(modulePath, "TestModule", false);
-        nlohmann::json configJson;
-        configJson["version"] = "v1";
+        nlohmann::json configJson = nlohmann::json::object();
         auto config = std::make_unique<JsonDataNode>("config", configJson);
         module->setConfiguration(*config, nullptr, nullptr);
         moduleSystem->registerModule("TestModule", std::move(module));

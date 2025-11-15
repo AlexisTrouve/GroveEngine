@@ -54,9 +54,9 @@ public:
         // Clone configuration for storage
         config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
 
-        // Extract version if available (use current moduleVersion as default)
-        moduleVersion = configNode.getString("version", moduleVersion);
-        std::cout << "[TestModule] Version set to: " << moduleVersion << std::endl;
+        // Note: moduleVersion is a global compiled into the .so file
+        // We DO NOT overwrite it from config to preserve hot-reload version changes
+        std::cout << "[TestModule] Compiled version: " << moduleVersion << std::endl;
     }
 
     const IDataNode& getConfiguration() override {
