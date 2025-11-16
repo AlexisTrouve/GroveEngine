@@ -31,6 +31,13 @@ ModuleLoader::~ModuleLoader() {
 }
 
 std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::string& name, bool isReload) {
+    // CRITICAL FIX: Unload any previously loaded library before loading a new one
+    // This prevents library handle leaks and temp file accumulation
+    if (libraryHandle) {
+        logger->debug("🔄 Unloading previous library before loading new one");
+        unload();
+    }
+
     logLoadStart(path);
 
     auto loadStartTime = std::chrono::high_resolution_clock::now();

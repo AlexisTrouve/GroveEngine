@@ -102,9 +102,13 @@ int main() {
                             // CRITICAL: Lock moduleSystem during entire reload
                             std::lock_guard<std::mutex> lock(moduleSystemMutex);
 
-                            // Extract module
+                            // Extract module and save state
                             auto module = moduleSystem->extractModule();
                             auto state = module->getState();
+
+                            // CRITICAL: Destroy old module BEFORE reloading
+                            // The loader.load() will unload the old .so
+                            module.reset();
 
                             // Reload
                             auto newModule = loader.load(modulePath, "TestModule", true);
@@ -113,8 +117,7 @@ int main() {
                             if (!newModule) {
                                 corruptedLoads++;
                                 reloadFailures++;
-                                // Re-register old module
-                                moduleSystem->registerModule("TestModule", std::move(module));
+                                // Can't recover - old module already destroyed
                             } else {
                                 // VALIDATE MODULE INTEGRITY
                                 bool isCorrupted = false;
@@ -142,8 +145,7 @@ int main() {
                                 if (isCorrupted) {
                                     corruptedLoads++;
                                     reloadFailures++;
-                                    // Re-register old module
-                                    moduleSystem->registerModule("TestModule", std::move(module));
+                                    // Can't recover - old module already destroyed
                                 } else {
                                     // Module is valid, restore state and register
                                     newModule->setState(*state);

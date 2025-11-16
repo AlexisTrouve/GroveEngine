@@ -180,3 +180,29 @@ add_dependencies(test_04_race_condition TestModule)
 
 # CTest integration
 add_test(NAME RaceConditionHunter COMMAND test_04_race_condition)
+
+# LeakTestModule pour memory leak detection
+add_library(LeakTestModule SHARED
+    modules/LeakTestModule.cpp
+)
+
+target_link_libraries(LeakTestModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# Test 05: Memory Leak Hunter - 200 reload cycles
+add_executable(test_05_memory_leak
+    integration/test_05_memory_leak.cpp
+)
+
+target_link_libraries(test_05_memory_leak PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_05_memory_leak LeakTestModule)
+
+# CTest integration
+add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak)

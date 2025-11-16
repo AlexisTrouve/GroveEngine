@@ -3,6 +3,8 @@
 #include <string>
 #include <dirent.h>
 #include <sstream>
+#include <glob.h>
+#include <cstring>
 
 namespace grove {
 
@@ -44,6 +46,50 @@ float getCurrentCPUUsage() {
     // Implémentation complète nécessite tracking du /proc/self/stat
     // entre deux lectures (utime + stime delta)
     return 0.0f;
+}
+
+int countTempFiles(const std::string& pattern) {
+    glob_t globResult;
+    memset(&globResult, 0, sizeof(globResult));
+
+    int result = glob(pattern.c_str(), GLOB_TILDE, nullptr, &globResult);
+
+    if (result != 0) {
+        globfree(&globResult);
+        return 0;
+    }
+
+    int count = globResult.gl_pathc;
+    globfree(&globResult);
+
+    return count;
+}
+
+int getMappedLibraryCount() {
+    // Count unique .so libraries in /proc/self/maps
+    std::ifstream file("/proc/self/maps");
+    std::string line;
+    int count = 0;
+    std::string lastLib;
+
+    while (std::getline(file, line)) {
+        // Look for lines containing ".so"
+        size_t soPos = line.find(".so");
+        if (soPos != std::string::npos) {
+            // Extract library path (after last space)
+            size_t pathStart = line.rfind(' ');
+            if (pathStart != std::string::npos) {
+                std::string libPath = line.substr(pathStart + 1);
+                // Only count if different from last one (avoid duplicates)
+                if (libPath != lastLib) {
+                    count++;
+                    lastLib = libPath;
+                }
+            }
+        }
+    }
+
+    return count;
 }
 
 } // namespace grove
