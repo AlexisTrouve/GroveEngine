@@ -206,3 +206,43 @@ add_dependencies(test_05_memory_leak LeakTestModule)
 
 # CTest integration
 add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak)
+
+# Memory leak profiler (detailed analysis)
+add_executable(profile_memory_leak
+    profile_memory_leak.cpp
+)
+
+target_link_libraries(profile_memory_leak PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(profile_memory_leak LeakTestModule)
+
+# ErrorRecoveryModule pour test de recovery automatique
+add_library(ErrorRecoveryModule SHARED
+    modules/ErrorRecoveryModule.cpp
+)
+
+target_link_libraries(ErrorRecoveryModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 06: Error Recovery - Crash detection & auto-recovery
+add_executable(test_06_error_recovery
+    integration/test_06_error_recovery.cpp
+)
+
+target_link_libraries(test_06_error_recovery PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_06_error_recovery ErrorRecoveryModule)
+
+# CTest integration
+add_test(NAME ErrorRecovery COMMAND test_06_error_recovery)
