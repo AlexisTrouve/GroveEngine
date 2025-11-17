@@ -7,19 +7,24 @@
 namespace grove {
 
 SequentialModuleSystem::SequentialModuleSystem() {
-    // Create logger with file and console output
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/sequential_system.log", true);
+    // Try to get existing logger first (avoid duplicate registration)
+    logger = spdlog::get("SequentialModuleSystem");
 
-    console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
-    file_sink->set_level(spdlog::level::trace);
+    if (!logger) {
+        // Create logger with file and console output
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/sequential_system.log", true);
 
-    logger = std::make_shared<spdlog::logger>("SequentialModuleSystem",
-        spdlog::sinks_init_list{console_sink, file_sink});
-    logger->set_level(spdlog::level::trace);
-    logger->flush_on(spdlog::level::debug);
+        console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
+        file_sink->set_level(spdlog::level::trace);
 
-    spdlog::register_logger(logger);
+        logger = std::make_shared<spdlog::logger>("SequentialModuleSystem",
+            spdlog::sinks_init_list{console_sink, file_sink});
+        logger->set_level(spdlog::level::trace);
+        logger->flush_on(spdlog::level::debug);
+
+        spdlog::register_logger(logger);
+    }
 
     logSystemStart();
     lastProcessTime = std::chrono::high_resolution_clock::now();

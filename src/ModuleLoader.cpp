@@ -25,7 +25,9 @@ ModuleLoader::ModuleLoader() {
 
 ModuleLoader::~ModuleLoader() {
     if (libraryHandle) {
-        logger->warn("⚠️ ModuleLoader destroyed with library still loaded - forcing unload");
+        if (logger) {
+            logger->warn("⚠️ ModuleLoader destroyed with library still loaded - forcing unload");
+        }
         unload();
     }
 }
@@ -299,26 +301,36 @@ std::unique_ptr<IModule> ModuleLoader::reload(std::unique_ptr<IModule> currentMo
 
 // Private logging helpers
 void ModuleLoader::logLoadStart(const std::string& path) {
-    logger->info("📥 Loading module from: {}", path);
+    if (logger) {
+        logger->info("📥 Loading module from: {}", path);
+    }
 }
 
 void ModuleLoader::logLoadSuccess(float loadTime) {
-    logger->info("✅ Module '{}' loaded successfully in {:.3f}ms", moduleName, loadTime);
-    logger->debug("📍 Library path: {}", libraryPath);
-    logger->debug("🔗 Library handle: {}", libraryHandle);
+    if (logger) {
+        logger->info("✅ Module '{}' loaded successfully in {:.3f}ms", moduleName, loadTime);
+        logger->debug("📍 Library path: {}", libraryPath);
+        logger->debug("🔗 Library handle: {}", libraryHandle);
+    }
 }
 
 void ModuleLoader::logLoadError(const std::string& error) {
-    logger->error("❌ Failed to load module: {}", error);
+    if (logger) {
+        logger->error("❌ Failed to load module: {}", error);
+    }
 }
 
 void ModuleLoader::logUnloadStart() {
-    logger->info("🔓 Unloading module '{}'", moduleName);
-    logger->debug("📍 Library path: {}", libraryPath);
+    if (logger) {
+        logger->info("🔓 Unloading module '{}'", moduleName);
+        logger->debug("📍 Library path: {}", libraryPath);
+    }
 }
 
 void ModuleLoader::logUnloadSuccess() {
-    logger->info("✅ Module unloaded successfully");
+    if (logger) {
+        logger->info("✅ Module unloaded successfully");
+    }
 }
 
 } // namespace grove

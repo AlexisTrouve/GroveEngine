@@ -208,17 +208,18 @@ add_dependencies(test_05_memory_leak LeakTestModule)
 add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak)
 
 # Memory leak profiler (detailed analysis)
-add_executable(profile_memory_leak
-    profile_memory_leak.cpp
-)
-
-target_link_libraries(profile_memory_leak PRIVATE
-    test_helpers
-    GroveEngine::core
-    GroveEngine::impl
-)
-
-add_dependencies(profile_memory_leak LeakTestModule)
+# TODO: Implement profile_memory_leak.cpp
+# add_executable(profile_memory_leak
+#     profile_memory_leak.cpp
+# )
+#
+# target_link_libraries(profile_memory_leak PRIVATE
+#     test_helpers
+#     GroveEngine::core
+#     GroveEngine::impl
+# )
+#
+# add_dependencies(profile_memory_leak LeakTestModule)
 
 # ErrorRecoveryModule pour test de recovery automatique
 add_library(ErrorRecoveryModule SHARED
@@ -246,3 +247,30 @@ add_dependencies(test_06_error_recovery ErrorRecoveryModule)
 
 # CTest integration
 add_test(NAME ErrorRecovery COMMAND test_06_error_recovery)
+
+# HeavyStateModule pour tests de limites
+add_library(HeavyStateModule SHARED
+    modules/HeavyStateModule.cpp
+)
+
+target_link_libraries(HeavyStateModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 07: Limite Tests - Large state, timeouts, corruption detection
+add_executable(test_07_limits
+    integration/test_07_limits.cpp
+)
+
+target_link_libraries(test_07_limits PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_07_limits HeavyStateModule)
+
+# CTest integration
+add_test(NAME LimitsTest COMMAND test_07_limits)
