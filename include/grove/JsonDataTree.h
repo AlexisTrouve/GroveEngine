@@ -53,6 +53,10 @@ public:
     bool saveData() override;
     bool saveNode(const std::string& path) override;
 
+    // Load operations
+    bool loadConfigFile(const std::string& filename) override;
+    bool loadDataDirectory() override;
+
     // Hot-reload
     bool checkForChanges() override;
     bool reloadIfChanged() override;

@@ -183,6 +183,46 @@ public:
     virtual bool hasProperty(const std::string& name) const = 0;
 
     // ========================================
+    // TYPED DATA MODIFICATION BY PROPERTY NAME
+    // ========================================
+
+    /**
+     * @brief Set string property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setString(const std::string& name, const std::string& value) = 0;
+
+    /**
+     * @brief Set integer property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setInt(const std::string& name, int value) = 0;
+
+    /**
+     * @brief Set double property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setDouble(const std::string& name, double value) = 0;
+
+    /**
+     * @brief Set boolean property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setBool(const std::string& name, bool value) = 0;
+
+    // ========================================
     // HASH SYSTEM FOR VALIDATION & SYNCHRO
     // ========================================
 

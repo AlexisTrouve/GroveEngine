@@ -68,6 +68,12 @@ public:
     bool getBool(const std::string& name, bool defaultValue = false) const override;
     bool hasProperty(const std::string& name) const override;
 
+    // Typed data modification
+    void setString(const std::string& name, const std::string& value) override;
+    void setInt(const std::string& name, int value) override;
+    void setDouble(const std::string& name, double value) override;
+    void setBool(const std::string& name, bool value) override;
+
     // Hash system
     std::string getDataHash() override;
     std::string getTreeHash() override;

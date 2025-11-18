@@ -92,6 +92,27 @@ public:
     virtual bool saveNode(const std::string& path) = 0;
 
     // ========================================
+    // LOAD OPERATIONS
+    // ========================================
+
+    /**
+     * @brief Load a specific config file into the config tree
+     * @param filename Filename relative to config/ directory
+     * @return true if loaded successfully
+     *
+     * Example: loadConfigFile("gameplay.json") loads config/gameplay.json
+     */
+    virtual bool loadConfigFile(const std::string& filename) = 0;
+
+    /**
+     * @brief Load all files from the data/ directory
+     * @return true if loaded successfully
+     *
+     * Recursively loads all JSON files from the data/ directory
+     */
+    virtual bool loadDataDirectory() = 0;
+
+    // ========================================
     // HOT-RELOAD (Config Only)
     // ========================================
 

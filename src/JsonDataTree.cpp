@@ -232,6 +232,68 @@ std::string JsonDataTree::getType() {
 }
 
 // ========================================
+// LOAD OPERATIONS
+// ========================================
+
+bool JsonDataTree::loadConfigFile(const std::string& filename) {
+    std::string filePath = m_basePath + "/config/" + filename;
+
+    if (!fs::exists(filePath)) {
+        std::cerr << "Config file not found: " << filePath << "\n";
+        return false;
+    }
+
+    try {
+        json fileData = loadJsonFile(filePath);
+        std::string nodeName = filename.substr(0, filename.find_last_of('.'));
+
+        // Get config root from m_root
+        auto* configNode = static_cast<JsonDataNode*>(m_root->getFirstChildByName("config"));
+        if (!configNode) {
+            std::cerr << "Config root not found\n";
+            return false;
+        }
+
+        // Build node and add to config tree
+        buildNodeFromJson(nodeName, fileData, configNode, true);
+
+        // Track file timestamp for hot-reload
+        m_configFileTimes[filePath] = fs::last_write_time(filePath);
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load config file " << filePath << ": " << e.what() << "\n";
+        return false;
+    }
+}
+
+bool JsonDataTree::loadDataDirectory() {
+    std::string dataPath = m_basePath + "/data";
+
+    if (!fs::exists(dataPath)) {
+        std::cerr << "Data directory not found: " << dataPath << "\n";
+        return false;
+    }
+
+    try {
+        // Get data root from m_root
+        auto* dataNode = static_cast<JsonDataNode*>(m_root->getFirstChildByName("data"));
+        if (!dataNode) {
+            std::cerr << "Data root not found\n";
+            return false;
+        }
+
+        // Scan directory recursively
+        scanDirectory(dataPath, dataNode, false);
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load data directory: " << e.what() << "\n";
+        return false;
+    }
+}
+
+// ========================================
 // HELPER METHODS
 // ========================================
 

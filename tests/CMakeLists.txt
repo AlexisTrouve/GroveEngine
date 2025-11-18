@@ -272,5 +272,17 @@ target_link_libraries(test_07_limits PRIVATE
 
 add_dependencies(test_07_limits HeavyStateModule)
 
+# Test 12: DataNode Integration Test
+add_executable(test_12_datanode
+    integration/test_12_datanode.cpp
+)
+
+target_link_libraries(test_12_datanode PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
 # CTest integration
 add_test(NAME LimitsTest COMMAND test_07_limits)
+add_test(NAME DataNodeTest COMMAND test_12_datanode)

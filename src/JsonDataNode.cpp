@@ -222,6 +222,42 @@ bool JsonDataNode::hasProperty(const std::string& name) const {
 }
 
 // ========================================
+// TYPED DATA MODIFICATION
+// ========================================
+
+void JsonDataNode::setString(const std::string& name, const std::string& value) {
+    checkReadOnly();
+    if (!m_data.is_object()) {
+        m_data = json::object();
+    }
+    m_data[name] = value;
+}
+
+void JsonDataNode::setInt(const std::string& name, int value) {
+    checkReadOnly();
+    if (!m_data.is_object()) {
+        m_data = json::object();
+    }
+    m_data[name] = value;
+}
+
+void JsonDataNode::setDouble(const std::string& name, double value) {
+    checkReadOnly();
+    if (!m_data.is_object()) {
+        m_data = json::object();
+    }
+    m_data[name] = value;
+}
+
+void JsonDataNode::setBool(const std::string& name, bool value) {
+    checkReadOnly();
+    if (!m_data.is_object()) {
+        m_data = json::object();
+    }
+    m_data[name] = value;
+}
+
+// ========================================
 // HASH SYSTEM
 // ========================================
 
