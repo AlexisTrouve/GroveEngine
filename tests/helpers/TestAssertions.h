@@ -64,6 +64,17 @@
         } \
     } while(0)
 
+#define ASSERT_GE(value, min, message) \
+    do { \
+        if ((value) < (min)) { \
+            std::cerr << COLOR_RED << "❌ ASSERTION FAILED: " << message << COLOR_RESET << "\n"; \
+            std::cerr << "   Expected: >= " << (min) << "\n"; \
+            std::cerr << "   Actual:   " << (value) << "\n"; \
+            std::cerr << "   At: " << __FILE__ << ":" << __LINE__ << "\n"; \
+            std::exit(1); \
+        } \
+    } while(0)
+
 #define ASSERT_WITHIN(actual, expected, tolerance, message) \
     do { \
         auto diff = std::abs((actual) - (expected)); \
@@ -75,3 +86,29 @@
             std::exit(1); \
         } \
     } while(0)
+
+#define ASSERT_LE(value, max, message) \
+    do { \
+        if ((value) > (max)) { \
+            std::cerr << COLOR_RED << "❌ ASSERTION FAILED: " << message << COLOR_RESET << "\n"; \
+            std::cerr << "   Expected: <= " << (max) << "\n"; \
+            std::cerr << "   Actual:   " << (value) << "\n"; \
+            std::cerr << "   At: " << __FILE__ << ":" << __LINE__ << "\n"; \
+            std::exit(1); \
+        } \
+    } while(0)
+
+#define ASSERT_EQ_FLOAT(actual, expected, tolerance, message) \
+    do { \
+        auto diff = std::abs((actual) - (expected)); \
+        if (diff > (tolerance)) { \
+            std::cerr << COLOR_RED << "❌ ASSERTION FAILED: " << message << COLOR_RESET << "\n"; \
+            std::cerr << "   Expected: " << (expected) << " (tolerance: " << (tolerance) << ")\n"; \
+            std::cerr << "   Actual:   " << (actual) << " (diff: " << diff << ")\n"; \
+            std::cerr << "   At: " << __FILE__ << ":" << __LINE__ << "\n"; \
+            std::exit(1); \
+        } \
+    } while(0)
+
+#define ASSERT_NEAR(actual, expected, tolerance, message) \
+    ASSERT_EQ_FLOAT(actual, expected, tolerance, message)

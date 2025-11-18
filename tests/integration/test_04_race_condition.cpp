@@ -30,7 +30,7 @@ int main() {
     const float TARGET_FPS = 60.0f;
     const float FRAME_TIME = 1.0f / TARGET_FPS;
 
-    std::string modulePath = "build/tests/libTestModule.so";
+    std::string modulePath = "./libTestModule.so";
     std::string sourcePath = "tests/modules/TestModule.cpp";
     std::string buildDir = "build";
 

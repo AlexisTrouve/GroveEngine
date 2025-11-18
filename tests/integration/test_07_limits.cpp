@@ -41,7 +41,7 @@ int main() {
     ModuleLoader loader;
     auto moduleSystem = std::make_unique<SequentialModuleSystem>();
 
-    std::string modulePath = "tests/libHeavyStateModule.so";
+    std::string modulePath = "./libHeavyStateModule.so";
     auto module = loader.load(modulePath, "HeavyStateModule", false);
 
     // Config: particules réduites pour test rapide, mais assez pour être significatif

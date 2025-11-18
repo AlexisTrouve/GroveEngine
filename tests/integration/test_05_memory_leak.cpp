@@ -203,7 +203,7 @@ int main() {
     std::cout << "================================================================================\n\n";
 
     // Find module path
-    fs::path modulePath = "build/tests/libLeakTestModule.so";
+    fs::path modulePath = "./libLeakTestModule.so";
     if (!fs::exists(modulePath)) {
         std::cerr << "❌ Module not found: " << modulePath << "\n";
         return 1;

@@ -28,7 +28,7 @@ int main() {
     auto moduleSystem = std::make_unique<SequentialModuleSystem>();
 
     // Charger module
-    std::string modulePath = "build/tests/libTankModule.so";
+    std::string modulePath = "./libTankModule.so";
     auto module = loader.load(modulePath, "TankModule", false);
 
     // Config

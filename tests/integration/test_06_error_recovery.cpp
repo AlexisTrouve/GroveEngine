@@ -48,7 +48,7 @@ int main() {
     auto moduleSystem = std::make_unique<SequentialModuleSystem>();
 
     // Charger module
-    std::string modulePath = "build/tests/libErrorRecoveryModule.so";
+    std::string modulePath = "./libErrorRecoveryModule.so";
     auto module = loader.load(modulePath, "ErrorRecoveryModule", false);
 
     // Config: crash à frame 60, type runtime_error

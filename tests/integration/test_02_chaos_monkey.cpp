@@ -47,7 +47,7 @@ int main() {
     auto moduleSystem = std::make_unique<SequentialModuleSystem>();
 
     // Load module
-    std::string modulePath = "build/tests/libChaosModule.so";
+    std::string modulePath = "./libChaosModule.so";
     auto module = loader.load(modulePath, "ChaosModule", false);
 
     // Configure module avec seed ALÉATOIRE basé sur le temps

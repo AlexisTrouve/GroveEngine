@@ -108,7 +108,7 @@ target_link_libraries(test_01_production_hotreload PRIVATE
 add_dependencies(test_01_production_hotreload TankModule)
 
 # CTest integration
-add_test(NAME ProductionHotReload COMMAND test_01_production_hotreload)
+add_test(NAME ProductionHotReload COMMAND test_01_production_hotreload WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # ChaosModule pour tests de robustesse
 add_library(ChaosModule SHARED
@@ -135,7 +135,7 @@ target_link_libraries(test_02_chaos_monkey PRIVATE
 add_dependencies(test_02_chaos_monkey ChaosModule)
 
 # CTest integration
-add_test(NAME ChaosMonkey COMMAND test_02_chaos_monkey)
+add_test(NAME ChaosMonkey COMMAND test_02_chaos_monkey WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # StressModule pour tests de stabilité long-terme
 add_library(StressModule SHARED
@@ -162,7 +162,7 @@ target_link_libraries(test_03_stress_test PRIVATE
 add_dependencies(test_03_stress_test StressModule)
 
 # CTest integration
-add_test(NAME StressTest COMMAND test_03_stress_test)
+add_test(NAME StressTest COMMAND test_03_stress_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # Test 04: Race Condition Hunter - Concurrent compilation & reload
 add_executable(test_04_race_condition
@@ -179,7 +179,7 @@ target_link_libraries(test_04_race_condition PRIVATE
 add_dependencies(test_04_race_condition TestModule)
 
 # CTest integration
-add_test(NAME RaceConditionHunter COMMAND test_04_race_condition)
+add_test(NAME RaceConditionHunter COMMAND test_04_race_condition WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # LeakTestModule pour memory leak detection
 add_library(LeakTestModule SHARED
@@ -205,7 +205,7 @@ target_link_libraries(test_05_memory_leak PRIVATE
 add_dependencies(test_05_memory_leak LeakTestModule)
 
 # CTest integration
-add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak)
+add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # Memory leak profiler (detailed analysis)
 # TODO: Implement profile_memory_leak.cpp
@@ -246,7 +246,7 @@ target_link_libraries(test_06_error_recovery PRIVATE
 add_dependencies(test_06_error_recovery ErrorRecoveryModule)
 
 # CTest integration
-add_test(NAME ErrorRecovery COMMAND test_06_error_recovery)
+add_test(NAME ErrorRecovery COMMAND test_06_error_recovery WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # HeavyStateModule pour tests de limites
 add_library(HeavyStateModule SHARED
@@ -284,5 +284,130 @@ target_link_libraries(test_12_datanode PRIVATE
 )
 
 # CTest integration
-add_test(NAME LimitsTest COMMAND test_07_limits)
-add_test(NAME DataNodeTest COMMAND test_12_datanode)
+add_test(NAME LimitsTest COMMAND test_07_limits WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+add_test(NAME DataNodeTest COMMAND test_12_datanode WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# ConfigurableModule pour tests de config hot-reload
+add_library(ConfigurableModule SHARED
+    modules/ConfigurableModule.cpp
+)
+
+target_link_libraries(ConfigurableModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 08: Config Hot-Reload - Runtime config changes without code reload
+add_executable(test_08_config_hotreload
+    integration/test_08_config_hotreload.cpp
+)
+
+target_link_libraries(test_08_config_hotreload PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_08_config_hotreload ConfigurableModule)
+
+# CTest integration
+add_test(NAME ConfigHotReload COMMAND test_08_config_hotreload WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# BaseModule for dependency testing (no dependencies)
+add_library(BaseModule SHARED
+    modules/BaseModule.cpp
+)
+
+target_link_libraries(BaseModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# DependentModule for dependency testing (depends on BaseModule)
+add_library(DependentModule SHARED
+    modules/DependentModule.cpp
+)
+
+target_link_libraries(DependentModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# IndependentModule for dependency testing (isolated witness)
+add_library(IndependentModule SHARED
+    modules/IndependentModule.cpp
+)
+
+target_link_libraries(IndependentModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 09: Module Dependencies - Cascade reload, unload protection, cycle detection
+add_executable(test_09_module_dependencies
+    integration/test_09_module_dependencies.cpp
+)
+
+target_link_libraries(test_09_module_dependencies PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_09_module_dependencies BaseModule DependentModule IndependentModule)
+
+# CTest integration
+add_test(NAME ModuleDependencies COMMAND test_09_module_dependencies WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# GameLogicModuleV1 for multi-version testing (baseline version)
+add_library(GameLogicModuleV1 SHARED
+    modules/GameLogicModuleV1.cpp
+)
+
+target_link_libraries(GameLogicModuleV1 PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# GameLogicModuleV2 for multi-version testing (with collision detection)
+add_library(GameLogicModuleV2 SHARED
+    modules/GameLogicModuleV2.cpp
+)
+
+target_link_libraries(GameLogicModuleV2 PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# GameLogicModuleV3 for multi-version testing (with advanced physics)
+add_library(GameLogicModuleV3 SHARED
+    modules/GameLogicModuleV3.cpp
+)
+
+target_link_libraries(GameLogicModuleV3 PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 10: Multi-Version Coexistence - Canary deployment, progressive migration, rollback
+add_executable(test_10_multiversion_coexistence
+    integration/test_10_multiversion_coexistence.cpp
+)
+
+target_link_libraries(test_10_multiversion_coexistence PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_10_multiversion_coexistence GameLogicModuleV1 GameLogicModuleV2 GameLogicModuleV3)
+
+# CTest integration
+add_test(NAME MultiVersionCoexistence COMMAND test_10_multiversion_coexistence WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

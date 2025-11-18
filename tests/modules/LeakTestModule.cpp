@@ -85,18 +85,6 @@ public:
             {"lastChecksum", lastChecksum}
         };
 
-        // Simulate storing large state data (100 KB blob as base64)
-        std::vector<uint8_t> stateBlob(100 * 1024);
-        std::fill(stateBlob.begin(), stateBlob.end(), 0xAB);
-
-        // Store as array of ints in JSON (simpler than base64 for test purposes)
-        std::vector<int> blobData;
-        blobData.reserve(stateBlob.size());
-        for (auto byte : stateBlob) {
-            blobData.push_back(byte);
-        }
-        state["stateBlob"] = blobData;
-
         return std::make_unique<JsonDataNode>("state", state);
     }
 

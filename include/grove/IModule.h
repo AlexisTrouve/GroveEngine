@@ -126,6 +126,124 @@ public:
      * tracks long-running synchronous operations.
      */
     virtual bool isIdle() const = 0;
+
+    /**
+     * @brief Update module configuration at runtime (config hot-reload)
+     * @param newConfigNode New configuration to apply
+     * @return True if configuration was successfully applied, false if rejected
+     *
+     * This method enables runtime configuration changes without code reload.
+     * Unlike setConfiguration(), this is called on an already-initialized module.
+     *
+     * Implementation should:
+     * - Validate new configuration
+     * - Reject invalid configurations and return false
+     * - Preserve previous config for rollback if needed
+     * - Apply changes atomically if possible
+     *
+     * Default implementation rejects all updates (returns false).
+     * Modules that support config hot-reload must override this method.
+     */
+    virtual bool updateConfig(const IDataNode& newConfigNode) {
+        // Default: reject config updates
+        return false;
+    }
+
+    /**
+     * @brief Update module configuration partially (merge with current config)
+     * @param partialConfigNode Configuration fragment to merge
+     * @return True if configuration was successfully merged and applied
+     *
+     * This method enables partial configuration updates where only specified
+     * fields are changed while others remain unchanged.
+     *
+     * Implementation should:
+     * - Merge partial config with current config
+     * - Validate merged result
+     * - Apply atomically
+     *
+     * Default implementation delegates to updateConfig() (full replacement).
+     * Modules can override for smarter partial merging.
+     */
+    virtual bool updateConfigPartial(const IDataNode& partialConfigNode) {
+        // Default: delegate to full update
+        return updateConfig(partialConfigNode);
+    }
+
+    /**
+     * @brief Get list of module dependencies
+     * @return Vector of module names that this module depends on
+     *
+     * Declares explicit dependencies on other modules. The module system
+     * uses this to:
+     * - Verify dependencies are loaded before this module
+     * - Cascade reload when a dependency is reloaded
+     * - Prevent unloading dependencies while this module is active
+     * - Detect circular dependencies
+     *
+     * Dependencies are specified by module name (not file path).
+     *
+     * Example:
+     * - PhysicsModule might return {"MathModule"}
+     * - GameplayModule might return {"PhysicsModule", "AudioModule"}
+     *
+     * Default implementation returns empty vector (no dependencies).
+     */
+    virtual std::vector<std::string> getDependencies() const {
+        return {};  // Default: no dependencies
+    }
+
+    /**
+     * @brief Get module version number
+     * @return Integer version number (increments with each reload)
+     *
+     * Used for tracking and debugging hot-reload behavior.
+     * Helps verify that modules are actually being reloaded and
+     * allows tracking version mismatches.
+     *
+     * Typically incremented manually during development or
+     * auto-generated during build process.
+     *
+     * Default implementation returns 1.
+     */
+    virtual int getVersion() const {
+        return 1;  // Default: version 1
+    }
+
+    /**
+     * @brief Migrate state from a different version of this module
+     * @param fromVersion Version number of the source module
+     * @param oldState State data from the previous version
+     * @return True if migration was successful, false if incompatible
+     *
+     * Enables multi-version coexistence by allowing state migration
+     * between different versions of the same module. Critical for:
+     * - Canary deployments (v1 → v2 progressive migration)
+     * - Blue/Green deployments (switch traffic between versions)
+     * - Rollback scenarios (v2 → v1 state restoration)
+     *
+     * Implementation should:
+     * - Check if migration from fromVersion is supported
+     * - Transform old state format to new format
+     * - Handle missing/new fields gracefully
+     * - Validate migrated state
+     * - Return false if migration is impossible
+     *
+     * Example:
+     * - v2 can migrate from v1 by adding default collision flags
+     * - v3 can migrate from v2 by initializing physics parameters
+     * - v1 cannot migrate from v2 (missing fields) → return false
+     *
+     * Default implementation accepts same version only (simple copy).
+     */
+    virtual bool migrateStateFrom(int fromVersion, const IDataNode& oldState) {
+        // Default: only accept same version (simple setState)
+        if (fromVersion == getVersion()) {
+            setState(oldState);
+            return true;
+        }
+        return false;  // Override for cross-version migration
+    }
 };
 
 } // namespace grove
