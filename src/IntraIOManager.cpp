@@ -35,7 +35,9 @@ IntraIOManager::~IntraIOManager() {
     logger->info("   Active instances: {}", stats["active_instances"]);
 
     instances.clear();
-    routingTable.clear();
+    topicTree.clear();
+    instancePatterns.clear();
+    subscriptionFreqMap.clear();
 
     logger->info("🌐🔗 IntraIOManager destroyed");
 }
@@ -75,14 +77,11 @@ void IntraIOManager::removeInstance(const std::string& instanceId) {
         return;
     }
 
-    // Remove all routing entries for this instance
-    routingTable.erase(
-        std::remove_if(routingTable.begin(), routingTable.end(),
-            [&instanceId](const RouteEntry& entry) {
-                return entry.instanceId == instanceId;
-            }),
-        routingTable.end()
-    );
+    // Remove all subscriptions for this instance from TopicTree
+    topicTree.unregisterSubscriberAll(instanceId);
+
+    // Clean up tracking data
+    instancePatterns.erase(instanceId);
 
     instances.erase(it);
 
@@ -104,91 +103,78 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
     std::lock_guard<std::mutex> lock(managerMutex);
 
     totalRoutedMessages++;
+    messagesSinceLastLog++;
     size_t deliveredCount = 0;
 
-    logger->info("📨 Routing message: {} → '{}'", sourceId, topic);
+    // Batched logging - log tous les LOG_BATCH_SIZE messages
+    bool shouldLog = (messagesSinceLastLog % LOG_BATCH_SIZE == 0);
 
-    // Find all matching routes
-    for (const auto& route : routingTable) {
+    if (shouldLog) {
+        logger->info("📊 Routing stats: {} total messages routed", totalRoutedMessages.load());
+    }
+
+    logger->trace("📨 Routing message: {} → '{}'", sourceId, topic);
+
+    // Find all matching subscribers - O(k) where k = topic depth 🚀
+    auto subscribers = topicTree.findSubscribers(topic);
+
+    logger->trace("  🔍 Found {} matching subscriber(s) for topic '{}'", subscribers.size(), topic);
+
+    for (const auto& subscriberId : subscribers) {
         // Don't deliver back to sender
-        if (route.instanceId == sourceId) {
+        if (subscriberId == sourceId) {
+            logger->debug("  ⏭️ Skipping sender '{}'", subscriberId);
             continue;
         }
 
-        // Check pattern match
-        logger->debug("  🔍 Testing pattern '{}' against topic '{}'", route.originalPattern, topic);
-        if (std::regex_match(topic, route.pattern)) {
-            auto targetInstance = instances.find(route.instanceId);
-            if (targetInstance != instances.end()) {
-                // Copy JSON data for each recipient (JSON is copyable!)
-                json dataCopy = messageData;
+        auto targetInstance = instances.find(subscriberId);
+        if (targetInstance != instances.end()) {
+            // Copy JSON data for each recipient (JSON is copyable!)
+            json dataCopy = messageData;
 
-                // Recreate DataNode from JSON copy
-                auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
+            // Recreate DataNode from JSON copy
+            auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
 
-                // Deliver to target instance's queue
-                targetInstance->second->deliverMessage(topic, std::move(dataNode), route.isLowFreq);
-                deliveredCount++;
-                logger->info("  ↪️ Delivered to '{}' ({})",
-                             route.instanceId,
-                             route.isLowFreq ? "low-freq" : "high-freq");
-                // Continue to next route (now we can deliver to multiple subscribers!)
-            } else {
-                logger->warn("⚠️ Target instance '{}' not found for route", route.instanceId);
+            // Get frequency info (default to false if not found)
+            bool isLowFreq = false;
+            for (const auto& pattern : instancePatterns[subscriberId]) {
+                auto it = subscriptionFreqMap.find(pattern);
+                if (it != subscriptionFreqMap.end()) {
+                    isLowFreq = it->second;
+                    break;
+                }
             }
+
+            // Deliver to target instance's queue
+            targetInstance->second->deliverMessage(topic, std::move(dataNode), isLowFreq);
+            deliveredCount++;
+            logger->trace("  ↪️ Delivered to '{}' ({})",
+                          subscriberId,
+                          isLowFreq ? "low-freq" : "high-freq");
         } else {
-            logger->debug("  ❌ Pattern '{}' did not match topic '{}'", route.originalPattern, topic);
+            logger->warn("⚠️ Target instance '{}' not found", subscriberId);
         }
     }
 
-    if (deliveredCount > 0) {
-        logger->debug("📤 Message '{}' delivered to {} instances", topic, deliveredCount);
-    } else {
-        logger->trace("📪 No subscribers for topic '{}'", topic);
-    }
+    // Trace-only logging pour éviter spam
+    logger->trace("📤 Message '{}' delivered to {} instances", topic, deliveredCount);
 }
 
 void IntraIOManager::registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq) {
     std::lock_guard<std::mutex> lock(managerMutex);
 
     try {
-        // Convert topic pattern to regex - use same logic as IntraIO
-        std::string regexPattern = pattern;
+        // Register in TopicTree - O(k) where k = pattern depth
+        topicTree.registerSubscriber(pattern, instanceId);
 
-        // Escape special regex characters except our wildcards (: is NOT special)
-        std::string specialChars = ".^$+()[]{}|\\";
-        for (char c : specialChars) {
-            std::string from = std::string(1, c);
-            std::string to = "\\" + from;
+        // Track pattern for management
+        instancePatterns[instanceId].push_back(pattern);
+        subscriptionFreqMap[pattern] = isLowFreq;
 
-            size_t pos = 0;
-            while ((pos = regexPattern.find(from, pos)) != std::string::npos) {
-                regexPattern.replace(pos, 1, to);
-                pos += 2;
-            }
-        }
-
-        // Convert * to regex equivalent
-        size_t pos2 = 0;
-        while ((pos2 = regexPattern.find("*", pos2)) != std::string::npos) {
-            regexPattern.replace(pos2, 1, ".*");
-            pos2 += 2;
-        }
-
-        logger->info("🔍 Pattern conversion: '{}' → '{}'", pattern, regexPattern);
-
-        RouteEntry entry;
-        entry.instanceId = instanceId;
-        entry.pattern = std::regex(regexPattern);
-        entry.originalPattern = pattern;
-        entry.isLowFreq = isLowFreq;
-
-        routingTable.push_back(entry);
         totalRoutes++;
 
         logger->info("📋 Registered subscription: '{}' → '{}' ({})",
                     instanceId, pattern, isLowFreq ? "low-freq" : "high-freq");
-        logger->debug("📊 Total routes: {}", routingTable.size());
 
     } catch (const std::exception& e) {
         logger->error("❌ Failed to register subscription '{}' for '{}': {}",
@@ -200,28 +186,25 @@ void IntraIOManager::registerSubscription(const std::string& instanceId, const s
 void IntraIOManager::unregisterSubscription(const std::string& instanceId, const std::string& pattern) {
     std::lock_guard<std::mutex> lock(managerMutex);
 
-    auto oldSize = routingTable.size();
-    routingTable.erase(
-        std::remove_if(routingTable.begin(), routingTable.end(),
-            [&instanceId, &pattern](const RouteEntry& entry) {
-                return entry.instanceId == instanceId && entry.originalPattern == pattern;
-            }),
-        routingTable.end()
-    );
+    // Remove from TopicTree
+    topicTree.unregisterSubscriber(pattern, instanceId);
 
-    auto removed = oldSize - routingTable.size();
-    if (removed > 0) {
-        logger->info("🗑️ Unregistered {} subscription(s): '{}' → '{}'", removed, instanceId, pattern);
-    } else {
-        logger->warn("⚠️ Subscription not found for removal: '{}' → '{}'", instanceId, pattern);
-    }
+    // Remove from tracking
+    auto& patterns = instancePatterns[instanceId];
+    patterns.erase(std::remove(patterns.begin(), patterns.end(), pattern), patterns.end());
+
+    subscriptionFreqMap.erase(pattern);
+
+    logger->info("🗑️ Unregistered subscription: '{}' → '{}'", instanceId, pattern);
 }
 
 void IntraIOManager::clearAllRoutes() {
     std::lock_guard<std::mutex> lock(managerMutex);
 
-    auto clearedCount = routingTable.size();
-    routingTable.clear();
+    auto clearedCount = topicTree.subscriberCount();
+    topicTree.clear();
+    instancePatterns.clear();
+    subscriptionFreqMap.clear();
 
     logger->info("🧹 Cleared {} routing entries", clearedCount);
 }
@@ -248,7 +231,7 @@ json IntraIOManager::getRoutingStats() const {
     stats["total_routed_messages"] = totalRoutedMessages.load();
     stats["total_routes"] = totalRoutes.load();
     stats["active_instances"] = instances.size();
-    stats["routing_entries"] = routingTable.size();
+    stats["routing_entries"] = topicTree.subscriberCount();
 
     // Instance details
     json instanceDetails = json::object();

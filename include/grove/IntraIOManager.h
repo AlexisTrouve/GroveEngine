@@ -5,11 +5,11 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
-#include <regex>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "IIO.h"
+#include <topictree/TopicTree.h>
 
 using json = nlohmann::json;
 
@@ -47,18 +47,26 @@ private:
     // Registry of IntraIO instances
     std::unordered_map<std::string, std::shared_ptr<IIntraIODelivery>> instances;
 
-    // Subscription routing table
-    struct RouteEntry {
+    // Subscription info for each instance
+    struct SubscriptionInfo {
         std::string instanceId;
-        std::regex pattern;
-        std::string originalPattern;
         bool isLowFreq;
     };
-    std::vector<RouteEntry> routingTable;
+
+    // Ultra-fast topic routing using TopicTree
+    topictree::TopicTree<std::string> topicTree;  // Maps patterns to instanceIds
+
+    // Track subscription info per instance (for management)
+    std::unordered_map<std::string, std::vector<std::string>> instancePatterns;  // instanceId -> patterns
+    std::unordered_map<std::string, bool> subscriptionFreqMap;  // pattern -> isLowFreq
 
     // Statistics
     mutable std::atomic<size_t> totalRoutedMessages{0};
     mutable std::atomic<size_t> totalRoutes{0};
+
+    // Batched logging (pour éviter spam)
+    static constexpr size_t LOG_BATCH_SIZE = 100;
+    mutable std::atomic<size_t> messagesSinceLastLog{0};
 
 public:
     IntraIOManager();

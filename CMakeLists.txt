@@ -25,6 +25,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
+# TopicTree - StillHammer's ultra-fast topic routing
+add_subdirectory(external/StillHammer/topictree)
+
 # Core library (INTERFACE - header-only pour les interfaces)
 add_library(grove_core INTERFACE)
 
@@ -69,6 +72,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
 
     target_link_libraries(grove_impl PUBLIC
         GroveEngine::core
+        topictree::topictree
         OpenSSL::Crypto
         spdlog::spdlog
         ${CMAKE_DL_LIBS}
