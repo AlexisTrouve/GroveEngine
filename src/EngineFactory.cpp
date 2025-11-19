@@ -2,7 +2,7 @@
 #include <fstream>
 #include <algorithm>
 #include <nlohmann/json.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <logger/Logger.h>
 
 using json = nlohmann::json;
 
@@ -183,15 +183,7 @@ std::shared_ptr<spdlog::logger> EngineFactory::getFactoryLogger() {
     static std::shared_ptr<spdlog::logger> logger = nullptr;
 
     if (!logger) {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::debug);
-
-        logger = std::make_shared<spdlog::logger>("EngineFactory", console_sink);
-        logger->set_level(spdlog::level::debug);
-        logger->flush_on(spdlog::level::debug);
-
-        // Register globally
-        spdlog::register_logger(logger);
+        logger = stillhammer::createDomainLogger("EngineFactory", "engine");
     }
 
     return logger;

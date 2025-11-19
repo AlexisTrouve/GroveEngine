@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <random>
 #include <functional>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <logger/Logger.h>
 
 // Include implemented transports
 #include <grove/IntraIO.h>
@@ -266,14 +266,7 @@ std::shared_ptr<spdlog::logger> IOFactory::getFactoryLogger() {
     static std::shared_ptr<spdlog::logger> logger = nullptr;
 
     if (!logger) {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::debug);
-
-        logger = std::make_shared<spdlog::logger>("IOFactory", console_sink);
-        logger->set_level(spdlog::level::debug);
-        logger->flush_on(spdlog::level::debug);
-
-        spdlog::register_logger(logger);
+        logger = stillhammer::createDomainLogger("IOFactory", "io");
     }
 
     return logger;

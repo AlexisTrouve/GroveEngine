@@ -6,20 +6,12 @@
 #include <unistd.h>
 #include <filesystem>
 #include <thread>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <logger/Logger.h>
 
 namespace grove {
 
 ModuleLoader::ModuleLoader() {
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_level(spdlog::level::debug);
-
-    logger = std::make_shared<spdlog::logger>("ModuleLoader", console_sink);
-    logger->set_level(spdlog::level::debug);
-    logger->flush_on(spdlog::level::debug);
-
-    spdlog::register_logger(logger);
-
+    logger = stillhammer::createDomainLogger("ModuleLoader", "engine");
     logger->info("🔧 ModuleLoader initialized");
 }
 

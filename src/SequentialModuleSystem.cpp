@@ -1,30 +1,12 @@
 #include <grove/SequentialModuleSystem.h>
 #include <grove/JsonDataNode.h>
 #include <stdexcept>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <logger/Logger.h>
 
 namespace grove {
 
 SequentialModuleSystem::SequentialModuleSystem() {
-    // Try to get existing logger first (avoid duplicate registration)
-    logger = spdlog::get("SequentialModuleSystem");
-
-    if (!logger) {
-        // Create logger with file and console output
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/sequential_system.log", true);
-
-        console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
-        file_sink->set_level(spdlog::level::trace);
-
-        logger = std::make_shared<spdlog::logger>("SequentialModuleSystem",
-            spdlog::sinks_init_list{console_sink, file_sink});
-        logger->set_level(spdlog::level::trace);
-        logger->flush_on(spdlog::level::debug);
-
-        spdlog::register_logger(logger);
-    }
+    logger = stillhammer::createDomainLogger("SequentialModuleSystem", "engine");
 
     logSystemStart();
     lastProcessTime = std::chrono::high_resolution_clock::now();

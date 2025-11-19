@@ -1,7 +1,7 @@
 #include <grove/ModuleSystemFactory.h>
 #include <algorithm>
 #include <thread>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <logger/Logger.h>
 
 // Include implemented systems
 #include <grove/SequentialModuleSystem.h>
@@ -210,14 +210,7 @@ std::shared_ptr<spdlog::logger> ModuleSystemFactory::getFactoryLogger() {
     static std::shared_ptr<spdlog::logger> logger = nullptr;
 
     if (!logger) {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::debug);
-
-        logger = std::make_shared<spdlog::logger>("ModuleSystemFactory", console_sink);
-        logger->set_level(spdlog::level::debug);
-        logger->flush_on(spdlog::level::debug);
-
-        spdlog::register_logger(logger);
+        logger = stillhammer::createDomainLogger("ModuleSystemFactory", "engine");
     }
 
     return logger;

@@ -7,31 +7,16 @@
 #include <fstream>
 #include <filesystem>
 #include <sstream>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <logger/Logger.h>
 
 namespace grove {
 
 using json = nlohmann::json;
 
 DebugEngine::DebugEngine() {
-    // Create comprehensive logger with multiple sinks
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/debug_engine.log", true);
-
-    console_sink->set_level(spdlog::level::trace);  // FULL VERBOSE MODE
-    file_sink->set_level(spdlog::level::trace);
-
-    logger = std::make_shared<spdlog::logger>("DebugEngine",
-        spdlog::sinks_init_list{console_sink, file_sink});
-    logger->set_level(spdlog::level::trace);
-    logger->flush_on(spdlog::level::debug);
-
-    // Register logger globally
-    spdlog::register_logger(logger);
+    logger = stillhammer::createDomainLogger("DebugEngine", "engine");
 
     logger->info("🔧 DebugEngine constructor - Maximum logging enabled");
-    logger->debug("📊 Console sink level: DEBUG, File sink level: TRACE");
     logger->trace("🏗️ DebugEngine object created at address: {}", static_cast<void*>(this));
 }
 

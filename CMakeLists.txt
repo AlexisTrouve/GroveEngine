@@ -74,6 +74,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
     target_link_libraries(grove_impl PUBLIC
         GroveEngine::core
         topictree::topictree
+        stillhammer_logger
         OpenSSL::Crypto
         spdlog::spdlog
         ${CMAKE_DL_LIBS}
