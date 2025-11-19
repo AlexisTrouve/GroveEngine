@@ -31,7 +31,8 @@ int main() {
     const float FRAME_TIME = 1.0f / TARGET_FPS;
 
     std::string modulePath = "./libTestModule.so";
-    std::string sourcePath = "tests/modules/TestModule.cpp";
+    // Test runs from build/tests/, so source files are at ../../tests/modules/
+    std::string sourcePath = "../../tests/modules/TestModule.cpp";
     std::string buildDir = "build";
 
     // === ATOMIC COUNTERS (Thread-safe) ===

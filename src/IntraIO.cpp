@@ -1,10 +1,16 @@
 #include <grove/IntraIO.h>
+#include <grove/IntraIOManager.h>
 #include <grove/JsonDataNode.h>
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
 
 namespace grove {
+
+// Factory function for IntraIOManager to avoid circular include
+std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId) {
+    return std::make_shared<IntraIO>(instanceId);
+}
 
 IntraIO::IntraIO(const std::string& id) : instanceId(id) {
     std::cout << "[IntraIO] Created instance: " << instanceId << std::endl;
@@ -18,15 +24,19 @@ IntraIO::~IntraIO() {
 void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> message) {
     std::lock_guard<std::mutex> lock(operationMutex);
 
-    // Create message and move data
-    Message msg;
-    msg.topic = topic;
-    msg.data = std::move(message);
-    msg.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-
-    messageQueue.push(std::move(msg));
     totalPublished++;
+
+    // Extract JSON data from the DataNode
+    auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
+    if (!jsonNode) {
+        throw std::runtime_error("IntraIO::publish() requires JsonDataNode for message data");
+    }
+
+    // Get the JSON data (this is a const reference, no copy yet)
+    const nlohmann::json& jsonData = jsonNode->getJsonData();
+
+    // Route message via central manager (this will copy JSON for each subscriber)
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonData);
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, const SubscriptionConfig& config) {
@@ -39,6 +49,9 @@ void IntraIO::subscribe(const std::string& topicPattern, const SubscriptionConfi
     sub.lastBatch = std::chrono::high_resolution_clock::now();
 
     highFreqSubscriptions.push_back(std::move(sub));
+
+    // Register subscription with central manager for routing
+    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, false);
 }
 
 void IntraIO::subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config) {
@@ -51,6 +64,9 @@ void IntraIO::subscribeLowFreq(const std::string& topicPattern, const Subscripti
     sub.lastBatch = std::chrono::high_resolution_clock::now();
 
     lowFreqSubscriptions.push_back(std::move(sub));
+
+    // Register subscription with central manager for routing
+    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true);
 }
 
 int IntraIO::hasMessages() const {

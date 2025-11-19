@@ -34,27 +34,32 @@ int main() {
 
     auto dataRoot = tree->getDataRoot();
 
-    // Create player node directly through tree
+    // Create player node and add it to data root
     auto playerNode = std::make_unique<JsonDataNode>("player", nlohmann::json::object());
 
-    // Test setInt
+    // Test setters on the node before adding to tree
     playerNode->setInt("score", 100);
-    ASSERT_EQ(playerNode->getInt("score"), 100, "setInt should work");
+    playerNode->setString("name", "Player1");
+    playerNode->setBool("active", true);
+    playerNode->setDouble("ratio", 3.14);
+
+    // Add to tree
+    dataRoot->setChild("player", std::move(playerNode));
+
+    // Retrieve and test getters
+    auto retrievedPlayer = dataRoot->getChild("player");
+    ASSERT_TRUE(retrievedPlayer != nullptr, "Player node should exist");
+
+    ASSERT_EQ(retrievedPlayer->getInt("score"), 100, "setInt should work");
     std::cout << "  ✓ setInt/getInt works\n";
 
-    // Test setString
-    playerNode->setString("name", "Player1");
-    ASSERT_EQ(playerNode->getString("name"), "Player1", "setString should work");
+    ASSERT_EQ(retrievedPlayer->getString("name"), "Player1", "setString should work");
     std::cout << "  ✓ setString/getString works\n";
 
-    // Test setBool
-    playerNode->setBool("active", true);
-    ASSERT_EQ(playerNode->getBool("active"), true, "setBool should work");
+    ASSERT_EQ(retrievedPlayer->getBool("active"), true, "setBool should work");
     std::cout << "  ✓ setBool/getBool works\n";
 
-    // Test setDouble
-    playerNode->setDouble("ratio", 3.14);
-    double ratio = playerNode->getDouble("ratio");
+    double ratio = retrievedPlayer->getDouble("ratio");
     ASSERT_TRUE(std::abs(ratio - 3.14) < 0.001, "setDouble should work");
     std::cout << "  ✓ setDouble/getDouble works\n";
 
@@ -89,23 +94,24 @@ int main() {
     // ========================================================================
     std::cout << "\n=== TEST 3: Tree Hash ===\n";
 
-    auto root = std::make_unique<JsonDataNode>("root", nlohmann::json::object());
+    // Use data root to have a writable node
+    auto hashTestRoot = tree->getDataRoot();
+
     auto child1 = std::make_unique<JsonDataNode>("child1", nlohmann::json{{"data", 1}});
     auto child2 = std::make_unique<JsonDataNode>("child2", nlohmann::json{{"data", 2}});
 
-    // Get raw pointers before moving
-    auto* child1Ptr = child1.get();
+    hashTestRoot->setChild("child1", std::move(child1));
+    hashTestRoot->setChild("child2", std::move(child2));
 
-    root->setChild("child1", std::move(child1));
-    root->setChild("child2", std::move(child2));
-
-    std::string treeHash1 = root->getTreeHash();
+    std::string treeHash1 = hashTestRoot->getTreeHash();
     std::cout << "  Tree Hash 1: " << treeHash1.substr(0, 16) << "...\n";
 
-    // Modify child1 through parent
-    child1Ptr->setInt("data", 999);
+    // Modify child1: retrieve, modify, and put back
+    auto child1Retrieved = hashTestRoot->getChild("child1");
+    child1Retrieved->setInt("data", 999);
+    hashTestRoot->setChild("child1", std::move(child1Retrieved));
 
-    std::string treeHash2 = root->getTreeHash();
+    std::string treeHash2 = hashTestRoot->getTreeHash();
     std::cout << "  Tree Hash 2: " << treeHash2.substr(0, 16) << "...\n";
 
     ASSERT_TRUE(treeHash1 != treeHash2, "Tree hash should change when child changes");
@@ -118,6 +124,7 @@ int main() {
     // ========================================================================
     std::cout << "\n=== TEST 4: Property Queries ===\n";
 
+    // Create an isolated vehicles container
     auto vehiclesNode = std::make_unique<JsonDataNode>("vehicles", nlohmann::json::object());
 
     // Create vehicles with different armor values
@@ -130,6 +137,7 @@ int main() {
     vehiclesNode->setChild("scout", std::move(scout));
 
     // Query: armor > 100
+    // Note: queryByProperty searches recursively in the subtree
     auto armoredVehicles = vehiclesNode->queryByProperty("armor",
         [](const IDataValue& val) {
             return val.isNumber() && val.asInt() > 100;
@@ -151,6 +159,7 @@ int main() {
     // ========================================================================
     std::cout << "\n=== TEST 5: Pattern Matching ===\n";
 
+    // Create an isolated units container
     auto unitsNode = std::make_unique<JsonDataNode>("units", nlohmann::json::object());
 
     auto heavy_mk1 = std::make_unique<JsonDataNode>("heavy_mk1", nlohmann::json{{"type", "tank"}});
@@ -164,6 +173,8 @@ int main() {
     unitsNode->setChild("light_scout", std::move(light_scout));
 
     // Pattern: *heavy*
+    // Note: getChildrenByNameMatch searches recursively in the entire subtree
+    // It will match children whose names contain "heavy"
     auto heavyUnits = unitsNode->getChildrenByNameMatch("*heavy*");
     std::cout << "  Pattern '*heavy*' matched: " << heavyUnits.size() << " units\n";
     for (const auto& node : heavyUnits) {

@@ -287,6 +287,71 @@ target_link_libraries(test_12_datanode PRIVATE
 add_test(NAME LimitsTest COMMAND test_07_limits WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 add_test(NAME DataNodeTest COMMAND test_12_datanode WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+# ConfigWatcherModule for cross-system integration tests
+add_library(ConfigWatcherModule SHARED
+    modules/ConfigWatcherModule.cpp
+)
+
+target_link_libraries(ConfigWatcherModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# PlayerModule for cross-system integration tests
+add_library(PlayerModule SHARED
+    modules/PlayerModule.cpp
+)
+
+target_link_libraries(PlayerModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# EconomyModule for cross-system integration tests
+add_library(EconomyModule SHARED
+    modules/EconomyModule.cpp
+)
+
+target_link_libraries(EconomyModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# MetricsModule for cross-system integration tests
+add_library(MetricsModule SHARED
+    modules/MetricsModule.cpp
+)
+
+target_link_libraries(MetricsModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 13: Cross-System Integration (IO + DataNode)
+add_executable(test_13_cross_system
+    integration/test_13_cross_system.cpp
+)
+
+target_link_libraries(test_13_cross_system PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_13_cross_system
+    ConfigWatcherModule
+    PlayerModule
+    EconomyModule
+    MetricsModule
+)
+
+# CTest integration
+add_test(NAME CrossSystemIntegration COMMAND test_13_cross_system WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigurableModule pour tests de config hot-reload
 add_library(ConfigurableModule SHARED
     modules/ConfigurableModule.cpp
@@ -411,3 +476,78 @@ add_dependencies(test_10_multiversion_coexistence GameLogicModuleV1 GameLogicMod
 
 # CTest integration
 add_test(NAME MultiVersionCoexistence COMMAND test_10_multiversion_coexistence WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# ================================================================================
+# IO System Test Modules (Scenario 11)
+# ================================================================================
+
+# ProducerModule for IO testing
+add_library(ProducerModule SHARED
+    modules/ProducerModule.cpp
+)
+
+target_link_libraries(ProducerModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# ConsumerModule for IO testing
+add_library(ConsumerModule SHARED
+    modules/ConsumerModule.cpp
+)
+
+target_link_libraries(ConsumerModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# BroadcastModule for IO testing
+add_library(BroadcastModule SHARED
+    modules/BroadcastModule.cpp
+)
+
+target_link_libraries(BroadcastModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# BatchModule for IO testing
+add_library(BatchModule SHARED
+    modules/BatchModule.cpp
+)
+
+target_link_libraries(BatchModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# IOStressModule for IO testing
+add_library(IOStressModule SHARED
+    modules/IOStressModule.cpp
+)
+
+target_link_libraries(IOStressModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# Test 11: IO System Stress Test - IntraIO pub/sub validation
+add_executable(test_11_io_system
+    integration/test_11_io_system.cpp
+)
+
+target_link_libraries(test_11_io_system PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+add_dependencies(test_11_io_system ProducerModule ConsumerModule BroadcastModule BatchModule IOStressModule)
+
+# CTest integration
+add_test(NAME IOSystemStress COMMAND test_11_io_system WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

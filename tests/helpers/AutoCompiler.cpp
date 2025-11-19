@@ -81,8 +81,14 @@ bool AutoCompiler::compile(int iteration) {
     // Small delay to ensure file is written
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Build the module using CMake
-    std::string command = "cmake --build " + buildDir_ + " --target " + moduleName_ + " 2>&1 > /dev/null";
+    // Build the module using make
+    // Note: Tests run from build/tests/, so we use make -C .. to build from build directory
+    std::string command;
+    if (buildDir_ == "build") {
+        command = "make -C .. " + moduleName_ + " 2>&1 > /dev/null";
+    } else {
+        command = "make -C " + buildDir_ + " " + moduleName_ + " 2>&1 > /dev/null";
+    }
     int result = std::system(command.c_str());
 
     return (result == 0);

@@ -105,7 +105,8 @@ int main() {
     // Modifier version dans source (HEADER)
     std::cout << "  1. Modifying source code (v1.0 -> v2.0 HOT-RELOADED)...\n";
 
-    std::ifstream input("tests/modules/TankModule.h");
+    // Test runs from build/tests/, so source files are at ../../tests/modules/
+    std::ifstream input("../../tests/modules/TankModule.h");
     std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     input.close();
 
@@ -114,13 +115,14 @@ int main() {
         content.replace(pos, 39, "std::string moduleVersion = \"v2.0 HOT-RELOADED\";");
     }
 
-    std::ofstream output("tests/modules/TankModule.h");
+    std::ofstream output("../../tests/modules/TankModule.h");
     output << content;
     output.close();
 
     // Recompiler
     std::cout << "  2. Recompiling module...\n";
-    int buildResult = system("cmake --build build --target TankModule 2>&1 > /dev/null");
+    // Note: This test runs from build/tests/, so we use make -C .. to build from build directory
+    int buildResult = system("make -C .. TankModule 2>&1 > /dev/null");
     if (buildResult != 0) {
         std::cerr << "❌ Compilation failed!\n";
         return 1;
@@ -240,7 +242,7 @@ int main() {
     std::cout << "\nCleaning up...\n";
 
     // Restaurer version originale (HEADER)
-    std::ifstream inputRestore("tests/modules/TankModule.h");
+    std::ifstream inputRestore("../../tests/modules/TankModule.h");
     std::string contentRestore((std::istreambuf_iterator<char>(inputRestore)), std::istreambuf_iterator<char>());
     inputRestore.close();
 
@@ -249,11 +251,12 @@ int main() {
         contentRestore.replace(pos, 50, "std::string moduleVersion = \"v1.0\";");
     }
 
-    std::ofstream outputRestore("tests/modules/TankModule.h");
+    std::ofstream outputRestore("../../tests/modules/TankModule.h");
     outputRestore << contentRestore;
     outputRestore.close();
 
-    system("cmake --build build --target TankModule 2>&1 > /dev/null");
+    // Rebuild to restore original version (test runs from build/tests/)
+    system("make -C .. TankModule 2>&1 > /dev/null");
 
     // === RAPPORTS ===
     std::cout << "\n";

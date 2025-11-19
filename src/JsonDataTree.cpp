@@ -207,6 +207,18 @@ bool JsonDataTree::reloadIfChanged() {
     try {
         loadConfigTree();
 
+        // Re-attach config root to main root
+        m_root->setChild("config", std::move(m_configRoot));
+
+        // Recreate m_configRoot for future access
+        auto* configNode = static_cast<JsonDataNode*>(m_root->getFirstChildByName("config"));
+        if (configNode) {
+            m_configRoot = std::make_unique<JsonDataNode>(configNode->getName(),
+                                                          configNode->getJsonData(),
+                                                          nullptr,
+                                                          true);
+        }
+
         // Trigger callbacks
         for (auto& callback : m_reloadCallbacks) {
             callback();
@@ -299,7 +311,7 @@ bool JsonDataTree::loadDataDirectory() {
 
 void JsonDataTree::loadConfigTree() {
     std::string configPath = m_basePath + "/config";
-    m_configRoot = std::make_unique<JsonDataNode>("config", json::object(), nullptr, true);
+    m_configRoot = std::make_unique<JsonDataNode>("config", json::object(), nullptr, false);  // NOT read-only itself
 
     if (fs::exists(configPath) && fs::is_directory(configPath)) {
         scanDirectory(configPath, m_configRoot.get(), true);

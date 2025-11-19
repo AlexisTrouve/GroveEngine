@@ -1,5 +1,6 @@
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
+#include <grove/JsonDataNode.h>
 #include <stdexcept>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -99,7 +100,7 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
     return nullptr;
 }
 
-void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, std::unique_ptr<IDataNode> message) {
+void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& messageData) {
     std::lock_guard<std::mutex> lock(managerMutex);
 
     totalRoutedMessages++;
@@ -115,30 +116,28 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
         }
 
         // Check pattern match
-        logger->info("  🔍 Testing pattern '{}' against topic '{}'", route.originalPattern, topic);
+        logger->debug("  🔍 Testing pattern '{}' against topic '{}'", route.originalPattern, topic);
         if (std::regex_match(topic, route.pattern)) {
             auto targetInstance = instances.find(route.instanceId);
             if (targetInstance != instances.end()) {
-                // Clone message for each recipient (except the last one)
-                // TODO: implement IDataNode::clone() for proper deep copy
-                // For now we'll need to move for the last recipient
-                // This is a limitation that will need IDataNode cloning support
+                // Copy JSON data for each recipient (JSON is copyable!)
+                json dataCopy = messageData;
 
-                // Direct delivery to target instance's queue
-                // Note: This will move the message, so only the first match will receive it
-                // Full implementation needs IDataNode::clone()
-                targetInstance->second->deliverMessage(topic, std::move(message), route.isLowFreq);
+                // Recreate DataNode from JSON copy
+                auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
+
+                // Deliver to target instance's queue
+                targetInstance->second->deliverMessage(topic, std::move(dataNode), route.isLowFreq);
                 deliveredCount++;
                 logger->info("  ↪️ Delivered to '{}' ({})",
                              route.instanceId,
                              route.isLowFreq ? "low-freq" : "high-freq");
-                // Break after first delivery since we moved the message
-                break;
+                // Continue to next route (now we can deliver to multiple subscribers!)
             } else {
                 logger->warn("⚠️ Target instance '{}' not found for route", route.instanceId);
             }
         } else {
-            logger->info("  ❌ Pattern '{}' did not match topic '{}'", route.originalPattern, topic);
+            logger->debug("  ❌ Pattern '{}' did not match topic '{}'", route.originalPattern, topic);
         }
     }
 
