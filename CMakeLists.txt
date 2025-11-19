@@ -25,8 +25,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-# TopicTree - StillHammer's ultra-fast topic routing
-add_subdirectory(external/StillHammer/topictree)
+# StillHammer libraries
+add_subdirectory(external/StillHammer/topictree)  # Ultra-fast topic routing
+add_subdirectory(external/StillHammer/logger)     # Domain-organized logging
 
 # Core library (INTERFACE - header-only pour les interfaces)
 add_library(grove_core INTERFACE)

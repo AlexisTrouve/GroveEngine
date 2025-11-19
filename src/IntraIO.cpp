@@ -66,7 +66,7 @@ void IntraIO::subscribeLowFreq(const std::string& topicPattern, const Subscripti
     lowFreqSubscriptions.push_back(std::move(sub));
 
     // Register subscription with central manager for routing
-    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true);
+    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true, config.batchInterval);
 }
 
 int IntraIO::hasMessages() const {

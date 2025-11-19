@@ -23,9 +23,21 @@ IntraIOManager::IntraIOManager() {
     spdlog::register_logger(logger);
 
     logger->info("🌐🔗 IntraIOManager created - Central message router initialized");
+
+    // Start batch flush thread
+    batchThreadRunning = true;
+    batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
+    logger->info("🔄 Batch flush thread started");
 }
 
 IntraIOManager::~IntraIOManager() {
+    // Stop batch thread first
+    batchThreadRunning = false;
+    if (batchThread.joinable()) {
+        batchThread.join();
+    }
+    logger->info("🛑 Batch flush thread stopped");
+
     std::lock_guard<std::mutex> lock(managerMutex);
 
     auto stats = getRoutingStats();
@@ -37,7 +49,8 @@ IntraIOManager::~IntraIOManager() {
     instances.clear();
     topicTree.clear();
     instancePatterns.clear();
-    subscriptionFreqMap.clear();
+    subscriptionInfoMap.clear();
+    batchBuffers.clear();
 
     logger->info("🌐🔗 IntraIOManager destroyed");
 }
@@ -129,28 +142,66 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
 
         auto targetInstance = instances.find(subscriberId);
         if (targetInstance != instances.end()) {
-            // Copy JSON data for each recipient (JSON is copyable!)
-            json dataCopy = messageData;
-
-            // Recreate DataNode from JSON copy
-            auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
-
-            // Get frequency info (default to false if not found)
+            // Get subscription info for this subscriber
+            // IMPORTANT: We need to find which pattern actually matched this topic!
             bool isLowFreq = false;
+            std::string matchedPattern;
+
+            // Helper lambda to check if a pattern matches a topic
+            auto patternMatches = [](const std::string& pattern, const std::string& topic) -> bool {
+                // Simple wildcard matching: convert pattern to check
+                // pattern: "batch:.*" matches topic: "batch:metric"
+                // pattern: "player:*" matches topic: "player:123" but not "player:123:health"
+
+                size_t ppos = 0, tpos = 0;
+                while (ppos < pattern.size() && tpos < topic.size()) {
+                    if (pattern.substr(ppos, 2) == ".*") {
+                        // Multi-level wildcard - matches everything from here
+                        return true;
+                    } else if (pattern[ppos] == '*') {
+                        // Single-level wildcard - match until next : or end
+                        while (tpos < topic.size() && topic[tpos] != ':') {
+                            tpos++;
+                        }
+                        ppos++;
+                    } else if (pattern[ppos] == topic[tpos]) {
+                        ppos++;
+                        tpos++;
+                    } else {
+                        return false;
+                    }
+                }
+                return ppos == pattern.size() && tpos == topic.size();
+            };
+
             for (const auto& pattern : instancePatterns[subscriberId]) {
-                auto it = subscriptionFreqMap.find(pattern);
-                if (it != subscriptionFreqMap.end()) {
-                    isLowFreq = it->second;
+                auto it = subscriptionInfoMap.find(pattern);
+                if (it != subscriptionInfoMap.end() && patternMatches(pattern, topic)) {
+                    isLowFreq = it->second.isLowFreq;
+                    matchedPattern = pattern;
                     break;
                 }
             }
 
-            // Deliver to target instance's queue
-            targetInstance->second->deliverMessage(topic, std::move(dataNode), isLowFreq);
-            deliveredCount++;
-            logger->trace("  ↪️ Delivered to '{}' ({})",
-                          subscriberId,
-                          isLowFreq ? "low-freq" : "high-freq");
+            if (isLowFreq) {
+                // Add to batch buffer instead of immediate delivery
+                std::lock_guard<std::mutex> batchLock(batchMutex);
+
+                auto& buffer = batchBuffers[matchedPattern];
+                buffer.instanceId = subscriberId;
+                buffer.pattern = matchedPattern;
+                buffer.messages.push_back({topic, messageData});
+
+                deliveredCount++;
+                logger->trace("  📦 Buffered for '{}' (low-freq batch)", subscriberId);
+            } else {
+                // High-freq: immediate delivery
+                json dataCopy = messageData;
+                auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
+                targetInstance->second->deliverMessage(topic, std::move(dataNode), false);
+                deliveredCount++;
+                logger->trace("  ↪️ Delivered to '{}' (high-freq)", subscriberId);
+            }
         } else {
             logger->warn("⚠️ Target instance '{}' not found", subscriberId);
         }
@@ -160,7 +211,7 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
     logger->trace("📤 Message '{}' delivered to {} instances", topic, deliveredCount);
 }
 
-void IntraIOManager::registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq) {
+void IntraIOManager::registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq, int batchInterval) {
     std::lock_guard<std::mutex> lock(managerMutex);
 
     try {
@@ -169,12 +220,28 @@ void IntraIOManager::registerSubscription(const std::string& instanceId, const s
 
         // Track pattern for management
         instancePatterns[instanceId].push_back(pattern);
-        subscriptionFreqMap[pattern] = isLowFreq;
+
+        SubscriptionInfo info;
+        info.instanceId = instanceId;
+        info.isLowFreq = isLowFreq;
+        info.batchInterval = batchInterval;
+        subscriptionInfoMap[pattern] = info;
+
+        // Initialize batch buffer if low-freq
+        if (isLowFreq) {
+            std::lock_guard<std::mutex> batchLock(batchMutex);
+            auto& buffer = batchBuffers[pattern];
+            buffer.instanceId = instanceId;
+            buffer.pattern = pattern;
+            buffer.batchInterval = batchInterval;
+            buffer.lastFlush = std::chrono::steady_clock::now();
+            buffer.messages.clear();
+        }
 
         totalRoutes++;
 
-        logger->info("📋 Registered subscription: '{}' → '{}' ({})",
-                    instanceId, pattern, isLowFreq ? "low-freq" : "high-freq");
+        logger->info("📋 Registered subscription: '{}' → '{}' ({}, interval={}ms)",
+                    instanceId, pattern, isLowFreq ? "low-freq" : "high-freq", batchInterval);
 
     } catch (const std::exception& e) {
         logger->error("❌ Failed to register subscription '{}' for '{}': {}",
@@ -193,7 +260,13 @@ void IntraIOManager::unregisterSubscription(const std::string& instanceId, const
     auto& patterns = instancePatterns[instanceId];
     patterns.erase(std::remove(patterns.begin(), patterns.end(), pattern), patterns.end());
 
-    subscriptionFreqMap.erase(pattern);
+    subscriptionInfoMap.erase(pattern);
+
+    // Remove batch buffer if exists
+    {
+        std::lock_guard<std::mutex> batchLock(batchMutex);
+        batchBuffers.erase(pattern);
+    }
 
     logger->info("🗑️ Unregistered subscription: '{}' → '{}'", instanceId, pattern);
 }
@@ -204,7 +277,12 @@ void IntraIOManager::clearAllRoutes() {
     auto clearedCount = topicTree.subscriberCount();
     topicTree.clear();
     instancePatterns.clear();
-    subscriptionFreqMap.clear();
+    subscriptionInfoMap.clear();
+
+    {
+        std::lock_guard<std::mutex> batchLock(batchMutex);
+        batchBuffers.clear();
+    }
 
     logger->info("🧹 Cleared {} routing entries", clearedCount);
 }
@@ -249,6 +327,73 @@ json IntraIOManager::getRoutingStats() const {
 void IntraIOManager::setLogLevel(spdlog::level::level_enum level) {
     logger->set_level(level);
     logger->info("📝 Log level set to: {}", spdlog::level::to_string_view(level));
+}
+
+// Batch flush loop - runs in separate thread
+void IntraIOManager::batchFlushLoop() {
+    logger->info("🔄 Batch flush loop started");
+
+    while (batchThreadRunning) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Check all batch buffers and flush if needed
+        std::lock_guard<std::mutex> batchLock(batchMutex);
+        auto now = std::chrono::steady_clock::now();
+
+        for (auto& [pattern, buffer] : batchBuffers) {
+            if (buffer.messages.empty()) {
+                continue;
+            }
+
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - buffer.lastFlush).count();
+
+            if (elapsed >= buffer.batchInterval) {
+                flushBatchBuffer(buffer);
+                buffer.lastFlush = now;
+            }
+        }
+    }
+
+    logger->info("🔄 Batch flush loop stopped");
+}
+
+void IntraIOManager::flushBatchBuffer(BatchBuffer& buffer) {
+    if (buffer.messages.empty()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(managerMutex);
+
+    auto targetInstance = instances.find(buffer.instanceId);
+    if (targetInstance == instances.end()) {
+        logger->warn("⚠️ Cannot flush batch for '{}': instance not found", buffer.instanceId);
+        buffer.messages.clear();
+        return;
+    }
+
+    size_t batchSize = buffer.messages.size();
+    logger->debug("📦 Flushing batch for '{}': {} messages", buffer.instanceId, batchSize);
+
+    // Create a single batch message containing all messages as an array
+    json batchArray = json::array();
+    std::string firstTopic;
+
+    for (const auto& [topic, messageData] : buffer.messages) {
+        if (firstTopic.empty()) {
+            firstTopic = topic;
+        }
+        batchArray.push_back({
+            {"topic", topic},
+            {"data", messageData}
+        });
+    }
+
+    // Deliver ONE batch message containing the array
+    auto batchDataNode = std::make_unique<JsonDataNode>("batch", batchArray);
+    targetInstance->second->deliverMessage(firstTopic, std::move(batchDataNode), true);
+
+    buffer.messages.clear();
 }
 
 // Singleton implementation

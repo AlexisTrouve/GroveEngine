@@ -5,6 +5,9 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
+#include <thread>
+#include <chrono>
+#include <atomic>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
@@ -51,6 +54,7 @@ private:
     struct SubscriptionInfo {
         std::string instanceId;
         bool isLowFreq;
+        int batchInterval; // milliseconds
     };
 
     // Ultra-fast topic routing using TopicTree
@@ -58,7 +62,23 @@ private:
 
     // Track subscription info per instance (for management)
     std::unordered_map<std::string, std::vector<std::string>> instancePatterns;  // instanceId -> patterns
-    std::unordered_map<std::string, bool> subscriptionFreqMap;  // pattern -> isLowFreq
+    std::unordered_map<std::string, SubscriptionInfo> subscriptionInfoMap;  // pattern -> subscription info
+
+    // Batching for low-frequency subscriptions
+    struct BatchBuffer {
+        std::string instanceId;
+        std::string pattern;
+        int batchInterval;
+        std::chrono::steady_clock::time_point lastFlush;
+        std::vector<std::pair<std::string, json>> messages; // topic + data pairs
+    };
+    std::unordered_map<std::string, BatchBuffer> batchBuffers; // pattern -> buffer
+    mutable std::mutex batchMutex;
+    std::thread batchThread;
+    std::atomic<bool> batchThreadRunning{false};
+
+    void batchFlushLoop();
+    void flushBatchBuffer(BatchBuffer& buffer);
 
     // Statistics
     mutable std::atomic<size_t> totalRoutedMessages{0};
@@ -80,7 +100,7 @@ public:
 
     // Routing (called by IntraIO instances)
     void routeMessage(const std::string& sourceid, const std::string& topic, const json& messageData);
-    void registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq);
+    void registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq, int batchInterval = 1000);
     void unregisterSubscription(const std::string& instanceId, const std::string& pattern);
 
     // Management
