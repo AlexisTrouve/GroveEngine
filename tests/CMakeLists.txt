@@ -551,3 +551,78 @@ add_dependencies(test_11_io_system ProducerModule ConsumerModule BroadcastModule
 
 # CTest integration
 add_test(NAME IOSystemStress COMMAND test_11_io_system WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# ================================================================================
+# Benchmarks
+# ================================================================================
+
+# Benchmark helpers demo
+add_executable(benchmark_helpers_demo
+    benchmarks/benchmark_helpers_demo.cpp
+)
+
+target_include_directories(benchmark_helpers_demo PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_helpers_demo PRIVATE
+    GroveEngine::core
+)
+
+# TopicTree routing benchmark
+add_executable(benchmark_topictree
+    benchmarks/benchmark_topictree.cpp
+)
+
+target_include_directories(benchmark_topictree PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_topictree PRIVATE
+    GroveEngine::core
+    topictree::topictree
+)
+
+# IntraIO batching benchmark
+add_executable(benchmark_batching
+    benchmarks/benchmark_batching.cpp
+)
+
+target_include_directories(benchmark_batching PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_batching PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    topictree::topictree
+)
+
+# DataNode read-only API benchmark
+add_executable(benchmark_readonly
+    benchmarks/benchmark_readonly.cpp
+)
+
+target_include_directories(benchmark_readonly PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_readonly PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# End-to-end real world benchmark
+add_executable(benchmark_e2e
+    benchmarks/benchmark_e2e.cpp
+)
+
+target_include_directories(benchmark_e2e PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_e2e PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    topictree::topictree
+)
