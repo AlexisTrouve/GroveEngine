@@ -6,6 +6,9 @@
 #include <chrono>
 #include <iostream>
 #include <cstdlib>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 namespace TestHelpers {
 
@@ -85,13 +88,19 @@ bool AutoCompiler::compile(int iteration) {
     // Note: Tests run from build/tests/, so we use make -C .. to build from build directory
     std::string command;
     if (buildDir_ == "build") {
-        command = "make -C .. " + moduleName_ + " 2>&1 > /dev/null";
+        command = "make -C .. " + moduleName_ + " > /dev/null 2>&1";
     } else {
-        command = "make -C " + buildDir_ + " " + moduleName_ + " 2>&1 > /dev/null";
+        command = "make -C " + buildDir_ + " " + moduleName_ + " > /dev/null 2>&1";
     }
     int result = std::system(command.c_str());
 
-    return (result == 0);
+    // std::system returns exit status in platform-specific format
+    // WEXITSTATUS is the correct way to extract it on POSIX systems
+    #ifdef _WIN32
+        return (result == 0);
+    #else
+        return (WEXITSTATUS(result) == 0);
+    #endif
 }
 
 void AutoCompiler::compilationLoop(int iterations, int intervalMs) {
