@@ -57,10 +57,20 @@ public:
     /**
      * @brief Get persistent data root (read-write, saved to disk)
      * @return Data root node (data/)
+     * @warning Creates a copy. Use getDataRootReadOnly() for non-destructive reads.
      *
      * Use for: Campaign progress, unlocks, player statistics
      */
     virtual std::unique_ptr<IDataNode> getDataRoot() = 0;
+
+    /**
+     * @brief Get persistent data root (read-only, no copy)
+     * @return Raw pointer to data root node (data/)
+     * @note Pointer is valid as long as the tree exists
+     *
+     * Use for: Reading data without making copies
+     */
+    virtual IDataNode* getDataRootReadOnly() = 0;
 
     /**
      * @brief Get runtime data root (read-write, never saved)

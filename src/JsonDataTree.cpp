@@ -88,6 +88,11 @@ std::unique_ptr<IDataNode> JsonDataTree::getDataRoot() {
                                           false);
 }
 
+IDataNode* JsonDataTree::getDataRootReadOnly() {
+    // Return raw pointer without copying - valid as long as tree exists
+    return m_root->getFirstChildByName("data");
+}
+
 std::unique_ptr<IDataNode> JsonDataTree::getRuntimeRoot() {
     auto runtimeNode = m_root->getFirstChildByName("runtime");
     if (!runtimeNode) {

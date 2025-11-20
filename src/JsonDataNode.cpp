@@ -27,6 +27,15 @@ std::unique_ptr<IDataNode> JsonDataNode::getChild(const std::string& name) {
                                           it->second->m_readOnly);
 }
 
+IDataNode* JsonDataNode::getChildReadOnly(const std::string& name) {
+    auto it = m_children.find(name);
+    if (it == m_children.end()) {
+        return nullptr;
+    }
+    // Return raw pointer without copying - valid as long as parent exists
+    return it->second.get();
+}
+
 std::vector<std::string> JsonDataNode::getChildNames() {
     std::vector<std::string> names;
     names.reserve(m_children.size());

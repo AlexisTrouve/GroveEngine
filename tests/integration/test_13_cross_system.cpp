@@ -186,14 +186,17 @@ int main() {
         messagesReceived++;
         std::cout << "  EconomyModule received: " << msg.topic << "\n";
 
-        // Read player data from tree
-        auto playerData = tree->getDataRoot()->getChild("player");
-        if (playerData) {
-            auto profileData = playerData->getChild("profile");
-            if (profileData) {
-                int gold = profileData->getInt("gold");
-                std::cout << "  Player gold: " << gold << "\n";
-                ASSERT_EQ(gold, 1000, "Gold should match saved value");
+        // Read player data from tree using read-only access
+        auto dataRoot = tree->getDataRoot();
+        if (dataRoot) {
+            auto playerData = dataRoot->getChildReadOnly("player");
+            if (playerData) {
+                auto profileData = playerData->getChildReadOnly("profile");
+                if (profileData) {
+                    int gold = profileData->getInt("gold");
+                    std::cout << "  Player gold: " << gold << "\n";
+                    ASSERT_EQ(gold, 1000, "Gold should match saved value");
+                }
             }
         }
     }
@@ -211,14 +214,16 @@ int main() {
     int syncErrors = 0;
 
     for (int i = 0; i < 10; i++) {
-        // Update gold in DataNode
+        // Update gold in DataNode using read-only access
         int goldValue = 1000 + i * 10;
-        auto playerNode = tree->getDataRoot()->getChild("player");
-        if (playerNode) {
-            auto profileNode = playerNode->getChild("profile");
-            if (profileNode) {
-                profileNode->setInt("gold", goldValue);
-                // Note: Changes are applied directly, no need to move nodes back
+        auto dataRoot = tree->getDataRoot();
+        if (dataRoot) {
+            auto playerNode = dataRoot->getChildReadOnly("player");
+            if (playerNode) {
+                auto profileNode = playerNode->getChildReadOnly("profile");
+                if (profileNode) {
+                    profileNode->setInt("gold", goldValue);
+                }
             }
         }
 
@@ -236,16 +241,19 @@ int main() {
             auto msg = economyIO->pullMessage();
             int msgGold = msg.data->getInt("gold");
 
-            // Read from DataNode
-            auto playerCheck = tree->getDataRoot()->getChild("player");
-            if (playerCheck) {
-                auto profileCheck = playerCheck->getChild("profile");
-                if (profileCheck) {
-                    int dataGold = profileCheck->getInt("gold");
+            // Read from DataNode using read-only access
+            auto dataRoot = tree->getDataRoot();
+            if (dataRoot) {
+                auto playerCheck = dataRoot->getChildReadOnly("player");
+                if (playerCheck) {
+                    auto profileCheck = playerCheck->getChildReadOnly("profile");
+                    if (profileCheck) {
+                        int dataGold = profileCheck->getInt("gold");
 
-                    if (msgGold != dataGold) {
-                        std::cerr << "  SYNC ERROR: msg=" << msgGold << " data=" << dataGold << "\n";
-                        syncErrors++;
+                        if (msgGold != dataGold) {
+                            std::cerr << "  SYNC ERROR: msg=" << msgGold << " data=" << dataGold << "\n";
+                            syncErrors++;
+                        }
                     }
                 }
             }
@@ -306,12 +314,31 @@ int main() {
     std::cout << "✓ TEST 4 PASSED\n";
 
     // ========================================================================
-    // TEST 5: Concurrent Access (IO Only - DataNode concurrent reads not supported yet)
+    // TEST 5: Concurrent Access (IO + DataNode with new read-only API)
     // ========================================================================
-    std::cout << "\n=== TEST 5: Concurrent Access (IO Publishing) ===\n";
+    std::cout << "\n=== TEST 5: Concurrent Access (IO + DataNode) ===\n";
+
+    // Recreate player data for TEST 5 (ensure fresh data exists for concurrent reads)
+    auto player5 = std::make_unique<JsonDataNode>("player", nlohmann::json::object());
+    auto profile5 = std::make_unique<JsonDataNode>("profile", nlohmann::json{
+        {"name", "TestPlayer"},
+        {"level", 6},
+        {"gold", 1090}  // Final gold value from TEST 3
+    });
+    player5->setChild("profile", std::move(profile5));
+
+    // Use getDataRootReadOnly() to get the actual root (not a copy) and add the child
+    auto dataRootPtr = tree->getDataRootReadOnly();
+    if (dataRootPtr) {
+        dataRootPtr->setChild("player", std::move(player5));
+        std::cout << "  Player data recreated for concurrent test\n";
+    } else {
+        std::cerr << "  ERROR: Could not get data root!\n";
+    }
 
     std::atomic<bool> running{true};
     std::atomic<int> publishCount{0};
+    std::atomic<int> readCount{0};
     std::atomic<int> errors{0};
 
     // Thread 1: Publish events
@@ -327,23 +354,48 @@ int main() {
         }
     });
 
-    // Note: Concurrent DataNode reads are not supported because getDataRoot() transfers ownership.
-    // A future API improvement would add getDataRootReadOnly() -> IDataNode* for non-destructive reads.
+    // Thread 2: Read DataNode concurrently using new read-only API
+    std::thread readThread([&]() {
+        while (running) {
+            try {
+                // Use getDataRootReadOnly() instead of getDataRoot() to avoid copying
+                auto dataRoot = tree->getDataRootReadOnly();
+                if (dataRoot) {
+                    // Use getChildReadOnly() instead of getChild() to avoid copying/ownership transfer
+                    auto playerData = dataRoot->getChildReadOnly("player");
+                    if (playerData) {
+                        auto profileData = playerData->getChildReadOnly("profile");
+                        if (profileData) {
+                            int gold = profileData->getInt("gold", 0);
+                            readCount++;
+                        }
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            } catch (...) {
+                errors++;
+            }
+        }
+    });
 
     // Run for 2 seconds
     std::this_thread::sleep_for(std::chrono::seconds(2));
     running = false;
 
     pubThread.join();
+    readThread.join();
 
     std::cout << "Concurrent test completed:\n";
     std::cout << "  Publishes: " << publishCount << "\n";
+    std::cout << "  Reads: " << readCount << "\n";
     std::cout << "  Errors: " << errors << "\n";
 
     ASSERT_EQ(errors.load(), 0, "Should have zero exceptions during concurrent access");
     ASSERT_GT(publishCount.load(), 0, "Should have published messages");
+    ASSERT_GT(readCount.load(), 0, "Should have successfully read DataNode data");
 
     reporter.addMetric("concurrent_publishes", publishCount);
+    reporter.addMetric("concurrent_reads", readCount);
     reporter.addMetric("concurrent_errors", errors);
     reporter.addAssertion("concurrent_access", errors == 0);
     std::cout << "✓ TEST 5 PASSED\n";

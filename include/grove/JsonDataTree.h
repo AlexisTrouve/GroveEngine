@@ -47,6 +47,7 @@ public:
     // Separate roots
     std::unique_ptr<IDataNode> getConfigRoot() override;
     std::unique_ptr<IDataNode> getDataRoot() override;
+    IDataNode* getDataRootReadOnly() override;
     std::unique_ptr<IDataNode> getRuntimeRoot() override;
 
     // Save operations

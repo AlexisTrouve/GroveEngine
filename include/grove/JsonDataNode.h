@@ -39,6 +39,7 @@ public:
 
     // Tree navigation
     std::unique_ptr<IDataNode> getChild(const std::string& name) override;
+    IDataNode* getChildReadOnly(const std::string& name) override;
     std::vector<std::string> getChildNames() override;
     bool hasChildren() override;
 

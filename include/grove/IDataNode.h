@@ -25,11 +25,20 @@ public:
     // ========================================
 
     /**
-     * @brief Get direct child by name
+     * @brief Get direct child by name (transfers ownership)
      * @param name Exact name of the child
      * @return Child node or nullptr if not found
+     * @warning This removes the child from the tree. Use getChildReadOnly() for non-destructive reads.
      */
     virtual std::unique_ptr<IDataNode> getChild(const std::string& name) = 0;
+
+    /**
+     * @brief Get direct child by name (read-only, no ownership transfer)
+     * @param name Exact name of the child
+     * @return Raw pointer to child node or nullptr if not found
+     * @note The returned pointer is valid as long as the parent node exists and the child isn't removed.
+     */
+    virtual IDataNode* getChildReadOnly(const std::string& name) = 0;
 
     /**
      * @brief Get names of all direct children
