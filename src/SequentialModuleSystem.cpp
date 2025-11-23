@@ -13,17 +13,23 @@ SequentialModuleSystem::SequentialModuleSystem() {
 }
 
 SequentialModuleSystem::~SequentialModuleSystem() {
-    logger->info("🔧 SequentialModuleSystem destructor called");
+    // Guard against logger being invalid during static destruction order
+    if (logger) {
+        logger->info("🔧 SequentialModuleSystem destructor called");
 
-    if (module) {
-        logger->info("📊 Final performance metrics:");
-        logger->info("   Total process calls: {}", processCallCount);
-        logger->info("   Total process time: {:.2f}ms", totalProcessTime);
-        logger->info("   Average process time: {:.3f}ms", getAverageProcessTime());
-        logger->info("   Total task executions: {}", taskExecutionCount);
+        if (module) {
+            logger->info("📊 Final performance metrics:");
+            logger->info("   Total process calls: {}", processCallCount);
+            logger->info("   Total process time: {:.2f}ms", totalProcessTime);
+            logger->info("   Average process time: {:.3f}ms", getAverageProcessTime());
+            logger->info("   Total task executions: {}", taskExecutionCount);
+        }
+
+        logger->trace("🏗️ SequentialModuleSystem destroyed");
     }
 
-    logger->trace("🏗️ SequentialModuleSystem destroyed");
+    // Explicitly reset module before logger destruction to ensure proper cleanup order
+    module.reset();
 }
 
 // IModuleSystem implementation

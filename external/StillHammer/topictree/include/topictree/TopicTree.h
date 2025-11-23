@@ -6,7 +6,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
-#include <mutex>
+#include <mutex>         // For unique_lock, shared_lock
+#include <shared_mutex>  // For shared_mutex (C++17)
 #include <algorithm>
 
 namespace topictree {
@@ -53,7 +54,7 @@ private:
     };
 
     Node root;
-    mutable std::mutex treeMutex;  // Read-write would be better but keep simple
+    mutable std::shared_mutex treeMutex;  // Reader-writer lock for concurrent reads
 
     // Fast topic splitting - zero-copy with string_view
     static std::vector<std::string_view> splitTopic(std::string_view topic) {
@@ -219,7 +220,7 @@ public:
     void registerSubscriber(const std::string& pattern, const SubscriberType& subscriber) {
         auto segments = splitTopic(pattern);
 
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::unique_lock lock(treeMutex);  // WRITE - exclusive lock
         insertPattern(&root, segments, 0, subscriber);
     }
 
@@ -236,7 +237,7 @@ public:
 
         std::unordered_set<SubscriberType> matches;
 
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::shared_lock lock(treeMutex);  // READ - concurrent access allowed!
         findMatches(&root, segments, 0, matches);
 
         return std::vector<SubscriberType>(matches.begin(), matches.end());
@@ -253,7 +254,7 @@ public:
     void unregisterSubscriber(const std::string& pattern, const SubscriberType& subscriber) {
         auto segments = splitTopic(pattern);
 
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::unique_lock lock(treeMutex);  // WRITE - exclusive lock
         removeSubscriberFromNode(&root, segments, 0, subscriber);
     }
 
@@ -264,7 +265,7 @@ public:
      * Use sparingly, prefer unregisterSubscriber with specific pattern
      */
     void unregisterSubscriberAll(const SubscriberType& subscriber) {
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::unique_lock lock(treeMutex);  // WRITE - exclusive lock
         unregisterSubscriberAllRecursive(&root, subscriber);
     }
 
@@ -272,7 +273,7 @@ public:
      * Clear all subscriptions
      */
     void clear() {
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::unique_lock lock(treeMutex);  // WRITE - exclusive lock
         root = Node();
     }
 
@@ -280,7 +281,7 @@ public:
      * Get total number of subscribers (may count duplicates across patterns)
      */
     size_t subscriberCount() const {
-        std::lock_guard<std::mutex> lock(treeMutex);
+        std::shared_lock lock(treeMutex);  // READ - concurrent access allowed!
         return countSubscribersRecursive(&root);
     }
 

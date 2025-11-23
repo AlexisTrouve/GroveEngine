@@ -51,8 +51,15 @@ public:
     }
 
     ~DependencyTestEngine() {
-        for (auto& [name, handle] : modules_) {
-            unloadModule(name);
+        // Collect names first to avoid iterator invalidation during unload
+        std::vector<std::string> names;
+        names.reserve(modules_.size());
+        for (const auto& [name, _] : modules_) {
+            names.push_back(name);
+        }
+        // Unload in reverse order (dependents before dependencies)
+        for (auto it = names.rbegin(); it != names.rend(); ++it) {
+            unloadModule(*it);
         }
     }
 

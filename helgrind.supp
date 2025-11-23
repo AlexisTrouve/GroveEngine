@@ -1,0 +1,43 @@
+# helgrind.supp - Suppress known false positives
+# Format: https://valgrind.org/docs/manual/manual-core.html#manual-core.suppress
+
+# spdlog false positives (lazy initialization)
+{
+   spdlog_registry_instance
+   Helgrind:Race
+   fun:*spdlog*registry*instance*
+}
+
+{
+   spdlog_logger_creation
+   Helgrind:Race
+   ...
+   fun:*spdlog*
+}
+
+# std::thread false positives
+{
+   std_thread_detach
+   Helgrind:Race
+   fun:*std*thread*
+}
+
+# C++ static initialization race (benign)
+{
+   static_initialization_guard
+   Helgrind:Race
+   fun:__cxa_guard_acquire
+}
+
+# Helgrind doesn't understand std::atomic properly
+{
+   atomic_load
+   Helgrind:Race
+   fun:*atomic*load*
+}
+
+{
+   atomic_store
+   Helgrind:Race
+   fun:*atomic*store*
+}

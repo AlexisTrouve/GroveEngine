@@ -5,6 +5,71 @@ project(GroveEngine VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ============================================================================
+# Sanitizers for Testing
+# ============================================================================
+option(GROVE_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+
+if(GROVE_ENABLE_TSAN)
+    message(STATUS "🔍 ThreadSanitizer enabled (5-15x slowdown expected)")
+    add_compile_options(-fsanitize=thread -g -O1 -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+
+    # Disable optimizations that confuse TSan
+    add_compile_options(-fno-optimize-sibling-calls)
+
+    message(WARNING "⚠️  TSan cannot be combined with ASan - build separately")
+endif()
+
+# ============================================================================
+# Helgrind (Valgrind) Integration
+# ============================================================================
+option(GROVE_ENABLE_HELGRIND "Add Helgrind test target" OFF)
+
+if(GROVE_ENABLE_HELGRIND)
+    find_program(VALGRIND_EXECUTABLE valgrind)
+
+    if(VALGRIND_EXECUTABLE)
+        message(STATUS "✅ Valgrind found: ${VALGRIND_EXECUTABLE}")
+
+        # Add custom target for all tests
+        add_custom_target(helgrind
+            COMMAND ${CMAKE_COMMAND} -E echo "🔍 Running Helgrind (10-50x slowdown, be patient)..."
+            COMMAND ${VALGRIND_EXECUTABLE}
+                --tool=helgrind
+                --log-file=${CMAKE_BINARY_DIR}/helgrind-full.log
+                --suppressions=${CMAKE_SOURCE_DIR}/helgrind.supp
+                --error-exitcode=1
+                --read-var-info=yes
+                ${CMAKE_CTEST_COMMAND} --output-on-failure --timeout 600
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Running all tests with Helgrind deadlock detector"
+        )
+
+        # Add convenience target for single test
+        add_custom_target(helgrind-single
+            COMMAND ${CMAKE_COMMAND} -E echo "🔍 Running single test with Helgrind..."
+            COMMAND ${VALGRIND_EXECUTABLE}
+                --tool=helgrind
+                -v
+                --log-file=${CMAKE_BINARY_DIR}/helgrind-single.log
+                --suppressions=${CMAKE_SOURCE_DIR}/helgrind.supp
+                --error-exitcode=1
+                --read-var-info=yes
+                ./tests/test_13_cross_system
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Running test_13_cross_system with Helgrind"
+        )
+
+        message(STATUS "✅ Helgrind targets added:")
+        message(STATUS "   - make helgrind        (all tests)")
+        message(STATUS "   - make helgrind-single (test_13 only)")
+    else()
+        message(WARNING "⚠️  Valgrind not found - Helgrind targets disabled")
+        message(STATUS "   Install: sudo apt-get install valgrind")
+    endif()
+endif()
+
 # Dependencies
 include(FetchContent)
 

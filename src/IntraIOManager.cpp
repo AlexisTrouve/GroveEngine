@@ -25,25 +25,31 @@ IntraIOManager::~IntraIOManager() {
     }
     logger->info("🛑 Batch flush thread stopped");
 
-    std::lock_guard<std::mutex> lock(managerMutex);
-
+    // Get stats before locking to avoid recursive lock
     auto stats = getRoutingStats();
     logger->info("📊 Final routing stats:");
     logger->info("   Total routed messages: {}", stats["total_routed_messages"]);
     logger->info("   Total routes: {}", stats["total_routes"]);
     logger->info("   Active instances: {}", stats["active_instances"]);
 
-    instances.clear();
-    topicTree.clear();
-    instancePatterns.clear();
-    subscriptionInfoMap.clear();
-    batchBuffers.clear();
+    {
+        std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
+        instances.clear();
+        topicTree.clear();
+        instancePatterns.clear();
+        subscriptionInfoMap.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> batchLock(batchMutex);
+        batchBuffers.clear();
+    }
 
     logger->info("🌐🔗 IntraIOManager destroyed");
 }
 
 std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& instanceId) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
 
     auto it = instances.find(instanceId);
     if (it != instances.end()) {
@@ -63,13 +69,13 @@ std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& insta
 }
 
 void IntraIOManager::registerInstance(const std::string& instanceId, std::shared_ptr<IIntraIODelivery> instance) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
     instances[instanceId] = instance;
     logger->info("📋 Registered instance: '{}'", instanceId);
 }
 
 void IntraIOManager::removeInstance(const std::string& instanceId) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
 
     auto it = instances.find(instanceId);
     if (it == instances.end()) {
@@ -90,7 +96,7 @@ void IntraIOManager::removeInstance(const std::string& instanceId) {
 }
 
 std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instanceId) const {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::shared_lock lock(managerMutex);  // READ - concurrent access allowed!
 
     auto it = instances.find(instanceId);
     if (it != instances.end()) {
@@ -100,7 +106,8 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
 }
 
 void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& messageData) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    // DEADLOCK FIX: Use scoped_lock for consistent lock ordering when both mutexes needed
+    std::scoped_lock lock(managerMutex, batchMutex);
 
     totalRoutedMessages++;
     messagesSinceLastLog++;
@@ -115,7 +122,7 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
 
     logger->trace("📨 Routing message: {} → '{}'", sourceId, topic);
 
-    // Find all matching subscribers - O(k) where k = topic depth 🚀
+    // Find all matching subscribers - O(k) where k = topic depth
     auto subscribers = topicTree.findSubscribers(topic);
 
     logger->trace("  🔍 Found {} matching subscriber(s) for topic '{}'", subscribers.size(), topic);
@@ -173,7 +180,7 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
 
             if (isLowFreq) {
                 // Add to batch buffer instead of immediate delivery
-                std::lock_guard<std::mutex> batchLock(batchMutex);
+                // NOTE: batchMutex already held via scoped_lock
 
                 auto& buffer = batchBuffers[matchedPattern];
                 buffer.instanceId = subscriberId;
@@ -201,7 +208,8 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
 }
 
 void IntraIOManager::registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq, int batchInterval) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    // DEADLOCK FIX: Use scoped_lock for consistent lock ordering
+    std::scoped_lock lock(managerMutex, batchMutex);
 
     try {
         // Register in TopicTree - O(k) where k = pattern depth
@@ -217,8 +225,8 @@ void IntraIOManager::registerSubscription(const std::string& instanceId, const s
         subscriptionInfoMap[pattern] = info;
 
         // Initialize batch buffer if low-freq
+        // NOTE: batchMutex already held via scoped_lock
         if (isLowFreq) {
-            std::lock_guard<std::mutex> batchLock(batchMutex);
             auto& buffer = batchBuffers[pattern];
             buffer.instanceId = instanceId;
             buffer.pattern = pattern;
@@ -240,7 +248,8 @@ void IntraIOManager::registerSubscription(const std::string& instanceId, const s
 }
 
 void IntraIOManager::unregisterSubscription(const std::string& instanceId, const std::string& pattern) {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    // DEADLOCK FIX: Use scoped_lock for consistent lock ordering
+    std::scoped_lock lock(managerMutex, batchMutex);
 
     // Remove from TopicTree
     topicTree.unregisterSubscriber(pattern, instanceId);
@@ -252,37 +261,34 @@ void IntraIOManager::unregisterSubscription(const std::string& instanceId, const
     subscriptionInfoMap.erase(pattern);
 
     // Remove batch buffer if exists
-    {
-        std::lock_guard<std::mutex> batchLock(batchMutex);
-        batchBuffers.erase(pattern);
-    }
+    // NOTE: batchMutex already held via scoped_lock
+    batchBuffers.erase(pattern);
 
     logger->info("🗑️ Unregistered subscription: '{}' → '{}'", instanceId, pattern);
 }
 
 void IntraIOManager::clearAllRoutes() {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    // DEADLOCK FIX: Use scoped_lock for consistent lock ordering
+    std::scoped_lock lock(managerMutex, batchMutex);
 
     auto clearedCount = topicTree.subscriberCount();
     topicTree.clear();
     instancePatterns.clear();
     subscriptionInfoMap.clear();
 
-    {
-        std::lock_guard<std::mutex> batchLock(batchMutex);
-        batchBuffers.clear();
-    }
+    // NOTE: batchMutex already held via scoped_lock
+    batchBuffers.clear();
 
     logger->info("🧹 Cleared {} routing entries", clearedCount);
 }
 
 size_t IntraIOManager::getInstanceCount() const {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::shared_lock lock(managerMutex);  // READ - concurrent access allowed!
     return instances.size();
 }
 
 std::vector<std::string> IntraIOManager::getInstanceIds() const {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::shared_lock lock(managerMutex);  // READ - concurrent access allowed!
 
     std::vector<std::string> ids;
     for (const auto& pair : instances) {
@@ -292,7 +298,7 @@ std::vector<std::string> IntraIOManager::getInstanceIds() const {
 }
 
 json IntraIOManager::getRoutingStats() const {
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::shared_lock lock(managerMutex);  // READ - concurrent access allowed!
 
     json stats;
     stats["total_routed_messages"] = totalRoutedMessages.load();
@@ -319,34 +325,46 @@ void IntraIOManager::setLogLevel(spdlog::level::level_enum level) {
 }
 
 // Batch flush loop - runs in separate thread
+// DEADLOCK FIX: Collect buffers to flush under batchMutex, then flush under managerMutex
 void IntraIOManager::batchFlushLoop() {
     logger->info("🔄 Batch flush loop started");
 
     while (batchThreadRunning) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // Check all batch buffers and flush if needed
-        std::lock_guard<std::mutex> batchLock(batchMutex);
-        auto now = std::chrono::steady_clock::now();
+        // Collect buffers that need flushing (under batchMutex only)
+        std::vector<BatchBuffer> buffersToFlush;
+        {
+            std::lock_guard<std::mutex> batchLock(batchMutex);
+            auto now = std::chrono::steady_clock::now();
 
-        logger->trace("🔄 Batch flush check: {} buffers", batchBuffers.size());
+            logger->trace("🔄 Batch flush check: {} buffers", batchBuffers.size());
 
-        for (auto& [pattern, buffer] : batchBuffers) {
-            if (buffer.messages.empty()) {
-                continue;
+            for (auto& [pattern, buffer] : batchBuffers) {
+                if (buffer.messages.empty()) {
+                    continue;
+                }
+
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - buffer.lastFlush).count();
+
+                logger->debug("🔄 Pattern '{}': {} messages, elapsed={}ms, interval={}ms",
+                             pattern, buffer.messages.size(), elapsed, buffer.batchInterval);
+
+                if (elapsed >= buffer.batchInterval) {
+                    logger->info("📦 Triggering flush for pattern '{}' ({} messages)", pattern, buffer.messages.size());
+                    // Copy buffer for flush, clear original
+                    buffersToFlush.push_back(buffer);
+                    buffer.messages.clear();
+                    buffer.lastFlush = now;
+                }
             }
+        }
+        // batchMutex released here
 
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - buffer.lastFlush).count();
-
-            logger->debug("🔄 Pattern '{}': {} messages, elapsed={}ms, interval={}ms",
-                         pattern, buffer.messages.size(), elapsed, buffer.batchInterval);
-
-            if (elapsed >= buffer.batchInterval) {
-                logger->info("📦 Triggering flush for pattern '{}' ({} messages)", pattern, buffer.messages.size());
-                flushBatchBuffer(buffer);
-                buffer.lastFlush = now;
-            }
+        // Now flush each buffer (under managerMutex only) - NO DEADLOCK
+        for (auto& buffer : buffersToFlush) {
+            flushBatchBufferSafe(buffer);
         }
     }
 
@@ -354,11 +372,17 @@ void IntraIOManager::batchFlushLoop() {
 }
 
 void IntraIOManager::flushBatchBuffer(BatchBuffer& buffer) {
+    // DEPRECATED: Use flushBatchBufferSafe instead to avoid deadlocks
+    flushBatchBufferSafe(buffer);
+}
+
+// Safe version that only takes managerMutex (called after releasing batchMutex)
+void IntraIOManager::flushBatchBufferSafe(BatchBuffer& buffer) {
     if (buffer.messages.empty()) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(managerMutex);
+    std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
 
     auto targetInstance = instances.find(buffer.instanceId);
     if (targetInstance == instances.end()) {

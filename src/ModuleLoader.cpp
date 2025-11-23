@@ -25,11 +25,21 @@ ModuleLoader::~ModuleLoader() {
 }
 
 std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::string& name, bool isReload) {
-    // CRITICAL FIX: Unload any previously loaded library before loading a new one
-    // This prevents library handle leaks and temp file accumulation
+    // Handle cleanup of previous library
+    // - For reload (isReload=true): The caller has already destroyed the old module
+    //   via reload(), so it's safe to unload the old library
+    // - For fresh load (isReload=false): Old modules may still be alive, so we
+    //   warn but don't auto-unload (caller should use separate loaders or manage lifecycle)
     if (libraryHandle) {
-        logger->debug("🔄 Unloading previous library before loading new one");
-        unload();
+        if (isReload) {
+            // Safe to unload - reload() destroyed the old module first
+            logger->debug("🔄 Unloading previous library before loading new version");
+            unload();
+        } else {
+            // Not safe to auto-unload - old modules may still be alive
+            logger->warn("⚠️ Loading new module while previous handle still open. "
+                        "Consider using separate ModuleLoader instances for independent modules.");
+        }
     }
 
     logLoadStart(path);

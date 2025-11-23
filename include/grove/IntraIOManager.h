@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>  // For shared_mutex (C++17)
 #include <thread>
 #include <chrono>
 #include <atomic>
@@ -45,7 +46,7 @@ std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId);
 class IntraIOManager {
 private:
     std::shared_ptr<spdlog::logger> logger;
-    mutable std::mutex managerMutex;
+    mutable std::shared_mutex managerMutex;  // Reader-writer lock for instances
 
     // Registry of IntraIO instances
     std::unordered_map<std::string, std::shared_ptr<IIntraIODelivery>> instances;
@@ -79,6 +80,7 @@ private:
 
     void batchFlushLoop();
     void flushBatchBuffer(BatchBuffer& buffer);
+    void flushBatchBufferSafe(BatchBuffer& buffer);  // Safe version - no nested locks
 
     // Statistics
     mutable std::atomic<size_t> totalRoutedMessages{0};
