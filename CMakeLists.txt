@@ -156,6 +156,19 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
     add_library(GroveEngine::impl ALIAS grove_impl)
 endif()
 
+# ============================================================================
+# Modules (hot-reloadable .so)
+# ============================================================================
+option(GROVE_BUILD_MODULES "Build GroveEngine modules" ON)
+
+if(GROVE_BUILD_MODULES)
+    # BgfxRenderer module (2D rendering via bgfx)
+    option(GROVE_BUILD_BGFX_RENDERER "Build BgfxRenderer module" OFF)
+    if(GROVE_BUILD_BGFX_RENDERER)
+        add_subdirectory(modules/BgfxRenderer)
+    endif()
+endif()
+
 # Testing
 option(GROVE_BUILD_TESTS "Build GroveEngine tests" ON)
 
