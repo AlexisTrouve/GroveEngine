@@ -2,8 +2,15 @@
 #include <regex>
 #include <sstream>
 #include <iomanip>
-#include <openssl/sha.h>
 #include <stdexcept>
+#include <functional>
+
+#if GROVE_USE_OPENSSL
+#include <openssl/sha.h>
+#else
+// Simple fallback hash using std::hash - NOT cryptographically secure
+// but sufficient for change detection in render graph
+#endif
 
 namespace grove {
 
@@ -271,6 +278,7 @@ void JsonDataNode::setBool(const std::string& name, bool value) {
 // ========================================
 
 std::string JsonDataNode::computeHash(const std::string& input) const {
+#if GROVE_USE_OPENSSL
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256(reinterpret_cast<const unsigned char*>(input.c_str()), input.length(), hash);
 
@@ -279,6 +287,14 @@ std::string JsonDataNode::computeHash(const std::string& input) const {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return ss.str();
+#else
+    // Fallback: use std::hash (not cryptographic, but good enough for change detection)
+    std::hash<std::string> hasher;
+    size_t hashVal = hasher(input);
+    std::stringstream ss;
+    ss << std::hex << std::setw(16) << std::setfill('0') << hashVal;
+    return ss.str();
+#endif
 }
 
 std::string JsonDataNode::getDataHash() {

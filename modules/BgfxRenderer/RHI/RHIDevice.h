@@ -60,6 +60,9 @@ public:
     // Frame
     virtual void frame() = 0;
 
+    // Command buffer execution
+    virtual void executeCommandBuffer(const class RHICommandBuffer& cmdBuffer) = 0;
+
     // Factory
     static std::unique_ptr<IRHIDevice> create();
 };

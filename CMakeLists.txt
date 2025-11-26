@@ -112,8 +112,15 @@ add_library(GroveEngine::core ALIAS grove_core)
 option(GROVE_BUILD_IMPLEMENTATIONS "Build GroveEngine implementations" ON)
 
 if(GROVE_BUILD_IMPLEMENTATIONS)
-    # Find OpenSSL for SHA256 hashing
-    find_package(OpenSSL REQUIRED)
+    # Find OpenSSL for SHA256 hashing (optional on MinGW)
+    find_package(OpenSSL QUIET)
+    if(OpenSSL_FOUND)
+        message(STATUS "OpenSSL found - using hardware-accelerated SHA256")
+        set(GROVE_USE_OPENSSL ON)
+    else()
+        message(STATUS "OpenSSL not found - using fallback SHA256 implementation")
+        set(GROVE_USE_OPENSSL OFF)
+    endif()
 
     add_library(grove_impl STATIC
         # --- Working files (IDataNode-based) ---
@@ -140,10 +147,16 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         GroveEngine::core
         topictree::topictree
         stillhammer_logger
-        OpenSSL::Crypto
         spdlog::spdlog
         ${CMAKE_DL_LIBS}
     )
+
+    if(GROVE_USE_OPENSSL)
+        target_link_libraries(grove_impl PUBLIC OpenSSL::Crypto)
+        target_compile_definitions(grove_impl PUBLIC GROVE_USE_OPENSSL=1)
+    else()
+        target_compile_definitions(grove_impl PUBLIC GROVE_USE_OPENSSL=0)
+    endif()
 
     # Enable position-independent code for static library (needed for .so modules)
     set_target_properties(grove_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)

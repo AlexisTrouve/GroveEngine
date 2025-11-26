@@ -257,6 +257,183 @@ public:
         bgfx::frame();
     }
 
+    void executeCommandBuffer(const RHICommandBuffer& cmdBuffer) override {
+        // Track current state for bgfx calls
+        RenderState currentState;
+        BufferHandle currentVB;
+        BufferHandle currentIB;
+        BufferHandle currentInstBuffer;
+        uint32_t instStart = 0;
+        uint32_t instCount = 0;
+
+        for (const Command& cmd : cmdBuffer.getCommands()) {
+            switch (cmd.type) {
+                case CommandType::SetState: {
+                    currentState = cmd.setState.state;
+                    // Build bgfx state flags
+                    uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A;
+
+                    switch (currentState.blend) {
+                        case BlendMode::Alpha:
+                            state |= BGFX_STATE_BLEND_ALPHA;
+                            break;
+                        case BlendMode::Additive:
+                            state |= BGFX_STATE_BLEND_ADD;
+                            break;
+                        case BlendMode::Multiply:
+                            state |= BGFX_STATE_BLEND_MULTIPLY;
+                            break;
+                        case BlendMode::None:
+                        default:
+                            break;
+                    }
+
+                    switch (currentState.cull) {
+                        case CullMode::CW:
+                            state |= BGFX_STATE_CULL_CW;
+                            break;
+                        case CullMode::CCW:
+                            state |= BGFX_STATE_CULL_CCW;
+                            break;
+                        case CullMode::None:
+                        default:
+                            break;
+                    }
+
+                    if (currentState.depthTest) {
+                        state |= BGFX_STATE_DEPTH_TEST_LESS;
+                    }
+                    if (currentState.depthWrite) {
+                        state |= BGFX_STATE_WRITE_Z;
+                    }
+
+                    bgfx::setState(state);
+                    break;
+                }
+
+                case CommandType::SetTexture: {
+                    bgfx::TextureHandle tex = { cmd.setTexture.texture.id };
+                    bgfx::UniformHandle sampler = { cmd.setTexture.sampler.id };
+                    bgfx::setTexture(cmd.setTexture.slot, sampler, tex);
+                    break;
+                }
+
+                case CommandType::SetUniform: {
+                    bgfx::UniformHandle uniform = { cmd.setUniform.uniform.id };
+                    bgfx::setUniform(uniform, cmd.setUniform.data, cmd.setUniform.numVec4s);
+                    break;
+                }
+
+                case CommandType::SetVertexBuffer: {
+                    currentVB = cmd.setVertexBuffer.buffer;
+                    break;
+                }
+
+                case CommandType::SetIndexBuffer: {
+                    currentIB = cmd.setIndexBuffer.buffer;
+                    break;
+                }
+
+                case CommandType::SetInstanceBuffer: {
+                    currentInstBuffer = cmd.setInstanceBuffer.buffer;
+                    instStart = cmd.setInstanceBuffer.start;
+                    instCount = cmd.setInstanceBuffer.count;
+                    break;
+                }
+
+                case CommandType::SetScissor: {
+                    bgfx::setScissor(cmd.setScissor.x, cmd.setScissor.y,
+                                     cmd.setScissor.w, cmd.setScissor.h);
+                    break;
+                }
+
+                case CommandType::Draw: {
+                    // Set vertex buffer before draw
+                    if (currentVB.isValid()) {
+                        bool isDynamic = (currentVB.id & 0x8000) != 0;
+                        uint16_t idx = currentVB.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicVertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h, 0, cmd.draw.vertexCount);
+                        } else {
+                            bgfx::VertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h, cmd.draw.startVertex, cmd.draw.vertexCount);
+                        }
+                    }
+                    break;
+                }
+
+                case CommandType::DrawIndexed: {
+                    // Set vertex and index buffers before draw
+                    if (currentVB.isValid()) {
+                        bool isDynamic = (currentVB.id & 0x8000) != 0;
+                        uint16_t idx = currentVB.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicVertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h);
+                        } else {
+                            bgfx::VertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h);
+                        }
+                    }
+                    if (currentIB.isValid()) {
+                        bool isDynamic = (currentIB.id & 0x8000) != 0;
+                        uint16_t idx = currentIB.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicIndexBufferHandle h = { idx };
+                            bgfx::setIndexBuffer(h, cmd.drawIndexed.startIndex, cmd.drawIndexed.indexCount);
+                        } else {
+                            bgfx::IndexBufferHandle h = { idx };
+                            bgfx::setIndexBuffer(h, cmd.drawIndexed.startIndex, cmd.drawIndexed.indexCount);
+                        }
+                    }
+                    break;
+                }
+
+                case CommandType::DrawInstanced: {
+                    // Set vertex, index, and instance buffers
+                    if (currentVB.isValid()) {
+                        bool isDynamic = (currentVB.id & 0x8000) != 0;
+                        uint16_t idx = currentVB.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicVertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h);
+                        } else {
+                            bgfx::VertexBufferHandle h = { idx };
+                            bgfx::setVertexBuffer(0, h);
+                        }
+                    }
+                    if (currentIB.isValid()) {
+                        bool isDynamic = (currentIB.id & 0x8000) != 0;
+                        uint16_t idx = currentIB.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicIndexBufferHandle h = { idx };
+                            bgfx::setIndexBuffer(h, 0, cmd.drawInstanced.indexCount);
+                        } else {
+                            bgfx::IndexBufferHandle h = { idx };
+                            bgfx::setIndexBuffer(h, 0, cmd.drawInstanced.indexCount);
+                        }
+                    }
+                    if (currentInstBuffer.isValid()) {
+                        bool isDynamic = (currentInstBuffer.id & 0x8000) != 0;
+                        uint16_t idx = currentInstBuffer.id & 0x7FFF;
+                        if (isDynamic) {
+                            bgfx::DynamicVertexBufferHandle h = { idx };
+                            bgfx::setInstanceDataBuffer(h, instStart, instCount);
+                        }
+                    }
+                    break;
+                }
+
+                case CommandType::Submit: {
+                    bgfx::ProgramHandle program = { cmd.submit.shader.id };
+                    bgfx::submit(cmd.submit.view, program, cmd.submit.depth);
+                    break;
+                }
+            }
+        }
+    }
+
 private:
     uint16_t m_width = 0;
     uint16_t m_height = 0;

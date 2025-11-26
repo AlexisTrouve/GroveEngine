@@ -2,6 +2,8 @@
 #include "../RHI/RHIDevice.h"
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
+#include <queue>
 #include <stdexcept>
 
 namespace grove {
@@ -20,25 +22,69 @@ void RenderGraph::setup(rhi::IRHIDevice& device) {
 void RenderGraph::compile() {
     if (m_compiled) return;
 
+    const size_t n = m_passes.size();
+    if (n == 0) {
+        m_compiled = true;
+        return;
+    }
+
     // Build name to index map
     std::unordered_map<std::string, size_t> nameToIndex;
-    for (size_t i = 0; i < m_passes.size(); ++i) {
+    for (size_t i = 0; i < n; ++i) {
         nameToIndex[m_passes[i]->getName()] = i;
     }
 
-    // Create sorted indices based on sort order and dependencies
-    m_sortedIndices.clear();
-    m_sortedIndices.reserve(m_passes.size());
+    // Build adjacency list and in-degree count for topological sort
+    std::vector<std::vector<size_t>> adjacency(n);
+    std::vector<size_t> inDegree(n, 0);
 
-    for (size_t i = 0; i < m_passes.size(); ++i) {
-        m_sortedIndices.push_back(i);
+    for (size_t i = 0; i < n; ++i) {
+        auto deps = m_passes[i]->getDependencies();
+        for (const char* depName : deps) {
+            auto it = nameToIndex.find(depName);
+            if (it != nameToIndex.end()) {
+                size_t depIdx = it->second;
+                adjacency[depIdx].push_back(i);  // depIdx -> i (dep must run before i)
+                inDegree[i]++;
+            }
+        }
     }
 
-    // Sort by sort order (topological sort would be more complete but this is simpler)
-    std::sort(m_sortedIndices.begin(), m_sortedIndices.end(),
-        [this](size_t a, size_t b) {
-            return m_passes[a]->getSortOrder() < m_passes[b]->getSortOrder();
-        });
+    // Kahn's algorithm for topological sort with sort order as secondary key
+    // Use a priority queue to respect sortOrder among nodes with same in-degree
+    auto compare = [this](size_t a, size_t b) {
+        return m_passes[a]->getSortOrder() > m_passes[b]->getSortOrder(); // min-heap
+    };
+    std::priority_queue<size_t, std::vector<size_t>, decltype(compare)> readyQueue(compare);
+
+    // Initialize with nodes that have no dependencies
+    for (size_t i = 0; i < n; ++i) {
+        if (inDegree[i] == 0) {
+            readyQueue.push(i);
+        }
+    }
+
+    m_sortedIndices.clear();
+    m_sortedIndices.reserve(n);
+
+    while (!readyQueue.empty()) {
+        size_t current = readyQueue.top();
+        readyQueue.pop();
+        m_sortedIndices.push_back(current);
+
+        // Decrease in-degree of dependents
+        for (size_t dependent : adjacency[current]) {
+            inDegree[dependent]--;
+            if (inDegree[dependent] == 0) {
+                readyQueue.push(dependent);
+            }
+        }
+    }
+
+    // Check for cycles
+    if (m_sortedIndices.size() != n) {
+        throw std::runtime_error("RenderGraph: Cycle detected in pass dependencies!");
+    }
 
     m_compiled = true;
 }
@@ -51,13 +97,13 @@ void RenderGraph::execute(const FramePacket& frame, rhi::IRHIDevice& device) {
     // Single command buffer for single-threaded execution
     rhi::RHICommandBuffer cmdBuffer;
 
-    // Execute passes in order
+    // Execute passes in topologically sorted order
     for (size_t idx : m_sortedIndices) {
         m_passes[idx]->execute(frame, cmdBuffer);
     }
 
-    // TODO: Execute command buffer on device
-    // For now, passes directly call bgfx through the device
+    // Execute the recorded command buffer on the device
+    device.executeCommandBuffer(cmdBuffer);
 }
 
 void RenderGraph::shutdown(rhi::IRHIDevice& device) {
