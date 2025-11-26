@@ -15,6 +15,7 @@ class FrameAllocator;
 class RenderGraph;
 class SceneCollector;
 class ResourceCache;
+class ShaderManager;
 
 // ============================================================================
 // BgfxRenderer Module - 2D rendering via bgfx
@@ -49,6 +50,7 @@ private:
     // Core systems
     std::unique_ptr<rhi::IRHIDevice> m_device;
     std::unique_ptr<FrameAllocator> m_frameAllocator;
+    std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;
     std::unique_ptr<ResourceCache> m_resourceCache;

@@ -2,6 +2,7 @@
 #include "RHI/RHIDevice.h"
 #include "Frame/FrameAllocator.h"
 #include "Frame/FramePacket.h"
+#include "Shaders/ShaderManager.h"
 #include "RenderGraph/RenderGraph.h"
 #include "Scene/SceneCollector.h"
 #include "Resources/ResourceCache.h"
@@ -57,11 +58,25 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_logger->info("GPU: {} ({})", caps.gpuName, caps.rendererName);
     m_logger->info("Max texture size: {}, Max draw calls: {}", caps.maxTextureSize, caps.maxDrawCalls);
 
-    // Setup render graph with passes
+    // Initialize shader manager
+    m_shaderManager = std::make_unique<ShaderManager>();
+    m_shaderManager->init(*m_device, caps.rendererName);
+    m_logger->info("ShaderManager initialized with {} programs", m_shaderManager->getProgramCount());
+
+    // Get shader handles for passes
+    rhi::ShaderHandle spriteShader = m_shaderManager->getProgram("sprite");
+    rhi::ShaderHandle debugShader = m_shaderManager->getProgram("debug");
+
+    if (!spriteShader.isValid()) {
+        m_logger->error("Failed to load sprite shader");
+        return;
+    }
+
+    // Setup render graph with passes (inject shaders via constructors)
     m_renderGraph = std::make_unique<RenderGraph>();
     m_renderGraph->addPass(std::make_unique<ClearPass>());
-    m_renderGraph->addPass(std::make_unique<SpritePass>());
-    m_renderGraph->addPass(std::make_unique<DebugPass>());
+    m_renderGraph->addPass(std::make_unique<SpritePass>(spriteShader));
+    m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
     m_renderGraph->setup(*m_device);
     m_renderGraph->compile();
 
@@ -105,12 +120,16 @@ void BgfxRendererModule::process(const IDataNode& input) {
 void BgfxRendererModule::shutdown() {
     m_logger->info("BgfxRenderer shutting down, {} frames rendered", m_frameCount);
 
-    if (m_renderGraph) {
+    if (m_renderGraph && m_device) {
         m_renderGraph->shutdown(*m_device);
     }
 
-    if (m_resourceCache) {
+    if (m_resourceCache && m_device) {
         m_resourceCache->clear(*m_device);
+    }
+
+    if (m_shaderManager && m_device) {
+        m_shaderManager->shutdown(*m_device);
     }
 
     if (m_device) {
@@ -119,6 +138,7 @@ void BgfxRendererModule::shutdown() {
 
     m_renderGraph.reset();
     m_resourceCache.reset();
+    m_shaderManager.reset();
     m_sceneCollector.reset();
     m_frameAllocator.reset();
     m_device.reset();

@@ -28,7 +28,15 @@ public:
         init.resolution.width = width;
         init.resolution.height = height;
         init.resolution.reset = BGFX_RESET_VSYNC;
-        init.platformData.nwh = nativeWindowHandle;
+
+        // If nativeWindowHandle is provided, use it directly
+        // Otherwise, bgfx will use the platform data set via bgfx::setPlatformData()
+        // Note: bgfx::setPlatformData() must be called BEFORE this init() call
+        if (nativeWindowHandle != nullptr) {
+            init.platformData.nwh = nativeWindowHandle;
+        }
+        // When nativeWindowHandle is nullptr, we leave init.platformData empty
+        // and rely on the global platform data from bgfx::setPlatformData()
 
         if (!bgfx::init(init)) {
             return false;

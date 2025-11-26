@@ -11,13 +11,19 @@ namespace grove {
 
 class DebugPass : public RenderPass {
 public:
+    /**
+     * @brief Construct DebugPass with required shader
+     * @param shader The shader program to use for debug line rendering
+     */
+    explicit DebugPass(rhi::ShaderHandle shader);
+
     const char* getName() const override { return "Debug"; }
     uint32_t getSortOrder() const override { return 900; } // Near last
     std::vector<const char*> getDependencies() const override { return {"Sprites"}; }
 
     void setup(rhi::IRHIDevice& device) override;
     void shutdown(rhi::IRHIDevice& device) override;
-    void execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) override;
+    void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) override;
 
 private:
     rhi::ShaderHandle m_lineShader;

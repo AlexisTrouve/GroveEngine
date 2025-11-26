@@ -99,7 +99,7 @@ void RenderGraph::execute(const FramePacket& frame, rhi::IRHIDevice& device) {
 
     // Execute passes in topologically sorted order
     for (size_t idx : m_sortedIndices) {
-        m_passes[idx]->execute(frame, cmdBuffer);
+        m_passes[idx]->execute(frame, device, cmdBuffer);
     }
 
     // Execute the recorded command buffer on the device

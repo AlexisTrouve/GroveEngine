@@ -1,7 +1,13 @@
 #include "SpritePass.h"
 #include "../RHI/RHIDevice.h"
+#include "../Frame/FramePacket.h"
 
 namespace grove {
+
+SpritePass::SpritePass(rhi::ShaderHandle shader)
+    : m_shader(shader)
+{
+}
 
 void SpritePass::setup(rhi::IRHIDevice& device) {
     // Create quad vertex buffer (unit quad, instanced)
@@ -44,9 +50,6 @@ void SpritePass::setup(rhi::IRHIDevice& device) {
 
     // Create texture sampler uniform
     m_textureSampler = device.createUniform("s_texture", 1);
-
-    // Note: Shader loading will be done via ResourceCache
-    // m_shader will be set after shaders are loaded
 }
 
 void SpritePass::shutdown(rhi::IRHIDevice& device) {
@@ -54,10 +57,10 @@ void SpritePass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_quadIB);
     device.destroy(m_instanceBuffer);
     device.destroy(m_textureSampler);
-    device.destroy(m_shader);
+    // Note: m_shader is owned by ShaderManager, not destroyed here
 }
 
-void SpritePass::execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) {
+void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
     if (frame.spriteCount == 0) {
         return;
     }
@@ -79,12 +82,14 @@ void SpritePass::execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) {
             ? MAX_SPRITES_PER_BATCH : remaining;
 
         // Update instance buffer with sprite data
-        // In a full implementation, we'd sort by texture and batch accordingly
+        // The SpriteInstance struct matches what we send to GPU
+        const SpriteInstance* batchData = frame.sprites + offset;
+        device.updateBuffer(m_instanceBuffer, batchData,
+                           static_cast<uint32_t>(batchSize * sizeof(SpriteInstance)));
 
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
-        cmd.setInstanceBuffer(m_instanceBuffer, static_cast<uint32_t>(offset),
-                              static_cast<uint32_t>(batchSize));
+        cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(batchSize));
 
         // Submit draw call
         cmd.drawInstanced(6, static_cast<uint32_t>(batchSize)); // 6 indices per quad

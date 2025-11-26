@@ -27,8 +27,9 @@ public:
 
     // Execution - MUST be thread-safe
     // frame: read-only
+    // device: for dynamic buffer updates
     // cmd: write-only, thread-local
-    virtual void execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) = 0;
+    virtual void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) = 0;
 
     // Initial setup (load shaders, create buffers)
     virtual void setup(rhi::IRHIDevice& device) = 0;

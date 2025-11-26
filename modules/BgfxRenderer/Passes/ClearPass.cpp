@@ -11,7 +11,8 @@ void ClearPass::shutdown(rhi::IRHIDevice& device) {
     // Nothing to clean up
 }
 
-void ClearPass::execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) {
+void ClearPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
+    (void)device; // Unused
     // Clear is handled via view setup in bgfx
     // The clear color is set in BgfxRendererModule before frame execution
 

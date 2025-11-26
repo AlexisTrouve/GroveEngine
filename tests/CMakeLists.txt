@@ -673,7 +673,41 @@ if(GROVE_BUILD_BGFX_RENDERER)
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_21_bgfx_triangle' enabled (run manually)")
+
+        # Test 22: Sprite Integration Test (requires SDL2, display, and BgfxRenderer module)
+        add_executable(test_22_bgfx_sprites
+            visual/test_bgfx_sprites.cpp
+        )
+
+        target_include_directories(test_22_bgfx_sprites PRIVATE
+            /usr/include/SDL2
+        )
+
+        target_link_libraries(test_22_bgfx_sprites PRIVATE
+            GroveEngine::impl
+            bgfx
+            bx
+            SDL2
+            pthread
+            dl
+            X11
+        )
+
+        # Not added to CTest (requires display)
+        message(STATUS "Visual test 'test_22_bgfx_sprites' enabled (run manually)")
     else()
         message(STATUS "SDL2 not found - visual tests disabled")
     endif()
+
+    # Test 22b: Headless sprite integration test (no display required)
+    add_executable(test_22_bgfx_sprites_headless
+        integration/test_22_bgfx_sprites_headless.cpp
+    )
+
+    target_link_libraries(test_22_bgfx_sprites_headless PRIVATE
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+
+    add_test(NAME BgfxSpritesHeadless COMMAND test_22_bgfx_sprites_headless WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endif()

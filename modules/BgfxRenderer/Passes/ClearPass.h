@@ -15,7 +15,7 @@ public:
 
     void setup(rhi::IRHIDevice& device) override;
     void shutdown(rhi::IRHIDevice& device) override;
-    void execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) override;
+    void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) override;
 };
 
 } // namespace grove

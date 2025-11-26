@@ -1141,55 +1141,65 @@ extern "C" {
 
 ## Phases d'implémentation
 
-### Phase 1 : Squelette (1-2 jours)
-- [ ] Structure fichiers/dossiers
-- [ ] CMakeLists.txt avec fetch bgfx
-- [ ] RHITypes.h complet
-- [ ] RHIDevice interface + BgfxDevice stub
-- [ ] FrameAllocator
-- [ ] Module qui compile et se charge
+### Phase 1 : Squelette ✅ DONE
+- [x] Structure fichiers/dossiers
+- [x] CMakeLists.txt avec fetch bgfx
+- [x] RHITypes.h complet
+- [x] RHIDevice interface + BgfxDevice stub
+- [x] FrameAllocator
+- [x] Module qui compile et se charge
 
-### Phase 2 : RHI bgfx (2-3 jours)
-- [ ] BgfxDevice::init/shutdown/frame
-- [ ] Création textures/buffers/shaders
-- [ ] RHICommandBuffer execution
-- [ ] Test: triangle qui s'affiche
+### Phase 2 : RHI bgfx ✅ DONE
+- [x] BgfxDevice::init/shutdown/frame
+- [x] Création textures/buffers/shaders
+- [x] RHICommandBuffer execution
+- [x] Test: triangle qui s'affiche (test_21_bgfx_triangle)
 
-### Phase 3 : Task Graph (1 jour)
-- [ ] TaskGraph construction
-- [ ] Compilation (tri topologique)
-- [ ] SingleThreadScheduler
-- [ ] Tests unitaires
+### Phase 3 : Render Graph + Passes ✅ DONE
+- [x] RenderGraph avec tri topologique (Kahn's algorithm)
+- [x] ClearPass, SpritePass, DebugPass
+- [x] Compilation et exécution des passes
+- [x] Embedded shaders (vs_color.bin.h, fs_color.bin.h)
 
-### Phase 4 : Render Graph + ClearPass (1 jour)
-- [ ] RenderGraph
-- [ ] ClearPass fonctionnel
-- [ ] Intégration TaskGraph
-- [ ] Test: clear color qui change
+### Phase 4 : ShaderManager + Intégration ✅ DONE
+- [x] ShaderManager refactorisé pour RHI (plus de bgfx:: exposé)
+- [x] Injection des shaders via constructeurs des passes (Option E)
+- [x] SpritePass::execute avec update instance buffer
+- [x] RenderPass::execute prend IRHIDevice& pour updates dynamiques
+- [x] Intégration complète dans BgfxRendererModule
 
-### Phase 5 : SpritePass (2-3 jours)
-- [ ] Vertex layout sprite
-- [ ] Shader sprite (sprite.sc)
-- [ ] Batching par texture
-- [ ] Instance buffer
-- [ ] Test: sprites qui s'affichent
+### Phase 5 : Scene Collection + IIO
+- [ ] SceneCollector collect() implémentation complète
+- [ ] Parsing des messages IIO (parseSprite, parseCamera, etc.)
+- [ ] FramePacket generation depuis données collectées
+- [ ] Test: sprites via messages IIO end-to-end
 
-### Phase 6 : Scene Collection + IIO (1-2 jours)
-- [ ] SceneCollector
-- [ ] Topics IIO
-- [ ] FramePacket generation
-- [ ] Test: sprites via messages IIO
+### Phase 6 : Resource Management
+- [ ] ResourceCache thread-safe
+- [ ] TextureManager (chargement async)
+- [ ] Integration avec SpritePass (textureId → TextureHandle)
 
-### Phase 7 : Passes additionnelles (3-4 jours)
+### Phase 6.5 : Tests Unitaires et Tests d'Intégration
+- [x] test_22_bgfx_sprites_headless.cpp (TU structures de données)
+- [x] test_22_bgfx_sprites.cpp (TI visuel avec SDL2 - nécessite platform data fix)
+- [ ] TU ShaderManager (init, getProgram, shutdown)
+- [ ] TU RenderGraph (addPass, compile, execute order)
+- [ ] TU FrameAllocator (allocate, reset, overflow)
+- [ ] TU RHICommandBuffer (recording, getCommands)
+- [ ] TI SceneCollector (collect depuis IIO mock)
+- [ ] TI Pipeline complet headless (mock device)
+
+### Phase 7 : Passes additionnelles
 - [ ] TilemapPass
-- [ ] TextPass (+ font loading)
-- [ ] DebugPass
+- [ ] TextPass (+ font loading avec stb_truetype)
+- [ ] ParticlePass
+- [ ] DebugPass lignes/rectangles complets
 
-### Phase 8 : Polish (2 jours)
+### Phase 8 : Polish
 - [ ] Resource hot-reload
 - [ ] State save/restore pour module hot-reload
-- [ ] Stats/profiling
-- [ ] Documentation
+- [ ] Stats/profiling (draw calls, batches, memory)
+- [ ] Documentation API
 
 ---
 
@@ -1242,14 +1252,18 @@ find_package(SDL2 REQUIRED)
 
 ---
 
-## Estimation totale
+## État d'avancement
 
-| Phase | Durée estimée |
-|-------|---------------|
-| Phase 1-2 | 3-5 jours |
-| Phase 3-4 | 2 jours |
-| Phase 5-6 | 3-5 jours |
-| Phase 7-8 | 5-6 jours |
-| **Total** | **~2-3 semaines** |
+| Phase | État | Description |
+|-------|------|-------------|
+| Phase 1 | ✅ DONE | Squelette du module |
+| Phase 2 | ✅ DONE | RHI bgfx + triangle test |
+| Phase 3 | ✅ DONE | RenderGraph + Passes |
+| Phase 4 | ✅ DONE | ShaderManager + Intégration |
+| Phase 5 | ⏳ TODO | Scene Collection + IIO |
+| Phase 6 | ⏳ TODO | Resource Management |
+| Phase 6.5 | ⏳ TODO | Tests Unitaires et Tests d'Intégration |
+| Phase 7 | ⏳ TODO | Passes additionnelles |
+| Phase 8 | ⏳ TODO | Polish |
 
-Pour un premier sprite à l'écran : ~1 semaine.
+**Prochaine étape** : Phase 5 - Implémenter SceneCollector pour collecter les sprites via IIO.

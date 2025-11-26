@@ -11,13 +11,19 @@ namespace grove {
 
 class SpritePass : public RenderPass {
 public:
+    /**
+     * @brief Construct SpritePass with required shader
+     * @param shader The shader program to use for sprite rendering
+     */
+    explicit SpritePass(rhi::ShaderHandle shader);
+
     const char* getName() const override { return "Sprites"; }
     uint32_t getSortOrder() const override { return 100; }
     std::vector<const char*> getDependencies() const override { return {"Clear"}; }
 
     void setup(rhi::IRHIDevice& device) override;
     void shutdown(rhi::IRHIDevice& device) override;
-    void execute(const FramePacket& frame, rhi::RHICommandBuffer& cmd) override;
+    void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) override;
 
 private:
     rhi::ShaderHandle m_shader;
