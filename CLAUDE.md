@@ -63,6 +63,25 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 | 15 | MemoryLeakHunter | ~135s | 200 reload cycles |
 | 19 | CrossSystemIntegration | ~4s | Multi-system test |
 
+## BgfxRenderer Module
+2D rendering module using bgfx. Located in `modules/BgfxRenderer/`.
+
+### Architecture
+- **RHI Layer**: Abstracts bgfx calls (`RHIDevice.h`, `BgfxDevice.cpp`)
+- **RenderGraph**: Topological sort with Kahn's algorithm for pass ordering
+- **CommandBuffer**: Records commands, executed by device at frame end
+- **IIO Topics**: `render:sprite`, `render:camera`, `render:debug/*`
+
+### Build
+```bash
+cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build
+cmake --build build -j4
+```
+
+### Documentation
+- `modules/BgfxRenderer/README.md` - Module overview
+- `docs/PLAN_BGFX_RENDERER.md` - Implementation plan
+
 ## Debugging Tools
 ```bash
 # ThreadSanitizer (detects data races, deadlocks)
