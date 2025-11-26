@@ -1,180 +1,99 @@
-# Session Suivante : Fix IO Routing
+# GroveEngine - Session Successor Prompt
 
-## 🎯 Contexte
-Implémentation du scénario 11 (IO System Stress Test). Le test est créé et compile, mais le routing des messages entre modules IntraIO ne fonctionne pas.
+## Contexte Rapide
 
-## 🐛 Problème Identifié
-**Bug Architecture** : `IntraIO::publish()` et `IntraIO::subscribe()` ne communiquent PAS avec `IntraIOManager` singleton.
+GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe actuellement le module **BgfxRenderer** pour le rendu 2D.
 
-### Flux Actuel (Cassé)
+## État Actuel (26 Nov 2025)
+
+### Phases Complétées ✅
+
+**Phase 1** - Squelette du module
+- `libBgfxRenderer.so` compilé et chargeable dynamiquement
+
+**Phase 2** - RHI Layer
+- `BgfxDevice` : init/shutdown/frame, création textures/buffers/shaders
+- `RHICommandBuffer` : recording de commandes GPU
+- `FrameAllocator` : allocateur lock-free per-frame
+- `RenderGraph` : tri topologique Kahn pour ordonnancement des passes
+- Tests : `test_20_bgfx_rhi` (23 tests passent)
+
+**Phase 3** - Shaders & Triangle
+- `ShaderManager` : chargement centralisé des shaders embedded
+- Shaders pré-compilés : OpenGL, Vulkan, DX11, Metal
+- Test visuel : `test_21_bgfx_triangle` - triangle RGB coloré (~567 FPS Vulkan)
+
+### Fichiers Clés
+
 ```
-Module A publish("test", data)
-  ↓
-IntraIO::publish() → messageQueue locale ❌
-  
-Module B subscribe("test")
-  ↓  
-IntraIO::subscribe() → subscriptions locales ❌
-
-Résultat: Aucun message routé entre modules !
-```
-
-### Flux Corrigé (Implémenté)
-```
-Module A publish("test", data)
-  ↓
-IntraIO::publish()
-  ↓ extract JSON from JsonDataNode
-  ↓
-IntraIOManager::routeMessage(instanceId, topic, json) ✅
-  ↓
-Pour chaque subscriber:
-  - Copy JSON
-  - Créer nouveau JsonDataNode
-  - deliverMessage() → queue du subscriber
-
-Module B subscribe("test")
-  ↓
-IntraIO::subscribe()
-  ↓
-IntraIOManager::registerSubscription(instanceId, pattern) ✅
-```
-
-## ✅ Modifications Effectuées
-
-### 1. IntraIOManager.h (ligne 74)
-```cpp
-// AVANT
-void routeMessage(const std::string& sourceid, const std::string& topic, std::unique_ptr<IDataNode> message);
-
-// APRÈS  
-void routeMessage(const std::string& sourceid, const std::string& topic, const json& messageData);
-```
-
-### 2. IntraIOManager.cpp
-- Ajout include: `#include <grove/JsonDataNode.h>`
-- Ligne 102-148: Nouvelle implémentation de `routeMessage()`:
-  - Prend `const json&` au lieu de `unique_ptr<IDataNode>`
-  - Pour chaque subscriber matching:
-    - `json dataCopy = messageData;` (copie JSON)
-    - `auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);`
-    - `deliverMessage(topic, std::move(dataNode), isLowFreq);`
-  - **Fix 1-to-many** : Continue la boucle au lieu de break (ligne 134)
-
-### 3. IntraIO.cpp
-- Ajout include: `#include <grove/IntraIOManager.h>`
-
-**publish()** (ligne 24-40):
-```cpp
-void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> message) {
-    std::lock_guard<std::mutex> lock(operationMutex);
-    totalPublished++;
-    
-    // Extract JSON
-    auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
-    if (!jsonNode) throw std::runtime_error("Requires JsonDataNode");
-    
-    const nlohmann::json& jsonData = jsonNode->getJsonData();
-    
-    // Route via Manager ← NOUVEAU !
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonData);
-}
+modules/BgfxRenderer/
+├── BgfxRendererModule.cpp   # Point d'entrée module
+├── RHI/
+│   ├── RHIDevice.h          # Interface abstraite
+│   ├── BgfxDevice.cpp       # Implémentation bgfx
+│   ├── RHICommandBuffer.h   # Command buffer
+│   └── RHITypes.h           # Handles, states
+├── Shaders/
+│   ├── ShaderManager.cpp    # Gestion shaders
+│   ├── vs_color.bin.h       # Vertex shader embedded
+│   └── fs_color.bin.h       # Fragment shader embedded
+├── RenderGraph/
+│   └── RenderGraph.cpp      # Tri topologique passes
+├── Passes/
+│   ├── ClearPass.cpp        # Clear screen
+│   ├── SpritePass.cpp       # Rendu sprites (à compléter)
+│   └── DebugPass.cpp        # Debug shapes
+├── Frame/
+│   ├── FramePacket.h        # Données immutables par frame
+│   └── FrameAllocator.cpp   # Allocateur bump
+└── Scene/
+    └── SceneCollector.cpp   # Collecte messages IIO
 ```
 
-**subscribe()** (ligne 38-51):
-```cpp
-void IntraIO::subscribe(const std::string& topicPattern, const SubscriptionConfig& config) {
-    // ... existing code ...
-    highFreqSubscriptions.push_back(std::move(sub));
-    
-    // Register with Manager ← NOUVEAU !
-    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, false);
-}
-```
+## Prochaine Phase : Phase 4
 
-**subscribeLowFreq()** (ligne 53-66):
-```cpp
-void IntraIO::subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config) {
-    // ... existing code ...
-    lowFreqSubscriptions.push_back(std::move(sub));
-    
-    // Register with Manager ← NOUVEAU !
-    IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true);
-}
-```
+### Objectif
+Intégrer le ShaderManager dans le module principal et rendre le SpritePass fonctionnel.
 
-## 🚀 Prochaines Étapes
+### Tâches
 
-### 1. Build
+1. **Mettre à jour BgfxRendererModule.cpp** :
+   - Ajouter `ShaderManager` comme membre
+   - Initialiser les shaders dans `setConfiguration()`
+   - Passer le program aux passes
+
+2. **Compléter SpritePass.cpp** :
+   - Utiliser le shader "sprite" du ShaderManager
+   - Implémenter l'update du instance buffer avec les données FramePacket
+   - Soumettre les draw calls instancés
+
+3. **Test d'intégration** :
+   - Créer un test qui charge le module via `ModuleLoader`
+   - Envoyer des sprites via IIO
+   - Vérifier le rendu
+
+### Build & Test
+
 ```bash
-cd /mnt/c/Users/alexi/Documents/projects/groveengine/build
-cmake --build . -j4
+# Build avec BgfxRenderer
+cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
+cmake --build build-bgfx -j4
+
+# Tests RHI
+./build-bgfx/tests/test_20_bgfx_rhi
+
+# Test visuel triangle
+./build-bgfx/tests/test_21_bgfx_triangle
 ```
 
-### 2. Run Test
-```bash
-cd /mnt/c/Users/alexi/Documents/projects/groveengine/build/tests
-./test_11_io_system
-```
+## Notes Importantes
 
-### 3. Résultats Attendus
-- ✅ TEST 1: Basic Pub/Sub → 100/100 messages reçus
-- ✅ TEST 2: Pattern Matching → patterns matchent correctement
-- ✅ TEST 3: Multi-Module → TOUS les subscribers reçoivent (1-to-many fixé!)
-- ✅ TEST 4-6: Autres tests passent
+- **WSL2** : Le rendu fonctionne via Vulkan (pas OpenGL)
+- **Shaders** : Pré-compilés, pas besoin de shaderc à runtime
+- **Thread Safety** : Voir `docs/coding_guidelines.md` pour les patterns mutex
 
-### 4. Si Erreurs de Compilation
-Vérifier que tous les includes sont présents:
-- `IntraIOManager.cpp`: `#include <grove/JsonDataNode.h>`
-- `IntraIO.cpp`: `#include <grove/IntraIOManager.h>`
-
-### 5. Si Tests Échouent
-Activer les logs pour debug:
-```cpp
-IntraIOManager::getInstance().setLogLevel(spdlog::level::debug);
-```
-
-Vérifier dans les logs:
-- `📨 Routing message:` apparaît quand publish()
-- `📋 Registered subscription:` apparaît quand subscribe()
-- `↪️ Delivered to` apparaît pour chaque delivery
-
-## 📊 Architecture Finale
+## Commit Actuel
 
 ```
-IDataNode (abstraction)
-    ↓
-JsonDataNode (implémentation avec nlohmann::json)
-    ↓
-IntraIO (instance par module)
-    - publish() → extrait JSON → routeMessage()
-    - subscribe() → registerSubscription()
-    - deliverMessage() ← reçoit de Manager
-    ↓
-IntraIOManager (singleton central)
-    - routeMessage() → copie JSON → deliverMessage() aux subscribers
-    - routingTable : patterns → instances
+1443c12 feat(BgfxRenderer): Complete Phase 2-3 with shaders and triangle rendering
 ```
-
-**Avantages de cette architecture**:
-- ✅ JSON est copiable (pas besoin de clone())
-- ✅ 1-to-many fonctionne (copie JSON pour chaque subscriber)
-- ✅ Compatible futur NetworkIO (JSON sérialisable)
-- ✅ Abstraction IDataNode préservée
-
-## 📝 Fichiers Modifiés
-1. `/include/grove/IntraIOManager.h` (signature routeMessage)
-2. `/src/IntraIOManager.cpp` (implémentation routing avec JSON)
-3. `/src/IntraIO.cpp` (publish/subscribe appellent Manager)
-
-## ✅ Todo List
-- [x] Modifier signature routeMessage() pour JSON
-- [x] Implémenter copie JSON et recreation DataNode
-- [x] Modifier subscribe() pour enregistrer au Manager
-- [x] Modifier subscribeLowFreq() pour enregistrer au Manager
-- [x] Modifier publish() pour router via Manager
-- [ ] **Build le projet**
-- [ ] **Run test_11_io_system**
-- [ ] **Vérifier que tous les tests passent**
-
-Bonne chance ! 🚀
