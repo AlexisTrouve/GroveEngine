@@ -178,7 +178,9 @@ void SceneCollector::parseSprite(const IDataNode& data) {
 
 void SceneCollector::parseSpriteBatch(const IDataNode& data) {
     // Get sprites child node and iterate
-    IDataNode* spritesNode = data.getChildReadOnly("sprites");
+    // Note: const_cast needed because IDataNode::getChildReadOnly() is not const
+    // (it should be, but changing the interface requires broader refactoring)
+    IDataNode* spritesNode = const_cast<IDataNode&>(data).getChildReadOnly("sprites");
     if (!spritesNode) return;
 
     for (const auto& name : spritesNode->getChildNames()) {

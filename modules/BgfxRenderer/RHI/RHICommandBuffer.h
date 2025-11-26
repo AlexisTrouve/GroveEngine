@@ -39,6 +39,12 @@ struct Command {
         struct { uint32_t indexCount; uint32_t instanceCount; } drawInstanced;
         struct { ViewId view; ShaderHandle shader; uint32_t depth; } submit;
     };
+
+    // Default constructor required because union contains non-trivial types
+    Command() : type(CommandType::SetState) { std::memset(&setState, 0, sizeof(setState)); }
+    ~Command() = default;
+    Command(const Command&) = default;
+    Command& operator=(const Command&) = default;
 };
 
 // ============================================================================

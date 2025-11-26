@@ -626,3 +626,54 @@ target_link_libraries(benchmark_e2e PRIVATE
     GroveEngine::impl
     topictree::topictree
 )
+
+# ================================================================================
+# BgfxRenderer Tests (only if GROVE_BUILD_BGFX_RENDERER is ON)
+# ================================================================================
+
+if(GROVE_BUILD_BGFX_RENDERER)
+    # Test 20: BgfxRenderer RHI Unit Tests (no window required)
+    add_executable(test_20_bgfx_rhi
+        integration/test_20_bgfx_rhi.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+        ../modules/BgfxRenderer/Frame/FrameAllocator.cpp
+    )
+
+    target_include_directories(test_20_bgfx_rhi PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+    )
+
+    target_link_libraries(test_20_bgfx_rhi PRIVATE
+        GroveEngine::core
+    )
+
+    # CTest integration
+    add_test(NAME BgfxRHI COMMAND test_20_bgfx_rhi WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Test 21: Visual Triangle Test (requires SDL2 and display)
+    find_package(SDL2 QUIET)
+    if(SDL2_FOUND OR EXISTS "/usr/include/SDL2/SDL.h")
+        add_executable(test_21_bgfx_triangle
+            visual/test_bgfx_triangle.cpp
+        )
+
+        target_include_directories(test_21_bgfx_triangle PRIVATE
+            /usr/include/SDL2
+        )
+
+        target_link_libraries(test_21_bgfx_triangle PRIVATE
+            bgfx
+            bx
+            SDL2
+            pthread
+            dl
+            X11
+            GL
+        )
+
+        # Not added to CTest (requires display)
+        message(STATUS "Visual test 'test_21_bgfx_triangle' enabled (run manually)")
+    else()
+        message(STATUS "SDL2 not found - visual tests disabled")
+    endif()
+endif()

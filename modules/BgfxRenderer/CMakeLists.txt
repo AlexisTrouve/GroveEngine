@@ -43,6 +43,9 @@ add_library(BgfxRenderer SHARED
     # RenderGraph
     RenderGraph/RenderGraph.cpp
 
+    # Shaders
+    Shaders/ShaderManager.cpp
+
     # Passes
     Passes/ClearPass.cpp
     Passes/SpritePass.cpp

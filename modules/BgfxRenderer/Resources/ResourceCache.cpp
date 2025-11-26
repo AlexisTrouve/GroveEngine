@@ -1,5 +1,7 @@
 #include "ResourceCache.h"
 #include "../RHI/RHIDevice.h"
+#include <mutex>
+#include <shared_mutex>
 
 namespace grove {
 
