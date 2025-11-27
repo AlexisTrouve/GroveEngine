@@ -1,4 +1,5 @@
 #include "ResourceCache.h"
+#include "TextureLoader.h"
 #include "../RHI/RHIDevice.h"
 #include <mutex>
 #include <shared_mutex>
@@ -33,29 +34,21 @@ rhi::TextureHandle ResourceCache::loadTexture(rhi::IRHIDevice& device, const std
         }
     }
 
-    // Load texture data from file
-    // TODO: Use stb_image or similar to load actual texture files
-    // For now, create a placeholder 1x1 white texture
+    // Load texture from file using TextureLoader (stb_image)
+    auto result = TextureLoader::loadFromFile(device, path);
 
-    uint32_t whitePixel = 0xFFFFFFFF;
-
-    rhi::TextureDesc desc;
-    desc.width = 1;
-    desc.height = 1;
-    desc.mipLevels = 1;
-    desc.format = rhi::TextureDesc::RGBA8;
-    desc.data = &whitePixel;
-    desc.dataSize = sizeof(whitePixel);
-
-    rhi::TextureHandle handle = device.createTexture(desc);
+    if (!result.success) {
+        // Return invalid handle on failure
+        return rhi::TextureHandle{};
+    }
 
     // Store in cache
     {
         std::unique_lock lock(m_mutex);
-        m_textures[path] = handle;
+        m_textures[path] = result.handle;
     }
 
-    return handle;
+    return result.handle;
 }
 
 rhi::ShaderHandle ResourceCache::loadShader(rhi::IRHIDevice& device, const std::string& name,

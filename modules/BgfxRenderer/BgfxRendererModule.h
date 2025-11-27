@@ -16,6 +16,7 @@ class RenderGraph;
 class SceneCollector;
 class ResourceCache;
 class ShaderManager;
+class SpritePass;
 
 // ============================================================================
 // BgfxRenderer Module - 2D rendering via bgfx
@@ -54,6 +55,9 @@ private:
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;
     std::unique_ptr<ResourceCache> m_resourceCache;
+
+    // Pass references (non-owning, owned by RenderGraph)
+    SpritePass* m_spritePass = nullptr;
 
     // IIO (non-owning)
     IIO* m_io = nullptr;

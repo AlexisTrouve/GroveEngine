@@ -104,8 +104,9 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
         cmd.setIndexBuffer(m_quadIB);
         cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(batchSize));
 
-        // Bind default texture (TODO: support per-sprite textures via texture array)
-        cmd.setTexture(0, m_defaultTexture, m_textureSampler);
+        // Bind texture (use active texture if set, otherwise default white)
+        rhi::TextureHandle texToUse = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
+        cmd.setTexture(0, texToUse, m_textureSampler);
 
         // Submit draw call
         cmd.drawInstanced(6, static_cast<uint32_t>(batchSize)); // 6 indices per quad

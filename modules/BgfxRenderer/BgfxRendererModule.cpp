@@ -82,8 +82,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_renderGraph = std::make_unique<RenderGraph>();
     m_renderGraph->addPass(std::make_unique<ClearPass>());
     m_logger->info("Added ClearPass");
-    m_renderGraph->addPass(std::make_unique<SpritePass>(spriteShader));
+
+    // Create SpritePass and keep reference for texture binding
+    auto spritePass = std::make_unique<SpritePass>(spriteShader);
+    m_spritePass = spritePass.get();  // Non-owning reference
+    m_renderGraph->addPass(std::move(spritePass));
     m_logger->info("Added SpritePass");
+
     m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
     m_logger->info("Added DebugPass");
     m_renderGraph->setup(*m_device);
@@ -98,6 +103,18 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 
     // Setup resource cache
     m_resourceCache = std::make_unique<ResourceCache>();
+
+    // Load default texture if specified in config
+    std::string defaultTexturePath = config.getString("defaultTexture", "");
+    if (!defaultTexturePath.empty()) {
+        rhi::TextureHandle tex = m_resourceCache->loadTexture(*m_device, defaultTexturePath);
+        if (tex.isValid()) {
+            m_spritePass->setTexture(tex);
+            m_logger->info("Loaded default texture: {}", defaultTexturePath);
+        } else {
+            m_logger->warn("Failed to load default texture: {}", defaultTexturePath);
+        }
+    }
 
     m_logger->info("BgfxRenderer initialized successfully");
 }

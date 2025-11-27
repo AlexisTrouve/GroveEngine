@@ -25,6 +25,14 @@ public:
     void shutdown(rhi::IRHIDevice& device) override;
     void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) override;
 
+    /**
+     * @brief Set a texture to use for all sprites (temporary API)
+     * @param texture The texture handle to use (must be valid)
+     *
+     * TODO: Replace with proper texture array / per-sprite texture support
+     */
+    void setTexture(rhi::TextureHandle texture) { m_activeTexture = texture; }
+
 private:
     rhi::ShaderHandle m_shader;
     rhi::BufferHandle m_quadVB;
@@ -32,6 +40,7 @@ private:
     rhi::BufferHandle m_instanceBuffer;
     rhi::UniformHandle m_textureSampler;
     rhi::TextureHandle m_defaultTexture;  // White 1x1 texture fallback
+    rhi::TextureHandle m_activeTexture;   // Currently active texture (if set)
 
     static constexpr uint32_t MAX_SPRITES_PER_BATCH = 10000;
 };

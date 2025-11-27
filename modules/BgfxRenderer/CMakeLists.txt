@@ -57,11 +57,13 @@ add_library(BgfxRenderer SHARED
 
     # Resources
     Resources/ResourceCache.cpp
+    Resources/TextureLoader.cpp
 )
 
 target_include_directories(BgfxRenderer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${bgfx_SOURCE_DIR}/bimg/3rdparty  # stb_image
 )
 
 target_link_libraries(BgfxRenderer PRIVATE

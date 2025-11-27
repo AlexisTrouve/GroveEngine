@@ -120,6 +120,9 @@ int main(int argc, char* argv[]) {
     config.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nativeWindowHandle)));
     config.setDouble("nativeDisplayHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nativeDisplayHandle)));
 
+    // Load texture from assets folder
+    config.setString("defaultTexture", "../../assets/textures/1f440.png");
+
     module->setConfiguration(config, rendererIO.get(), nullptr);
 
     std::cout << "Module configured\n";
@@ -208,15 +211,8 @@ int main(int argc, char* argv[]) {
             sprite->setDouble("u1", 1.0);
             sprite->setDouble("v1", 1.0);
 
-            // Different colors for each sprite (ABGR format for bgfx)
-            uint32_t colors[] = {
-                0xFF0000FF,  // Red
-                0xFF00FF00,  // Green
-                0xFFFF0000,  // Blue
-                0xFF00FFFF,  // Yellow
-                0xFFFF00FF   // Magenta
-            };
-            sprite->setInt("color", static_cast<int>(colors[i]));
+            // All sprites white to show texture without tint
+            sprite->setInt("color", static_cast<int>(0xFFFFFFFF));
             sprite->setInt("textureId", 0);
             sprite->setInt("layer", i);
 
