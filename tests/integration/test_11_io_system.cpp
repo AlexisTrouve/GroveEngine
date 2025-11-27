@@ -21,13 +21,44 @@
 #include "../helpers/TestAssertions.h"
 #include "../helpers/TestReporter.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <atomic>
 #include <vector>
 #include <map>
+
+// Cross-platform dlopen wrappers
+#ifdef _WIN32
+inline void* grove_dlopen(const char* path, int flags) {
+    (void)flags;
+    return LoadLibraryA(path);
+}
+inline void* grove_dlsym(void* handle, const char* symbol) {
+    return (void*)GetProcAddress((HMODULE)handle, symbol);
+}
+inline int grove_dlclose(void* handle) {
+    return FreeLibrary((HMODULE)handle) ? 0 : -1;
+}
+inline const char* grove_dlerror() {
+    static thread_local char buf[256];
+    DWORD err = GetLastError();
+    snprintf(buf, sizeof(buf), "Windows error code: %lu", err);
+    return buf;
+}
+#define RTLD_NOW 0
+#define RTLD_LOCAL 0
+#else
+#define grove_dlopen dlopen
+#define grove_dlsym dlsym
+#define grove_dlclose dlclose
+#define grove_dlerror dlerror
+#endif
 
 using namespace grove;
 
@@ -56,23 +87,23 @@ public:
             return false;
         }
 
-        void* dlHandle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        void* dlHandle = grove_dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!dlHandle) {
-            std::cerr << "Failed to load module " << name << ": " << dlerror() << "\n";
+            std::cerr << "Failed to load module " << name << ": " << grove_dlerror() << "\n";
             return false;
         }
 
-        auto createFunc = (grove::IModule* (*)())dlsym(dlHandle, "createModule");
+        auto createFunc = (grove::IModule* (*)())grove_dlsym(dlHandle, "createModule");
         if (!createFunc) {
-            std::cerr << "Failed to find createModule in " << name << ": " << dlerror() << "\n";
-            dlclose(dlHandle);
+            std::cerr << "Failed to find createModule in " << name << ": " << grove_dlerror() << "\n";
+            grove_dlclose(dlHandle);
             return false;
         }
 
         grove::IModule* instance = createFunc();
         if (!instance) {
             std::cerr << "createModule returned nullptr for " << name << "\n";
-            dlclose(dlHandle);
+            grove_dlclose(dlHandle);
             return false;
         }
 
@@ -108,7 +139,7 @@ public:
         }
 
         if (handle.dlHandle) {
-            dlclose(handle.dlHandle);
+            grove_dlclose(handle.dlHandle);
             handle.dlHandle = nullptr;
         }
 

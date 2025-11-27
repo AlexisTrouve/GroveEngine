@@ -1,10 +1,15 @@
 #include <iostream>
-#include <dlfcn.h>
 #include <memory>
 #include <thread>
 #include <chrono>
 #include <grove/IModule.h>
 #include <grove/JsonDataNode.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 using namespace grove;
 
@@ -35,13 +40,41 @@ public:
 
     ~SimpleModuleLoader() {
         if (handle) {
+#ifdef _WIN32
+            FreeLibrary(static_cast<HMODULE>(handle));
+#else
             dlclose(handle);
+#endif
         }
     }
 
     bool load() {
         std::cout << "\n[Loader] Loading module: " << modulePath << std::endl;
 
+#ifdef _WIN32
+        handle = LoadLibraryA(modulePath.c_str());
+        if (!handle) {
+            std::cerr << "[Loader] ERROR: Failed to load module: error code " << GetLastError() << std::endl;
+            return false;
+        }
+
+        // Load factory functions
+        createFn = (CreateModuleFn)GetProcAddress(static_cast<HMODULE>(handle), "createModule");
+        if (!createFn) {
+            std::cerr << "[Loader] ERROR: Cannot load createModule: error code " << GetLastError() << std::endl;
+            FreeLibrary(static_cast<HMODULE>(handle));
+            handle = nullptr;
+            return false;
+        }
+
+        destroyFn = (DestroyModuleFn)GetProcAddress(static_cast<HMODULE>(handle), "destroyModule");
+        if (!destroyFn) {
+            std::cerr << "[Loader] ERROR: Cannot load destroyModule: error code " << GetLastError() << std::endl;
+            FreeLibrary(static_cast<HMODULE>(handle));
+            handle = nullptr;
+            return false;
+        }
+#else
         handle = dlopen(modulePath.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             std::cerr << "[Loader] ERROR: Failed to load module: " << dlerror() << std::endl;
@@ -69,6 +102,7 @@ public:
             handle = nullptr;
             return false;
         }
+#endif
 
         std::cout << "[Loader] ✅ Module loaded successfully" << std::endl;
         return true;
@@ -77,7 +111,11 @@ public:
     void unload() {
         if (handle) {
             std::cout << "[Loader] Unloading module..." << std::endl;
+#ifdef _WIN32
+            FreeLibrary(static_cast<HMODULE>(handle));
+#else
             dlclose(handle);
+#endif
             handle = nullptr;
             createFn = nullptr;
             destroyFn = nullptr;

@@ -242,7 +242,26 @@ void SceneCollector::parseCamera(const IDataNode& data) {
     m_mainView.viewportW = static_cast<uint16_t>(data.getInt("viewportW", 1280));
     m_mainView.viewportH = static_cast<uint16_t>(data.getInt("viewportH", 720));
 
-    // TODO: Compute view and projection matrices from camera params
+    // Compute view matrix (translation by -camera position)
+    std::memset(m_mainView.viewMatrix, 0, sizeof(m_mainView.viewMatrix));
+    m_mainView.viewMatrix[0] = 1.0f;
+    m_mainView.viewMatrix[5] = 1.0f;
+    m_mainView.viewMatrix[10] = 1.0f;
+    m_mainView.viewMatrix[12] = -m_mainView.positionX;
+    m_mainView.viewMatrix[13] = -m_mainView.positionY;
+    m_mainView.viewMatrix[15] = 1.0f;
+
+    // Compute orthographic projection matrix with zoom
+    float width = static_cast<float>(m_mainView.viewportW) / m_mainView.zoom;
+    float height = static_cast<float>(m_mainView.viewportH) / m_mainView.zoom;
+
+    std::memset(m_mainView.projMatrix, 0, sizeof(m_mainView.projMatrix));
+    m_mainView.projMatrix[0] = 2.0f / width;
+    m_mainView.projMatrix[5] = -2.0f / height;  // Y-flip for top-left origin
+    m_mainView.projMatrix[10] = 1.0f;
+    m_mainView.projMatrix[12] = -1.0f;
+    m_mainView.projMatrix[13] = 1.0f;
+    m_mainView.projMatrix[15] = 1.0f;
 }
 
 void SceneCollector::parseClear(const IDataNode& data) {

@@ -91,7 +91,7 @@ void reloadSchedulerThread(ModuleLoader& loader, SequentialModuleSystem* moduleS
             module.reset();
 
             // Reload the same .so file
-            auto newModule = loader.load(modulePath, "LeakTestModule", true);
+            auto newModule = loader.load(modulePath.string(), "LeakTestModule", true);
 
             g_reloadCount++;
 
@@ -225,7 +225,7 @@ int main() {
 
     // Load initial module
     try {
-        auto module = loader.load(modulePath, "LeakTestModule", false);
+        auto module = loader.load(modulePath.string(), "LeakTestModule", false);
         if (!module) {
             std::cerr << "❌ Failed to load LeakTestModule\n";
             return 1;

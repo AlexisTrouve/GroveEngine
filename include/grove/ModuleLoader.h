@@ -3,9 +3,14 @@
 #include <string>
 #include <memory>
 #include <functional>
-#include <dlfcn.h>
 #include <spdlog/spdlog.h>
 #include "IModule.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace grove {
 

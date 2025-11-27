@@ -1,8 +1,13 @@
 #include <grove/ModuleFactory.h>
 #include <filesystem>
-#include <dlfcn.h>
 #include <algorithm>
 #include <logger/Logger.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -152,7 +157,11 @@ void ModuleFactory::registerModule(const std::string& modulePath) {
         if (resolveSymbols(tempInfo)) {
             // Get the actual type from the module
             typedef const char* (*GetTypeFunc)();
+#ifdef _WIN32
+            auto getTypeFunc = (GetTypeFunc)GetProcAddress(static_cast<HMODULE>(tempInfo.handle), "get_module_type");
+#else
             auto getTypeFunc = (GetTypeFunc)dlsym(tempInfo.handle, "get_module_type");
+#endif
             if (getTypeFunc) {
                 moduleType = getTypeFunc();
             }
@@ -375,6 +384,15 @@ std::shared_ptr<spdlog::logger> ModuleFactory::getFactoryLogger() {
 bool ModuleFactory::loadSharedLibrary(const std::string& path, ModuleInfo& info) {
     logger->trace("📚 Loading shared library: '{}'", path);
 
+#ifdef _WIN32
+    // Load the shared library on Windows
+    info.handle = LoadLibraryA(path.c_str());
+    if (!info.handle) {
+        DWORD error = GetLastError();
+        logger->error("❌ LoadLibrary failed for '{}': error code {}", path, error);
+        return false;
+    }
+#else
     // Clear any existing error
     dlerror();
 
@@ -385,6 +403,7 @@ bool ModuleFactory::loadSharedLibrary(const std::string& path, ModuleInfo& info)
         logger->error("❌ dlopen failed for '{}': {}", path, error ? error : "unknown error");
         return false;
     }
+#endif
 
     logger->trace("✅ Shared library loaded: '{}'", path);
     return true;
@@ -394,11 +413,19 @@ void ModuleFactory::unloadSharedLibrary(ModuleInfo& info) {
     if (info.handle) {
         logger->trace("🗑️ Unloading shared library: '{}'", info.path);
 
+#ifdef _WIN32
+        BOOL result = FreeLibrary(static_cast<HMODULE>(info.handle));
+        if (!result) {
+            DWORD error = GetLastError();
+            logger->warn("⚠️ FreeLibrary warning for '{}': error code {}", info.path, error);
+        }
+#else
         int result = dlclose(info.handle);
         if (result != 0) {
             const char* error = dlerror();
             logger->warn("⚠️ dlclose warning for '{}': {}", info.path, error ? error : "unknown error");
         }
+#endif
 
         info.handle = nullptr;
         info.createFunc = nullptr;
@@ -409,41 +436,72 @@ void ModuleFactory::unloadSharedLibrary(ModuleInfo& info) {
 bool ModuleFactory::resolveSymbols(ModuleInfo& info) {
     logger->trace("🔍 Resolving symbols for: '{}'", info.path);
 
-    // Clear any existing error
-    dlerror();
-
     // Resolve create_module function
     typedef IModule* (*CreateFunc)();
+#ifdef _WIN32
+    auto createFunc = (CreateFunc)GetProcAddress(static_cast<HMODULE>(info.handle), "create_module");
+    if (!createFunc) {
+        logger->error("❌ Failed to resolve 'create_module': error code {}", GetLastError());
+        return false;
+    }
+#else
+    dlerror(); // Clear any existing error
     auto createFunc = (CreateFunc)dlsym(info.handle, "create_module");
     const char* error = dlerror();
     if (error || !createFunc) {
         logger->error("❌ Failed to resolve 'create_module': {}", error ? error : "symbol not found");
         return false;
     }
+#endif
     info.createFunc = createFunc;
 
     // Resolve destroy_module function
     typedef void (*DestroyFunc)(IModule*);
+#ifdef _WIN32
+    auto destroyFunc = (DestroyFunc)GetProcAddress(static_cast<HMODULE>(info.handle), "destroy_module");
+    if (!destroyFunc) {
+        logger->error("❌ Failed to resolve 'destroy_module': error code {}", GetLastError());
+        return false;
+    }
+#else
     auto destroyFunc = (DestroyFunc)dlsym(info.handle, "destroy_module");
     error = dlerror();
     if (error || !destroyFunc) {
         logger->error("❌ Failed to resolve 'destroy_module': {}", error ? error : "symbol not found");
         return false;
     }
+#endif
     info.destroyFunc = destroyFunc;
 
     // Resolve get_module_type function
     typedef const char* (*GetTypeFunc)();
+#ifdef _WIN32
+    auto getTypeFunc = (GetTypeFunc)GetProcAddress(static_cast<HMODULE>(info.handle), "get_module_type");
+    if (!getTypeFunc) {
+        logger->error("❌ Failed to resolve 'get_module_type': error code {}", GetLastError());
+        return false;
+    }
+#else
     auto getTypeFunc = (GetTypeFunc)dlsym(info.handle, "get_module_type");
     error = dlerror();
     if (error || !getTypeFunc) {
         logger->error("❌ Failed to resolve 'get_module_type': {}", error ? error : "symbol not found");
         return false;
     }
+#endif
     info.type = getTypeFunc();
 
     // Resolve get_module_version function
     typedef const char* (*GetVersionFunc)();
+#ifdef _WIN32
+    auto getVersionFunc = (GetVersionFunc)GetProcAddress(static_cast<HMODULE>(info.handle), "get_module_version");
+    if (!getVersionFunc) {
+        logger->warn("⚠️ Failed to resolve 'get_module_version': error code {}", GetLastError());
+        info.version = "unknown";
+    } else {
+        info.version = getVersionFunc();
+    }
+#else
     auto getVersionFunc = (GetVersionFunc)dlsym(info.handle, "get_module_version");
     error = dlerror();
     if (error || !getVersionFunc) {
@@ -452,6 +510,7 @@ bool ModuleFactory::resolveSymbols(ModuleInfo& info) {
     } else {
         info.version = getVersionFunc();
     }
+#endif
 
     logger->trace("✅ All symbols resolved for '{}' (type: '{}', version: '{}')",
                  info.path, info.type, info.version);

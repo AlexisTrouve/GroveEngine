@@ -4,12 +4,21 @@
 
 GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe actuellement le module **BgfxRenderer** pour le rendu 2D.
 
-## État Actuel (26 Nov 2025)
+## État Actuel (27 Nov 2025)
+
+### Portage Windows ✅
+
+Le projet compile maintenant sur **Windows** (MinGW/Ninja) en plus de Linux :
+- `ModuleFactory.cpp` et `ModuleLoader.cpp` : LoadLibrary/GetProcAddress
+- `SystemUtils.cpp` : Windows process memory APIs
+- `FileWatcher.h` : st_mtime au lieu de st_mtim
+- `IIO.h` : ajout `#include <cstdint>`
+- Tests integration (test_09, test_10, test_11) : wrappers `grove_dlopen/grove_dlsym/grove_dlclose/grove_dlerror`
 
 ### Phases Complétées ✅
 
 **Phase 1** - Squelette du module
-- `libBgfxRenderer.so` compilé et chargeable dynamiquement
+- `libBgfxRenderer.so/.dll` compilé et chargeable dynamiquement
 
 **Phase 2** - RHI Layer
 - `BgfxDevice` : init/shutdown/frame, création textures/buffers/shaders
@@ -23,11 +32,19 @@ GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe
 - Shaders pré-compilés : OpenGL, Vulkan, DX11, Metal
 - Test visuel : `test_21_bgfx_triangle` - triangle RGB coloré (~567 FPS Vulkan)
 
+**Phase 4** - SceneCollector & IIO Integration ✅ (NOUVEAU)
+- `SceneCollector` : collecte des messages IIO pour `render:sprite`, `render:camera`, etc.
+- Calcul des matrices view/proj avec support zoom dans `parseCamera()`
+- Test `test_22_bgfx_sprites_headless` : 23 assertions, 5 test cases passent
+  - Validation structure sprite data
+  - Routing IIO inter-modules (game → renderer pattern)
+  - Structure camera/clear/debug messages
+
 ### Fichiers Clés
 
 ```
 modules/BgfxRenderer/
-├── BgfxRendererModule.cpp   # Point d'entrée module
+├── BgfxRendererModule.cpp   # Point d'entrée module + ShaderManager
 ├── RHI/
 │   ├── RHIDevice.h          # Interface abstraite
 │   ├── BgfxDevice.cpp       # Implémentation bgfx
@@ -41,59 +58,56 @@ modules/BgfxRenderer/
 │   └── RenderGraph.cpp      # Tri topologique passes
 ├── Passes/
 │   ├── ClearPass.cpp        # Clear screen
-│   ├── SpritePass.cpp       # Rendu sprites (à compléter)
+│   ├── SpritePass.cpp       # Rendu sprites instancié
 │   └── DebugPass.cpp        # Debug shapes
 ├── Frame/
 │   ├── FramePacket.h        # Données immutables par frame
 │   └── FrameAllocator.cpp   # Allocateur bump
 └── Scene/
-    └── SceneCollector.cpp   # Collecte messages IIO
+    └── SceneCollector.cpp   # Collecte messages IIO + matrices view/proj
 ```
 
-## Prochaine Phase : Phase 4
+## Prochaine Phase : Phase 5
 
 ### Objectif
-Intégrer le ShaderManager dans le module principal et rendre le SpritePass fonctionnel.
+Test visuel complet avec sprites via IIO.
 
 ### Tâches
 
-1. **Mettre à jour BgfxRendererModule.cpp** :
-   - Ajouter `ShaderManager` comme membre
-   - Initialiser les shaders dans `setConfiguration()`
-   - Passer le program aux passes
+1. **Créer test_23_bgfx_sprites_visual.cpp** :
+   - Charger le module BgfxRenderer via ModuleLoader
+   - Publier des sprites via IIO depuis un "game module" simulé
+   - Valider le rendu visuel (sprites affichés à l'écran)
 
-2. **Compléter SpritePass.cpp** :
-   - Utiliser le shader "sprite" du ShaderManager
-   - Implémenter l'update du instance buffer avec les données FramePacket
-   - Soumettre les draw calls instancés
+2. **Compléter la boucle render** :
+   - Appeler `SceneCollector::collect()` pour récupérer les messages IIO
+   - Passer le `FramePacket` finalisé aux passes
+   - S'assurer que `SpritePass::execute()` dessine les sprites
 
-3. **Test d'intégration** :
-   - Créer un test qui charge le module via `ModuleLoader`
-   - Envoyer des sprites via IIO
-   - Vérifier le rendu
+3. **Debug** :
+   - Ajouter les debug shapes (lignes, rectangles) si besoin
 
 ### Build & Test
 
 ```bash
-# Build avec BgfxRenderer
-cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
+# Windows (MinGW + Ninja)
+cmake -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
 cmake --build build-bgfx -j4
 
-# Tests RHI
-./build-bgfx/tests/test_20_bgfx_rhi
+# IMPORTANT: Sur Windows, ajouter MinGW au PATH pour ctest:
+PATH="/c/ProgramData/mingw64/mingw64/bin:$PATH" ctest -R Bgfx --output-on-failure
 
-# Test visuel triangle
-./build-bgfx/tests/test_21_bgfx_triangle
+# Tests actuels
+./build-bgfx/tests/test_20_bgfx_rhi         # 23 tests RHI
+./build-bgfx/tests/test_21_bgfx_triangle    # Test visuel triangle
+./build-bgfx/tests/test_22_bgfx_sprites_headless  # 5 tests IIO/structure
 ```
 
 ## Notes Importantes
 
+- **Cross-Platform** : Le projet compile sur Linux ET Windows
+- **Windows PATH** : Les DLLs MinGW doivent être dans le PATH pour exécuter les tests via ctest
 - **WSL2** : Le rendu fonctionne via Vulkan (pas OpenGL)
 - **Shaders** : Pré-compilés, pas besoin de shaderc à runtime
 - **Thread Safety** : Voir `docs/coding_guidelines.md` pour les patterns mutex
-
-## Commit Actuel
-
-```
-1443c12 feat(BgfxRenderer): Complete Phase 2-3 with shaders and triangle rendering
-```
+- **IIO Routing** : Les messages ne sont pas routés vers l'instance émettrice, utiliser deux instances séparées (pattern game → renderer)

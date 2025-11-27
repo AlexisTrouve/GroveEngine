@@ -3,10 +3,18 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <unistd.h>
 #include <filesystem>
 #include <thread>
 #include <logger/Logger.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#define PATH_SEPARATOR '\\'
+#else
+#include <unistd.h>
+#define PATH_SEPARATOR '/'
+#endif
 
 namespace grove {
 
@@ -58,7 +66,7 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
     if (isReload) {
         // CRITICAL FIX: Wait for file to be fully written after compilation
         // The FileWatcher may detect the change while the compiler is still writing
-        logger->debug("⏳ Waiting for .so file to be fully written...");
+        logger->debug("⏳ Waiting for library file to be fully written...");
 
         size_t lastSize = 0;
         size_t stableCount = 0;
@@ -88,7 +96,52 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
             }
         }
 
-        // Create unique temp filename
+#ifdef _WIN32
+        // Windows: Create unique temp filename in temp directory
+        char tempDir[MAX_PATH];
+        if (GetTempPathA(MAX_PATH, tempDir) == 0) {
+            logger->warn("⚠️ Failed to get temp directory, loading directly");
+        } else {
+            char tempFile[MAX_PATH];
+            if (GetTempFileNameA(tempDir, "grv", 0, tempFile) == 0) {
+                logger->warn("⚠️ Failed to create temp file, loading directly");
+            } else {
+                // GetTempFileName creates the file, so we rename it to .dll
+                tempPath = std::string(tempFile) + ".dll";
+                DeleteFileA(tempFile);  // Remove the original temp file
+
+                // Copy original .dll to temp location using std::filesystem
+                try {
+                    std::filesystem::copy_file(path, tempPath,
+                        std::filesystem::copy_options::overwrite_existing);
+
+                    // CRITICAL FIX: Verify the copy succeeded completely
+                    auto origSize = std::filesystem::file_size(path);
+                    auto copiedSize = std::filesystem::file_size(tempPath);
+
+                    if (copiedSize != origSize) {
+                        logger->error("❌ Incomplete copy: orig={} bytes, copied={} bytes", origSize, copiedSize);
+                        DeleteFileA(tempPath.c_str());
+                        throw std::runtime_error("Incomplete file copy detected");
+                    }
+
+                    if (origSize == 0) {
+                        logger->error("❌ Source file is empty!");
+                        DeleteFileA(tempPath.c_str());
+                        throw std::runtime_error("Source library file is empty");
+                    }
+
+                    actualPath = tempPath;
+                    usedTempCopy = true;
+                    logger->debug("🔄 Using temp copy for hot-reload: {} ({} bytes)", tempPath, copiedSize);
+                } catch (const std::filesystem::filesystem_error& e) {
+                    logger->warn("⚠️ Failed to copy library ({}), loading directly", e.what());
+                    DeleteFileA(tempPath.c_str()); // Clean up failed temp file
+                }
+            }
+        }
+#else
+        // Linux/Unix: Create unique temp filename
         char tempTemplate[] = "/tmp/grove_module_XXXXXX.so";
         int tempFd = mkstemps(tempTemplate, 3); // 3 for ".so"
         if (tempFd == -1) {
@@ -126,8 +179,25 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
                 unlink(tempPath.c_str()); // Clean up failed temp file
             }
         }
+#endif
     }
 
+    // Open library
+#ifdef _WIN32
+    libraryHandle = LoadLibraryA(actualPath.c_str());
+    if (!libraryHandle) {
+        DWORD errorCode = GetLastError();
+        std::string error = "LoadLibrary failed with error code " + std::to_string(errorCode);
+
+        // Clean up temp file if it was created
+        if (usedTempCopy) {
+            DeleteFileA(tempPath.c_str());
+        }
+
+        logLoadError(error);
+        throw std::runtime_error("Failed to load module: " + error);
+    }
+#else
     // Open library with RTLD_NOW (resolve all symbols immediately)
     libraryHandle = dlopen(actualPath.c_str(), RTLD_NOW);
     if (!libraryHandle) {
@@ -141,6 +211,7 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
         logLoadError(error);
         throw std::runtime_error("Failed to load module: " + error);
     }
+#endif
 
     // Store temp path for cleanup later
     if (usedTempCopy) {
@@ -149,6 +220,17 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
     }
 
     // Find createModule factory function
+#ifdef _WIN32
+    createFunc = reinterpret_cast<CreateModuleFunc>(GetProcAddress(static_cast<HMODULE>(libraryHandle), "createModule"));
+    if (!createFunc) {
+        DWORD errorCode = GetLastError();
+        std::string error = "GetProcAddress failed with error code " + std::to_string(errorCode);
+        FreeLibrary(static_cast<HMODULE>(libraryHandle));
+        libraryHandle = nullptr;
+        logLoadError("createModule symbol not found: " + error);
+        throw std::runtime_error("Module missing createModule function: " + error);
+    }
+#else
     createFunc = reinterpret_cast<CreateModuleFunc>(dlsym(libraryHandle, "createModule"));
     if (!createFunc) {
         std::string error = dlerror();
@@ -157,11 +239,16 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
         logLoadError("createModule symbol not found: " + error);
         throw std::runtime_error("Module missing createModule function: " + error);
     }
+#endif
 
     // Create module instance
     IModule* modulePtr = createFunc();
     if (!modulePtr) {
+#ifdef _WIN32
+        FreeLibrary(static_cast<HMODULE>(libraryHandle));
+#else
         dlclose(libraryHandle);
+#endif
         libraryHandle = nullptr;
         createFunc = nullptr;
         logLoadError("createModule returned null");
@@ -188,20 +275,36 @@ void ModuleLoader::unload() {
     logUnloadStart();
 
     // Close library
+#ifdef _WIN32
+    BOOL result = FreeLibrary(static_cast<HMODULE>(libraryHandle));
+    if (!result) {
+        DWORD errorCode = GetLastError();
+        logger->error("❌ FreeLibrary failed with error code: {}", errorCode);
+    }
+#else
     int result = dlclose(libraryHandle);
     if (result != 0) {
         std::string error = dlerror();
         logger->error("❌ dlclose failed: {}", error);
     }
+#endif
 
     // Clean up temp file if it was used
     if (!tempLibraryPath.empty()) {
         logger->debug("🧹 Cleaning up temp file: {}", tempLibraryPath);
+#ifdef _WIN32
+        if (DeleteFileA(tempLibraryPath.c_str())) {
+            logger->debug("✅ Temp file deleted");
+        } else {
+            logger->warn("⚠️ Failed to delete temp file: {}", tempLibraryPath);
+        }
+#else
         if (unlink(tempLibraryPath.c_str()) == 0) {
             logger->debug("✅ Temp file deleted");
         } else {
             logger->warn("⚠️ Failed to delete temp file: {}", tempLibraryPath);
         }
+#endif
         tempLibraryPath.clear();
     }
 

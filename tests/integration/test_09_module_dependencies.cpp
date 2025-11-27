@@ -18,7 +18,11 @@
 #include "../helpers/TestAssertions.h"
 #include "../helpers/TestReporter.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <iostream>
 #include <map>
 #include <set>
@@ -27,6 +31,33 @@
 #include <thread>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+
+// Cross-platform dlopen wrappers
+#ifdef _WIN32
+inline void* grove_dlopen(const char* path, int flags) {
+    (void)flags;
+    return LoadLibraryA(path);
+}
+inline void* grove_dlsym(void* handle, const char* symbol) {
+    return (void*)GetProcAddress((HMODULE)handle, symbol);
+}
+inline int grove_dlclose(void* handle) {
+    return FreeLibrary((HMODULE)handle) ? 0 : -1;
+}
+inline const char* grove_dlerror() {
+    static thread_local char buf[256];
+    DWORD err = GetLastError();
+    snprintf(buf, sizeof(buf), "Windows error code: %lu", err);
+    return buf;
+}
+#define RTLD_NOW 0
+#define RTLD_LOCAL 0
+#else
+#define grove_dlopen dlopen
+#define grove_dlsym dlsym
+#define grove_dlclose dlclose
+#define grove_dlerror dlerror
+#endif
 
 using namespace grove;
 using json = nlohmann::json;
@@ -69,23 +100,23 @@ public:
             return false;
         }
 
-        void* dlHandle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        void* dlHandle = grove_dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!dlHandle) {
-            logger_->error("Failed to load module {}: {}", name, dlerror());
+            logger_->error("Failed to load module {}: {}", name, grove_dlerror());
             return false;
         }
 
-        auto createFunc = (IModule* (*)())dlsym(dlHandle, "createModule");
+        auto createFunc = (IModule* (*)())grove_dlsym(dlHandle, "createModule");
         if (!createFunc) {
-            logger_->error("Failed to find createModule in {}: {}", name, dlerror());
-            dlclose(dlHandle);
+            logger_->error("Failed to find createModule in {}: {}", name, grove_dlerror());
+            grove_dlclose(dlHandle);
             return false;
         }
 
         IModule* instance = createFunc();
         if (!instance) {
             logger_->error("createModule returned nullptr for {}", name);
-            dlclose(dlHandle);
+            grove_dlclose(dlHandle);
             return false;
         }
 
@@ -189,14 +220,14 @@ public:
         auto& handle = it->second;
         handle.instance->shutdown();
 
-        auto destroyFunc = (void (*)(IModule*))dlsym(handle.dlHandle, "destroyModule");
+        auto destroyFunc = (void (*)(IModule*))grove_dlsym(handle.dlHandle, "destroyModule");
         if (destroyFunc) {
             destroyFunc(handle.instance);
         } else {
             delete handle.instance;
         }
 
-        dlclose(handle.dlHandle);
+        grove_dlclose(handle.dlHandle);
 
         modules_.erase(it);
         logger_->info("Unloaded {}", name);
@@ -280,32 +311,32 @@ private:
 
         // Destroy old instance
         handle.instance->shutdown();
-        auto destroyFunc = (void (*)(IModule*))dlsym(handle.dlHandle, "destroyModule");
+        auto destroyFunc = (void (*)(IModule*))grove_dlsym(handle.dlHandle, "destroyModule");
         if (destroyFunc) {
             destroyFunc(handle.instance);
         } else {
             delete handle.instance;
         }
-        dlclose(handle.dlHandle);
+        grove_dlclose(handle.dlHandle);
 
         // Reload shared library
-        void* newHandle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        void* newHandle = grove_dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!newHandle) {
-            logger_->error("Failed to reload {}: {}", name, dlerror());
+            logger_->error("Failed to reload {}: {}", name, grove_dlerror());
             return false;
         }
 
-        auto createFunc = (IModule* (*)())dlsym(newHandle, "createModule");
+        auto createFunc = (IModule* (*)())grove_dlsym(newHandle, "createModule");
         if (!createFunc) {
             logger_->error("Failed to find createModule in reloaded {}", name);
-            dlclose(newHandle);
+            grove_dlclose(newHandle);
             return false;
         }
 
         IModule* newInstance = createFunc();
         if (!newInstance) {
             logger_->error("createModule returned nullptr for reloaded {}", name);
-            dlclose(newHandle);
+            grove_dlclose(newHandle);
             return false;
         }
 

@@ -5,6 +5,15 @@
 #include <sys/stat.h>
 #include <chrono>
 
+#ifdef _WIN32
+#include <ctime>
+// Windows doesn't have timespec in all cases, and uses st_mtime instead of st_mtim
+struct FileTimeInfo {
+    time_t tv_sec;
+    long tv_nsec;
+};
+#endif
+
 namespace grove {
 
 /**
@@ -15,22 +24,33 @@ namespace grove {
  */
 class FileWatcher {
 private:
+#ifdef _WIN32
+    using TimeSpec = FileTimeInfo;
+#else
+    using TimeSpec = timespec;
+#endif
+
     struct FileInfo {
-        timespec lastModified;
+        TimeSpec lastModified;
         bool exists;
     };
 
     std::unordered_map<std::string, FileInfo> watchedFiles;
 
-    timespec getModificationTime(const std::string& path) {
+    TimeSpec getModificationTime(const std::string& path) {
         struct stat fileStat;
         if (stat(path.c_str(), &fileStat) == 0) {
+#ifdef _WIN32
+            // Windows uses st_mtime (seconds only)
+            return {fileStat.st_mtime, 0};
+#else
             return fileStat.st_mtim;
+#endif
         }
         return {0, 0};
     }
 
-    bool timesEqual(const timespec& a, const timespec& b) {
+    bool timesEqual(const TimeSpec& a, const TimeSpec& b) {
         return a.tv_sec == b.tv_sec && a.tv_nsec == b.tv_nsec;
     }
 
@@ -59,7 +79,7 @@ public:
         }
 
         FileInfo& oldInfo = it->second;
-        timespec currentMod = getModificationTime(path);
+        TimeSpec currentMod = getModificationTime(path);
         bool currentExists = (currentMod.tv_sec != 0 || currentMod.tv_nsec != 0);
 
         // Check if existence changed
