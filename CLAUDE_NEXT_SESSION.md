@@ -2,112 +2,101 @@
 
 ## Contexte Rapide
 
-GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe actuellement le module **BgfxRenderer** pour le rendu 2D.
+GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe le module **BgfxRenderer** pour le rendu 2D.
 
 ## État Actuel (27 Nov 2025)
 
-### Portage Windows ✅
-
-Le projet compile maintenant sur **Windows** (MinGW/Ninja) en plus de Linux :
-- `ModuleFactory.cpp` et `ModuleLoader.cpp` : LoadLibrary/GetProcAddress
-- `SystemUtils.cpp` : Windows process memory APIs
-- `FileWatcher.h` : st_mtime au lieu de st_mtim
-- `IIO.h` : ajout `#include <cstdint>`
-- Tests integration (test_09, test_10, test_11) : wrappers `grove_dlopen/grove_dlsym/grove_dlclose/grove_dlerror`
-
 ### Phases Complétées ✅
 
-**Phase 1** - Squelette du module
-- `libBgfxRenderer.so/.dll` compilé et chargeable dynamiquement
+**Phase 1-4** - Squelette, RHI, RenderGraph, ShaderManager
+- Tout fonctionne, voir commits précédents
 
-**Phase 2** - RHI Layer
-- `BgfxDevice` : init/shutdown/frame, création textures/buffers/shaders
-- `RHICommandBuffer` : recording de commandes GPU
-- `FrameAllocator` : allocateur lock-free per-frame
-- `RenderGraph` : tri topologique Kahn pour ordonnancement des passes
-- Tests : `test_20_bgfx_rhi` (23 tests passent)
+**Phase 5** - Pipeline IIO → Rendu ✅ (PARTIEL)
+- `test_23_bgfx_sprites_visual.cpp` : test complet SDL2 + IIO + Module
+- Pipeline vérifié fonctionnel :
+  - Module charge avec Vulkan (~500 FPS)
+  - IIO route les messages (sprites, camera, clear)
+  - SceneCollector collecte et crée FramePacket
+  - RenderGraph exécute les passes
+- **MAIS** : Les sprites ne s'affichent PAS visuellement
 
-**Phase 3** - Shaders & Triangle
-- `ShaderManager` : chargement centralisé des shaders embedded
-- Shaders pré-compilés : OpenGL, Vulkan, DX11, Metal
-- Test visuel : `test_21_bgfx_triangle` - triangle RGB coloré (~567 FPS Vulkan)
+### Problème à Résoudre
 
-**Phase 4** - SceneCollector & IIO Integration ✅ (NOUVEAU)
-- `SceneCollector` : collecte des messages IIO pour `render:sprite`, `render:camera`, etc.
-- Calcul des matrices view/proj avec support zoom dans `parseCamera()`
-- Test `test_22_bgfx_sprites_headless` : 23 assertions, 5 test cases passent
-  - Validation structure sprite data
-  - Routing IIO inter-modules (game → renderer pattern)
-  - Structure camera/clear/debug messages
+Le shader actuel (`vs_color`/`fs_color` de bgfx drawstress) est un shader position+couleur simple. Il ne supporte pas l'instancing nécessaire pour les sprites.
+
+**Ce qui manque :**
+1. Un shader sprite avec instancing qui lit les données d'instance (position, scale, rotation, color, UV)
+2. Le vertex layout correct pour le quad (pos.xy, uv.xy)
+3. L'instance layout correct pour SpriteInstance
 
 ### Fichiers Clés
 
 ```
 modules/BgfxRenderer/
-├── BgfxRendererModule.cpp   # Point d'entrée module + ShaderManager
-├── RHI/
-│   ├── RHIDevice.h          # Interface abstraite
-│   ├── BgfxDevice.cpp       # Implémentation bgfx
-│   ├── RHICommandBuffer.h   # Command buffer
-│   └── RHITypes.h           # Handles, states
 ├── Shaders/
-│   ├── ShaderManager.cpp    # Gestion shaders
-│   ├── vs_color.bin.h       # Vertex shader embedded
-│   └── fs_color.bin.h       # Fragment shader embedded
-├── RenderGraph/
-│   └── RenderGraph.cpp      # Tri topologique passes
+│   ├── ShaderManager.cpp    # Charge les shaders embedded
+│   ├── vs_color.bin.h       # Shader actuel (PAS d'instancing)
+│   └── fs_color.bin.h
 ├── Passes/
-│   ├── ClearPass.cpp        # Clear screen
-│   ├── SpritePass.cpp       # Rendu sprites instancié
-│   └── DebugPass.cpp        # Debug shapes
+│   └── SpritePass.cpp       # Execute avec instance buffer
 ├── Frame/
-│   ├── FramePacket.h        # Données immutables par frame
-│   └── FrameAllocator.cpp   # Allocateur bump
-└── Scene/
-    └── SceneCollector.cpp   # Collecte messages IIO + matrices view/proj
+│   └── FramePacket.h        # SpriteInstance struct
+└── RHI/
+    └── BgfxDevice.cpp       # createBuffer avec VertexLayout
 ```
 
-## Prochaine Phase : Phase 5
+### Structure SpriteInstance (à matcher dans le shader)
 
-### Objectif
-Test visuel complet avec sprites via IIO.
+```cpp
+struct SpriteInstance {
+    float x, y;           // Position
+    float scaleX, scaleY; // Scale
+    float rotation;       // Rotation en radians
+    float u0, v0, u1, v1; // UV coords
+    uint32_t color;       // ABGR
+    uint16_t textureId;   // ID texture
+    uint16_t layer;       // Layer de tri
+};
+```
 
-### Tâches
+## Prochaine Étape : Shader Sprite Instancing
 
-1. **Créer test_23_bgfx_sprites_visual.cpp** :
-   - Charger le module BgfxRenderer via ModuleLoader
-   - Publier des sprites via IIO depuis un "game module" simulé
-   - Valider le rendu visuel (sprites affichés à l'écran)
+### Option A : Shader BGFX natif (.sc)
 
-2. **Compléter la boucle render** :
-   - Appeler `SceneCollector::collect()` pour récupérer les messages IIO
-   - Passer le `FramePacket` finalisé aux passes
-   - S'assurer que `SpritePass::execute()` dessine les sprites
+Créer `vs_sprite.sc` et `fs_sprite.sc` avec :
+- Vertex input : position (vec2), uv (vec2)
+- Instance input : transform, color, uvRect
+- Compiler avec shaderc pour toutes les plateformes
 
-3. **Debug** :
-   - Ajouter les debug shapes (lignes, rectangles) si besoin
+### Option B : Simplifier temporairement
+
+Dessiner chaque sprite comme un quad individuel sans instancing :
+- Plus lent mais fonctionne avec le shader actuel
+- Modifier SpritePass pour soumettre un draw par sprite
 
 ### Build & Test
 
 ```bash
-# Windows (MinGW + Ninja)
-cmake -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
+# Build
+cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
 cmake --build build-bgfx -j4
 
-# IMPORTANT: Sur Windows, ajouter MinGW au PATH pour ctest:
-PATH="/c/ProgramData/mingw64/mingw64/bin:$PATH" ctest -R Bgfx --output-on-failure
+# Tests
+./build-bgfx/tests/test_21_bgfx_triangle      # Triangle coloré ✅
+./build-bgfx/tests/test_23_bgfx_sprites_visual # Pipeline OK, sprites invisibles
 
-# Tests actuels
-./build-bgfx/tests/test_20_bgfx_rhi         # 23 tests RHI
-./build-bgfx/tests/test_21_bgfx_triangle    # Test visuel triangle
-./build-bgfx/tests/test_22_bgfx_sprites_headless  # 5 tests IIO/structure
+# Tous les tests
+cd build-bgfx && ctest --output-on-failure
 ```
 
 ## Notes Importantes
 
-- **Cross-Platform** : Le projet compile sur Linux ET Windows
-- **Windows PATH** : Les DLLs MinGW doivent être dans le PATH pour exécuter les tests via ctest
-- **WSL2** : Le rendu fonctionne via Vulkan (pas OpenGL)
-- **Shaders** : Pré-compilés, pas besoin de shaderc à runtime
-- **Thread Safety** : Voir `docs/coding_guidelines.md` pour les patterns mutex
-- **IIO Routing** : Les messages ne sont pas routés vers l'instance émettrice, utiliser deux instances séparées (pattern game → renderer)
+- **Cross-Platform** : Linux + Windows (MinGW)
+- **WSL2** : Vulkan fonctionne, pas OpenGL
+- **Shaders embedded** : Pré-compilés dans .bin.h, pas de shaderc runtime
+- **100% tests passent** : 20/20
+
+## Questions pour la prochaine session
+
+1. Option A ou B pour les sprites ?
+2. Priorité : voir quelque chose à l'écran vs architecture propre ?
