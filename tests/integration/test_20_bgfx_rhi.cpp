@@ -389,14 +389,20 @@ void test_sprite_instance_struct() {
     sprite.v0 = 0.0f;
     sprite.u1 = 1.0f;
     sprite.v1 = 1.0f;
-    sprite.color = 0xFFFFFFFF;
-    sprite.textureId = 5;
-    sprite.layer = 10;
+    sprite.textureId = 5.0f;
+    sprite.layer = 10.0f;
+    sprite.padding0 = 0.0f;
+    sprite.reserved[0] = sprite.reserved[1] = sprite.reserved[2] = sprite.reserved[3] = 0.0f;
+    sprite.r = 1.0f;
+    sprite.g = 1.0f;
+    sprite.b = 1.0f;
+    sprite.a = 1.0f;
 
     ASSERT(sprite.x == 50.0f);
     ASSERT(sprite.scaleX == 2.0f);
-    ASSERT(sprite.textureId == 5);
-    ASSERT(sprite.layer == 10);
+    ASSERT(sprite.textureId == 5.0f);
+    ASSERT(sprite.layer == 10.0f);
+    ASSERT(sizeof(SpriteInstance) == 80);  // Must be 80 bytes for GPU
 }
 
 // ============================================================================

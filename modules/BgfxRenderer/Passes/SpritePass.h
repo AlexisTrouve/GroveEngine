@@ -31,6 +31,7 @@ private:
     rhi::BufferHandle m_quadIB;
     rhi::BufferHandle m_instanceBuffer;
     rhi::UniformHandle m_textureSampler;
+    rhi::TextureHandle m_defaultTexture;  // White 1x1 texture fallback
 
     static constexpr uint32_t MAX_SPRITES_PER_BATCH = 10000;
 };

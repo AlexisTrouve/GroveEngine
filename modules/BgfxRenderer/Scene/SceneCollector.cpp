@@ -160,18 +160,32 @@ void SceneCollector::clear() {
 
 void SceneCollector::parseSprite(const IDataNode& data) {
     SpriteInstance sprite;
+    // i_data0
     sprite.x = static_cast<float>(data.getDouble("x", 0.0));
     sprite.y = static_cast<float>(data.getDouble("y", 0.0));
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", 1.0));
+    // i_data1
     sprite.rotation = static_cast<float>(data.getDouble("rotation", 0.0));
     sprite.u0 = static_cast<float>(data.getDouble("u0", 0.0));
     sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
+    // i_data2
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
-    sprite.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
-    sprite.textureId = static_cast<uint16_t>(data.getInt("textureId", 0));
-    sprite.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+    sprite.textureId = static_cast<float>(data.getInt("textureId", 0));
+    sprite.layer = static_cast<float>(data.getInt("layer", 0));
+    sprite.padding0 = 0.0f;
+    // i_data3 (reserved)
+    sprite.reserved[0] = 0.0f;
+    sprite.reserved[1] = 0.0f;
+    sprite.reserved[2] = 0.0f;
+    sprite.reserved[3] = 0.0f;
+    // i_data4 (color as floats)
+    uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+    sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
     m_sprites.push_back(sprite);
 }

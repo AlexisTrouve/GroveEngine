@@ -18,7 +18,8 @@ FetchContent_Declare(
 )
 
 # bgfx options
-set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)  # Need shaderc for shader compilation
+set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
 set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
 set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
@@ -105,3 +106,121 @@ if(APPLE)
         "-framework Metal"
     )
 endif()
+
+# ============================================================================
+# Shader Compilation
+# ============================================================================
+
+set(BGFX_SHADER_INCLUDE_DIR ${bgfx_SOURCE_DIR}/bgfx/src)
+set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Shaders)
+
+# Function to compile a shader
+function(compile_bgfx_shader SHADER_NAME SHADER_TYPE OUTPUT_VAR)
+    set(INPUT_FILE ${SHADER_DIR}/${SHADER_NAME}.sc)
+    set(OUTPUT_DIR ${SHADER_DIR})
+    set(VARYING_DEF ${SHADER_DIR}/varying.def.sc)
+
+    # Output files for each platform
+    set(OUTPUT_SPIRV ${OUTPUT_DIR}/${SHADER_NAME}_spirv.bin)
+    set(OUTPUT_GLSL ${OUTPUT_DIR}/${SHADER_NAME}_glsl.bin)
+    set(OUTPUT_ESSL ${OUTPUT_DIR}/${SHADER_NAME}_essl.bin)
+    set(OUTPUT_DX11 ${OUTPUT_DIR}/${SHADER_NAME}_dx11.bin)
+    set(OUTPUT_MTL ${OUTPUT_DIR}/${SHADER_NAME}_mtl.bin)
+
+    if(SHADER_TYPE STREQUAL "vertex")
+        set(SHADER_MODEL vs_5_0)
+        set(SHADER_PROFILE 430)
+    else()
+        set(SHADER_MODEL ps_5_0)
+        set(SHADER_PROFILE 430)
+    endif()
+
+    # Compile for Vulkan (SPIR-V)
+    add_custom_command(
+        OUTPUT ${OUTPUT_SPIRV}
+        COMMAND shaderc
+            -f ${INPUT_FILE}
+            -o ${OUTPUT_SPIRV}
+            --type ${SHADER_TYPE}
+            --platform linux
+            --profile spirv
+            -i ${BGFX_SHADER_INCLUDE_DIR}
+            --varyingdef ${VARYING_DEF}
+        DEPENDS ${INPUT_FILE} ${VARYING_DEF} shaderc
+        COMMENT "Compiling ${SHADER_NAME} for SPIR-V"
+    )
+
+    # Compile for OpenGL
+    add_custom_command(
+        OUTPUT ${OUTPUT_GLSL}
+        COMMAND shaderc
+            -f ${INPUT_FILE}
+            -o ${OUTPUT_GLSL}
+            --type ${SHADER_TYPE}
+            --platform linux
+            --profile ${SHADER_PROFILE}
+            -i ${BGFX_SHADER_INCLUDE_DIR}
+            --varyingdef ${VARYING_DEF}
+        DEPENDS ${INPUT_FILE} ${VARYING_DEF} shaderc
+        COMMENT "Compiling ${SHADER_NAME} for GLSL"
+    )
+
+    # Compile for OpenGL ES
+    add_custom_command(
+        OUTPUT ${OUTPUT_ESSL}
+        COMMAND shaderc
+            -f ${INPUT_FILE}
+            -o ${OUTPUT_ESSL}
+            --type ${SHADER_TYPE}
+            --platform android
+            -i ${BGFX_SHADER_INCLUDE_DIR}
+            --varyingdef ${VARYING_DEF}
+        DEPENDS ${INPUT_FILE} ${VARYING_DEF} shaderc
+        COMMENT "Compiling ${SHADER_NAME} for ESSL"
+    )
+
+    # Compile for DirectX 11
+    add_custom_command(
+        OUTPUT ${OUTPUT_DX11}
+        COMMAND shaderc
+            -f ${INPUT_FILE}
+            -o ${OUTPUT_DX11}
+            --type ${SHADER_TYPE}
+            --platform windows
+            --profile ${SHADER_MODEL}
+            -i ${BGFX_SHADER_INCLUDE_DIR}
+            --varyingdef ${VARYING_DEF}
+        DEPENDS ${INPUT_FILE} ${VARYING_DEF} shaderc
+        COMMENT "Compiling ${SHADER_NAME} for DX11"
+    )
+
+    # Compile for Metal
+    add_custom_command(
+        OUTPUT ${OUTPUT_MTL}
+        COMMAND shaderc
+            -f ${INPUT_FILE}
+            -o ${OUTPUT_MTL}
+            --type ${SHADER_TYPE}
+            --platform osx
+            --profile metal
+            -i ${BGFX_SHADER_INCLUDE_DIR}
+            --varyingdef ${VARYING_DEF}
+        DEPENDS ${INPUT_FILE} ${VARYING_DEF} shaderc
+        COMMENT "Compiling ${SHADER_NAME} for Metal"
+    )
+
+    set(${OUTPUT_VAR} ${OUTPUT_SPIRV} ${OUTPUT_GLSL} ${OUTPUT_ESSL} ${OUTPUT_DX11} ${OUTPUT_MTL} PARENT_SCOPE)
+endfunction()
+
+# Compile sprite shaders
+compile_bgfx_shader(vs_sprite vertex VS_SPRITE_OUTPUTS)
+compile_bgfx_shader(fs_sprite fragment FS_SPRITE_OUTPUTS)
+
+# Custom target to compile all shaders
+add_custom_target(compile_shaders
+    DEPENDS ${VS_SPRITE_OUTPUTS} ${FS_SPRITE_OUTPUTS}
+    COMMENT "Compiling all BgfxRenderer shaders"
+)
+
+# Make BgfxRenderer depend on shaders (optional, enable if you want auto-compilation)
+# add_dependencies(BgfxRenderer compile_shaders)

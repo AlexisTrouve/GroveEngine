@@ -57,6 +57,7 @@ public:
 
 private:
     void loadBuiltinShaders(rhi::IRHIDevice& device, const std::string& rendererName);
+    void loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName);
 
     std::unordered_map<std::string, rhi::ShaderHandle> m_programs;
     bool m_initialized = false;

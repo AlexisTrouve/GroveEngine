@@ -11,13 +11,14 @@ SpritePass::SpritePass(rhi::ShaderHandle shader)
 
 void SpritePass::setup(rhi::IRHIDevice& device) {
     // Create quad vertex buffer (unit quad, instanced)
-    // Positions: 4 vertices for a quad
+    // Layout must match shader: a_position (vec3) + a_color0 (vec4)
+    // Note: Color is white (1,1,1,1) - actual color comes from instance data
     float quadVertices[] = {
-        // pos.x, pos.y, uv.x, uv.y
-        0.0f, 0.0f, 0.0f, 0.0f,  // bottom-left
-        1.0f, 0.0f, 1.0f, 0.0f,  // bottom-right
-        1.0f, 1.0f, 1.0f, 1.0f,  // top-right
-        0.0f, 1.0f, 0.0f, 1.0f,  // top-left
+        // pos.x, pos.y, pos.z,    r,    g,    b,    a
+        0.0f, 0.0f, 0.0f,    1.0f, 1.0f, 1.0f, 1.0f,  // bottom-left
+        1.0f, 0.0f, 0.0f,    1.0f, 1.0f, 1.0f, 1.0f,  // bottom-right
+        1.0f, 1.0f, 0.0f,    1.0f, 1.0f, 1.0f, 1.0f,  // top-right
+        0.0f, 1.0f, 0.0f,    1.0f, 1.0f, 1.0f, 1.0f,  // top-left
     };
 
     rhi::BufferDesc vbDesc;
@@ -25,6 +26,7 @@ void SpritePass::setup(rhi::IRHIDevice& device) {
     vbDesc.size = sizeof(quadVertices);
     vbDesc.data = quadVertices;
     vbDesc.dynamic = false;
+    vbDesc.layout = rhi::BufferDesc::PosColor;  // Match shader: a_position + a_color0
     m_quadVB = device.createBuffer(vbDesc);
 
     // Create index buffer
@@ -48,8 +50,18 @@ void SpritePass::setup(rhi::IRHIDevice& device) {
     instDesc.dynamic = true;
     m_instanceBuffer = device.createBuffer(instDesc);
 
-    // Create texture sampler uniform
-    m_textureSampler = device.createUniform("s_texture", 1);
+    // Create texture sampler uniform (must match shader: s_texColor)
+    m_textureSampler = device.createUniform("s_texColor", 1);
+
+    // Create default white 1x1 texture (used when no texture is bound)
+    uint32_t whitePixel = 0xFFFFFFFF;  // RGBA white
+    rhi::TextureDesc texDesc;
+    texDesc.width = 1;
+    texDesc.height = 1;
+    texDesc.format = rhi::TextureDesc::RGBA8;
+    texDesc.data = &whitePixel;
+    texDesc.dataSize = sizeof(whitePixel);
+    m_defaultTexture = device.createTexture(texDesc);
 }
 
 void SpritePass::shutdown(rhi::IRHIDevice& device) {
@@ -57,6 +69,7 @@ void SpritePass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_quadIB);
     device.destroy(m_instanceBuffer);
     device.destroy(m_textureSampler);
+    device.destroy(m_defaultTexture);
     // Note: m_shader is owned by ShaderManager, not destroyed here
 }
 
@@ -90,6 +103,9 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
         cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(batchSize));
+
+        // Bind default texture (TODO: support per-sprite textures via texture array)
+        cmd.setTexture(0, m_defaultTexture, m_textureSampler);
 
         // Submit draw call
         cmd.drawInstanced(6, static_cast<uint32_t>(batchSize)); // 6 indices per quad

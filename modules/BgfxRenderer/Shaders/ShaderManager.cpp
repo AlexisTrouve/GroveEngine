@@ -4,6 +4,8 @@
 // Embedded shader bytecode
 #include "vs_color.bin.h"
 #include "fs_color.bin.h"
+#include "vs_sprite.bin.h"
+#include "fs_sprite.bin.h"
 
 namespace grove {
 
@@ -94,15 +96,53 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     if (colorProgram.isValid()) {
         m_programs["color"] = colorProgram;
-        // Alias for sprites (same shader for now)
-        m_programs["sprite"] = colorProgram;
         m_programs["debug"] = colorProgram;
     }
 
-    // TODO: Add more specialized shaders as needed:
-    // - "sprite_textured" for textured sprites
-    // - "text" for text rendering
-    // - "particle" for particle systems
+    // Load sprite instancing shader
+    loadSpriteShader(device, rendererName);
+}
+
+void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
+    const uint8_t* vsData = nullptr;
+    uint32_t vsSize = 0;
+    const uint8_t* fsData = nullptr;
+    uint32_t fsSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_sprite_glsl;
+        vsSize = sizeof(vs_sprite_glsl);
+        fsData = fs_sprite_glsl;
+        fsSize = sizeof(fs_sprite_glsl);
+    } else if (rendererName == "Vulkan") {
+        vsData = vs_sprite_spv;
+        vsSize = sizeof(vs_sprite_spv);
+        fsData = fs_sprite_spv;
+        fsSize = sizeof(fs_sprite_spv);
+    } else if (rendererName == "Metal") {
+        vsData = vs_sprite_mtl;
+        vsSize = sizeof(vs_sprite_mtl);
+        fsData = fs_sprite_mtl;
+        fsSize = sizeof(fs_sprite_mtl);
+    } else {
+        // Fallback to Vulkan (most common in WSL2)
+        vsData = vs_sprite_spv;
+        vsSize = sizeof(vs_sprite_spv);
+        fsData = fs_sprite_spv;
+        fsSize = sizeof(fs_sprite_spv);
+    }
+
+    rhi::ShaderDesc shaderDesc;
+    shaderDesc.vsData = vsData;
+    shaderDesc.vsSize = vsSize;
+    shaderDesc.fsData = fsData;
+    shaderDesc.fsSize = fsSize;
+
+    rhi::ShaderHandle spriteProgram = device.createShader(shaderDesc);
+
+    if (spriteProgram.isValid()) {
+        m_programs["sprite"] = spriteProgram;
+    }
 }
 
 } // namespace grove

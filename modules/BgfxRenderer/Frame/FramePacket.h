@@ -11,15 +11,30 @@ class FrameAllocator;
 // Sprite Instance Data
 // ============================================================================
 
+// GPU Instance data - must match shader layout (5 x vec4 = 80 bytes)
+// i_data0: x, y, scaleX, scaleY
+// i_data1: rotation, u0, v0, u1
+// i_data2: v1, textureId (as float), layer (as float), padding
+// i_data3: reserved
+// i_data4: r, g, b, a (color as floats 0-1)
 struct SpriteInstance {
+    // i_data0
     float x, y;           // Position
     float scaleX, scaleY; // Scale
+    // i_data1
     float rotation;       // Radians
-    float u0, v0, u1, v1; // UVs in atlas
-    uint32_t color;       // RGBA packed
-    uint16_t textureId;   // Index in texture array
-    uint16_t layer;       // Z-order
+    float u0, v0, u1;     // UV start + end x
+    // i_data2
+    float v1;             // UV end y
+    float textureId;      // As float for GPU compatibility
+    float layer;          // Z-order as float
+    float padding0;
+    // i_data3
+    float reserved[4];    // Reserved for future use
+    // i_data4
+    float r, g, b, a;     // Color as floats (0-1)
 };
+static_assert(sizeof(SpriteInstance) == 80, "SpriteInstance must be 80 bytes for GPU instancing");
 
 // ============================================================================
 // Tilemap Chunk Data

@@ -105,22 +105,27 @@ public:
         BufferHandle result;
 
         if (desc.type == BufferDesc::Vertex) {
-            if (desc.dynamic) {
-                // Dynamic vertex buffer - create with initial size (will resize on update)
-                // Use 1-byte vertex layout to treat as raw bytes
-                bgfx::VertexLayout layout;
+            // Build vertex layout based on layout type
+            bgfx::VertexLayout layout;
+            if (desc.layout == BufferDesc::PosColor) {
+                // vec3 position + vec4 color (7 floats = 28 bytes per vertex)
+                layout.begin()
+                    .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+                    .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float, true)  // normalized
+                    .end();
+            } else {
+                // Raw bytes - use 1-byte layout
                 layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
+            }
+
+            if (desc.dynamic) {
                 bgfx::DynamicVertexBufferHandle dvb = bgfx::createDynamicVertexBuffer(
-                    desc.size, // number of 1-byte "vertices" = size in bytes
+                    desc.layout == BufferDesc::PosColor ? desc.size / layout.getStride() : desc.size,
                     layout,
                     BGFX_BUFFER_ALLOW_RESIZE
                 );
-                // Store as dynamic (high bit set)
                 result.id = dvb.idx | 0x8000;
             } else {
-                // Static vertex buffer with data
-                bgfx::VertexLayout layout;
-                layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
                 bgfx::VertexBufferHandle vb = bgfx::createVertexBuffer(
                     desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(s_emptyBuffer, 1),
                     layout
@@ -141,11 +146,21 @@ public:
                 result.id = ib.idx;
             }
         } else { // Instance buffer - treated as dynamic vertex buffer
-            // For instance buffers, use same approach as dynamic vertex
+            // Instance buffer layout: 5 x vec4 = 80 bytes per instance
+            // i_data0 (TEXCOORD7), i_data1 (TEXCOORD6), i_data2 (TEXCOORD5),
+            // i_data3 (TEXCOORD4), i_data4 (TEXCOORD3)
             bgfx::VertexLayout layout;
-            layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
+            layout.begin()
+                .add(bgfx::Attrib::TexCoord7, 4, bgfx::AttribType::Float)  // i_data0: pos.xy, scale.xy
+                .add(bgfx::Attrib::TexCoord6, 4, bgfx::AttribType::Float)  // i_data1: rotation, uv0.xy, unused
+                .add(bgfx::Attrib::TexCoord5, 4, bgfx::AttribType::Float)  // i_data2: uv1.xy, unused, unused
+                .add(bgfx::Attrib::TexCoord4, 4, bgfx::AttribType::Float)  // i_data3: reserved
+                .add(bgfx::Attrib::TexCoord3, 4, bgfx::AttribType::Float)  // i_data4: color rgba
+                .end();
+            // 80 bytes per instance
+            uint32_t instanceCount = desc.size / 80;
             bgfx::DynamicVertexBufferHandle dvb = bgfx::createDynamicVertexBuffer(
-                desc.size,
+                instanceCount,
                 layout,
                 BGFX_BUFFER_ALLOW_RESIZE
             );

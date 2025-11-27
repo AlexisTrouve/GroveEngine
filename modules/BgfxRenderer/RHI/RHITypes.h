@@ -94,6 +94,12 @@ struct BufferDesc {
     const void* data = nullptr;
     bool dynamic = false;
     enum Type : uint8_t { Vertex, Index, Instance } type = Vertex;
+    // For Vertex buffers, specify the layout type
+    enum Layout : uint8_t {
+        Raw,           // Raw bytes (no layout - legacy)
+        PosColor,      // vec3 position + vec4 color (for sprites)
+        InstanceData   // Instance buffer (36 bytes per instance)
+    } layout = Raw;
 };
 
 struct ShaderDesc {
