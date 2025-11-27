@@ -29,7 +29,9 @@ public:
     virtual ~IRHIDevice() = default;
 
     // Lifecycle
-    virtual bool init(void* nativeWindowHandle, uint16_t width, uint16_t height) = 0;
+    // nativeWindowHandle: Window handle (HWND on Windows, X11 Window on Linux)
+    // nativeDisplayHandle: Display handle (nullptr on Windows, X11 Display* on Linux)
+    virtual bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height) = 0;
     virtual void shutdown() = 0;
     virtual void reset(uint16_t width, uint16_t height) = 0;
 

@@ -19,7 +19,7 @@ public:
     BgfxDevice() = default;
     ~BgfxDevice() override = default;
 
-    bool init(void* nativeWindowHandle, uint16_t width, uint16_t height) override {
+    bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height) override {
         m_width = width;
         m_height = height;
 
@@ -29,14 +29,9 @@ public:
         init.resolution.height = height;
         init.resolution.reset = BGFX_RESET_VSYNC;
 
-        // If nativeWindowHandle is provided, use it directly
-        // Otherwise, bgfx will use the platform data set via bgfx::setPlatformData()
-        // Note: bgfx::setPlatformData() must be called BEFORE this init() call
-        if (nativeWindowHandle != nullptr) {
-            init.platformData.nwh = nativeWindowHandle;
-        }
-        // When nativeWindowHandle is nullptr, we leave init.platformData empty
-        // and rely on the global platform data from bgfx::setPlatformData()
+        // Set platform data
+        init.platformData.nwh = nativeWindowHandle;
+        init.platformData.ndt = nativeDisplayHandle; // X11 Display* on Linux, nullptr on Windows
 
         if (!bgfx::init(init)) {
             return false;
@@ -110,19 +105,25 @@ public:
         BufferHandle result;
 
         if (desc.type == BufferDesc::Vertex) {
-            bgfx::VertexBufferHandle vb;
             if (desc.dynamic) {
+                // Dynamic vertex buffer - create with initial size (will resize on update)
+                // Use 1-byte vertex layout to treat as raw bytes
+                bgfx::VertexLayout layout;
+                layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
                 bgfx::DynamicVertexBufferHandle dvb = bgfx::createDynamicVertexBuffer(
-                    desc.size,
-                    bgfx::VertexLayout(), // Will be set at draw time
+                    desc.size, // number of 1-byte "vertices" = size in bytes
+                    layout,
                     BGFX_BUFFER_ALLOW_RESIZE
                 );
                 // Store as dynamic (high bit set)
                 result.id = dvb.idx | 0x8000;
             } else {
-                vb = bgfx::createVertexBuffer(
-                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(nullptr, desc.size),
-                    bgfx::VertexLayout()
+                // Static vertex buffer with data
+                bgfx::VertexLayout layout;
+                layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
+                bgfx::VertexBufferHandle vb = bgfx::createVertexBuffer(
+                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(s_emptyBuffer, 1),
+                    layout
                 );
                 result.id = vb.idx;
             }
@@ -135,14 +136,17 @@ public:
                 result.id = dib.idx | 0x8000;
             } else {
                 bgfx::IndexBufferHandle ib = bgfx::createIndexBuffer(
-                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(nullptr, desc.size)
+                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(s_emptyBuffer, 1)
                 );
                 result.id = ib.idx;
             }
-        } else { // Instance buffer - treated as vertex buffer
+        } else { // Instance buffer - treated as dynamic vertex buffer
+            // For instance buffers, use same approach as dynamic vertex
+            bgfx::VertexLayout layout;
+            layout.begin().add(bgfx::Attrib::Position, 1, bgfx::AttribType::Uint8).end();
             bgfx::DynamicVertexBufferHandle dvb = bgfx::createDynamicVertexBuffer(
                 desc.size,
-                bgfx::VertexLayout(),
+                layout,
                 BGFX_BUFFER_ALLOW_RESIZE
             );
             result.id = dvb.idx | 0x8000;
@@ -446,6 +450,9 @@ private:
     uint16_t m_width = 0;
     uint16_t m_height = 0;
     bool m_initialized = false;
+
+    // Empty buffer for null data fallback in buffer creation
+    inline static const uint8_t s_emptyBuffer[1] = {0};
 
     static bgfx::TextureFormat::Enum toBgfxFormat(TextureDesc::Format format) {
         switch (format) {

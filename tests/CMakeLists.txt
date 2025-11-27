@@ -695,6 +695,26 @@ if(GROVE_BUILD_BGFX_RENDERER)
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_22_bgfx_sprites' enabled (run manually)")
+
+        # Test 23: Visual Sprites Test via Module + IIO
+        add_executable(test_23_bgfx_sprites_visual
+            visual/test_23_bgfx_sprites_visual.cpp
+        )
+
+        target_include_directories(test_23_bgfx_sprites_visual PRIVATE
+            /usr/include/SDL2
+        )
+
+        target_link_libraries(test_23_bgfx_sprites_visual PRIVATE
+            GroveEngine::impl
+            SDL2
+            pthread
+            dl
+            X11
+        )
+
+        # Not added to CTest (requires display)
+        message(STATUS "Visual test 'test_23_bgfx_sprites_visual' enabled (run manually)")
     else()
         message(STATUS "SDL2 not found - visual tests disabled")
     endif()

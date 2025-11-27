@@ -38,8 +38,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     size_t allocatorSize = static_cast<size_t>(config.getInt("frameAllocatorSizeMB", 16)) * 1024 * 1024;
 
     // Window handle (passed via config or 0 if separate WindowModule)
+    // Use double to preserve 64-bit pointer values
     void* windowHandle = reinterpret_cast<void*>(
-        static_cast<uintptr_t>(config.getInt("nativeWindowHandle", 0))
+        static_cast<uintptr_t>(config.getDouble("nativeWindowHandle", 0.0))
+    );
+    // Display handle (X11 Display* on Linux, 0/nullptr on Windows)
+    void* displayHandle = reinterpret_cast<void*>(
+        static_cast<uintptr_t>(config.getDouble("nativeDisplayHandle", 0.0))
     );
 
     m_logger->info("Initializing BgfxRenderer: {}x{} backend={}", m_width, m_height, m_backend);
@@ -48,7 +53,7 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_frameAllocator = std::make_unique<FrameAllocator>(allocatorSize);
 
     m_device = rhi::IRHIDevice::create();
-    if (!m_device->init(windowHandle, m_width, m_height)) {
+    if (!m_device->init(windowHandle, displayHandle, m_width, m_height)) {
         m_logger->error("Failed to initialize RHI device");
         return;
     }
@@ -73,16 +78,23 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     }
 
     // Setup render graph with passes (inject shaders via constructors)
+    m_logger->info("Creating RenderGraph...");
     m_renderGraph = std::make_unique<RenderGraph>();
     m_renderGraph->addPass(std::make_unique<ClearPass>());
+    m_logger->info("Added ClearPass");
     m_renderGraph->addPass(std::make_unique<SpritePass>(spriteShader));
+    m_logger->info("Added SpritePass");
     m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
+    m_logger->info("Added DebugPass");
     m_renderGraph->setup(*m_device);
+    m_logger->info("RenderGraph setup complete");
     m_renderGraph->compile();
+    m_logger->info("RenderGraph compiled");
 
     // Setup scene collector with IIO subscriptions
     m_sceneCollector = std::make_unique<SceneCollector>();
     m_sceneCollector->setup(io);
+    m_logger->info("SceneCollector setup complete");
 
     // Setup resource cache
     m_resourceCache = std::make_unique<ResourceCache>();
