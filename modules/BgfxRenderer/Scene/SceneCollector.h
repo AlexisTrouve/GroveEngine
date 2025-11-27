@@ -35,7 +35,9 @@ private:
     // Staging buffers (filled during collect, copied to FramePacket in finalize)
     std::vector<SpriteInstance> m_sprites;
     std::vector<TilemapChunk> m_tilemaps;
+    std::vector<std::vector<uint16_t>> m_tilemapTiles;  // Owns tile data until finalize
     std::vector<TextCommand> m_texts;
+    std::vector<std::string> m_textStrings;  // Owns text data until finalize
     std::vector<ParticleInstance> m_particles;
     std::vector<DebugLine> m_debugLines;
     std::vector<DebugRect> m_debugRects;

@@ -2,6 +2,7 @@
 
 #include "../RHI/RHITypes.h"
 #include <unordered_map>
+#include <vector>
 #include <string>
 #include <shared_mutex>
 
@@ -10,7 +11,7 @@ namespace grove {
 namespace rhi { class IRHIDevice; }
 
 // ============================================================================
-// Resource Cache - Thread-safe texture and shader cache
+// Resource Cache - Thread-safe texture and shader cache with numeric IDs
 // ============================================================================
 
 class ResourceCache {
@@ -21,7 +22,16 @@ public:
     rhi::TextureHandle getTexture(const std::string& path) const;
     rhi::ShaderHandle getShader(const std::string& name) const;
 
-    // Loading (called from main thread)
+    // Get texture by numeric ID (for sprite rendering)
+    rhi::TextureHandle getTextureById(uint16_t id) const;
+
+    // Get texture ID from path (returns 0 if not found)
+    uint16_t getTextureId(const std::string& path) const;
+
+    // Loading (called from main thread) - returns texture ID
+    uint16_t loadTextureWithId(rhi::IRHIDevice& device, const std::string& path);
+
+    // Legacy loading (returns handle directly)
     rhi::TextureHandle loadTexture(rhi::IRHIDevice& device, const std::string& path);
     rhi::ShaderHandle loadShader(rhi::IRHIDevice& device, const std::string& name,
                                   const void* vsData, uint32_t vsSize,
@@ -39,8 +49,14 @@ public:
     size_t getShaderCount() const;
 
 private:
+    // Path-based lookup
     std::unordered_map<std::string, rhi::TextureHandle> m_textures;
     std::unordered_map<std::string, rhi::ShaderHandle> m_shaders;
+
+    // ID-based lookup for textures (index = textureId, 0 = invalid/default)
+    std::vector<rhi::TextureHandle> m_textureById;
+    std::unordered_map<std::string, uint16_t> m_pathToTextureId;
+
     mutable std::shared_mutex m_mutex;
 };
 

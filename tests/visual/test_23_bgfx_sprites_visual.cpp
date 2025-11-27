@@ -29,8 +29,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Create window
-    const int width = 800;
-    const int height = 600;
+    int width = 800;
+    int height = 600;
 
     SDL_Window* window = SDL_CreateWindow(
         "BgfxRenderer Sprites Test - Press ESC to exit",
@@ -152,6 +152,10 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
                 running = false;
             }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                width = event.window.data1;
+                height = event.window.data2;
+            }
         }
 
         // Check timeout
@@ -194,7 +198,37 @@ int main(int argc, char* argv[]) {
             gameIO->publish("render:clear", std::move(data));
         }
 
+        // ========================================
+        // Test tilemap rendering (simple checkerboard)
+        // Must be sent every frame (like sprites)
+        // ========================================
+        {
+            auto tilemap = std::make_unique<grove::JsonDataNode>("tilemap");
+            tilemap->setDouble("x", 50.0);
+            tilemap->setDouble("y", 450.0);
+            tilemap->setInt("width", 20);
+            tilemap->setInt("height", 3);
+            tilemap->setInt("tileW", 32);
+            tilemap->setInt("tileH", 32);
+            tilemap->setInt("textureId", 0);  // Uses default texture
+
+            // Checkerboard pattern: 1 = tile, 0 = empty
+            std::string tileData;
+            for (int row = 0; row < 3; ++row) {
+                for (int col = 0; col < 20; ++col) {
+                    int tileIndex = ((row + col) % 2 == 0) ? 1 : 0;
+                    if (!tileData.empty()) tileData += ",";
+                    tileData += std::to_string(tileIndex);
+                }
+            }
+            tilemap->setString("tileData", tileData);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(tilemap);
+            gameIO->publish("render:tilemap", std::move(data));
+        }
+
         // Send animated sprites in a circle
+        // Using different textureIds to test batching (all will use default texture fallback)
         for (int i = 0; i < 5; ++i) {
             auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
 
@@ -214,8 +248,11 @@ int main(int argc, char* argv[]) {
             sprite->setDouble("u1", 1.0);
             sprite->setDouble("v1", 1.0);
 
-            // All sprites white to show texture without tint
-            sprite->setInt("color", static_cast<int>(0xFFFFFFFF));
+            // Different colors per sprite to verify rendering
+            uint32_t colors[] = {0xFF0000FF, 0x00FF00FF, 0x0000FFFF, 0xFFFF00FF, 0xFF00FFFF};
+            sprite->setInt("color", static_cast<int>(colors[i]));
+
+            // Use textureId=0 for all (default texture)
             sprite->setInt("textureId", 0);
             sprite->setInt("layer", i);
 
@@ -239,12 +276,82 @@ int main(int argc, char* argv[]) {
         }
 
         // ========================================
+        // Test text rendering
+        // ========================================
+
+        // Title text (large, white)
+        {
+            auto text = std::make_unique<grove::JsonDataNode>("text");
+            text->setDouble("x", 10.0);
+            text->setDouble("y", 10.0);
+            text->setString("text", "GroveEngine - Text Rendering Test");
+            text->setInt("fontSize", 16);
+            text->setInt("color", static_cast<int>(0xFFFFFFFF));
+            text->setInt("layer", 100);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(text);
+            gameIO->publish("render:text", std::move(data));
+        }
+
+        // Frame counter (yellow)
+        {
+            auto text = std::make_unique<grove::JsonDataNode>("text");
+            text->setDouble("x", 10.0);
+            text->setDouble("y", 30.0);
+            text->setString("text", "Frame: " + std::to_string(frameCount));
+            text->setInt("fontSize", 8);
+            text->setInt("color", static_cast<int>(0xFFFF00FF));  // Yellow
+            text->setInt("layer", 100);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(text);
+            gameIO->publish("render:text", std::move(data));
+        }
+
+        // Instructions (green)
+        {
+            auto text = std::make_unique<grove::JsonDataNode>("text");
+            text->setDouble("x", 10.0);
+            text->setDouble("y", height - 20.0);
+            text->setString("text", "Press ESC to exit");
+            text->setInt("fontSize", 8);
+            text->setInt("color", static_cast<int>(0x00FF00FF));  // Green
+            text->setInt("layer", 100);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(text);
+            gameIO->publish("render:text", std::move(data));
+        }
+
+        // Center animated text
+        {
+            auto text = std::make_unique<grove::JsonDataNode>("text");
+            float textX = width / 2.0f - 100.0f + std::sin(time * 2.0f) * 50.0f;
+            float textY = height / 2.0f + 80.0f;
+            text->setDouble("x", textX);
+            text->setDouble("y", textY);
+            text->setString("text", "Hello, World!");
+            text->setInt("fontSize", 24);
+
+            // Cycle through colors
+            uint8_t r = static_cast<uint8_t>(128 + 127 * std::sin(time * 3.0f));
+            uint8_t g = static_cast<uint8_t>(128 + 127 * std::sin(time * 3.0f + 2.0f));
+            uint8_t b = static_cast<uint8_t>(128 + 127 * std::sin(time * 3.0f + 4.0f));
+            uint32_t color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+            text->setInt("color", static_cast<int>(color));
+            text->setInt("layer", 100);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(text);
+            gameIO->publish("render:text", std::move(data));
+        }
+
+        // ========================================
         // Process frame (renderer pulls IIO messages)
         // ========================================
 
         grove::JsonDataNode input("input");
         input.setDouble("deltaTime", 1.0 / 60.0);
         input.setInt("frameNumber", static_cast<int>(frameCount));
+        input.setInt("windowWidth", width);
+        input.setInt("windowHeight", height);
 
         module->process(input);
         frameCount++;

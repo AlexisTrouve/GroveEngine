@@ -1,102 +1,112 @@
 # GroveEngine - Session Successor Prompt
 
-## Contexte Rapide
+## Context
+GroveEngine is a C++17 hot-reload game engine with a 2D bgfx-based renderer module.
 
-GroveEngine est un moteur de jeu C++17 avec hot-reload de modules. On développe le module **BgfxRenderer** pour le rendu 2D.
+## Current State - BgfxRenderer (27 Nov 2025)
 
-## État Actuel (27 Nov 2025)
+### Completed Phases
 
-### Phases Complétées ✅
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 5 | IIO Pipeline (messages → SceneCollector → RenderGraph) | Done |
+| 5.5 | Sprite shader with GPU instancing (80-byte SpriteInstance) | Done |
+| 6 | Texture loading via stb_image | Done |
+| 6.5 | Debug overlay (FPS/stats via bgfx debug text) | Done |
+| 7 | Text rendering with embedded 8x8 bitmap font | Done |
+| 8A | Multi-texture support (sorted batching by textureId) | Done |
+| 8B | Tilemap rendering (TilemapPass with instanced tiles) | Done |
 
-**Phase 1-4** - Squelette, RHI, RenderGraph, ShaderManager
-- Tout fonctionne, voir commits précédents
-
-**Phase 5** - Pipeline IIO → Rendu ✅ (PARTIEL)
-- `test_23_bgfx_sprites_visual.cpp` : test complet SDL2 + IIO + Module
-- Pipeline vérifié fonctionnel :
-  - Module charge avec Vulkan (~500 FPS)
-  - IIO route les messages (sprites, camera, clear)
-  - SceneCollector collecte et crée FramePacket
-  - RenderGraph exécute les passes
-- **MAIS** : Les sprites ne s'affichent PAS visuellement
-
-### Problème à Résoudre
-
-Le shader actuel (`vs_color`/`fs_color` de bgfx drawstress) est un shader position+couleur simple. Il ne supporte pas l'instancing nécessaire pour les sprites.
-
-**Ce qui manque :**
-1. Un shader sprite avec instancing qui lit les données d'instance (position, scale, rotation, color, UV)
-2. Le vertex layout correct pour le quad (pos.xy, uv.xy)
-3. L'instance layout correct pour SpriteInstance
-
-### Fichiers Clés
-
+### Key Files
 ```
 modules/BgfxRenderer/
+├── BgfxRendererModule.cpp       # Main module entry
 ├── Shaders/
-│   ├── ShaderManager.cpp    # Charge les shaders embedded
-│   ├── vs_color.bin.h       # Shader actuel (PAS d'instancing)
-│   └── fs_color.bin.h
+│   ├── vs_sprite.sc, fs_sprite.sc  # Instanced sprite shader
+│   ├── varying.def.sc              # Shader inputs/outputs
+│   └── *.bin.h                     # Compiled shader bytecode
 ├── Passes/
-│   └── SpritePass.cpp       # Execute avec instance buffer
-├── Frame/
-│   └── FramePacket.h        # SpriteInstance struct
-└── RHI/
-    └── BgfxDevice.cpp       # createBuffer avec VertexLayout
+│   ├── ClearPass.cpp            # Clear framebuffer
+│   ├── TilemapPass.cpp          # Tilemap grid rendering
+│   ├── SpritePass.cpp           # Instanced sprite rendering (sorted by texture)
+│   ├── TextPass.cpp             # Text rendering (glyph quads)
+│   └── DebugPass.cpp            # Debug lines/shapes
+├── Text/
+│   └── BitmapFont.h/.cpp        # Embedded 8x8 CP437-style font
+├── Resources/
+│   ├── TextureLoader.cpp        # stb_image PNG/JPG loading
+│   └── ResourceCache.cpp        # Texture cache with numeric IDs
+├── Scene/
+│   └── SceneCollector.cpp       # IIO message parsing (render:*)
+├── Debug/
+│   └── DebugOverlay.cpp         # FPS/stats display
+└── Frame/
+    └── FramePacket.h            # SpriteInstance, TextCommand, TilemapChunk
 ```
 
-### Structure SpriteInstance (à matcher dans le shader)
-
+### ResourceCache - Texture ID System
 ```cpp
-struct SpriteInstance {
-    float x, y;           // Position
-    float scaleX, scaleY; // Scale
-    float rotation;       // Rotation en radians
-    float u0, v0, u1, v1; // UV coords
-    uint32_t color;       // ABGR
-    uint16_t textureId;   // ID texture
-    uint16_t layer;       // Layer de tri
-};
+// Load texture and get numeric ID
+uint16_t texId = resourceCache->loadTextureWithId(device, "path/to/image.png");
+
+// Get texture by ID (for sprite rendering)
+rhi::TextureHandle tex = resourceCache->getTextureById(texId);
 ```
 
-## Prochaine Étape : Shader Sprite Instancing
+### IIO Message Formats
 
-### Option A : Shader BGFX natif (.sc)
+**Sprite** (`render:sprite`)
+```cpp
+{ "x": 100.0, "y": 50.0, "scaleX": 32.0, "scaleY": 32.0,
+  "rotation": 0.0, "u0": 0.0, "v0": 0.0, "u1": 1.0, "v1": 1.0,
+  "textureId": 1, "color": 0xFFFFFFFF, "layer": 0 }
+```
 
-Créer `vs_sprite.sc` et `fs_sprite.sc` avec :
-- Vertex input : position (vec2), uv (vec2)
-- Instance input : transform, color, uvRect
-- Compiler avec shaderc pour toutes les plateformes
+**Text** (`render:text`)
+```cpp
+{ "x": 10.0, "y": 10.0, "text": "Hello",
+  "fontSize": 16, "color": 0xFFFFFFFF, "layer": 100 }
+```
 
-### Option B : Simplifier temporairement
+**Tilemap** (`render:tilemap`)
+```cpp
+{ "x": 0.0, "y": 0.0, "width": 10, "height": 10,
+  "tileW": 16, "tileH": 16, "textureId": 0,
+  "tileData": "1,0,1,0,1,0,..." }  // comma-separated tile indices
+```
 
-Dessiner chaque sprite comme un quad individuel sans instancing :
-- Plus lent mais fonctionne avec le shader actuel
-- Modifier SpritePass pour soumettre un draw par sprite
+## Next Task: Phase 9 - Choose One
+
+### Option A: Layer Sorting
+- Currently sprites are sorted by textureId only
+- Add proper layer sorting (render back-to-front)
+- Sort key: `(layer << 16) | textureId` for efficient batching
+
+### Option B: Dynamic Texture Loading via IIO
+- `render:texture:load` message to load textures at runtime
+- Returns textureId that can be used in sprites
+- Useful for dynamically loaded assets
+
+### Option C: Particle System
+- ParticlePass for particle effects
+- GPU instanced particles with lifetime/velocity
+- FramePacket already has ParticleInstance struct
+
+### Option D: Camera Features
+- Zoom and pan support (already in ViewInfo)
+- Screen shake effects
+- Smooth camera following
 
 ### Build & Test
-
 ```bash
-# Build
-cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build-bgfx
-cmake --build build-bgfx -j4
-
-# Tests
-./build-bgfx/tests/test_21_bgfx_triangle      # Triangle coloré ✅
-./build-bgfx/tests/test_23_bgfx_sprites_visual # Pipeline OK, sprites invisibles
-
-# Tous les tests
-cd build-bgfx && ctest --output-on-failure
+cd build-bgfx
+cmake --build . -j4
+cd tests && ./test_23_bgfx_sprites_visual
 ```
 
-## Notes Importantes
-
-- **Cross-Platform** : Linux + Windows (MinGW)
-- **WSL2** : Vulkan fonctionne, pas OpenGL
-- **Shaders embedded** : Pré-compilés dans .bin.h, pas de shaderc runtime
-- **100% tests passent** : 20/20
-
-## Questions pour la prochaine session
-
-1. Option A ou B pour les sprites ?
-2. Priorité : voir quelque chose à l'écran vs architecture propre ?
+## Notes
+- Shaders are pre-compiled (embedded in .bin.h)
+- shaderc at: `build-bgfx/_deps/bgfx-build/cmake/bgfx/shaderc`
+- All passes reuse sprite shader (same instancing layout)
+- TilemapPass: tile index 0 = empty, 1+ = actual tiles
+- SpritePass: stable_sort by textureId preserves layer order within same texture

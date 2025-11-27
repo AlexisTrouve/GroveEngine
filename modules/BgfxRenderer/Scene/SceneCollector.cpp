@@ -77,11 +77,26 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.spriteCount = 0;
     }
 
-    // Copy tilemaps
+    // Copy tilemaps (with tile data)
     if (!m_tilemaps.empty()) {
         TilemapChunk* tilemaps = allocator.allocateArray<TilemapChunk>(m_tilemaps.size());
         if (tilemaps) {
             std::memcpy(tilemaps, m_tilemaps.data(), m_tilemaps.size() * sizeof(TilemapChunk));
+
+            // Copy tile data to frame allocator and fix up pointers
+            for (size_t i = 0; i < m_tilemaps.size() && i < m_tilemapTiles.size(); ++i) {
+                const std::vector<uint16_t>& tiles = m_tilemapTiles[i];
+                if (!tiles.empty()) {
+                    uint16_t* tilesCopy = static_cast<uint16_t*>(
+                        allocator.allocate(tiles.size() * sizeof(uint16_t), alignof(uint16_t)));
+                    if (tilesCopy) {
+                        std::memcpy(tilesCopy, tiles.data(), tiles.size() * sizeof(uint16_t));
+                        tilemaps[i].tiles = tilesCopy;
+                        tilemaps[i].tileCount = tiles.size();
+                    }
+                }
+            }
+
             packet.tilemaps = tilemaps;
             packet.tilemapCount = m_tilemaps.size();
         }
@@ -90,11 +105,25 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.tilemapCount = 0;
     }
 
-    // Copy texts
+    // Copy texts (with string data)
     if (!m_texts.empty()) {
         TextCommand* texts = allocator.allocateArray<TextCommand>(m_texts.size());
         if (texts) {
             std::memcpy(texts, m_texts.data(), m_texts.size() * sizeof(TextCommand));
+
+            // Copy string data to frame allocator and fix up pointers
+            for (size_t i = 0; i < m_texts.size() && i < m_textStrings.size(); ++i) {
+                const std::string& str = m_textStrings[i];
+                if (!str.empty()) {
+                    // Allocate string + null terminator
+                    char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
+                    if (textCopy) {
+                        std::memcpy(textCopy, str.c_str(), str.size() + 1);
+                        texts[i].text = textCopy;
+                    }
+                }
+            }
+
             packet.texts = texts;
             packet.textCount = m_texts.size();
         }
@@ -148,7 +177,9 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
 void SceneCollector::clear() {
     m_sprites.clear();
     m_tilemaps.clear();
+    m_tilemapTiles.clear();
     m_texts.clear();
+    m_textStrings.clear();
     m_particles.clear();
     m_debugLines.clear();
     m_debugRects.clear();
@@ -214,7 +245,41 @@ void SceneCollector::parseTilemap(const IDataNode& data) {
     chunk.tileWidth = static_cast<uint16_t>(data.getInt("tileW", 16));
     chunk.tileHeight = static_cast<uint16_t>(data.getInt("tileH", 16));
     chunk.textureId = static_cast<uint16_t>(data.getInt("textureId", 0));
-    chunk.tiles = nullptr; // TODO: Parse tile array
+
+    // Parse tile array from "tiles" child node
+    std::vector<uint16_t> tiles;
+    IDataNode* tilesNode = const_cast<IDataNode&>(data).getChildReadOnly("tiles");
+    if (tilesNode) {
+        // Each child is a tile index
+        for (const auto& name : tilesNode->getChildNames()) {
+            IDataNode* tileNode = tilesNode->getChildReadOnly(name);
+            if (tileNode) {
+                // Try to get as int (direct value)
+                tiles.push_back(static_cast<uint16_t>(tileNode->getInt("v", 0)));
+            }
+        }
+    }
+
+    // Alternative: parse from comma-separated string "tileData"
+    if (tiles.empty()) {
+        std::string tileData = data.getString("tileData", "");
+        if (!tileData.empty()) {
+            size_t pos = 0;
+            while (pos < tileData.size()) {
+                size_t end = tileData.find(',', pos);
+                if (end == std::string::npos) end = tileData.size();
+                std::string numStr = tileData.substr(pos, end - pos);
+                if (!numStr.empty()) {
+                    tiles.push_back(static_cast<uint16_t>(std::stoi(numStr)));
+                }
+                pos = end + 1;
+            }
+        }
+    }
+
+    // Store tiles - pointer will be fixed in finalize
+    m_tilemapTiles.push_back(std::move(tiles));
+    chunk.tiles = nullptr;
     chunk.tileCount = 0;
 
     m_tilemaps.push_back(chunk);
@@ -224,11 +289,15 @@ void SceneCollector::parseText(const IDataNode& data) {
     TextCommand text;
     text.x = static_cast<float>(data.getDouble("x", 0.0));
     text.y = static_cast<float>(data.getDouble("y", 0.0));
-    text.text = nullptr; // TODO: Copy string to frame allocator
     text.fontId = static_cast<uint16_t>(data.getInt("fontId", 0));
     text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", 16));
     text.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
     text.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+
+    // Store text string - pointer will be fixed up in finalize()
+    std::string textStr = data.getString("text", "");
+    m_textStrings.push_back(std::move(textStr));
+    text.text = nullptr;  // Will be set in finalize()
 
     m_texts.push_back(text);
 }

@@ -49,8 +49,13 @@ add_library(BgfxRenderer SHARED
 
     # Passes
     Passes/ClearPass.cpp
+    Passes/TilemapPass.cpp
     Passes/SpritePass.cpp
+    Passes/TextPass.cpp
     Passes/DebugPass.cpp
+
+    # Text
+    Text/BitmapFont.cpp
 
     # Scene
     Scene/SceneCollector.cpp

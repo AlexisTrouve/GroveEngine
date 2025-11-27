@@ -8,7 +8,9 @@
 #include "Resources/ResourceCache.h"
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
+#include "Passes/TilemapPass.h"
 #include "Passes/SpritePass.h"
+#include "Passes/TextPass.h"
 #include "Passes/DebugPass.h"
 
 #include <grove/JsonDataNode.h>
@@ -84,11 +86,25 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_renderGraph->addPass(std::make_unique<ClearPass>());
     m_logger->info("Added ClearPass");
 
+    // Setup resource cache first (needed by passes)
+    m_resourceCache = std::make_unique<ResourceCache>();
+
+    // Create TilemapPass (renders before sprites)
+    auto tilemapPass = std::make_unique<TilemapPass>(spriteShader);
+    tilemapPass->setResourceCache(m_resourceCache.get());
+    m_renderGraph->addPass(std::move(tilemapPass));
+    m_logger->info("Added TilemapPass");
+
     // Create SpritePass and keep reference for texture binding
     auto spritePass = std::make_unique<SpritePass>(spriteShader);
     m_spritePass = spritePass.get();  // Non-owning reference
+    m_spritePass->setResourceCache(m_resourceCache.get());
     m_renderGraph->addPass(std::move(spritePass));
     m_logger->info("Added SpritePass");
+
+    // Create TextPass (uses sprite shader for glyph quads)
+    m_renderGraph->addPass(std::make_unique<TextPass>(spriteShader));
+    m_logger->info("Added TextPass");
 
     m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
     m_logger->info("Added DebugPass");
@@ -101,9 +117,6 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_sceneCollector = std::make_unique<SceneCollector>();
     m_sceneCollector->setup(io);
     m_logger->info("SceneCollector setup complete");
-
-    // Setup resource cache
-    m_resourceCache = std::make_unique<ResourceCache>();
 
     // Setup debug overlay
     m_debugOverlay = std::make_unique<DebugOverlay>();
@@ -131,6 +144,17 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 void BgfxRendererModule::process(const IDataNode& input) {
     // Read deltaTime from input (provided by ModuleSystem)
     float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
+
+    // Check for resize in input
+    int newWidth = input.getInt("windowWidth", 0);
+    int newHeight = input.getInt("windowHeight", 0);
+    if (newWidth > 0 && newHeight > 0 &&
+        (static_cast<uint16_t>(newWidth) != m_width || static_cast<uint16_t>(newHeight) != m_height)) {
+        m_width = static_cast<uint16_t>(newWidth);
+        m_height = static_cast<uint16_t>(newHeight);
+        m_device->reset(m_width, m_height);
+        m_logger->info("Window resized to {}x{}", m_width, m_height);
+    }
 
     // 1. Collect IIO messages (pull-based)
     m_sceneCollector->collect(m_io, deltaTime);
