@@ -6,6 +6,7 @@
 #include "RenderGraph/RenderGraph.h"
 #include "Scene/SceneCollector.h"
 #include "Resources/ResourceCache.h"
+#include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/SpritePass.h"
 #include "Passes/DebugPass.h"
@@ -104,6 +105,14 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Setup resource cache
     m_resourceCache = std::make_unique<ResourceCache>();
 
+    // Setup debug overlay
+    m_debugOverlay = std::make_unique<DebugOverlay>();
+    bool debugEnabled = config.getBool("debugOverlay", false);
+    m_debugOverlay->setEnabled(debugEnabled);
+    if (debugEnabled) {
+        m_logger->info("Debug overlay enabled");
+    }
+
     // Load default texture if specified in config
     std::string defaultTexturePath = config.getString("defaultTexture", "");
     if (!defaultTexturePath.empty()) {
@@ -138,10 +147,16 @@ void BgfxRendererModule::process(const IDataNode& input) {
     // 4. Execute render graph
     m_renderGraph->execute(frame, *m_device);
 
-    // 5. Present
+    // 5. Update and render debug overlay
+    if (m_debugOverlay) {
+        m_debugOverlay->update(deltaTime, static_cast<uint32_t>(frame.spriteCount), 1);
+        m_debugOverlay->render(m_width, m_height);
+    }
+
+    // 6. Present
     m_device->frame();
 
-    // 6. Cleanup for next frame
+    // 7. Cleanup for next frame
     m_sceneCollector->clear();
     m_frameCount++;
 }

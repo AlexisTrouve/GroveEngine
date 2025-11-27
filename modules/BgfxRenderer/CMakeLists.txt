@@ -58,6 +58,9 @@ add_library(BgfxRenderer SHARED
     # Resources
     Resources/ResourceCache.cpp
     Resources/TextureLoader.cpp
+
+    # Debug
+    Debug/DebugOverlay.cpp
 )
 
 target_include_directories(BgfxRenderer PRIVATE

@@ -17,6 +17,7 @@ class SceneCollector;
 class ResourceCache;
 class ShaderManager;
 class SpritePass;
+class DebugOverlay;
 
 // ============================================================================
 // BgfxRenderer Module - 2D rendering via bgfx
@@ -55,6 +56,7 @@ private:
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;
     std::unique_ptr<ResourceCache> m_resourceCache;
+    std::unique_ptr<DebugOverlay> m_debugOverlay;
 
     // Pass references (non-owning, owned by RenderGraph)
     SpritePass* m_spritePass = nullptr;

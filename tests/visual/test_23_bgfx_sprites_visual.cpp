@@ -123,6 +123,9 @@ int main(int argc, char* argv[]) {
     // Load texture from assets folder
     config.setString("defaultTexture", "../../assets/textures/1f440.png");
 
+    // Enable debug overlay
+    config.setBool("debugOverlay", true);
+
     module->setConfiguration(config, rendererIO.get(), nullptr);
 
     std::cout << "Module configured\n";
