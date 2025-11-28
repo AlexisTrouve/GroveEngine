@@ -36,6 +36,19 @@ struct FramebufferHandle {
 using ViewId = uint16_t;
 
 // ============================================================================
+// Transient Instance Buffer - Frame-local allocation for multi-batch rendering
+// ============================================================================
+
+struct TransientInstanceBuffer {
+    void* data = nullptr;      // CPU-side pointer for writing data
+    uint32_t size = 0;         // Size in bytes
+    uint32_t count = 0;        // Number of instances
+    uint16_t stride = 0;       // Bytes per instance
+    uint16_t poolIndex = UINT16_MAX;  // Index in device's transient pool
+    bool isValid() const { return data != nullptr && poolIndex != UINT16_MAX; }
+};
+
+// ============================================================================
 // Render States
 // ============================================================================
 

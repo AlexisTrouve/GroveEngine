@@ -54,6 +54,11 @@ public:
     virtual void updateBuffer(BufferHandle handle, const void* data, uint32_t size) = 0;
     virtual void updateTexture(TextureHandle handle, const void* data, uint32_t size) = 0;
 
+    // Transient instance buffers (frame-local, for multi-batch rendering)
+    // These are automatically freed at end of frame - no manual cleanup needed
+    // Returns buffer with data pointer for CPU-side writing
+    virtual TransientInstanceBuffer allocTransientInstanceBuffer(uint32_t count) = 0;
+
     // View setup
     virtual void setViewClear(ViewId id, uint32_t rgba, float depth) = 0;
     virtual void setViewRect(ViewId id, uint16_t x, uint16_t y, uint16_t w, uint16_t h) = 0;

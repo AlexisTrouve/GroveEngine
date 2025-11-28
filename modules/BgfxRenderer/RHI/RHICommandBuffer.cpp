@@ -53,6 +53,15 @@ void RHICommandBuffer::setInstanceBuffer(BufferHandle buffer, uint32_t start, ui
     m_commands.push_back(cmd);
 }
 
+void RHICommandBuffer::setTransientInstanceBuffer(const TransientInstanceBuffer& buffer, uint32_t start, uint32_t count) {
+    Command cmd;
+    cmd.type = CommandType::SetTransientInstanceBuffer;
+    cmd.setTransientInstanceBuffer.poolIndex = buffer.poolIndex;
+    cmd.setTransientInstanceBuffer.start = start;
+    cmd.setTransientInstanceBuffer.count = count;
+    m_commands.push_back(cmd);
+}
+
 void RHICommandBuffer::setScissor(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
     Command cmd;
     cmd.type = CommandType::SetScissor;

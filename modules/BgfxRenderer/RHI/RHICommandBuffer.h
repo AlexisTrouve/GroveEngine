@@ -17,6 +17,7 @@ enum class CommandType : uint8_t {
     SetVertexBuffer,
     SetIndexBuffer,
     SetInstanceBuffer,
+    SetTransientInstanceBuffer,  // For frame-local multi-batch rendering
     SetScissor,
     Draw,
     DrawIndexed,
@@ -33,6 +34,7 @@ struct Command {
         struct { BufferHandle buffer; uint32_t offset; } setVertexBuffer;
         struct { BufferHandle buffer; uint32_t offset; bool is32Bit; } setIndexBuffer;
         struct { BufferHandle buffer; uint32_t start; uint32_t count; } setInstanceBuffer;
+        struct { uint16_t poolIndex; uint32_t start; uint32_t count; } setTransientInstanceBuffer;
         struct { uint16_t x, y, w, h; } setScissor;
         struct { uint32_t vertexCount; uint32_t startVertex; } draw;
         struct { uint32_t indexCount; uint32_t startIndex; } drawIndexed;
@@ -68,6 +70,7 @@ public:
     void setVertexBuffer(BufferHandle buffer, uint32_t offset = 0);
     void setIndexBuffer(BufferHandle buffer, uint32_t offset = 0, bool is32Bit = false);
     void setInstanceBuffer(BufferHandle buffer, uint32_t start, uint32_t count);
+    void setTransientInstanceBuffer(const TransientInstanceBuffer& buffer, uint32_t start, uint32_t count);
     void setScissor(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
     void draw(uint32_t vertexCount, uint32_t startVertex = 0);
     void drawIndexed(uint32_t indexCount, uint32_t startIndex = 0);

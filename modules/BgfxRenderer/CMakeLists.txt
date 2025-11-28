@@ -52,6 +52,7 @@ add_library(BgfxRenderer SHARED
     Passes/TilemapPass.cpp
     Passes/SpritePass.cpp
     Passes/TextPass.cpp
+    Passes/ParticlePass.cpp
     Passes/DebugPass.cpp
 
     # Text

@@ -11,6 +11,7 @@
 #include "Passes/TilemapPass.h"
 #include "Passes/SpritePass.h"
 #include "Passes/TextPass.h"
+#include "Passes/ParticlePass.h"
 #include "Passes/DebugPass.h"
 
 #include <grove/JsonDataNode.h>
@@ -106,6 +107,12 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_renderGraph->addPass(std::make_unique<TextPass>(spriteShader));
     m_logger->info("Added TextPass");
 
+    // Create ParticlePass (uses sprite shader, renders after sprites with additive blending)
+    auto particlePass = std::make_unique<ParticlePass>(spriteShader);
+    particlePass->setResourceCache(m_resourceCache.get());
+    m_renderGraph->addPass(std::move(particlePass));
+    m_logger->info("Added ParticlePass");
+
     m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
     m_logger->info("Added DebugPass");
     m_renderGraph->setup(*m_device);
@@ -129,12 +136,27 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Load default texture if specified in config
     std::string defaultTexturePath = config.getString("defaultTexture", "");
     if (!defaultTexturePath.empty()) {
-        rhi::TextureHandle tex = m_resourceCache->loadTexture(*m_device, defaultTexturePath);
-        if (tex.isValid()) {
+        uint16_t texId = m_resourceCache->loadTextureWithId(*m_device, defaultTexturePath);
+        if (texId > 0) {
+            rhi::TextureHandle tex = m_resourceCache->getTextureById(texId);
             m_spritePass->setTexture(tex);
-            m_logger->info("Loaded default texture: {}", defaultTexturePath);
+            m_logger->info("Loaded default texture: {} (id={})", defaultTexturePath, texId);
         } else {
             m_logger->warn("Failed to load default texture: {}", defaultTexturePath);
+        }
+    }
+
+    // Load additional textures (texture1, texture2, etc.)
+    for (int i = 1; i <= 10; ++i) {
+        std::string key = "texture" + std::to_string(i);
+        std::string path = config.getString(key, "");
+        if (!path.empty()) {
+            uint16_t texId = m_resourceCache->loadTextureWithId(*m_device, path);
+            if (texId > 0) {
+                m_logger->info("Loaded texture: {} (id={})", path, texId);
+            } else {
+                m_logger->warn("Failed to load texture: {}", path);
+            }
         }
     }
 

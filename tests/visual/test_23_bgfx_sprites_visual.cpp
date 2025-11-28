@@ -120,8 +120,9 @@ int main(int argc, char* argv[]) {
     config.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nativeWindowHandle)));
     config.setDouble("nativeDisplayHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nativeDisplayHandle)));
 
-    // Load texture from assets folder
+    // Load textures from assets folder
     config.setString("defaultTexture", "../../assets/textures/1f440.png");
+    config.setString("texture1", "../../assets/textures/5oxaxt1vo2f91.jpg");  // Second texture (Multipla)
 
     // Enable debug overlay
     config.setBool("debugOverlay", true);
@@ -228,7 +229,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Send animated sprites in a circle
-        // Using different textureIds to test batching (all will use default texture fallback)
+        // Using different textureIds to test multi-texture batching
         for (int i = 0; i < 5; ++i) {
             auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
 
@@ -252,27 +253,155 @@ int main(int argc, char* argv[]) {
             uint32_t colors[] = {0xFF0000FF, 0x00FF00FF, 0x0000FFFF, 0xFFFF00FF, 0xFF00FFFF};
             sprite->setInt("color", static_cast<int>(colors[i]));
 
-            // Use textureId=0 for all (default texture)
-            sprite->setInt("textureId", 0);
+            // Alternate between textures: even = eye (id=1), odd = multipla (id=2)
+            sprite->setInt("textureId", (i % 2 == 0) ? 1 : 2);
             sprite->setInt("layer", i);
 
             std::unique_ptr<grove::IDataNode> data = std::move(sprite);
             gameIO->publish("render:sprite", std::move(data));
         }
 
-        // Add a center sprite
+        // Add a center sprite (Multipla!)
         {
             auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
             sprite->setDouble("x", width / 2.0f);
             sprite->setDouble("y", height / 2.0f);
-            sprite->setDouble("scaleX", 80.0);
-            sprite->setDouble("scaleY", 80.0);
-            sprite->setDouble("rotation", -time);
-            sprite->setInt("color", 0xFFFFFFFF);  // White
+            sprite->setDouble("scaleX", 120.0);
+            sprite->setDouble("scaleY", 80.0);  // Wider than tall (car aspect ratio)
+            sprite->setDouble("rotation", -time * 0.5f);
+            sprite->setInt("color", 0xFFFFFFFF);  // White (no tint)
+            sprite->setInt("textureId", 2);  // Multipla texture
             sprite->setInt("layer", 10);
 
             std::unique_ptr<grove::IDataNode> data = std::move(sprite);
             gameIO->publish("render:sprite", std::move(data));
+        }
+
+        // ========================================
+        // Test particle rendering (fire-like effect)
+        // ========================================
+        for (int i = 0; i < 20; ++i) {
+            auto particle = std::make_unique<grove::JsonDataNode>("particle");
+
+            // Spawn particles rising from bottom center
+            float spawnX = width / 2.0f + (std::sin(time * 5.0f + i * 0.5f) * 50.0f);
+            float spawnY = height - 50.0f;
+
+            // Particles rise up with some horizontal drift
+            float particleAge = std::fmod(time * 2.0f + i * 0.2f, 2.0f);  // 0-2 second cycle
+            float life = 1.0f - (particleAge / 2.0f);  // 1.0 -> 0.0
+
+            float px = spawnX + std::sin(particleAge * 3.0f + i) * 30.0f;
+            float py = spawnY - particleAge * 100.0f;  // Rise up
+
+            particle->setDouble("x", px);
+            particle->setDouble("y", py);
+            particle->setDouble("vx", 0.0);
+            particle->setDouble("vy", -50.0);
+            particle->setDouble("size", 15.0 + life * 20.0);  // Shrink as they age
+            particle->setDouble("life", life);
+
+            // Fire colors: white -> yellow -> orange -> red based on life
+            uint8_t r, g, b;
+            if (life > 0.7f) {
+                // White/yellow core
+                r = 255; g = 255; b = static_cast<uint8_t>(200 * (life - 0.7f) / 0.3f);
+            } else if (life > 0.3f) {
+                // Orange
+                r = 255; g = static_cast<uint8_t>(100 + 155 * (life - 0.3f) / 0.4f); b = 0;
+            } else {
+                // Red fading out
+                r = static_cast<uint8_t>(200 + 55 * life / 0.3f); g = static_cast<uint8_t>(50 * life / 0.3f); b = 0;
+            }
+            uint32_t color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+            particle->setInt("color", static_cast<int>(color));
+            particle->setInt("textureId", 0);
+
+            std::unique_ptr<grove::IDataNode> data = std::move(particle);
+            gameIO->publish("render:particle", std::move(data));
+        }
+
+        // ========================================
+        // Smoke particles (second particle system - alpha blending, gray colors)
+        // ========================================
+        float smokeSpawnX = width * 0.7f;  // Right side
+        float smokeSpawnY = height * 0.8f;
+
+        for (int i = 0; i < 15; ++i) {
+            auto smoke = std::make_unique<grove::JsonDataNode>("particle");
+
+            // Smoke rises slower, drifts more
+            float smokeAge = std::fmod(time * 1.0f + i * 0.15f, 3.0f);  // 3 second cycle
+            float life = 1.0f - (smokeAge / 3.0f);
+
+            float sx = smokeSpawnX + std::sin(smokeAge * 2.0f + i * 0.5f) * 50.0f;
+            float sy = smokeSpawnY - smokeAge * 60.0f;  // Rise slower
+
+            smoke->setDouble("x", sx);
+            smoke->setDouble("y", sy);
+            smoke->setDouble("vx", std::sin(time + i) * 20.0f);
+            smoke->setDouble("vy", -30.0);
+            smoke->setDouble("size", 20.0 + (1.0f - life) * 40.0);  // Grow as they age
+            smoke->setDouble("life", life);
+
+            // Smoke colors: dark gray -> light gray, fading alpha
+            uint8_t gray = static_cast<uint8_t>(80 + 80 * (1.0f - life));  // Gets lighter
+            uint8_t alpha = static_cast<uint8_t>(200 * life);  // Fades out
+            uint32_t smokeColor = (gray << 24) | (gray << 16) | (gray << 8) | alpha;
+            smoke->setInt("color", static_cast<int>(smokeColor));
+            smoke->setInt("textureId", 0);
+            smoke->setInt("blendMode", 0);  // Alpha blend (not additive)
+
+            std::unique_ptr<grove::IDataNode> smokeData = std::move(smoke);
+            gameIO->publish("render:particle", std::move(smokeData));
+        }
+
+        // ========================================
+        // Sparkle particles (third particle system - small, fast, bright)
+        // ========================================
+        float sparkleX = width * 0.5f;
+        float sparkleY = height * 0.3f;
+
+        for (int i = 0; i < 8; ++i) {
+            auto sparkle = std::make_unique<grove::JsonDataNode>("particle");
+
+            float angle = (time * 3.0f + i * (3.14159f * 2.0f / 8.0f));
+            float radius = 50.0f + std::sin(time * 5.0f + i) * 20.0f;
+            float sparkleAge = std::fmod(time * 4.0f + i * 0.1f, 1.0f);
+            float life = 1.0f - sparkleAge;
+
+            float spx = sparkleX + std::cos(angle) * radius;
+            float spy = sparkleY + std::sin(angle) * radius * 0.5f;
+
+            sparkle->setDouble("x", spx);
+            sparkle->setDouble("y", spy);
+            sparkle->setDouble("vx", 0.0);
+            sparkle->setDouble("vy", 0.0);
+            sparkle->setDouble("size", 5.0 + life * 10.0);
+            sparkle->setDouble("life", life);
+
+            // Sparkle colors: cyan -> white -> magenta cycle
+            float hue = std::fmod(time * 0.5f + i * 0.1f, 1.0f);
+            uint8_t r, g, b;
+            if (hue < 0.33f) {
+                r = static_cast<uint8_t>(255 * (1.0f - hue * 3.0f));
+                g = 255;
+                b = static_cast<uint8_t>(255 * hue * 3.0f);
+            } else if (hue < 0.66f) {
+                r = static_cast<uint8_t>(255 * (hue - 0.33f) * 3.0f);
+                g = static_cast<uint8_t>(255 * (1.0f - (hue - 0.33f) * 3.0f));
+                b = 255;
+            } else {
+                r = 255;
+                g = static_cast<uint8_t>(255 * (hue - 0.66f) * 3.0f);
+                b = static_cast<uint8_t>(255 * (1.0f - (hue - 0.66f) * 3.0f));
+            }
+            uint32_t sparkleColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+            sparkle->setInt("color", static_cast<int>(sparkleColor));
+            sparkle->setInt("textureId", 0);
+
+            std::unique_ptr<grove::IDataNode> sparkleData = std::move(sparkle);
+            gameIO->publish("render:particle", std::move(sparkleData));
         }
 
         // ========================================

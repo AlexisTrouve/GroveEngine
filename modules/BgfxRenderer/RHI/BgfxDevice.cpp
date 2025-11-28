@@ -261,6 +261,38 @@ public:
     }
 
     // ========================================
+    // Transient Instance Buffers
+    // ========================================
+
+    TransientInstanceBuffer allocTransientInstanceBuffer(uint32_t count) override {
+        TransientInstanceBuffer result;
+
+        constexpr uint16_t INSTANCE_STRIDE = 80;  // 5 x vec4
+
+        // Check if we have space in the pool
+        if (m_transientPoolCount >= MAX_TRANSIENT_BUFFERS) {
+            return result;  // Pool full, return invalid
+        }
+
+        // Check if bgfx has enough transient memory
+        if (bgfx::getAvailInstanceDataBuffer(count, INSTANCE_STRIDE) < count) {
+            return result;  // Not enough memory
+        }
+
+        // Allocate from bgfx
+        uint16_t poolIndex = m_transientPoolCount++;
+        bgfx::allocInstanceDataBuffer(&m_transientPool[poolIndex], count, INSTANCE_STRIDE);
+
+        result.data = m_transientPool[poolIndex].data;
+        result.size = count * INSTANCE_STRIDE;
+        result.count = count;
+        result.stride = INSTANCE_STRIDE;
+        result.poolIndex = poolIndex;
+
+        return result;
+    }
+
+    // ========================================
     // View Setup
     // ========================================
 
@@ -282,6 +314,8 @@ public:
 
     void frame() override {
         bgfx::frame();
+        // Reset transient pool for next frame
+        m_transientPoolCount = 0;
     }
 
     void executeCommandBuffer(const RHICommandBuffer& cmdBuffer) override {
@@ -292,6 +326,12 @@ public:
         BufferHandle currentInstBuffer;
         uint32_t instStart = 0;
         uint32_t instCount = 0;
+
+        // Store texture state to apply at draw time (not immediately)
+        TextureHandle pendingTexture;
+        UniformHandle pendingSampler;
+        uint8_t pendingTextureSlot = 0;
+        bool hasTexture = false;
 
         for (const Command& cmd : cmdBuffer.getCommands()) {
             switch (cmd.type) {
@@ -339,9 +379,12 @@ public:
                 }
 
                 case CommandType::SetTexture: {
-                    bgfx::TextureHandle tex = { cmd.setTexture.texture.id };
-                    bgfx::UniformHandle sampler = { cmd.setTexture.sampler.id };
-                    bgfx::setTexture(cmd.setTexture.slot, sampler, tex);
+                    // Store texture state - apply at draw time, not immediately
+                    // This ensures texture is set after all other state is configured
+                    pendingTexture = cmd.setTexture.texture;
+                    pendingSampler = cmd.setTexture.sampler;
+                    pendingTextureSlot = cmd.setTexture.slot;
+                    hasTexture = true;
                     break;
                 }
 
@@ -365,6 +408,15 @@ public:
                     currentInstBuffer = cmd.setInstanceBuffer.buffer;
                     instStart = cmd.setInstanceBuffer.start;
                     instCount = cmd.setInstanceBuffer.count;
+                    m_useTransientInstance = false;
+                    break;
+                }
+
+                case CommandType::SetTransientInstanceBuffer: {
+                    m_currentTransientIndex = cmd.setTransientInstanceBuffer.poolIndex;
+                    instStart = cmd.setTransientInstanceBuffer.start;
+                    instCount = cmd.setTransientInstanceBuffer.count;
+                    m_useTransientInstance = true;
                     break;
                 }
 
@@ -441,7 +493,11 @@ public:
                             bgfx::setIndexBuffer(h, 0, cmd.drawInstanced.indexCount);
                         }
                     }
-                    if (currentInstBuffer.isValid()) {
+                    // Set instance buffer (either dynamic or transient)
+                    if (m_useTransientInstance && m_currentTransientIndex < m_transientPoolCount) {
+                        // Transient instance buffer from pool
+                        bgfx::setInstanceDataBuffer(&m_transientPool[m_currentTransientIndex], instStart, instCount);
+                    } else if (currentInstBuffer.isValid()) {
                         bool isDynamic = (currentInstBuffer.id & 0x8000) != 0;
                         uint16_t idx = currentInstBuffer.id & 0x7FFF;
                         if (isDynamic) {
@@ -453,8 +509,16 @@ public:
                 }
 
                 case CommandType::Submit: {
+                    // Apply pending texture right before submit
+                    if (hasTexture) {
+                        bgfx::TextureHandle tex = { pendingTexture.id };
+                        bgfx::UniformHandle sampler = { pendingSampler.id };
+                        bgfx::setTexture(pendingTextureSlot, sampler, tex);
+                    }
                     bgfx::ProgramHandle program = { cmd.submit.shader.id };
                     bgfx::submit(cmd.submit.view, program, cmd.submit.depth);
+                    // Reset texture state after submit (consumed)
+                    hasTexture = false;
                     break;
                 }
             }
@@ -465,6 +529,15 @@ private:
     uint16_t m_width = 0;
     uint16_t m_height = 0;
     bool m_initialized = false;
+
+    // Transient instance buffer pool (reset each frame)
+    static constexpr uint16_t MAX_TRANSIENT_BUFFERS = 256;
+    bgfx::InstanceDataBuffer m_transientPool[MAX_TRANSIENT_BUFFERS];
+    uint16_t m_transientPoolCount = 0;
+
+    // Transient buffer state for command execution
+    bool m_useTransientInstance = false;
+    uint16_t m_currentTransientIndex = UINT16_MAX;
 
     // Empty buffer for null data fallback in buffer creation
     inline static const uint8_t s_emptyBuffer[1] = {0};

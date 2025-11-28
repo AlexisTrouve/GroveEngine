@@ -3,6 +3,7 @@
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
 #include <algorithm>
+#include <cstring>
 
 namespace grove {
 
@@ -45,7 +46,8 @@ void SpritePass::setup(rhi::IRHIDevice& device) {
     ibDesc.dynamic = false;
     m_quadIB = device.createBuffer(ibDesc);
 
-    // Create dynamic instance buffer
+    // Note: We no longer create a persistent instance buffer since we use transient buffers
+    // But keep it for fallback if transient allocation fails
     rhi::BufferDesc instDesc;
     instDesc.type = rhi::BufferDesc::Instance;
     instDesc.size = MAX_SPRITES_PER_BATCH * sizeof(SpriteInstance);
@@ -82,7 +84,7 @@ void SpritePass::flushBatch(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
 
     cmd.setVertexBuffer(m_quadVB);
     cmd.setIndexBuffer(m_quadIB);
-    cmd.setInstanceBuffer(m_instanceBuffer, 0, count);
+    // Note: Instance buffer should be set before calling this
     cmd.setTexture(0, texture, m_textureSampler);
     cmd.drawInstanced(6, count);
     cmd.submit(0, m_shader, 0);
@@ -120,61 +122,70 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
             return sa.textureId < sb.textureId;
         });
 
-    // Process sprites in batches by layer and texture
-    // Flush batch when layer OR texture changes to maintain correct draw order
-    std::vector<SpriteInstance> batchData;
-    batchData.reserve(MAX_SPRITES_PER_BATCH);
+    // Process sprites in batches by texture
+    // Use transient buffers for proper multi-batch rendering
+    uint32_t batchStart = 0;
+    while (batchStart < frame.spriteCount) {
+        // Find the end of current batch (same texture)
+        uint16_t currentTexId = static_cast<uint16_t>(frame.sprites[m_sortedIndices[batchStart]].textureId);
+        uint32_t batchEnd = batchStart + 1;
 
-    uint16_t currentTextureId = UINT16_MAX;
-    float currentLayer = -1e9f;  // Use a value that won't match any real layer
-    rhi::TextureHandle currentTexture;
-
-    for (uint32_t idx : m_sortedIndices) {
-        const SpriteInstance& sprite = frame.sprites[idx];
-        uint16_t texId = static_cast<uint16_t>(sprite.textureId);
-
-        // Check if texture OR layer changed (must flush to maintain layer order)
-        if (texId != currentTextureId || sprite.layer != currentLayer) {
-            // Flush previous batch
-            if (!batchData.empty()) {
-                device.updateBuffer(m_instanceBuffer, batchData.data(),
-                                   static_cast<uint32_t>(batchData.size() * sizeof(SpriteInstance)));
-                flushBatch(device, cmd, currentTexture, static_cast<uint32_t>(batchData.size()));
-                batchData.clear();
+        while (batchEnd < frame.spriteCount) {
+            uint16_t nextTexId = static_cast<uint16_t>(frame.sprites[m_sortedIndices[batchEnd]].textureId);
+            if (nextTexId != currentTexId) {
+                break;  // Texture changed, flush this batch
             }
+            ++batchEnd;
+        }
 
-            // Update current state
-            currentTextureId = texId;
-            currentLayer = sprite.layer;
-            if (texId == 0 || !m_resourceCache) {
-                // Use default/active texture for textureId=0
-                currentTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
-            } else {
-                // Look up texture by ID
-                currentTexture = m_resourceCache->getTextureById(texId);
-                if (!currentTexture.isValid()) {
-                    currentTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
-                }
+        uint32_t batchCount = batchEnd - batchStart;
+
+        // Resolve texture handle for this batch
+        rhi::TextureHandle batchTexture;
+        if (currentTexId == 0 || !m_resourceCache) {
+            batchTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
+        } else {
+            batchTexture = m_resourceCache->getTextureById(currentTexId);
+            if (!batchTexture.isValid()) {
+                batchTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
             }
         }
 
-        // Add sprite to batch
-        batchData.push_back(sprite);
+        // Allocate transient instance buffer for this batch
+        rhi::TransientInstanceBuffer transientBuffer = device.allocTransientInstanceBuffer(batchCount);
 
-        // Flush if batch is full
-        if (batchData.size() >= MAX_SPRITES_PER_BATCH) {
+        if (transientBuffer.isValid()) {
+            // Copy sprite data to transient buffer
+            SpriteInstance* dest = static_cast<SpriteInstance*>(transientBuffer.data);
+            for (uint32_t i = 0; i < batchCount; ++i) {
+                dest[i] = frame.sprites[m_sortedIndices[batchStart + i]];
+            }
+
+            // Re-set state for each batch to ensure clean state
+            cmd.setState(state);
+
+            // Set buffers and draw
+            cmd.setVertexBuffer(m_quadVB);
+            cmd.setIndexBuffer(m_quadIB);
+            cmd.setTransientInstanceBuffer(transientBuffer, 0, batchCount);
+            cmd.setTexture(0, batchTexture, m_textureSampler);
+            cmd.drawInstanced(6, batchCount);
+            cmd.submit(0, m_shader, 0);
+        } else {
+            // Fallback: use dynamic buffer (may have issues with multiple batches)
+            // This should only happen if GPU runs out of transient memory
+            std::vector<SpriteInstance> batchData;
+            batchData.reserve(batchCount);
+            for (uint32_t i = 0; i < batchCount; ++i) {
+                batchData.push_back(frame.sprites[m_sortedIndices[batchStart + i]]);
+            }
             device.updateBuffer(m_instanceBuffer, batchData.data(),
                                static_cast<uint32_t>(batchData.size() * sizeof(SpriteInstance)));
-            flushBatch(device, cmd, currentTexture, static_cast<uint32_t>(batchData.size()));
-            batchData.clear();
+            cmd.setInstanceBuffer(m_instanceBuffer, 0, batchCount);
+            flushBatch(device, cmd, batchTexture, batchCount);
         }
-    }
 
-    // Flush remaining sprites
-    if (!batchData.empty()) {
-        device.updateBuffer(m_instanceBuffer, batchData.data(),
-                           static_cast<uint32_t>(batchData.size() * sizeof(SpriteInstance)));
-        flushBatch(device, cmd, currentTexture, static_cast<uint32_t>(batchData.size()));
+        batchStart = batchEnd;
     }
 }
 
