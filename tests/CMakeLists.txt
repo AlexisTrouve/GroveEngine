@@ -715,6 +715,108 @@ if(GROVE_BUILD_BGFX_RENDERER)
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_23_bgfx_sprites_visual' enabled (run manually)")
+
+        # Test 24: UIModule Visual Test (requires SDL2, display, BgfxRenderer and UIModule)
+        if(GROVE_BUILD_UI_MODULE)
+            add_executable(test_24_ui_basic
+                visual/test_24_ui_basic.cpp
+            )
+
+            target_include_directories(test_24_ui_basic PRIVATE
+                /usr/include/SDL2
+            )
+
+            target_link_libraries(test_24_ui_basic PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display)
+            message(STATUS "Visual test 'test_24_ui_basic' enabled (run manually)")
+
+            # Test 25: UIModule Layout System Test (Phase 2)
+            add_executable(test_25_ui_layout
+                visual/test_25_ui_layout.cpp
+            )
+
+            target_include_directories(test_25_ui_layout PRIVATE
+                /usr/include/SDL2
+            )
+
+            target_link_libraries(test_25_ui_layout PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display)
+            message(STATUS "Visual test 'test_25_ui_layout' enabled (run manually)")
+
+            # Test 26: UIModule Interactive Buttons Test (Phase 3)
+            add_executable(test_26_ui_buttons
+                visual/test_26_ui_buttons.cpp
+            )
+
+            target_include_directories(test_26_ui_buttons PRIVATE
+                /usr/include/SDL2
+            )
+
+            target_link_libraries(test_26_ui_buttons PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display)
+            message(STATUS "Visual test 'test_26_ui_buttons' enabled (run manually)")
+
+            # Test 28: UIModule ScrollPanel Test (Phase 7.1)
+            add_executable(test_28_ui_scroll
+                visual/test_28_ui_scroll.cpp
+            )
+
+            target_include_directories(test_28_ui_scroll PRIVATE
+                /usr/include/SDL2
+            )
+
+            target_link_libraries(test_28_ui_scroll PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display)
+            message(STATUS "Visual test 'test_28_ui_scroll' enabled (run manually)")
+
+            # Test 29: UIModule Advanced Features Test (Phase 7.2 - Tooltips)
+            add_executable(test_29_ui_advanced
+                visual/test_29_ui_advanced.cpp
+            )
+
+            target_include_directories(test_29_ui_advanced PRIVATE
+                /usr/include/SDL2
+            )
+
+            target_link_libraries(test_29_ui_advanced PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display)
+            message(STATUS "Visual test 'test_29_ui_advanced' enabled (run manually)")
+        endif()
     else()
         message(STATUS "SDL2 not found - visual tests disabled")
     endif()

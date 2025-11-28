@@ -1,0 +1,59 @@
+{
+  "id": "test_panel",
+  "type": "panel",
+  "x": 100,
+  "y": 100,
+  "width": 300,
+  "height": 200,
+  "style": {
+    "bgColor": "0x333333FF"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "title_label",
+      "text": "Hello UI!",
+      "x": 10,
+      "y": 10,
+      "style": {
+        "fontSize": 24,
+        "color": "0xFFFFFFFF"
+      }
+    },
+    {
+      "type": "label",
+      "id": "subtitle_label",
+      "text": "UIModule Phase 1 Test",
+      "x": 10,
+      "y": 50,
+      "style": {
+        "fontSize": 14,
+        "color": "0xAAAAAAFF"
+      }
+    },
+    {
+      "type": "panel",
+      "id": "inner_panel",
+      "x": 10,
+      "y": 90,
+      "width": 280,
+      "height": 80,
+      "style": {
+        "bgColor": "0x555555FF"
+      },
+      "children": [
+        {
+          "type": "label",
+          "id": "inner_label",
+          "text": "Nested Panel",
+          "x": 10,
+          "y": 10,
+          "style": {
+            "fontSize": 12,
+            "color": "0x00FF00FF"
+          }
+        }
+      ]
+    }
+  ]
+}

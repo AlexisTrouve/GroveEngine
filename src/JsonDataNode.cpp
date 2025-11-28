@@ -56,6 +56,10 @@ bool JsonDataNode::hasChildren() {
     return !m_children.empty();
 }
 
+bool JsonDataNode::hasChild(const std::string& name) const {
+    return m_children.find(name) != m_children.end();
+}
+
 // ========================================
 // EXACT SEARCH IN CHILDREN
 // ========================================

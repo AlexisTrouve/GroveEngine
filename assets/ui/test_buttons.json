@@ -1,0 +1,125 @@
+{
+  "id": "button_test_container",
+  "type": "panel",
+  "x": 100,
+  "y": 100,
+  "width": 600,
+  "height": 400,
+  "style": {
+    "bgColor": "0x2c3e50FF"
+  },
+  "layout": {
+    "type": "vertical",
+    "padding": 30,
+    "spacing": 20,
+    "align": "center"
+  },
+  "children": [
+    {
+      "type": "label",
+      "text": "Interactive Buttons - Phase 3 Test",
+      "height": 40,
+      "style": {
+        "fontSize": 24,
+        "color": "0xecf0f1FF"
+      }
+    },
+    {
+      "type": "button",
+      "id": "btn_play",
+      "text": "Play Game",
+      "width": 200,
+      "height": 50,
+      "onClick": "game:start",
+      "style": {
+        "fontSize": 18,
+        "normal": {
+          "bgColor": "0x27ae60FF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "hover": {
+          "bgColor": "0x2ecc71FF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "pressed": {
+          "bgColor": "0x229954FF",
+          "textColor": "0xFFFFFFFF"
+        }
+      }
+    },
+    {
+      "type": "button",
+      "id": "btn_options",
+      "text": "Options",
+      "width": 200,
+      "height": 50,
+      "onClick": "menu:options",
+      "style": {
+        "fontSize": 18,
+        "normal": {
+          "bgColor": "0x3498dbFF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "hover": {
+          "bgColor": "0x5dade2FF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "pressed": {
+          "bgColor": "0x2874a6FF",
+          "textColor": "0xFFFFFFFF"
+        }
+      }
+    },
+    {
+      "type": "button",
+      "id": "btn_quit",
+      "text": "Quit",
+      "width": 200,
+      "height": 50,
+      "onClick": "app:quit",
+      "style": {
+        "fontSize": 18,
+        "normal": {
+          "bgColor": "0xe74c3cFF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "hover": {
+          "bgColor": "0xec7063FF",
+          "textColor": "0xFFFFFFFF"
+        },
+        "pressed": {
+          "bgColor": "0xc0392bFF",
+          "textColor": "0xFFFFFFFF"
+        }
+      }
+    },
+    {
+      "type": "panel",
+      "height": 20
+    },
+    {
+      "type": "button",
+      "id": "btn_disabled",
+      "text": "Disabled Button",
+      "width": 200,
+      "height": 50,
+      "enabled": false,
+      "style": {
+        "fontSize": 18,
+        "disabled": {
+          "bgColor": "0x34495eFF",
+          "textColor": "0x7f8c8dFF"
+        }
+      }
+    },
+    {
+      "type": "label",
+      "text": "Hover and click the buttons above!",
+      "height": 30,
+      "style": {
+        "fontSize": 14,
+        "color": "0x95a5a6FF"
+      }
+    }
+  ]
+}

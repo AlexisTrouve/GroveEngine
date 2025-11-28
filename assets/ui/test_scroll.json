@@ -1,0 +1,357 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "style": {
+    "bgColor": "0x1a1a1aFF"
+  },
+  "layout": {
+    "type": "vertical",
+    "spacing": 20,
+    "padding": 20
+  },
+  "children": [
+    {
+      "type": "label",
+      "text": "ScrollPanel Test - Use Mouse Wheel!",
+      "style": {
+        "fontSize": 24.0,
+        "color": "0xFFFFFFFF"
+      }
+    },
+    {
+      "type": "scrollpanel",
+      "id": "scroll_main",
+      "width": 760,
+      "height": 500,
+      "scrollVertical": true,
+      "scrollHorizontal": false,
+      "showScrollbar": true,
+      "dragToScroll": true,
+      "style": {
+        "bgColor": "0x2a2a2aFF",
+        "borderColor": "0x444444FF",
+        "borderWidth": 2.0,
+        "scrollbarColor": "0x666666FF",
+        "scrollbarWidth": 12.0
+      },
+      "layout": {
+        "type": "vertical",
+        "spacing": 5,
+        "padding": 10
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Item 1 - First item in the scrollable list",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "btn_2",
+          "text": "Item 2 - Clickable Button",
+          "onClick": "test:button2",
+          "style": {
+            "fontSize": 14.0,
+            "normal": {
+              "bgColor": "0x3498dbFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0x5dade2FF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "pressed": {
+              "bgColor": "0x2980b9FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 3 - More content",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 4 - Keep scrolling...",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "progressbar",
+          "id": "progress_5",
+          "value": 75.0,
+          "width": 700,
+          "height": 25,
+          "style": {
+            "bgColor": "0x444444FF",
+            "fillColor": "0x2ecc71FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 6 - Progress bar above",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "checkbox",
+          "id": "check_7",
+          "text": "Item 7 - Checkbox option",
+          "checked": true,
+          "style": {
+            "fontSize": 14.0
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 8 - Various widgets in scroll",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "slider",
+          "id": "slider_9",
+          "min": 0.0,
+          "max": 100.0,
+          "value": 50.0,
+          "width": 700,
+          "height": 25
+        },
+        {
+          "type": "label",
+          "text": "Item 10 - Slider above",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 11",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 12",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 13",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 14",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 15",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "btn_16",
+          "text": "Item 16 - Another Button",
+          "onClick": "test:button16",
+          "style": {
+            "fontSize": 14.0,
+            "normal": {
+              "bgColor": "0xe74c3cFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0xec7063FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 17",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 18",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 19",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 20 - Halfway there!",
+          "style": {
+            "fontSize": 18.0,
+            "color": "0xf39c12FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 21",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 22",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 23",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 24",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 25",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 26",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 27",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 28",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 29",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 30 - Almost done!",
+          "style": {
+            "fontSize": 18.0,
+            "color": "0x2ecc71FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 31",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 32",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 33",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 34",
+          "style": {
+            "fontSize": 16.0,
+            "color": "0xECF0F1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Item 35 - LAST ITEM - You made it!",
+          "style": {
+            "fontSize": 20.0,
+            "color": "0xe74c3cFF"
+          }
+        }
+      ]
+    }
+  ]
+}

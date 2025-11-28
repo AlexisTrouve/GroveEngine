@@ -1,0 +1,198 @@
+{
+  "id": "main_container",
+  "type": "panel",
+  "x": 50,
+  "y": 50,
+  "width": 700,
+  "height": 500,
+  "style": {
+    "bgColor": "0x2c3e50FF"
+  },
+  "layout": {
+    "type": "vertical",
+    "padding": 20,
+    "spacing": 15,
+    "align": "stretch"
+  },
+  "children": [
+    {
+      "type": "label",
+      "text": "Layout System Test - Phase 2",
+      "height": 40,
+      "style": {
+        "fontSize": 24,
+        "color": "0xFFFFFFFF"
+      }
+    },
+    {
+      "type": "panel",
+      "height": 100,
+      "style": {
+        "bgColor": "0x34495eFF"
+      },
+      "layout": {
+        "type": "horizontal",
+        "padding": 10,
+        "spacing": 10,
+        "align": "center"
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Box 1",
+          "width": 100,
+          "style": {
+            "fontSize": 14,
+            "color": "0xFFFFFFFF"
+          }
+        },
+        {
+          "type": "panel",
+          "flex": 1,
+          "style": {
+            "bgColor": "0x3498dbFF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Box 2",
+          "width": 100,
+          "style": {
+            "fontSize": 14,
+            "color": "0xFFFFFFFF"
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "flex": 1,
+      "style": {
+        "bgColor": "0x34495eFF"
+      },
+      "layout": {
+        "type": "horizontal",
+        "padding": 10,
+        "spacing": 10,
+        "align": "stretch"
+      },
+      "children": [
+        {
+          "type": "panel",
+          "flex": 1,
+          "style": {
+            "bgColor": "0x2ecc71FF"
+          },
+          "layout": {
+            "type": "vertical",
+            "padding": 10,
+            "spacing": 5,
+            "align": "center"
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "Vertical Column 1",
+              "height": 30,
+              "style": {
+                "fontSize": 12,
+                "color": "0xFFFFFFFF"
+              }
+            },
+            {
+              "type": "panel",
+              "flex": 1,
+              "style": {
+                "bgColor": "0x27ae60FF"
+              }
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "flex": 1,
+          "style": {
+            "bgColor": "0xe74c3cFF"
+          },
+          "layout": {
+            "type": "vertical",
+            "padding": 10,
+            "spacing": 5,
+            "align": "center"
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "Vertical Column 2",
+              "height": 30,
+              "style": {
+                "fontSize": 12,
+                "color": "0xFFFFFFFF"
+              }
+            },
+            {
+              "type": "panel",
+              "flex": 1,
+              "style": {
+                "bgColor": "0xc0392bFF"
+              }
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "flex": 1,
+          "style": {
+            "bgColor": "0xf39c12FF"
+          },
+          "layout": {
+            "type": "stack",
+            "padding": 10,
+            "align": "center"
+          },
+          "children": [
+            {
+              "type": "panel",
+              "width": 120,
+              "height": 120,
+              "style": {
+                "bgColor": "0xe67e22FF"
+              }
+            },
+            {
+              "type": "label",
+              "text": "Stack Overlay",
+              "style": {
+                "fontSize": 14,
+                "color": "0xFFFFFFFF"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "height": 60,
+      "style": {
+        "bgColor": "0x34495eFF"
+      },
+      "layout": {
+        "type": "horizontal",
+        "padding": 10,
+        "spacing": 10,
+        "align": "center"
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Footer - Centered Horizontal Layout",
+          "style": {
+            "fontSize": 14,
+            "color": "0xecf0f1FF"
+              }
+        }
+      ]
+    }
+  ]
+}

@@ -180,6 +180,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_BGFX_RENDERER)
         add_subdirectory(modules/BgfxRenderer)
     endif()
+
+    # UIModule (declarative UI system)
+    option(GROVE_BUILD_UI_MODULE "Build UIModule" OFF)
+    if(GROVE_BUILD_UI_MODULE)
+        add_subdirectory(modules/UIModule)
+    endif()
 endif()
 
 # Testing

@@ -52,6 +52,13 @@ public:
      */
     virtual bool hasChildren() = 0;
 
+    /**
+     * @brief Check if this node has a direct child with the given name
+     * @param name Exact name of the child to check
+     * @return true if child exists
+     */
+    virtual bool hasChild(const std::string& name) const = 0;
+
     // ========================================
     // EXACT SEARCH IN CHILDREN
     // ========================================

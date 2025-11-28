@@ -42,6 +42,7 @@ public:
     IDataNode* getChildReadOnly(const std::string& name) override;
     std::vector<std::string> getChildNames() override;
     bool hasChildren() override;
+    bool hasChild(const std::string& name) const override;
 
     // Exact search in children
     std::vector<IDataNode*> getChildrenByName(const std::string& name) override;
