@@ -7,8 +7,8 @@
 namespace grove {
 
 void SceneCollector::setup(IIO* io) {
-    // Subscribe to all render topics
-    io->subscribe("render:*");
+    // Subscribe to all render topics (multi-level wildcard .* matches render:sprite AND render:debug:line)
+    io->subscribe("render:.*");
 
     // Initialize default view (will be overridden by camera messages)
     initDefaultView(1280, 720);

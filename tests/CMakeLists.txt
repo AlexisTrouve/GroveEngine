@@ -831,6 +831,29 @@ if(GROVE_BUILD_BGFX_RENDERER)
         Catch2::Catch2WithMain
     )
 
+    # ========================================
+    # Phase 6.5 Sprint 3: Pipeline Headless Tests
+    # ========================================
+
+    # Test: Pipeline Headless - End-to-end rendering flow
+    add_executable(test_pipeline_headless
+        integration/test_pipeline_headless.cpp
+        ../modules/BgfxRenderer/Scene/SceneCollector.cpp
+        ../modules/BgfxRenderer/Frame/FrameAllocator.cpp
+        ../modules/BgfxRenderer/RenderGraph/RenderGraph.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+    )
+    target_include_directories(test_pipeline_headless PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(test_pipeline_headless PRIVATE
+        GroveEngine::impl
+        
+        Catch2::Catch2WithMain
+    )
+    add_test(NAME PipelineHeadless COMMAND test_pipeline_headless WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
     add_test(NAME BgfxSpritesHeadless COMMAND test_22_bgfx_sprites_headless WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 

@@ -5,7 +5,7 @@
 #include <memory>
 
 // This line will be modified by AutoCompiler during race condition tests
-std::string moduleVersion = "v10";
+std::string moduleVersion = "v1";
 
 namespace grove {
 
