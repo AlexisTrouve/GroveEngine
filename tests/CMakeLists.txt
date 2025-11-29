@@ -833,3 +833,39 @@ if(GROVE_BUILD_BGFX_RENDERER)
 
     add_test(NAME BgfxSpritesHeadless COMMAND test_22_bgfx_sprites_headless WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endif()
+
+# ================================================================================
+# Phase 5 Integration Tests - UIModule
+# ================================================================================
+
+# TestControllerModule - Simulates game logic for UI integration tests
+add_library(TestControllerModule SHARED
+    modules/TestControllerModule.cpp
+)
+
+target_link_libraries(TestControllerModule PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+# IT_014: UIModule Full Integration Test
+if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
+    add_executable(IT_014_ui_module_integration
+        integration/IT_014_ui_module_integration.cpp
+    )
+
+    target_link_libraries(IT_014_ui_module_integration PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+
+    add_dependencies(IT_014_ui_module_integration TestControllerModule)
+
+    # CTest integration
+    add_test(NAME UIModuleIntegration COMMAND IT_014_ui_module_integration WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    message(STATUS "Integration test 'IT_014_ui_module_integration' enabled")
+endif()
