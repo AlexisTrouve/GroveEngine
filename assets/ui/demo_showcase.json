@@ -1,0 +1,804 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0,
+  "y": 0,
+  "width": 1200,
+  "height": 800,
+  "style": {
+    "bgColor": "0x1a1a1aFF"
+  },
+  "layout": {
+    "type": "horizontal",
+    "spacing": 0,
+    "padding": 0
+  },
+  "children": [
+    {
+      "type": "panel",
+      "id": "sidebar",
+      "width": 250,
+      "style": {
+        "bgColor": "0x2c3e50FF",
+        "padding": 20
+      },
+      "layout": {
+        "type": "vertical",
+        "spacing": 15
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "UIModule Showcase",
+          "tooltip": "Complete demonstration of all UIModule features",
+          "style": {
+            "fontSize": 22.0,
+            "color": "0xecf0f1FF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "Interactive Demo",
+          "style": {
+            "fontSize": 14.0,
+            "color": "0x95a5a6FF"
+          }
+        },
+        {
+          "type": "panel",
+          "style": {
+            "bgColor": "0x34495eFF",
+            "padding": 15,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 10
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "Controls",
+              "style": {
+                "fontSize": 16.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "label",
+              "text": "ESC - Quit demo",
+              "style": {
+                "fontSize": 12.0,
+                "color": "0xbdc3c7FF"
+              }
+            },
+            {
+              "type": "label",
+              "text": "R - Reload UI JSON",
+              "style": {
+                "fontSize": 12.0,
+                "color": "0xbdc3c7FF"
+              }
+            },
+            {
+              "type": "label",
+              "text": "Wheel - Scroll panels",
+              "style": {
+                "fontSize": 12.0,
+                "color": "0xbdc3c7FF"
+              }
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "style": {
+            "bgColor": "0x34495eFF",
+            "padding": 15,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 8
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "Features",
+              "style": {
+                "fontSize": 16.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "feature_buttons",
+              "text": "Buttons",
+              "checked": true,
+              "style": {
+                "fontSize": 12.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "feature_sliders",
+              "text": "Sliders",
+              "checked": true,
+              "style": {
+                "fontSize": 12.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "feature_text",
+              "text": "Text Input",
+              "checked": true,
+              "style": {
+                "fontSize": 12.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "feature_scroll",
+              "text": "ScrollPanel",
+              "checked": true,
+              "style": {
+                "fontSize": 12.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "feature_tooltips",
+              "text": "Tooltips",
+              "checked": true,
+              "style": {
+                "fontSize": 12.0
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "btn_clear_log",
+          "text": "Clear Log",
+          "tooltip": "Clear the event console log",
+          "onClick": "demo:clear_log",
+          "width": 210,
+          "height": 35,
+          "style": {
+            "fontSize": 14.0,
+            "normal": {
+              "bgColor": "0x7f8c8dFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0x95a5a6FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        },
+        {
+          "type": "button",
+          "id": "btn_reset_stats",
+          "text": "Reset Stats",
+          "tooltip": "Reset all event counters",
+          "onClick": "demo:reset_stats",
+          "width": 210,
+          "height": 35,
+          "style": {
+            "fontSize": 14.0,
+            "normal": {
+              "bgColor": "0xe67e22FF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0xf39c12FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "scrollpanel",
+      "id": "main_content",
+      "width": 950,
+      "scrollVertical": true,
+      "scrollHorizontal": false,
+      "showScrollbar": true,
+      "dragToScroll": true,
+      "tooltip": "Main content area - scroll with mouse wheel or drag",
+      "style": {
+        "bgColor": "0x222222FF",
+        "borderColor": "0x444444FF",
+        "borderWidth": 0.0,
+        "scrollbarColor": "0x666666FF",
+        "scrollbarWidth": 12.0
+      },
+      "layout": {
+        "type": "vertical",
+        "spacing": 20,
+        "padding": 25
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Welcome to UIModule!",
+          "tooltip": "UIModule is a production-ready UI system for GroveEngine",
+          "style": {
+            "fontSize": 32.0,
+            "color": "0xFFFFFFFF"
+          }
+        },
+        {
+          "type": "label",
+          "text": "All widgets below are interactive. Hover for tooltips!",
+          "style": {
+            "fontSize": 14.0,
+            "color": "0x95a5a6FF"
+          }
+        },
+        {
+          "type": "panel",
+          "tooltip": "Button showcase with different colors and states",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "🔘 Buttons",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 15
+              },
+              "children": [
+                {
+                  "type": "button",
+                  "id": "btn_primary",
+                  "text": "Primary",
+                  "tooltip": "Primary action button",
+                  "onClick": "demo:primary",
+                  "width": 120,
+                  "height": 40,
+                  "style": {
+                    "fontSize": 16.0,
+                    "normal": {
+                      "bgColor": "0x3498dbFF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "hover": {
+                      "bgColor": "0x5dade2FF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "pressed": {
+                      "bgColor": "0x2471a3FF",
+                      "textColor": "0xFFFFFFFF"
+                    }
+                  }
+                },
+                {
+                  "type": "button",
+                  "id": "btn_success",
+                  "text": "Success",
+                  "tooltip": "Success action button",
+                  "onClick": "demo:success",
+                  "width": 120,
+                  "height": 40,
+                  "style": {
+                    "fontSize": 16.0,
+                    "normal": {
+                      "bgColor": "0x27ae60FF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "hover": {
+                      "bgColor": "0x2ecc71FF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "pressed": {
+                      "bgColor": "0x1e8449FF",
+                      "textColor": "0xFFFFFFFF"
+                    }
+                  }
+                },
+                {
+                  "type": "button",
+                  "id": "btn_warning",
+                  "text": "Warning",
+                  "tooltip": "Warning action button",
+                  "onClick": "demo:warning",
+                  "width": 120,
+                  "height": 40,
+                  "style": {
+                    "fontSize": 16.0,
+                    "normal": {
+                      "bgColor": "0xe67e22FF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "hover": {
+                      "bgColor": "0xf39c12FF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "pressed": {
+                      "bgColor": "0xca6f1eFF",
+                      "textColor": "0xFFFFFFFF"
+                    }
+                  }
+                },
+                {
+                  "type": "button",
+                  "id": "btn_danger",
+                  "text": "Danger",
+                  "tooltip": "Danger action button - use with caution!",
+                  "onClick": "demo:danger",
+                  "width": 120,
+                  "height": 40,
+                  "style": {
+                    "fontSize": 16.0,
+                    "normal": {
+                      "bgColor": "0xc0392bFF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "hover": {
+                      "bgColor": "0xe74c3cFF",
+                      "textColor": "0xFFFFFFFF"
+                    },
+                    "pressed": {
+                      "bgColor": "0x922b21FF",
+                      "textColor": "0xFFFFFFFF"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "tooltip": "Slider controls for various settings",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "🎚️ Sliders",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Volume:",
+                  "tooltip": "Master audio volume",
+                  "style": {
+                    "fontSize": 16.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "slider",
+                  "id": "slider_volume",
+                  "tooltip": "Drag to adjust volume (0-100)",
+                  "min": 0.0,
+                  "max": 100.0,
+                  "value": 75.0,
+                  "width": 500,
+                  "height": 25,
+                  "onChange": "settings:volume"
+                }
+              ]
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Brightness:",
+                  "tooltip": "Screen brightness",
+                  "style": {
+                    "fontSize": 16.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "slider",
+                  "id": "slider_brightness",
+                  "tooltip": "Adjust screen brightness (0-100)",
+                  "min": 0.0,
+                  "max": 100.0,
+                  "value": 50.0,
+                  "width": 500,
+                  "height": 25,
+                  "onChange": "settings:brightness"
+                }
+              ]
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Difficulty:",
+                  "tooltip": "Game difficulty level",
+                  "style": {
+                    "fontSize": 16.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "slider",
+                  "id": "slider_difficulty",
+                  "tooltip": "1=Easy, 5=Medium, 10=Hard",
+                  "min": 1.0,
+                  "max": 10.0,
+                  "value": 5.0,
+                  "width": 500,
+                  "height": 25,
+                  "onChange": "settings:difficulty"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "tooltip": "Text input fields for user data",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "✏️ Text Input",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Username:",
+                  "style": {
+                    "fontSize": 16.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "textinput",
+                  "id": "input_username",
+                  "text": "",
+                  "placeholder": "Enter your username...",
+                  "tooltip": "Type your username and press Enter",
+                  "width": 400,
+                  "height": 35,
+                  "onChange": "user:username_changed",
+                  "onSubmit": "user:username_submit"
+                }
+              ]
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "horizontal",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Search:",
+                  "style": {
+                    "fontSize": 16.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "textinput",
+                  "id": "input_search",
+                  "text": "",
+                  "placeholder": "Search...",
+                  "tooltip": "Search for anything",
+                  "width": 400,
+                  "height": 35,
+                  "onChange": "search:text_changed",
+                  "onSubmit": "search:submit"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "tooltip": "Checkboxes for toggling options",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "☑️ Checkboxes",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "check_fullscreen",
+              "text": "Fullscreen Mode",
+              "tooltip": "Toggle fullscreen display mode",
+              "checked": false,
+              "onChange": "settings:fullscreen",
+              "style": {
+                "fontSize": 16.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "check_vsync",
+              "text": "Enable VSync",
+              "tooltip": "Synchronize framerate with monitor refresh rate",
+              "checked": true,
+              "onChange": "settings:vsync",
+              "style": {
+                "fontSize": 16.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "check_shadows",
+              "text": "High Quality Shadows",
+              "tooltip": "Enable advanced shadow rendering (impacts performance)",
+              "checked": true,
+              "onChange": "graphics:shadows",
+              "style": {
+                "fontSize": 16.0
+              }
+            },
+            {
+              "type": "checkbox",
+              "id": "check_particles",
+              "text": "Particle Effects",
+              "tooltip": "Enable particle systems",
+              "checked": true,
+              "onChange": "graphics:particles",
+              "style": {
+                "fontSize": 16.0
+              }
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "tooltip": "Progress bars showing various states",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "📊 Progress Bars",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "panel",
+              "layout": {
+                "type": "vertical",
+                "spacing": 10
+              },
+              "children": [
+                {
+                  "type": "label",
+                  "text": "Health: 85%",
+                  "style": {
+                    "fontSize": 14.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "progressbar",
+                  "id": "progress_health",
+                  "tooltip": "Player health: 85/100",
+                  "value": 85.0,
+                  "width": 800,
+                  "height": 30,
+                  "style": {
+                    "bgColor": "0x34495eFF",
+                    "fillColor": "0x2ecc71FF"
+                  }
+                },
+                {
+                  "type": "label",
+                  "text": "Loading: 45%",
+                  "style": {
+                    "fontSize": 14.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "progressbar",
+                  "id": "progress_loading",
+                  "tooltip": "Loading assets...",
+                  "value": 45.0,
+                  "width": 800,
+                  "height": 30,
+                  "style": {
+                    "bgColor": "0x34495eFF",
+                    "fillColor": "0x3498dbFF"
+                  }
+                },
+                {
+                  "type": "label",
+                  "text": "Experience: 67%",
+                  "style": {
+                    "fontSize": 14.0,
+                    "color": "0xecf0f1FF"
+                  }
+                },
+                {
+                  "type": "progressbar",
+                  "id": "progress_xp",
+                  "tooltip": "67/100 XP to next level",
+                  "value": 67.0,
+                  "width": 800,
+                  "height": 30,
+                  "style": {
+                    "bgColor": "0x34495eFF",
+                    "fillColor": "0xf39c12FF"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "tooltip": "Nested scrollable content demonstrates ScrollPanel widget",
+          "style": {
+            "bgColor": "0x2c3e50FF",
+            "padding": 20,
+            "borderRadius": 5.0
+          },
+          "layout": {
+            "type": "vertical",
+            "spacing": 15
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "📜 Nested ScrollPanel",
+              "style": {
+                "fontSize": 24.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "label",
+              "text": "This ScrollPanel has limited height and scrollable content:",
+              "style": {
+                "fontSize": 14.0,
+                "color": "0x95a5a6FF"
+              }
+            },
+            {
+              "type": "scrollpanel",
+              "id": "nested_scroll",
+              "width": 800,
+              "height": 250,
+              "scrollVertical": true,
+              "scrollHorizontal": false,
+              "showScrollbar": true,
+              "tooltip": "Nested scrollable area - use mouse wheel here too!",
+              "style": {
+                "bgColor": "0x34495eFF",
+                "borderColor": "0x7f8c8dFF",
+                "borderWidth": 2.0,
+                "scrollbarColor": "0x95a5a6FF",
+                "scrollbarWidth": 10.0
+              },
+              "layout": {
+                "type": "vertical",
+                "spacing": 8,
+                "padding": 15
+              },
+              "children": [
+                {"type": "label", "text": "Item 1", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 2", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 3", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 4", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 5", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 6", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 7", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 8", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 9", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 10", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 11", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 12", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 13", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 14", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 15", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 16", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 17", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 18", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 19", "style": {"fontSize": 14.0, "color": "0xecf0f1FF"}},
+                {"type": "label", "text": "Item 20 - End of list", "style": {"fontSize": 14.0, "color": "0xf39c12FF"}}
+              ]
+            }
+          ]
+        },
+        {
+          "type": "label",
+          "text": "🎉 End of Demo - Scroll back up to try more widgets!",
+          "tooltip": "You've reached the bottom. Great job exploring!",
+          "style": {
+            "fontSize": 20.0,
+            "color": "0x27ae60FF"
+          }
+        }
+      ]
+    }
+  ]
+}

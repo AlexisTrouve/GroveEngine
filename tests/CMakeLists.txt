@@ -869,3 +869,28 @@ if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
 
     message(STATUS "Integration test 'IT_014_ui_module_integration' enabled")
 endif()
+
+# ============================================
+# UIModule Interactive Showcase Demo
+# ============================================
+
+if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
+    add_executable(demo_ui_showcase
+        demo/demo_ui_showcase.cpp
+    )
+
+    target_link_libraries(demo_ui_showcase PRIVATE
+        GroveEngine::core
+        GroveEngine::impl
+        SDL2
+        pthread
+        dl
+    )
+
+    # Add X11 on Linux for SDL window integration
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(demo_ui_showcase PRIVATE X11)
+    endif()
+
+    message(STATUS "UIModule showcase demo 'demo_ui_showcase' enabled")
+endif()
