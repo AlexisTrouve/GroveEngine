@@ -817,6 +817,29 @@ if(GROVE_BUILD_BGFX_RENDERER)
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_29_ui_advanced' enabled (run manually)")
         endif()
+
+        # Test 30: InputModule Visual Test (requires SDL2, display, and InputModule)
+        if(GROVE_BUILD_INPUT_MODULE)
+            add_executable(test_30_input_module
+                visual/test_30_input_module.cpp
+            )
+
+            target_include_directories(test_30_input_module PRIVATE
+                /usr/include/SDL2
+                ${CMAKE_SOURCE_DIR}/modules
+            )
+
+            target_link_libraries(test_30_input_module PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+
+            # Not added to CTest (requires display and user interaction)
+            message(STATUS "Visual test 'test_30_input_module' enabled (run manually)")
+        endif()
     else()
         message(STATUS "SDL2 not found - visual tests disabled")
     endif()
@@ -892,6 +915,44 @@ if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
 
     message(STATUS "Integration test 'IT_014_ui_module_integration' enabled")
 endif()
+
+# IT_015: InputModule + UIModule Integration Test
+if(GROVE_BUILD_UI_MODULE)
+    # IT_015: Simplified UIModule input integration test (no InputModule dependency)
+    # This test publishes IIO messages directly to test UIModule input processing
+    add_executable(IT_015_input_ui_integration
+        integration/IT_015_input_ui_integration.cpp
+    )
+
+    target_link_libraries(IT_015_input_ui_integration PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+
+    # CTest integration
+    add_test(NAME InputUIIntegration COMMAND IT_015_input_ui_integration WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    message(STATUS "Integration test 'IT_015_input_ui_integration' enabled (simplified, no SDL2)")
+endif()
+
+# IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)
+add_executable(IT_015_input_ui_integration_minimal
+    integration/IT_015_input_ui_integration_minimal.cpp
+)
+
+target_link_libraries(IT_015_input_ui_integration_minimal PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+
+# CTest integration
+add_test(NAME InputUIIntegration_Minimal COMMAND IT_015_input_ui_integration_minimal WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+message(STATUS "Integration test 'IT_015_input_ui_integration_minimal' enabled (IIO-only)")
 
 # ============================================
 # UIModule Interactive Showcase Demo

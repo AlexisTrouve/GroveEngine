@@ -186,6 +186,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_UI_MODULE)
         add_subdirectory(modules/UIModule)
     endif()
+
+    # InputModule (input capture and conversion)
+    option(GROVE_BUILD_INPUT_MODULE "Build InputModule" ON)
+    if(GROVE_BUILD_INPUT_MODULE)
+        add_subdirectory(modules/InputModule)
+    endif()
 endif()
 
 # Testing
