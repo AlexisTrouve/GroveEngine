@@ -49,6 +49,9 @@ int main() {
 
     // Charger module
     std::string modulePath = "./libErrorRecoveryModule.so";
+#ifdef _WIN32
+    modulePath = "./libErrorRecoveryModule.dll";
+#endif
     auto module = loader.load(modulePath, "ErrorRecoveryModule", false);
 
     // Config: crash à frame 60, type runtime_error

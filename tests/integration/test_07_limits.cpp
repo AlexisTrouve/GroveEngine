@@ -42,6 +42,9 @@ int main() {
     auto moduleSystem = std::make_unique<SequentialModuleSystem>();
 
     std::string modulePath = "./libHeavyStateModule.so";
+#ifdef _WIN32
+    modulePath = "./libHeavyStateModule.dll";
+#endif
     auto module = loader.load(modulePath, "HeavyStateModule", false);
 
     // Config: particules réduites pour test rapide, mais assez pour être significatif

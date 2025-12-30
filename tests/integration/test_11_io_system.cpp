@@ -183,11 +183,11 @@ int main() {
 
     // Load all IO test modules
     bool loadSuccess = true;
-    loadSuccess &= engine.loadModule("ProducerModule", "./libProducerModule.so");
-    loadSuccess &= engine.loadModule("ConsumerModule", "./libConsumerModule.so");
-    loadSuccess &= engine.loadModule("BroadcastModule", "./libBroadcastModule.so");
-    loadSuccess &= engine.loadModule("BatchModule", "./libBatchModule.so");
-    loadSuccess &= engine.loadModule("IOStressModule", "./libIOStressModule.so");
+    loadSuccess &= engine.loadModule("ProducerModule", "./libProducerModule.dll");
+    loadSuccess &= engine.loadModule("ConsumerModule", "./libConsumerModule.dll");
+    loadSuccess &= engine.loadModule("BroadcastModule", "./libBroadcastModule.dll");
+    loadSuccess &= engine.loadModule("BatchModule", "./libBatchModule.dll");
+    loadSuccess &= engine.loadModule("IOStressModule", "./libIOStressModule.dll");
 
     if (!loadSuccess) {
         std::cerr << "❌ Failed to load required modules\n";

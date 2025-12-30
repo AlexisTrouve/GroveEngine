@@ -327,7 +327,7 @@ int main() {
         std::cout << "=== Phase 0: Setup Baseline (v1 with 100 entities) ===\n";
 
         // Load v1
-        std::string v1Path = "./libGameLogicModuleV1.so";
+        std::string v1Path = "./libGameLogicModuleV1.dll";
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 1, v1Path),
                     "Load GameLogic v1");
 
@@ -347,7 +347,7 @@ int main() {
         auto phase1Start = std::chrono::high_resolution_clock::now();
 
         // Load v2
-        std::string v2Path = "./libGameLogicModuleV2.so";
+        std::string v2Path = "./libGameLogicModuleV2.dll";
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 2, v2Path),
                     "Load GameLogic v2");
 
@@ -482,7 +482,7 @@ int main() {
         std::cout << "\n=== Phase 5: Three-Way Coexistence (v1, v2, v3) ===\n";
 
         // Load v3
-        std::string v3Path = "./libGameLogicModuleV3.so";
+        std::string v3Path = "./libGameLogicModuleV3.dll";
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 3, v3Path),
                     "Load GameLogic v3");
 

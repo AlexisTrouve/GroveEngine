@@ -48,6 +48,9 @@ int main() {
 
     // Charger module
     std::string modulePath = "./libConfigurableModule.so";
+#ifdef _WIN32
+    modulePath = "./libConfigurableModule.dll";
+#endif
     auto module = loader.load(modulePath, "ConfigurableModule", false);
 
     // Config initiale

@@ -204,6 +204,9 @@ int main() {
 
     // Find module path
     fs::path modulePath = "./libLeakTestModule.so";
+#ifdef _WIN32
+    modulePath = "./libLeakTestModule.dll";
+#endif
     if (!fs::exists(modulePath)) {
         std::cerr << "❌ Module not found: " << modulePath << "\n";
         return 1;

@@ -48,6 +48,9 @@ int main() {
 
     // Load module
     std::string modulePath = "./libChaosModule.so";
+#ifdef _WIN32
+    modulePath = "./libChaosModule.dll";
+#endif
     auto module = loader.load(modulePath, "ChaosModule", false);
 
     // Configure module avec seed ALÉATOIRE basé sur le temps

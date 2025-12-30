@@ -52,7 +52,13 @@ constexpr int TOTAL_FRAMES = EXPECTED_RELOADS * RELOAD_INTERVAL;  // 36000 frame
 constexpr size_t MAX_MEMORY_GROWTH_MB = 50;
 
 // Paths
+#ifdef _WIN32
+const std::string MODULE_PATH = "./libStressModule.dll";
+#else
 const std::string MODULE_PATH = "./libStressModule.so";
+#endif
+#ifdef _WIN32
+#endif
 
 int main() {
     TestReporter reporter("Stress Test - 10 Minute Stability");

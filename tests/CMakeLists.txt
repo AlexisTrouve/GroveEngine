@@ -60,6 +60,33 @@ add_custom_command(TARGET test_engine_hotreload POST_BUILD
 # Integration Tests
 # ================================================================================
 
+
+# ================================================================================
+# Windows/MinGW: CTest helper for DLL loading
+# ================================================================================
+# Copy MinGW runtime DLLs at configure time
+if(WIN32 AND MINGW)
+    get_filename_component(MINGW_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+    set(MINGW_DLLS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+    foreach(DLL ${MINGW_DLLS})
+        if(EXISTS "${MINGW_BIN_DIR}/${DLL}")
+            file(COPY "${MINGW_BIN_DIR}/${DLL}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+    endforeach()
+endif()
+
+# Test macro - uses cmake -E chdir on Windows to ensure proper DLL loading
+macro(grove_add_test test_name test_target working_dir)
+    if(WIN32 AND MINGW)
+        add_test(NAME ${test_name} 
+            COMMAND ${CMAKE_COMMAND} -E chdir ${working_dir} $<TARGET_FILE:${test_target}>)
+    else()
+        add_test(NAME ${test_name} COMMAND ${test_target} WORKING_DIRECTORY ${working_dir})
+    endif()
+endmacro()
+
+
+
 # Helpers library (partagée par tous les tests)
 add_library(test_helpers STATIC
     helpers/TestMetrics.cpp
@@ -108,7 +135,7 @@ target_link_libraries(test_01_production_hotreload PRIVATE
 add_dependencies(test_01_production_hotreload TankModule)
 
 # CTest integration
-add_test(NAME ProductionHotReload COMMAND test_01_production_hotreload WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ProductionHotReload test_01_production_hotreload ${CMAKE_CURRENT_BINARY_DIR})
 
 # ChaosModule pour tests de robustesse
 add_library(ChaosModule SHARED
@@ -135,7 +162,7 @@ target_link_libraries(test_02_chaos_monkey PRIVATE
 add_dependencies(test_02_chaos_monkey ChaosModule)
 
 # CTest integration
-add_test(NAME ChaosMonkey COMMAND test_02_chaos_monkey WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ChaosMonkey test_02_chaos_monkey ${CMAKE_CURRENT_BINARY_DIR})
 
 # StressModule pour tests de stabilité long-terme
 add_library(StressModule SHARED
@@ -162,7 +189,7 @@ target_link_libraries(test_03_stress_test PRIVATE
 add_dependencies(test_03_stress_test StressModule)
 
 # CTest integration
-add_test(NAME StressTest COMMAND test_03_stress_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(StressTest test_03_stress_test ${CMAKE_CURRENT_BINARY_DIR})
 
 # Test 04: Race Condition Hunter - Concurrent compilation & reload
 add_executable(test_04_race_condition
@@ -179,7 +206,7 @@ target_link_libraries(test_04_race_condition PRIVATE
 add_dependencies(test_04_race_condition TestModule)
 
 # CTest integration
-add_test(NAME RaceConditionHunter COMMAND test_04_race_condition WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(RaceConditionHunter test_04_race_condition ${CMAKE_CURRENT_BINARY_DIR})
 
 # LeakTestModule pour memory leak detection
 add_library(LeakTestModule SHARED
@@ -205,7 +232,7 @@ target_link_libraries(test_05_memory_leak PRIVATE
 add_dependencies(test_05_memory_leak LeakTestModule)
 
 # CTest integration
-add_test(NAME MemoryLeakHunter COMMAND test_05_memory_leak WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(MemoryLeakHunter test_05_memory_leak ${CMAKE_CURRENT_BINARY_DIR})
 
 # Memory leak profiler (detailed analysis)
 # TODO: Implement profile_memory_leak.cpp
@@ -246,7 +273,7 @@ target_link_libraries(test_06_error_recovery PRIVATE
 add_dependencies(test_06_error_recovery ErrorRecoveryModule)
 
 # CTest integration
-add_test(NAME ErrorRecovery COMMAND test_06_error_recovery WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ErrorRecovery test_06_error_recovery ${CMAKE_CURRENT_BINARY_DIR})
 
 # HeavyStateModule pour tests de limites
 add_library(HeavyStateModule SHARED
@@ -284,8 +311,8 @@ target_link_libraries(test_12_datanode PRIVATE
 )
 
 # CTest integration
-add_test(NAME LimitsTest COMMAND test_07_limits WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-add_test(NAME DataNodeTest COMMAND test_12_datanode WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(LimitsTest test_07_limits ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(DataNodeTest test_12_datanode ${CMAKE_CURRENT_BINARY_DIR})
 
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
@@ -350,7 +377,7 @@ add_dependencies(test_13_cross_system
 )
 
 # CTest integration
-add_test(NAME CrossSystemIntegration COMMAND test_13_cross_system WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(CrossSystemIntegration test_13_cross_system ${CMAKE_CURRENT_BINARY_DIR})
 
 # ConfigurableModule pour tests de config hot-reload
 add_library(ConfigurableModule SHARED
@@ -377,7 +404,7 @@ target_link_libraries(test_08_config_hotreload PRIVATE
 add_dependencies(test_08_config_hotreload ConfigurableModule)
 
 # CTest integration
-add_test(NAME ConfigHotReload COMMAND test_08_config_hotreload WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ConfigHotReload test_08_config_hotreload ${CMAKE_CURRENT_BINARY_DIR})
 
 # BaseModule for dependency testing (no dependencies)
 add_library(BaseModule SHARED
@@ -426,7 +453,7 @@ target_link_libraries(test_09_module_dependencies PRIVATE
 add_dependencies(test_09_module_dependencies BaseModule DependentModule IndependentModule)
 
 # CTest integration
-add_test(NAME ModuleDependencies COMMAND test_09_module_dependencies WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ModuleDependencies test_09_module_dependencies ${CMAKE_CURRENT_BINARY_DIR})
 
 # GameLogicModuleV1 for multi-version testing (baseline version)
 add_library(GameLogicModuleV1 SHARED
@@ -475,7 +502,7 @@ target_link_libraries(test_10_multiversion_coexistence PRIVATE
 add_dependencies(test_10_multiversion_coexistence GameLogicModuleV1 GameLogicModuleV2 GameLogicModuleV3)
 
 # CTest integration
-add_test(NAME MultiVersionCoexistence COMMAND test_10_multiversion_coexistence WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(MultiVersionCoexistence test_10_multiversion_coexistence ${CMAKE_CURRENT_BINARY_DIR})
 
 # ================================================================================
 # IO System Test Modules (Scenario 11)
@@ -550,7 +577,7 @@ target_link_libraries(test_11_io_system PRIVATE
 add_dependencies(test_11_io_system ProducerModule ConsumerModule BroadcastModule BatchModule IOStressModule)
 
 # CTest integration
-add_test(NAME IOSystemStress COMMAND test_11_io_system WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(IOSystemStress test_11_io_system ${CMAKE_CURRENT_BINARY_DIR})
 
 # ================================================================================
 # Benchmarks
@@ -648,7 +675,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
     )
 
     # CTest integration
-    add_test(NAME BgfxRHI COMMAND test_20_bgfx_rhi WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(BgfxRHI test_20_bgfx_rhi ${CMAKE_CURRENT_BINARY_DIR})
 
     # Test 21: Visual Triangle Test (requires SDL2 and display)
     find_package(SDL2 QUIET)
@@ -1081,9 +1108,9 @@ if(GROVE_BUILD_BGFX_RENDERER)
         
         Catch2::Catch2WithMain
     )
-    add_test(NAME PipelineHeadless COMMAND test_pipeline_headless WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+    grove_add_test(PipelineHeadless test_pipeline_headless ${CMAKE_BINARY_DIR})
 
-    add_test(NAME BgfxSpritesHeadless COMMAND test_22_bgfx_sprites_headless WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(BgfxSpritesHeadless test_22_bgfx_sprites_headless ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================
@@ -1117,7 +1144,7 @@ if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
     add_dependencies(IT_014_ui_module_integration TestControllerModule)
 
     # CTest integration
-    add_test(NAME UIModuleIntegration COMMAND IT_014_ui_module_integration WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(UIModuleIntegration IT_014_ui_module_integration ${CMAKE_CURRENT_BINARY_DIR})
 
     message(STATUS "Integration test 'IT_014_ui_module_integration' enabled")
 endif()
@@ -1138,7 +1165,7 @@ if(GROVE_BUILD_UI_MODULE)
     )
 
     # CTest integration
-    add_test(NAME InputUIIntegration COMMAND IT_015_input_ui_integration WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(InputUIIntegration IT_015_input_ui_integration ${CMAKE_CURRENT_BINARY_DIR})
 
     message(STATUS "Integration test 'IT_015_input_ui_integration' enabled (simplified, no SDL2)")
 endif()
@@ -1156,7 +1183,7 @@ target_link_libraries(IT_015_input_ui_integration_minimal PRIVATE
 )
 
 # CTest integration
-add_test(NAME InputUIIntegration_Minimal COMMAND IT_015_input_ui_integration_minimal WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(InputUIIntegration_Minimal IT_015_input_ui_integration_minimal ${CMAKE_CURRENT_BINARY_DIR})
 
 message(STATUS "Integration test 'IT_015_input_ui_integration_minimal' enabled (IIO-only)")
 

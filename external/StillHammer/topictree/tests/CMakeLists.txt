@@ -9,6 +9,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
+# Windows/MinGW: Copy runtime DLLs at configure time
+if(WIN32 AND MINGW)
+    get_filename_component(MINGW_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+    set(MINGW_DLLS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+    foreach(DLL ${MINGW_DLLS})
+        if(EXISTS "${MINGW_BIN_DIR}/${DLL}")
+            file(COPY "${MINGW_BIN_DIR}/${DLL}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+    endforeach()
+endif()
+
 # Helper macro to create test executables
 macro(add_topictree_test test_name)
     add_executable(${test_name} ${test_name}.cpp)
@@ -17,7 +28,14 @@ macro(add_topictree_test test_name)
         Catch2::Catch2WithMain
     )
     target_compile_features(${test_name} PRIVATE cxx_std_17)
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    if(WIN32)
+        # Use cmd.exe start to properly find DLLs in working directory
+        add_test(NAME ${test_name} 
+            COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR} 
+                    $<TARGET_FILE:${test_name}>)
+    else()
+        add_test(NAME ${test_name} COMMAND ${test_name} WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    endif()
 endmacro()
 
 # Add all scenario tests

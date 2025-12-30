@@ -199,6 +199,24 @@ option(GROVE_BUILD_TESTS "Build GroveEngine tests" ON)
 
 if(GROVE_BUILD_TESTS)
     enable_testing()
+
+    # Windows/MinGW: Copy runtime DLLs to build directories for CTest
+    if(WIN32 AND MINGW)
+        get_filename_component(MINGW_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+        set(MINGW_RUNTIME_DLLS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+
+        foreach(DLL ${MINGW_RUNTIME_DLLS})
+            set(DLL_PATH "${MINGW_BIN_DIR}/${DLL}")
+            if(EXISTS "${DLL_PATH}")
+                file(COPY "${DLL_PATH}" DESTINATION "${CMAKE_BINARY_DIR}")
+                file(COPY "${DLL_PATH}" DESTINATION "${CMAKE_BINARY_DIR}/tests")
+                file(COPY "${DLL_PATH}" DESTINATION "${CMAKE_BINARY_DIR}/external/StillHammer/topictree/tests")
+            endif()
+        endforeach()
+
+        message(STATUS "MinGW runtime DLLs copied for CTest")
+    endif()
+
     add_subdirectory(tests)
 endif()
 

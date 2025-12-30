@@ -29,6 +29,9 @@ int main() {
 
     // Charger module
     std::string modulePath = "./libTankModule.so";
+#ifdef _WIN32
+    modulePath = "./libTankModule.dll";
+#endif
     auto module = loader.load(modulePath, "TankModule", false);
 
     // Config

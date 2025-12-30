@@ -368,11 +368,11 @@ int main() {
     // === SETUP: Load modules with dependencies ===
     std::cout << "=== Setup: Load modules with dependencies ===\n";
 
-    ASSERT_TRUE(engine.loadModule("BaseModule", "./libBaseModule.so"),
+    ASSERT_TRUE(engine.loadModule("BaseModule", "./libBaseModule.dll"),
                 "Should load BaseModule");
-    ASSERT_TRUE(engine.loadModule("DependentModule", "./libDependentModule.so"),
+    ASSERT_TRUE(engine.loadModule("DependentModule", "./libDependentModule.dll"),
                 "Should load DependentModule");
-    ASSERT_TRUE(engine.loadModule("IndependentModule", "./libIndependentModule.so"),
+    ASSERT_TRUE(engine.loadModule("IndependentModule", "./libIndependentModule.dll"),
                 "Should load IndependentModule");
 
     reporter.addAssertion("modules_loaded", true);
