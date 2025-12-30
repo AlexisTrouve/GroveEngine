@@ -3,12 +3,37 @@
 ## Project Overview
 GroveEngine is a C++17 hot-reload module system for game engines. It supports dynamic loading/unloading of modules (.so) with state preservation during hot-reload.
 
+## Documentation
+
+**For developers using GroveEngine:**
+- **[DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)** - Complete guide to building applications with GroveEngine (modules, IIO topics, examples)
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)** - Core module system, hot-reload, IIO communication basics
+
+**Module-specific:**
+- **[BgfxRenderer README](modules/BgfxRenderer/README.md)** - 2D rendering module (sprites, text, tilemap, particles)
+- **[InputModule README](modules/InputModule/README.md)** - Input handling (mouse, keyboard, gamepad)
+- **UIModule** - User interface system (buttons, panels, scrolling, tooltips)
+
+## Available Modules
+
+| Module | Status | Description | Build Flag |
+|--------|--------|-------------|------------|
+| **BgfxRenderer** | ✅ Phase 7-8 Complete | 2D rendering (sprites, text, tilemap, particles) | `-DGROVE_BUILD_BGFX_RENDERER=ON` |
+| **UIModule** | ✅ Phase 7 Complete | UI widgets (buttons, panels, scrolling, tooltips) | `-DGROVE_BUILD_UI_MODULE=ON` |
+| **InputModule** | ✅ Production Ready | Input handling (mouse, keyboard, SDL backend) | `-DGROVE_BUILD_INPUT_MODULE=ON` |
+
+**Integration:** All modules communicate via IIO topics. See [DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for complete IIO topics reference.
+
 ## Build & Test
 ```bash
-# Build
+# Build core only
 cmake -B build && cmake --build build -j4
 
-# Run all tests (23 tests)
+# Build with all modules
+cmake -B build -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON -DGROVE_BUILD_INPUT_MODULE=ON
+cmake --build build -j4
+
+# Run all tests (23+ tests)
 cd build && ctest --output-on-failure
 
 # Build with ThreadSanitizer
@@ -63,24 +88,23 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 | 15 | MemoryLeakHunter | ~135s | 200 reload cycles |
 | 19 | CrossSystemIntegration | ~4s | Multi-system test |
 
-## BgfxRenderer Module
-2D rendering module using bgfx. Located in `modules/BgfxRenderer/`.
+## Module Architecture Quick Reference
 
-### Architecture
+### BgfxRenderer
 - **RHI Layer**: Abstracts bgfx calls (`RHIDevice.h`, `BgfxDevice.cpp`)
 - **RenderGraph**: Topological sort with Kahn's algorithm for pass ordering
 - **CommandBuffer**: Records commands, executed by device at frame end
-- **IIO Topics**: `render:sprite`, `render:camera`, `render:debug/*`
+- **IIO Topics**: `render:sprite`, `render:text`, `render:tilemap`, `render:particle`, `render:camera`, `render:clear`, `render:debug/*`
 
-### Build
-```bash
-cmake -DGROVE_BUILD_BGFX_RENDERER=ON -B build
-cmake --build build -j4
-```
+### UIModule
+- **UIRenderer**: Publishes render commands to BgfxRenderer via IIO (layer 1000+)
+- **Widgets**: UIButton, UIPanel, UILabel, UICheckbox, UISlider, UITextInput, UIProgressBar, UIImage, UIScrollPanel, UITooltip
+- **IIO Topics**: Consumes `input:*`, publishes `ui:click`, `ui:action`, `ui:value_changed`, etc.
 
-### Documentation
-- `modules/BgfxRenderer/README.md` - Module overview
-- `docs/PLAN_BGFX_RENDERER.md` - Implementation plan
+### InputModule
+- **Backends**: SDLBackend (mouse, keyboard, gamepad Phase 2)
+- **Thread-safe**: Event buffering with lock-free design
+- **IIO Topics**: `input:mouse:*`, `input:keyboard:*`, `input:gamepad:*`
 
 ## Debugging Tools
 ```bash

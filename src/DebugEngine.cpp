@@ -5,7 +5,7 @@
 #include <grove/SequentialModuleSystem.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
-#include <filesystem>
+#include <grove/platform/FileSystem.h>
 #include <sstream>
 #include <logger/Logger.h>
 
@@ -34,7 +34,7 @@ void DebugEngine::initialize() {
     logEngineStart();
 
     // Create logs directory if it doesn't exist
-    std::filesystem::create_directories("logs");
+    grove::fs::createDirectories("logs");
     logger->debug("📁 Ensured logs directory exists");
 
     engineStartTime = std::chrono::high_resolution_clock::now();

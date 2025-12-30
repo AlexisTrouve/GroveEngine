@@ -1,11 +1,18 @@
 #include "RHIDevice.h"
 #include "RHICommandBuffer.h"
 
+// CRITICAL: Force single-threaded mode BEFORE including bgfx
+// This avoids TLS (Thread-Local Storage) crashes when bgfx runs in a DLL on Windows
+#ifndef BGFX_CONFIG_MULTITHREADED
+#define BGFX_CONFIG_MULTITHREADED 0
+#endif
+
 // bgfx includes - ONLY in this file
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 #include <bx/math.h>
 
+#include <spdlog/spdlog.h>
 #include <unordered_map>
 
 namespace grove::rhi {
@@ -24,7 +31,8 @@ public:
         m_height = height;
 
         bgfx::Init init;
-        init.type = bgfx::RendererType::Count; // Auto-select
+        // Let bgfx auto-select the best renderer (D3D11 on Windows)
+        init.type = bgfx::RendererType::Count;
         init.resolution.width = width;
         init.resolution.height = height;
         init.resolution.reset = BGFX_RESET_VSYNC;
@@ -37,10 +45,9 @@ public:
             return false;
         }
 
-        // Set debug flags in debug builds
-#ifdef _DEBUG
-        bgfx::setDebug(BGFX_DEBUG_TEXT);
-#endif
+        // Note: Debug text is enabled only when DebugOverlay is active
+        // Don't enable it by default as it can cause issues on some platforms
+        // bgfx::setDebug(BGFX_DEBUG_TEXT);
 
         // Set default view clear
         bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030FF, 1.0f, 0);
@@ -126,8 +133,10 @@ public:
                 );
                 result.id = dvb.idx | 0x8000;
             } else {
+                // Use bgfx::copy instead of bgfx::makeRef to ensure data is copied
+                // This avoids potential issues with DLL memory visibility on Windows
                 bgfx::VertexBufferHandle vb = bgfx::createVertexBuffer(
-                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(s_emptyBuffer, 1),
+                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::copy(s_emptyBuffer, 1),
                     layout
                 );
                 result.id = vb.idx;
@@ -140,8 +149,9 @@ public:
                 );
                 result.id = dib.idx | 0x8000;
             } else {
+                // Use bgfx::copy instead of bgfx::makeRef to ensure data is copied
                 bgfx::IndexBufferHandle ib = bgfx::createIndexBuffer(
-                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::makeRef(s_emptyBuffer, 1)
+                    desc.data ? bgfx::copy(desc.data, desc.size) : bgfx::copy(s_emptyBuffer, 1)
                 );
                 result.id = ib.idx;
             }
@@ -313,12 +323,21 @@ public:
     // ========================================
 
     void frame() override {
+        // Ensure view 0 is processed even if nothing was rendered to it
+        bgfx::touch(0);
+
+        // Present frame
         bgfx::frame();
+
         // Reset transient pool for next frame
         m_transientPoolCount = 0;
     }
 
     void executeCommandBuffer(const RHICommandBuffer& cmdBuffer) override {
+        // Reset transient instance state for this command buffer execution
+        m_useTransientInstance = false;
+        m_currentTransientIndex = UINT16_MAX;
+
         // Track current state for bgfx calls
         RenderState currentState;
         BufferHandle currentVB;
@@ -532,7 +551,7 @@ private:
 
     // Transient instance buffer pool (reset each frame)
     static constexpr uint16_t MAX_TRANSIENT_BUFFERS = 256;
-    bgfx::InstanceDataBuffer m_transientPool[MAX_TRANSIENT_BUFFERS];
+    bgfx::InstanceDataBuffer m_transientPool[MAX_TRANSIENT_BUFFERS] = {};
     uint16_t m_transientPoolCount = 0;
 
     // Transient buffer state for command execution

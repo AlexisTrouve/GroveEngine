@@ -43,13 +43,26 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 
     // Window handle (passed via config or 0 if separate WindowModule)
     // Use double to preserve 64-bit pointer values
-    void* windowHandle = reinterpret_cast<void*>(
-        static_cast<uintptr_t>(config.getDouble("nativeWindowHandle", 0.0))
-    );
+    // Also try getInt as fallback for compatibility with older code that uses setInt
+    void* windowHandle = nullptr;
+    double handleDouble = config.getDouble("nativeWindowHandle", 0.0);
+    if (handleDouble != 0.0) {
+        windowHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(handleDouble));
+    } else {
+        // Fallback: try reading as int (for 32-bit handles or compatibility)
+        int handleInt = config.getInt("nativeWindowHandle", 0);
+        if (handleInt != 0) {
+            windowHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(handleInt)));
+            m_logger->warn("nativeWindowHandle passed as int - consider using setDouble for 64-bit handles");
+        }
+    }
+
     // Display handle (X11 Display* on Linux, 0/nullptr on Windows)
-    void* displayHandle = reinterpret_cast<void*>(
-        static_cast<uintptr_t>(config.getDouble("nativeDisplayHandle", 0.0))
-    );
+    void* displayHandle = nullptr;
+    double displayDouble = config.getDouble("nativeDisplayHandle", 0.0);
+    if (displayDouble != 0.0) {
+        displayHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(displayDouble));
+    }
 
     m_logger->info("Initializing BgfxRenderer: {}x{} backend={}", m_width, m_height, m_backend);
 
@@ -120,10 +133,10 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_renderGraph->compile();
     m_logger->info("RenderGraph compiled");
 
-    // Setup scene collector with IIO subscriptions
+    // Setup scene collector with IIO subscriptions and correct dimensions
     m_sceneCollector = std::make_unique<SceneCollector>();
-    m_sceneCollector->setup(io);
-    m_logger->info("SceneCollector setup complete");
+    m_sceneCollector->setup(io, m_width, m_height);
+    m_logger->info("SceneCollector setup complete with dimensions {}x{}", m_width, m_height);
 
     // Setup debug overlay
     m_debugOverlay = std::make_unique<DebugOverlay>();
@@ -164,6 +177,12 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 }
 
 void BgfxRendererModule::process(const IDataNode& input) {
+    // Validate device
+    if (!m_device) {
+        m_logger->error("BgfxRenderer::process called but device is not initialized");
+        return;
+    }
+
     // Read deltaTime from input (provided by ModuleSystem)
     float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
 
@@ -179,9 +198,15 @@ void BgfxRendererModule::process(const IDataNode& input) {
     }
 
     // 1. Collect IIO messages (pull-based)
-    m_sceneCollector->collect(m_io, deltaTime);
+    if (m_sceneCollector && m_io) {
+        m_sceneCollector->collect(m_io, deltaTime);
+    }
 
     // 2. Build immutable FramePacket
+    if (!m_frameAllocator || !m_sceneCollector) {
+        m_logger->error("BgfxRenderer::process - frameAllocator or sceneCollector not initialized");
+        return;
+    }
     m_frameAllocator->reset();
     FramePacket frame = m_sceneCollector->finalize(*m_frameAllocator);
 
@@ -273,16 +298,22 @@ std::unique_ptr<IDataNode> BgfxRendererModule::getHealthStatus() {
 } // namespace grove
 
 // ============================================================================
-// C Export (required for dlopen)
+// C Export (required for dlopen/LoadLibrary)
 // ============================================================================
+
+#ifdef _WIN32
+#define GROVE_MODULE_EXPORT __declspec(dllexport)
+#else
+#define GROVE_MODULE_EXPORT
+#endif
 
 extern "C" {
 
-grove::IModule* createModule() {
+GROVE_MODULE_EXPORT grove::IModule* createModule() {
     return new grove::BgfxRendererModule();
 }
 
-void destroyModule(grove::IModule* module) {
+GROVE_MODULE_EXPORT void destroyModule(grove::IModule* module) {
     delete module;
 }
 

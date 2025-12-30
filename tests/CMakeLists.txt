@@ -840,9 +840,215 @@ if(GROVE_BUILD_BGFX_RENDERER)
             # Not added to CTest (requires display and user interaction)
             message(STATUS "Visual test 'test_30_input_module' enabled (run manually)")
         endif()
+
+        # Full Stack Interactive Test (BgfxRenderer + UIModule + InputModule)
+        if(GROVE_BUILD_INPUT_MODULE AND GROVE_BUILD_UI_MODULE)
+            add_executable(test_full_stack_interactive
+                visual/test_full_stack_interactive.cpp
+            )
+
+            target_include_directories(test_full_stack_interactive PRIVATE
+                ${CMAKE_SOURCE_DIR}/modules
+            )
+
+            # Platform-specific SDL2 and window system libraries
+            if(WIN32)
+                target_link_libraries(test_full_stack_interactive PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                    spdlog::spdlog
+                )
+            else()
+                target_include_directories(test_full_stack_interactive PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_full_stack_interactive PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                    spdlog::spdlog
+                )
+            endif()
+
+            # Not added to CTest (requires display and user interaction)
+            message(STATUS "Visual test 'test_full_stack_interactive' enabled (BgfxRenderer + UIModule + InputModule)")
+        endif()
+
+        # Minimal SDL test (for debugging SDL issues on Windows)
+        add_executable(test_minimal_sdl
+            visual/test_minimal_sdl.cpp
+        )
+
+        # Platform-specific SDL2 linking
+        if(WIN32)
+            target_link_libraries(test_minimal_sdl PRIVATE
+                SDL2::SDL2
+            )
+        else()
+            target_include_directories(test_minimal_sdl PRIVATE
+                /usr/include/SDL2
+            )
+            target_link_libraries(test_minimal_sdl PRIVATE
+                SDL2
+            )
+        endif()
+
+        message(STATUS "Minimal SDL test 'test_minimal_sdl' enabled (debugging tool)")
+
+        # Progressive test (debugging full stack issues)
+        if(GROVE_BUILD_INPUT_MODULE)
+            add_executable(test_progressive
+                visual/test_progressive.cpp
+            )
+
+            target_include_directories(test_progressive PRIVATE
+                ${CMAKE_SOURCE_DIR}/modules
+            )
+
+            if(WIN32)
+                target_link_libraries(test_progressive PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                    spdlog::spdlog
+                )
+            else()
+                target_include_directories(test_progressive PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_progressive PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    spdlog::spdlog
+                )
+            endif()
+
+            message(STATUS "Progressive test 'test_progressive' enabled (debugging tool)")
+        endif()
     else()
         message(STATUS "SDL2 not found - visual tests disabled")
     endif()
+
+    # Test: GroveEngine Link Test (minimal - just link, don't use)
+    add_executable(test_groveengine_link
+        visual/test_groveengine_link.cpp
+    )
+    target_link_libraries(test_groveengine_link PRIVATE
+        GroveEngine::impl
+    )
+
+    # Test: spdlog only (isolate spdlog issues)
+    add_executable(test_spdlog_only
+        visual/test_spdlog_only.cpp
+    )
+    target_link_libraries(test_spdlog_only PRIVATE
+        spdlog::spdlog
+    )
+
+    # SDL2-dependent visual tests (debugging tools)
+    if(SDL2_FOUND)
+        # Test: Headers progressive (find which header crashes)
+        add_executable(test_headers_progressive
+            visual/test_headers_progressive.cpp
+        )
+        target_link_libraries(test_headers_progressive PRIVATE
+            GroveEngine::impl
+            SDL2::SDL2
+            spdlog::spdlog
+        )
+
+        # Test: SDL + GroveEngine linked (same as test_progressive but don't use functions)
+        add_executable(test_sdl_groveengine
+            visual/test_sdl_groveengine.cpp
+        )
+        target_link_libraries(test_sdl_groveengine PRIVATE
+            GroveEngine::impl
+            SDL2::SDL2
+            spdlog::spdlog
+        )
+
+        # Test: With modules/ in include directories (like test_progressive)
+        add_executable(test_with_modules_include
+            visual/test_with_modules_include.cpp
+        )
+        target_include_directories(test_with_modules_include PRIVATE
+            ${CMAKE_SOURCE_DIR}/modules
+        )
+        target_link_libraries(test_with_modules_include PRIVATE
+            GroveEngine::impl
+            SDL2::SDL2
+            spdlog::spdlog
+        )
+
+        # Test: Actually USE SDL_Init
+        add_executable(test_use_sdl
+            visual/test_use_sdl.cpp
+        )
+        target_link_libraries(test_use_sdl PRIVATE
+            SDL2::SDL2
+        )
+
+        # Test: USE SDL + IntraIOManager together (like test_progressive)
+        add_executable(test_use_sdl_and_iio
+            visual/test_use_sdl_and_iio.cpp
+        )
+        target_link_libraries(test_use_sdl_and_iio PRIVATE
+            GroveEngine::impl
+            SDL2::SDL2
+        )
+    endif()
+
+    # Test: IntraIOManager::getInstance() only (no SDL)
+    add_executable(test_iio_only
+        visual/test_iio_only.cpp
+    )
+    target_link_libraries(test_iio_only PRIVATE
+        GroveEngine::impl
+    )
+
+    # Test: Just stillhammer logger (no GroveEngine)
+    add_executable(test_logger_only
+        visual/test_logger_only.cpp
+    )
+    target_link_libraries(test_logger_only PRIVATE
+        stillhammer_logger
+    )
+
+    # Test: Just <filesystem> include
+    add_executable(test_filesystem
+        visual/test_filesystem.cpp
+    )
+
+    # Test: spdlog with register_logger
+    add_executable(test_spdlog_register
+        visual/test_spdlog_register.cpp
+    )
+    target_link_libraries(test_spdlog_register PRIVATE
+        spdlog::spdlog
+    )
+
+    # Test: Logger.cpp compiled directly (not as library)
+    add_executable(test_logger_direct
+        visual/test_logger_direct.cpp
+        ${CMAKE_SOURCE_DIR}/external/StillHammer/logger/src/Logger.cpp
+    )
+    target_include_directories(test_logger_direct PRIVATE
+        ${CMAKE_SOURCE_DIR}/external/StillHammer/logger/include
+    )
+    target_link_libraries(test_logger_direct PRIVATE
+        spdlog::spdlog
+    )
+
+    # Test: spdlog + filesystem combined
+    add_executable(test_spdlog_filesystem
+        visual/test_spdlog_filesystem.cpp
+    )
+    target_link_libraries(test_spdlog_filesystem PRIVATE
+        spdlog::spdlog
+    )
 
     # Test 22b: Headless sprite integration test (no display required)
     add_executable(test_22_bgfx_sprites_headless

@@ -19,7 +19,8 @@ public:
     SceneCollector() = default;
 
     // Configure IIO subscriptions (called in setConfiguration)
-    void setup(IIO* io);
+    // width/height: Window dimensions for default view initialization
+    void setup(IIO* io, uint16_t width = 1280, uint16_t height = 720);
 
     // Collect all IIO messages at frame start (called in process)
     // Pull-based: module controls when to read messages

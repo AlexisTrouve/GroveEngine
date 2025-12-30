@@ -1,5 +1,5 @@
 #include <grove/ModuleFactory.h>
-#include <filesystem>
+#include <grove/platform/FileSystem.h>
 #include <algorithm>
 #include <logger/Logger.h>
 
@@ -9,7 +9,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace fs = std::filesystem;
+namespace fs = grove::fs;
 
 namespace grove {
 
@@ -114,20 +114,21 @@ std::unique_ptr<IModule> ModuleFactory::createModule(const std::string& moduleTy
 void ModuleFactory::scanModulesDirectory(const std::string& directory) {
     logger->info("🔍 Scanning modules directory: '{}'", directory);
 
-    if (!fs::exists(directory) || !fs::is_directory(directory)) {
+    if (!fs::exists(directory) || !fs::isDirectory(directory)) {
         logger->warn("⚠️ Modules directory does not exist: '{}'", directory);
         return;
     }
 
     size_t foundCount = 0;
 
-    for (const auto& entry : fs::directory_iterator(directory)) {
-        if (entry.is_regular_file() && isValidModuleFile(entry.path().string())) {
+    for (const auto& name : fs::listDirectory(directory)) {
+        std::string fullPath = directory + "/" + name;
+        if (fs::isFile(fullPath) && isValidModuleFile(fullPath)) {
             try {
-                registerModule(entry.path().string());
+                registerModule(fullPath);
                 foundCount++;
             } catch (const std::exception& e) {
-                logger->warn("⚠️ Failed to register module '{}': {}", entry.path().string(), e.what());
+                logger->warn("⚠️ Failed to register module '{}': {}", fullPath, e.what());
             }
         }
     }
@@ -518,26 +519,24 @@ bool ModuleFactory::resolveSymbols(ModuleInfo& info) {
 }
 
 std::string ModuleFactory::extractModuleTypeFromPath(const std::string& path) const {
-    fs::path p(path);
-    std::string filename = p.stem().string(); // Remove extension
+    std::string name = fs::stem(path); // Remove extension
 
     // Remove common prefixes
-    if (filename.find("lib") == 0) {
-        filename = filename.substr(3);
+    if (name.find("lib") == 0) {
+        name = name.substr(3);
     }
-    if (filename.find("warfactory-") == 0) {
-        filename = filename.substr(11);
+    if (name.find("warfactory-") == 0) {
+        name = name.substr(11);
     }
 
-    return filename;
+    return name;
 }
 
 bool ModuleFactory::isValidModuleFile(const std::string& path) const {
-    fs::path p(path);
-    std::string extension = p.extension().string();
+    std::string ext = fs::extension(path);
 
     // Check for valid shared library extensions
-    return extension == ".so" || extension == ".dylib" || extension == ".dll";
+    return ext == ".so" || ext == ".dylib" || ext == ".dll";
 }
 
 void ModuleFactory::logModuleLoad(const std::string& type, const std::string& path) const {

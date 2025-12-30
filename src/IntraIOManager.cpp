@@ -7,23 +7,26 @@
 namespace grove {
 
 IntraIOManager::IntraIOManager() {
-    // Create logger with domain organization
-    logger = stillhammer::createDomainLogger("IntraIOManager", "io");
+    // Create logger with domain organization (file logging disabled for Windows compatibility)
+    stillhammer::LoggerConfig config;
+    config.disableFile();  // TEMPORARY: Disable file logging to fix Windows crash
+    logger = stillhammer::createDomainLogger("IntraIOManager", "io", config);
     logger->info("🌐🔗 IntraIOManager created - Central message router initialized");
 
-    // Start batch flush thread
-    batchThreadRunning = true;
-    batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
-    logger->info("🔄 Batch flush thread started");
+    // TEMPORARY: Disable batch thread to debug Windows crash
+    batchThreadRunning = false;
+    // batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
+    logger->info("⚠️ Batch flush thread DISABLED (debugging Windows crash)");
 }
 
 IntraIOManager::~IntraIOManager() {
     // Stop batch thread first
     batchThreadRunning = false;
-    if (batchThread.joinable()) {
-        batchThread.join();
-    }
-    logger->info("🛑 Batch flush thread stopped");
+    // TEMPORARY: Thread disabled for debugging
+    // if (batchThread.joinable()) {
+    //     batchThread.join();
+    // }
+    logger->info("🛑 Batch flush thread stopped (was disabled)");
 
     // Get stats before locking to avoid recursive lock
     auto stats = getRoutingStats();

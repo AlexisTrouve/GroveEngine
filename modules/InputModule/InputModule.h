@@ -34,7 +34,7 @@ public:
     bool isIdle() const override { return true; }
 
     // API specific to InputModule
-    void feedEvent(const void* nativeEvent);  // Thread-safe injection from main loop
+    virtual void feedEvent(const void* nativeEvent);  // Thread-safe injection from main loop
 
 private:
     IIO* m_io = nullptr;
@@ -64,8 +64,10 @@ extern "C" {
     #ifdef _WIN32
         __declspec(dllexport) grove::IModule* createModule();
         __declspec(dllexport) void destroyModule(grove::IModule* module);
+        __declspec(dllexport) void feedEventToInputModule(grove::IModule* module, const void* event);
     #else
         grove::IModule* createModule();
         void destroyModule(grove::IModule* module);
+        void feedEventToInputModule(grove::IModule* module, const void* event);
     #endif
 }

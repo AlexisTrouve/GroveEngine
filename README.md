@@ -53,6 +53,26 @@ Current implementations use **pre-IDataTree API** (`json` config). The architect
 
 ## Quick Start
 
+### Try the Interactive Demo
+
+**See it in action first!** Run the full stack demo to see BgfxRenderer + UIModule + InputModule working together:
+
+```bash
+# Windows
+run_full_stack_demo.bat
+
+# Linux
+./build/tests/test_full_stack_interactive
+```
+
+**Features:**
+- Click buttons, drag sliders, interact with UI
+- Spawn bouncing sprites with physics
+- Complete input → UI → game → render flow
+- All IIO topics demonstrated
+
+See [tests/visual/README_FULL_STACK.md](tests/visual/README_FULL_STACK.md) for details.
+
 ### Directory Structure
 ```
 GroveEngine/
@@ -116,6 +136,19 @@ public:
 ```
 
 ## Documentation
+
+### For Developers Using GroveEngine
+
+- **[DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)** - 📘 **START HERE** - Complete guide with modules, IIO topics, and full examples
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)** - Module system basics, hot-reload, IIO communication
+
+### Module Documentation
+
+- **[BgfxRenderer](modules/BgfxRenderer/README.md)** - 2D rendering (sprites, text, tilemap, particles)
+- **[UIModule](modules/UIModule/README.md)** - User interface (10 widget types, layout, scrolling)
+- **[InputModule](modules/InputModule/README.md)** - Input handling (mouse, keyboard, gamepad)
+
+### Architecture & Internals
 
 - **[Architecture Modulaire](docs/architecture/architecture-modulaire.md)** - Core interface architecture
 - **[Claude Code Integration](docs/architecture/claude-code-integration.md)** - AI-optimized development workflow

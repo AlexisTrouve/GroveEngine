@@ -6,12 +6,12 @@
 
 namespace grove {
 
-void SceneCollector::setup(IIO* io) {
+void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
     // Subscribe to all render topics (multi-level wildcard .* matches render:sprite AND render:debug:line)
     io->subscribe("render:.*");
 
-    // Initialize default view (will be overridden by camera messages)
-    initDefaultView(1280, 720);
+    // Initialize default view with provided dimensions (will be overridden by camera messages)
+    initDefaultView(width > 0 ? width : 1280, height > 0 ? height : 720);
 }
 
 void SceneCollector::collect(IIO* io, float deltaTime) {

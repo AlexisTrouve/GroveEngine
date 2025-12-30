@@ -1,8 +1,16 @@
 #include <logger/Logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
-#include <filesystem>
 #include <algorithm>
+
+// Use native API instead of std::filesystem (MinGW compatibility)
+#ifdef _WIN32
+#include <direct.h>  // _mkdir
+#include <sys/stat.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
 
 namespace stillhammer {
 
@@ -41,11 +49,38 @@ std::string toSnakeCase(const std::string& name) {
     return result;
 }
 
-// Ensure directory exists
+// Ensure directory exists (native implementation for MinGW compatibility)
 void ensureDirectoryExists(const std::string& path) {
-    std::filesystem::path dirPath = std::filesystem::path(path).parent_path();
-    if (!dirPath.empty() && !std::filesystem::exists(dirPath)) {
-        std::filesystem::create_directories(dirPath);
+    // Find the parent directory
+    size_t lastSlash = path.find_last_of("/\\");
+    if (lastSlash == std::string::npos || lastSlash == 0) {
+        return;  // No parent directory
+    }
+
+    std::string dirPath = path.substr(0, lastSlash);
+
+    // Create directories recursively
+    std::string currentPath;
+    for (size_t i = 0; i < dirPath.size(); ++i) {
+        char c = dirPath[i];
+        if (c == '/' || c == '\\') {
+            if (!currentPath.empty()) {
+#ifdef _WIN32
+                _mkdir(currentPath.c_str());
+#else
+                mkdir(currentPath.c_str(), 0755);
+#endif
+            }
+        }
+        currentPath += c;
+    }
+    // Create the final directory
+    if (!currentPath.empty()) {
+#ifdef _WIN32
+        _mkdir(currentPath.c_str());
+#else
+        mkdir(currentPath.c_str(), 0755);
+#endif
     }
 }
 

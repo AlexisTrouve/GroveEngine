@@ -172,13 +172,31 @@ void InputModule::feedEvent(const void* nativeEvent) {
 
 } // namespace grove
 
-// Export functions for module loading
-extern "C" {
-    grove::IModule* createModule() {
-        return new grove::InputModule();
-    }
+// ============================================================================
+// C Export (required for dlopen/LoadLibrary)
+// ============================================================================
 
-    void destroyModule(grove::IModule* module) {
-        delete module;
+#ifdef _WIN32
+#define GROVE_MODULE_EXPORT __declspec(dllexport)
+#else
+#define GROVE_MODULE_EXPORT
+#endif
+
+extern "C" {
+
+GROVE_MODULE_EXPORT grove::IModule* createModule() {
+    return new grove::InputModule();
+}
+
+GROVE_MODULE_EXPORT void destroyModule(grove::IModule* module) {
+    delete module;
+}
+
+GROVE_MODULE_EXPORT void feedEventToInputModule(grove::IModule* module, const void* event) {
+    if (module) {
+        grove::InputModule* inputModule = static_cast<grove::InputModule*>(module);
+        inputModule->feedEvent(event);
     }
+}
+
 }

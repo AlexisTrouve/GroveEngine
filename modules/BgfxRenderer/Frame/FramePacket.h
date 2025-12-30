@@ -95,12 +95,12 @@ struct DebugRect {
 // ============================================================================
 
 struct ViewInfo {
-    float viewMatrix[16];
-    float projMatrix[16];
-    float positionX, positionY;
-    float zoom;
-    uint16_t viewportX, viewportY;
-    uint16_t viewportW, viewportH;
+    float viewMatrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};  // Identity matrix
+    float projMatrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};  // Identity matrix
+    float positionX = 0.0f, positionY = 0.0f;
+    float zoom = 1.0f;
+    uint16_t viewportX = 0, viewportY = 0;
+    uint16_t viewportW = 1280, viewportH = 720;
 };
 
 // ============================================================================
@@ -108,36 +108,36 @@ struct ViewInfo {
 // ============================================================================
 
 struct FramePacket {
-    uint64_t frameNumber;
-    float deltaTime;
+    uint64_t frameNumber = 0;
+    float deltaTime = 0.016f;
 
     // Collected data (read-only for passes)
-    const SpriteInstance* sprites;
-    size_t spriteCount;
+    const SpriteInstance* sprites = nullptr;
+    size_t spriteCount = 0;
 
-    const TilemapChunk* tilemaps;
-    size_t tilemapCount;
+    const TilemapChunk* tilemaps = nullptr;
+    size_t tilemapCount = 0;
 
-    const TextCommand* texts;
-    size_t textCount;
+    const TextCommand* texts = nullptr;
+    size_t textCount = 0;
 
-    const ParticleInstance* particles;
-    size_t particleCount;
+    const ParticleInstance* particles = nullptr;
+    size_t particleCount = 0;
 
-    const DebugLine* debugLines;
-    size_t debugLineCount;
+    const DebugLine* debugLines = nullptr;
+    size_t debugLineCount = 0;
 
-    const DebugRect* debugRects;
-    size_t debugRectCount;
+    const DebugRect* debugRects = nullptr;
+    size_t debugRectCount = 0;
 
-    // Main view
-    ViewInfo mainView;
+    // Main view (initialized to identity transforms)
+    ViewInfo mainView = {};
 
-    // Clear color
-    uint32_t clearColor;
+    // Clear color (default dark gray)
+    uint32_t clearColor = 0x303030FF;
 
     // Allocator for temporary pass data
-    FrameAllocator* allocator;
+    FrameAllocator* allocator = nullptr;
 };
 
 } // namespace grove

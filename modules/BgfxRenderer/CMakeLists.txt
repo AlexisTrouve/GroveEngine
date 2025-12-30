@@ -17,6 +17,16 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
+# CRITICAL: Disable bgfx multithreading BEFORE fetching to avoid TLS issues when running from a DLL on Windows
+# Without this, bgfx::frame() crashes on Frame 1 due to render thread/DLL memory conflicts
+add_compile_definitions(BGFX_CONFIG_MULTITHREADED=0)
+
+# Fix for MinGW GCC 15+ - glslang headers don't include <stdint.h>
+# Use stdint.h (C header, works in C++ too) to ensure uint32_t is defined
+if(MINGW)
+    add_compile_options(-include stdint.h)
+endif()
+
 # bgfx options
 set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)  # Need shaderc for shader compilation
 set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)

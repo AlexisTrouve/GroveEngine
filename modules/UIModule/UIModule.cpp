@@ -423,16 +423,22 @@ std::unique_ptr<IDataNode> UIModule::getHealthStatus() {
 } // namespace grove
 
 // ============================================================================
-// C Export (required for dlopen)
+// C Export (required for dlopen/LoadLibrary)
 // ============================================================================
+
+#ifdef _WIN32
+#define GROVE_MODULE_EXPORT __declspec(dllexport)
+#else
+#define GROVE_MODULE_EXPORT
+#endif
 
 extern "C" {
 
-grove::IModule* createModule() {
+GROVE_MODULE_EXPORT grove::IModule* createModule() {
     return new grove::UIModule();
 }
 
-void destroyModule(grove::IModule* module) {
+GROVE_MODULE_EXPORT void destroyModule(grove::IModule* module) {
     delete module;
 }
 

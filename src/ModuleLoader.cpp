@@ -1,9 +1,9 @@
 #include <grove/ModuleLoader.h>
 #include <grove/IModuleSystem.h>
+#include <grove/platform/FileSystem.h>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
 #include <thread>
 #include <logger/Logger.h>
 
@@ -74,26 +74,20 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
         const int stableRequired = 3; // Require 3 consecutive stable readings
 
         for (int i = 0; i < maxAttempts; i++) {
-            try {
-                size_t currentSize = std::filesystem::file_size(path);
+            size_t currentSize = grove::fs::fileSize(path);
 
-                if (currentSize > 0 && currentSize == lastSize) {
-                    stableCount++;
-                    if (stableCount >= stableRequired) {
-                        logger->debug("✅ File size stable at {} bytes (after {}ms)", currentSize, i * 50);
-                        break;
-                    }
-                } else {
-                    stableCount = 0; // Reset if size changed
+            if (currentSize > 0 && currentSize == lastSize) {
+                stableCount++;
+                if (stableCount >= stableRequired) {
+                    logger->debug("✅ File size stable at {} bytes (after {}ms)", currentSize, i * 50);
+                    break;
                 }
-
-                lastSize = currentSize;
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            } catch (const std::filesystem::filesystem_error& e) {
-                // File might not exist yet or be locked
-                logger->debug("⏳ Waiting for file access... ({})", e.what());
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            } else {
+                stableCount = 0; // Reset if size changed
             }
+
+            lastSize = currentSize;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
 #ifdef _WIN32
@@ -110,32 +104,25 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
                 tempPath = std::string(tempFile) + ".dll";
                 DeleteFileA(tempFile);  // Remove the original temp file
 
-                // Copy original .dll to temp location using std::filesystem
-                try {
-                    std::filesystem::copy_file(path, tempPath,
-                        std::filesystem::copy_options::overwrite_existing);
-
+                // Copy original .dll to temp location
+                if (grove::fs::copyFile(path, tempPath)) {
                     // CRITICAL FIX: Verify the copy succeeded completely
-                    auto origSize = std::filesystem::file_size(path);
-                    auto copiedSize = std::filesystem::file_size(tempPath);
+                    auto origSize = grove::fs::fileSize(path);
+                    auto copiedSize = grove::fs::fileSize(tempPath);
 
                     if (copiedSize != origSize) {
                         logger->error("❌ Incomplete copy: orig={} bytes, copied={} bytes", origSize, copiedSize);
                         DeleteFileA(tempPath.c_str());
-                        throw std::runtime_error("Incomplete file copy detected");
-                    }
-
-                    if (origSize == 0) {
+                    } else if (origSize == 0) {
                         logger->error("❌ Source file is empty!");
                         DeleteFileA(tempPath.c_str());
-                        throw std::runtime_error("Source library file is empty");
+                    } else {
+                        actualPath = tempPath;
+                        usedTempCopy = true;
+                        logger->debug("🔄 Using temp copy for hot-reload: {} ({} bytes)", tempPath, copiedSize);
                     }
-
-                    actualPath = tempPath;
-                    usedTempCopy = true;
-                    logger->debug("🔄 Using temp copy for hot-reload: {} ({} bytes)", tempPath, copiedSize);
-                } catch (const std::filesystem::filesystem_error& e) {
-                    logger->warn("⚠️ Failed to copy library ({}), loading directly", e.what());
+                } else {
+                    logger->warn("⚠️ Failed to copy library, loading directly");
                     DeleteFileA(tempPath.c_str()); // Clean up failed temp file
                 }
             }
@@ -150,32 +137,25 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
             close(tempFd); // Close the fd, we just need the unique name
             tempPath = tempTemplate;
 
-            // Copy original .so to temp location using std::filesystem
-            try {
-                std::filesystem::copy_file(path, tempPath,
-                    std::filesystem::copy_options::overwrite_existing);
-
+            // Copy original .so to temp location
+            if (grove::fs::copyFile(path, tempPath)) {
                 // CRITICAL FIX: Verify the copy succeeded completely
-                auto origSize = std::filesystem::file_size(path);
-                auto copiedSize = std::filesystem::file_size(tempPath);
+                auto origSize = grove::fs::fileSize(path);
+                auto copiedSize = grove::fs::fileSize(tempPath);
 
                 if (copiedSize != origSize) {
                     logger->error("❌ Incomplete copy: orig={} bytes, copied={} bytes", origSize, copiedSize);
                     unlink(tempPath.c_str());
-                    throw std::runtime_error("Incomplete file copy detected");
-                }
-
-                if (origSize == 0) {
+                } else if (origSize == 0) {
                     logger->error("❌ Source file is empty!");
                     unlink(tempPath.c_str());
-                    throw std::runtime_error("Source .so file is empty");
+                } else {
+                    actualPath = tempPath;
+                    usedTempCopy = true;
+                    logger->debug("🔄 Using temp copy for hot-reload: {} ({} bytes)", tempPath, copiedSize);
                 }
-
-                actualPath = tempPath;
-                usedTempCopy = true;
-                logger->debug("🔄 Using temp copy for hot-reload: {} ({} bytes)", tempPath, copiedSize);
-            } catch (const std::filesystem::filesystem_error& e) {
-                logger->warn("⚠️ Failed to copy .so ({}), loading directly (may use cached version)", e.what());
+            } else {
+                logger->warn("⚠️ Failed to copy .so, loading directly (may use cached version)");
                 unlink(tempPath.c_str()); // Clean up failed temp file
             }
         }
