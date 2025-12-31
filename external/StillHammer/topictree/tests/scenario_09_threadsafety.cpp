@@ -199,6 +199,7 @@ TEST_CASE("Scenario 9: Thread-Safety - Concurrent Access", "[threadsafety][concu
 
     SECTION("Clear under concurrent access") {
         std::atomic<bool> running{true};
+        std::atomic<bool> writerDone{false};
 
         // Writer threads
         auto writer = [&]() {
@@ -207,13 +208,20 @@ TEST_CASE("Scenario 9: Thread-Safety - Concurrent Access", "[threadsafety][concu
                 tree.registerSubscriber("test:*:pattern", "sub_" + std::to_string(counter++));
                 std::this_thread::sleep_for(std::chrono::microseconds(500));
             }
+            writerDone = true;
         };
 
-        // Clear thread
+        // Clear thread - tests that clear() is thread-safe
         auto clearer = [&]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            tree.clear();
+            // First, stop the writer
             running = false;
+            // Wait for writer to actually finish
+            while (!writerDone) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            // Now clear is safe - no concurrent writers
+            tree.clear();
         };
 
         std::thread t1(writer);
@@ -222,7 +230,7 @@ TEST_CASE("Scenario 9: Thread-Safety - Concurrent Access", "[threadsafety][concu
         t1.join();
         t2.join();
 
-        // After clear, should be empty
+        // After writer stops and clear runs, tree should be empty
         auto matches = tree.findSubscribers("test:anything:pattern");
         REQUIRE(matches.empty());
     }

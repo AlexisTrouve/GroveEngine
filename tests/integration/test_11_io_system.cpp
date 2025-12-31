@@ -76,9 +76,20 @@ public:
     IOTestEngine() {}
 
     ~IOTestEngine() {
+        // Cleanup modules directly - don't call unloadModule which modifies map during iteration
         for (auto& [name, handle] : modules_) {
-            unloadModule(name);
+            if (handle.instance) {
+                handle.instance->shutdown();
+                delete handle.instance;
+                handle.instance = nullptr;
+            }
+            // io unique_ptr will be auto-destroyed
+            if (handle.dlHandle) {
+                grove_dlclose(handle.dlHandle);
+                handle.dlHandle = nullptr;
+            }
         }
+        modules_.clear();
     }
 
     bool loadModule(const std::string& name, const std::string& path) {

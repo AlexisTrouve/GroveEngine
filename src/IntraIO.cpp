@@ -18,6 +18,13 @@ IntraIO::IntraIO(const std::string& id) : instanceId(id) {
 }
 
 IntraIO::~IntraIO() {
+    std::cout << "[IntraIO] Destroying instance: " << instanceId << std::endl;
+    // Unregister from manager to prevent dangling pointer access
+    try {
+        IntraIOManager::getInstance().removeInstance(instanceId);
+    } catch (...) {
+        // Ignore errors during cleanup - manager might already be destroyed
+    }
     std::cout << "[IntraIO] Destroyed instance: " << instanceId << std::endl;
 }
 

@@ -75,13 +75,14 @@ if(WIN32 AND MINGW)
     endforeach()
 endif()
 
-# Test macro - uses cmake -E chdir on Windows to ensure proper DLL loading
+# Test macro - uses WORKING_DIRECTORY with PATH environment for Windows DLL loading
 macro(grove_add_test test_name test_target working_dir)
-    if(WIN32 AND MINGW)
-        add_test(NAME ${test_name} 
-            COMMAND ${CMAKE_COMMAND} -E chdir ${working_dir} $<TARGET_FILE:${test_target}>)
-    else()
-        add_test(NAME ${test_name} COMMAND ${test_target} WORKING_DIRECTORY ${working_dir})
+    add_test(NAME ${test_name} COMMAND ${test_target} WORKING_DIRECTORY ${working_dir})
+    if(WIN32)
+        # Set PATH environment variable to include the working directory
+        # This ensures dynamically loaded DLLs (via LoadLibrary) can be found
+        set_tests_properties(${test_name} PROPERTIES
+            ENVIRONMENT "PATH=${working_dir};${working_dir}/modules;$ENV{PATH}")
     endif()
 endmacro()
 
