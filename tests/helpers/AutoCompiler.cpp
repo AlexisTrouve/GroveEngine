@@ -85,12 +85,19 @@ bool AutoCompiler::compile(int iteration) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     // Build the module using make
+#ifdef _WIN32
+    std::string makeCmd = "mingw32-make";
+    std::string nullDev = "NUL";
+#else
+    std::string makeCmd = "make";
+    std::string nullDev = "/dev/null";
+#endif
     // Note: Tests run from build/tests/, so we use make -C .. to build from build directory
     std::string command;
     if (buildDir_ == "build") {
-        command = "make -C .. " + moduleName_ + " > /dev/null 2>&1";
+        command = makeCmd + " -C .. " + moduleName_ + " > " + nullDev + " 2>&1";
     } else {
-        command = "make -C " + buildDir_ + " " + moduleName_ + " > /dev/null 2>&1";
+        command = makeCmd + " -C " + buildDir_ + " " + moduleName_ + " > " + nullDev + " 2>&1";
     }
     int result = std::system(command.c_str());
 

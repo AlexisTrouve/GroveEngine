@@ -32,7 +32,8 @@ public:
 private:
     std::vector<Tank> tanks;
     int frameCount = 0;
-    std::string moduleVersion = "v2.0 HOT-RELOADED";:shared_ptr<spdlog::logger> logger;
+    std::string moduleVersion = "v2.0 HOT-RELOADED"; // Module logging
+    std::shared_ptr<spdlog::logger> logger;
     std::unique_ptr<IDataNode> config;
 
     void updateTank(Tank& tank, float dt);

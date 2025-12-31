@@ -125,7 +125,13 @@ int main() {
     // Recompiler
     std::cout << "  2. Recompiling module...\n";
     // Note: This test runs from build/tests/, so we use make -C .. to build from build directory
-    int buildResult = system("make -C .. TankModule 2>&1 > /dev/null");
+    int buildResult = system(
+#ifdef _WIN32
+        "mingw32-make -C .. TankModule 2>&1 > NUL"
+#else
+        "make -C .. TankModule 2>&1 > /dev/null"
+#endif
+    );
     if (buildResult != 0) {
         std::cerr << "❌ Compilation failed!\n";
         return 1;
@@ -259,7 +265,13 @@ int main() {
     outputRestore.close();
 
     // Rebuild to restore original version (test runs from build/tests/)
-    system("make -C .. TankModule 2>&1 > /dev/null");
+    system(
+#ifdef _WIN32
+        "mingw32-make -C .. TankModule 2>&1 > NUL"
+#else
+        "make -C .. TankModule 2>&1 > /dev/null"
+#endif
+    );
 
     // === RAPPORTS ===
     std::cout << "\n";

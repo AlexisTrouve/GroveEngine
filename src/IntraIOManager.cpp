@@ -14,26 +14,26 @@ IntraIOManager::IntraIOManager() {
     logger->info("🌐🔗 IntraIOManager created - Central message router initialized");
 
     // TEMPORARY: Disable batch thread to debug Windows crash
-    batchThreadRunning = false;
-    // batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
+    batchThreadRunning = true;
+    batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
     logger->info("⚠️ Batch flush thread DISABLED (debugging Windows crash)");
 }
 
 IntraIOManager::~IntraIOManager() {
     // Stop batch thread first
     batchThreadRunning = false;
-    // TEMPORARY: Thread disabled for debugging
-    // if (batchThread.joinable()) {
-    //     batchThread.join();
-    // }
-    logger->info("🛑 Batch flush thread stopped (was disabled)");
+    // Join the batch thread
+    if (batchThread.joinable()) {
+        batchThread.join();
+    }
+    logger->info("🛑 Batch flush thread stopped");
 
     // Get stats before locking to avoid recursive lock
     auto stats = getRoutingStats();
     logger->info("📊 Final routing stats:");
-    logger->info("   Total routed messages: {}", stats["total_routed_messages"]);
-    logger->info("   Total routes: {}", stats["total_routes"]);
-    logger->info("   Active instances: {}", stats["active_instances"]);
+    logger->info("   Total routed messages: {}", stats["total_routed_messages"].get<size_t>());
+    logger->info("   Total routes: {}", stats["total_routes"].get<size_t>());
+    logger->info("   Active instances: {}", stats["active_instances"].get<size_t>());
 
     {
         std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
