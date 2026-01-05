@@ -2,6 +2,7 @@
 #include "../Core/UIContext.h"
 #include "../Core/UILayout.h"
 #include "../Rendering/UIRenderer.h"
+#include <spdlog/spdlog.h>
 
 namespace grove {
 

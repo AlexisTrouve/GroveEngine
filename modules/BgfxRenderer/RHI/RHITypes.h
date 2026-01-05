@@ -65,9 +65,16 @@ enum class CullMode : uint8_t {
     CCW
 };
 
+enum class PrimitiveType : uint8_t {
+    Triangles,
+    Lines,
+    Points
+};
+
 struct RenderState {
     BlendMode blend = BlendMode::Alpha;
     CullMode cull = CullMode::None;
+    PrimitiveType primitive = PrimitiveType::Triangles;
     bool depthTest = false;
     bool depthWrite = false;
 };

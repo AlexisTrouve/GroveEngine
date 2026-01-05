@@ -425,7 +425,7 @@ void DebugEngine::processClientMessages() {
             logger->trace("📨 Client {} has {} pending message(s)", i, messageCount);
 
             // Process a few messages per frame to avoid blocking
-            int messagesToProcess = std::min(messageCount, 5);
+            int messagesToProcess = (std::min)(messageCount, 5);
 
             for (int j = 0; j < messagesToProcess; ++j) {
                 try {
@@ -452,7 +452,7 @@ void DebugEngine::processCoordinatorMessages() {
         logger->trace("📨 Coordinator has {} pending message(s)", messageCount);
 
         // Process coordinator messages with higher priority
-        int messagesToProcess = std::min(messageCount, 10);
+        int messagesToProcess = (std::min)(messageCount, 10);
 
         for (int i = 0; i < messagesToProcess; ++i) {
             try {

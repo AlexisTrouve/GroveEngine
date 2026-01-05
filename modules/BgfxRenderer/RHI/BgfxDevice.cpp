@@ -30,9 +30,18 @@ public:
         m_width = width;
         m_height = height;
 
+        // IMPORTANT: On Windows, we MUST call bgfx::renderFrame() before bgfx::init() to force
+        // single-threaded mode. This is required because:
+        // 1. In multi-threaded mode, bgfx starts a render thread that pumps Windows message queue
+        // 2. This conflicts with SDL_PollEvent which also pumps the message queue
+        // 3. The conflict causes crashes on frame 2
+        // With single-threaded mode, bgfx::frame() does all the work synchronously.
+#ifdef _WIN32
+        // bgfx::renderFrame();  // Disabled - test_bgfx_minimal_win works without it
+#endif
+
         bgfx::Init init;
-        // Let bgfx auto-select the best renderer (D3D11 on Windows)
-        init.type = bgfx::RendererType::Count;
+        init.type = bgfx::RendererType::Direct3D11;
         init.resolution.width = width;
         init.resolution.height = height;
         init.resolution.reset = BGFX_RESET_VSYNC;
@@ -49,8 +58,8 @@ public:
         // Don't enable it by default as it can cause issues on some platforms
         // bgfx::setDebug(BGFX_DEBUG_TEXT);
 
-        // Set default view clear
-        bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030FF, 1.0f, 0);
+        // Set default view clear - BRIGHT RED for debugging
+        bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xFF0000FF, 1.0f, 0);
         bgfx::setViewRect(0, 0, 0, width, height);
 
         m_initialized = true;
@@ -327,6 +336,8 @@ public:
         bgfx::touch(0);
 
         // Present frame
+        // Note: bgfx must be linked statically on Windows to avoid TLS/threading crashes.
+        // Use BgfxRenderer_static library instead of BgfxRenderer DLL.
         bgfx::frame();
 
         // Reset transient pool for next frame
@@ -383,6 +394,20 @@ public:
                             break;
                         case CullMode::None:
                         default:
+                            break;
+                    }
+
+                    // Primitive type
+                    switch (currentState.primitive) {
+                        case PrimitiveType::Lines:
+                            state |= BGFX_STATE_PT_LINES;
+                            break;
+                        case PrimitiveType::Points:
+                            state |= BGFX_STATE_PT_POINTS;
+                            break;
+                        case PrimitiveType::Triangles:
+                        default:
+                            // Triangles is default, no flag needed
                             break;
                     }
 

@@ -35,29 +35,92 @@ std::unique_ptr<IDataNode> JsonDataNode::getChild(const std::string& name) {
 }
 
 IDataNode* JsonDataNode::getChildReadOnly(const std::string& name) {
+    // First check if we already have this child node created
     auto it = m_children.find(name);
-    if (it == m_children.end()) {
-        return nullptr;
+    if (it != m_children.end()) {
+        return it->second.get();
     }
-    // Return raw pointer without copying - valid as long as parent exists
-    return it->second.get();
+
+    // If not found in m_children, check if m_data has this key as an object/array
+    // and create a child node on demand
+    if (m_data.is_object() && m_data.contains(name)) {
+        const auto& childData = m_data[name];
+        if (childData.is_object() || childData.is_array()) {
+            // Create a new child node from the JSON data
+            auto newChild = std::make_unique<JsonDataNode>(name, childData, this, m_readOnly);
+            m_children[name] = std::move(newChild);
+            return m_children[name].get();
+        }
+    }
+
+    // Handle array access by numeric index (e.g., "0", "1", "2")
+    if (m_data.is_array()) {
+        try {
+            size_t index = std::stoul(name);
+            if (index < m_data.size()) {
+                const auto& childData = m_data[index];
+                if (childData.is_object() || childData.is_array()) {
+                    auto newChild = std::make_unique<JsonDataNode>(name, childData, this, m_readOnly);
+                    m_children[name] = std::move(newChild);
+                    return m_children[name].get();
+                }
+            }
+        } catch (...) {
+            // Not a valid numeric index, ignore
+        }
+    }
+
+    return nullptr;
 }
 
 std::vector<std::string> JsonDataNode::getChildNames() {
     std::vector<std::string> names;
-    names.reserve(m_children.size());
+
+    // First, add names from m_children (already materialized nodes)
     for (const auto& [name, _] : m_children) {
         names.push_back(name);
     }
+
+    // Also include object keys from m_data that haven't been materialized yet
+    if (m_data.is_object()) {
+        for (auto& [key, value] : m_data.items()) {
+            if (value.is_object() || value.is_array()) {
+                // Only add if not already in the list
+                if (m_children.find(key) == m_children.end()) {
+                    names.push_back(key);
+                }
+            }
+        }
+    }
+
     return names;
 }
 
 bool JsonDataNode::hasChildren() {
-    return !m_children.empty();
+    if (!m_children.empty()) {
+        return true;
+    }
+    // Check if m_data has any object/array values
+    if (m_data.is_object()) {
+        for (auto& [key, value] : m_data.items()) {
+            if (value.is_object() || value.is_array()) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool JsonDataNode::hasChild(const std::string& name) const {
-    return m_children.find(name) != m_children.end();
+    if (m_children.find(name) != m_children.end()) {
+        return true;
+    }
+    // Check if m_data has this key as an object/array
+    if (m_data.is_object() && m_data.contains(name)) {
+        const auto& val = m_data[name];
+        return val.is_object() || val.is_array();
+    }
+    return false;
 }
 
 // ========================================

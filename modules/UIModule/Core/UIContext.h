@@ -48,7 +48,8 @@ public:
         keyCode = 0;
         keyChar = 0;
         mouseWheelDelta = 0.0f;
-        hoveredWidgetId.clear();
+        // Note: hoveredWidgetId is NOT cleared here - it persists
+        // and is updated by hit testing during updateUI()
     }
 
     /**

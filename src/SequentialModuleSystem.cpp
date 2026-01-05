@@ -13,8 +13,20 @@ SequentialModuleSystem::SequentialModuleSystem() {
 }
 
 SequentialModuleSystem::~SequentialModuleSystem() {
-    // Guard against logger being invalid during static destruction order
-    if (logger) {
+    // IMPORTANT: During static destruction order on Windows (especially MinGW GCC 15),
+    // spdlog's registry may be destroyed BEFORE this destructor runs.
+    // Using a destroyed logger causes STATUS_STACK_BUFFER_OVERRUN (0xc0000409).
+    // We must check if our logger is still valid before using it.
+    bool loggerValid = false;
+    try {
+        // Check if spdlog registry still exists and our logger is registered
+        loggerValid = logger && spdlog::get(logger->name()) != nullptr;
+    } catch (...) {
+        // spdlog registry may throw during destruction
+        loggerValid = false;
+    }
+
+    if (loggerValid) {
         logger->info("🔧 SequentialModuleSystem destructor called");
 
         if (module) {

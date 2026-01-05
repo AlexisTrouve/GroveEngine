@@ -1,5 +1,28 @@
 # Hot-reload test suite
 
+# ================================================================================
+# SDL2 Detection (used by visual tests, demos, and InputModule-dependent tests)
+# ================================================================================
+find_package(SDL2 QUIET)
+
+# Determine if SDL2 is available (either via find_package or system install on Linux)
+set(SDL2_AVAILABLE FALSE)
+if(SDL2_FOUND)
+    set(SDL2_AVAILABLE TRUE)
+    message(STATUS "SDL2 found via find_package")
+elseif(UNIX AND EXISTS "/usr/include/SDL2/SDL.h")
+    set(SDL2_AVAILABLE TRUE)
+    message(STATUS "SDL2 found at system path /usr/include/SDL2")
+else()
+    message(STATUS "SDL2 not found - visual tests and SDL2-dependent demos will be disabled")
+    message(STATUS "  On Windows MinGW, install via: pacman -S mingw-w64-ucrt-x86_64-SDL2")
+    message(STATUS "  On Ubuntu/Debian, install via: apt install libsdl2-dev")
+endif()
+
+# ================================================================================
+# Test Modules
+# ================================================================================
+
 # Test module as shared library (.so) for hot-reload
 add_library(TestModule SHARED
     modules/TestModule.cpp
@@ -678,48 +701,79 @@ if(GROVE_BUILD_BGFX_RENDERER)
     # CTest integration
     grove_add_test(BgfxRHI test_20_bgfx_rhi ${CMAKE_CURRENT_BINARY_DIR})
 
-    # Test 21: Visual Triangle Test (requires SDL2 and display)
-    find_package(SDL2 QUIET)
-    if(SDL2_FOUND OR EXISTS "/usr/include/SDL2/SDL.h")
+    # Test 21+: Visual Tests (requires SDL2 and display)
+    if(SDL2_AVAILABLE)
+        # Test 21: Visual Triangle Test
         add_executable(test_21_bgfx_triangle
             visual/test_bgfx_triangle.cpp
         )
 
-        target_include_directories(test_21_bgfx_triangle PRIVATE
-            /usr/include/SDL2
-        )
-
-        target_link_libraries(test_21_bgfx_triangle PRIVATE
-            bgfx
-            bx
-            SDL2
-            pthread
-            dl
-            X11
-            GL
-        )
+        if(SDL2_FOUND)
+            target_link_libraries(test_21_bgfx_triangle PRIVATE
+                bgfx
+                bx
+                SDL2::SDL2
+            )
+        else()
+            # Linux system SDL2
+            target_include_directories(test_21_bgfx_triangle PRIVATE
+                /usr/include/SDL2
+            )
+            target_link_libraries(test_21_bgfx_triangle PRIVATE
+                bgfx
+                bx
+                SDL2
+                pthread
+                dl
+                X11
+                GL
+            )
+        endif()
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_21_bgfx_triangle' enabled (run manually)")
+
+        # Minimal bgfx test for Windows (no DLL)
+        if(SDL2_FOUND)
+            # WIN32 makes it a Windows app; SDL2main provides WinMain->main conversion
+            add_executable(test_bgfx_minimal_win WIN32
+                visual/test_bgfx_minimal_win.cpp
+            )
+            target_link_libraries(test_bgfx_minimal_win PRIVATE
+                bgfx
+                bx
+                SDL2::SDL2main
+                SDL2::SDL2
+            )
+            message(STATUS "Minimal bgfx test 'test_bgfx_minimal_win' enabled")
+        endif()
 
         # Test 22: Sprite Integration Test (requires SDL2, display, and BgfxRenderer module)
         add_executable(test_22_bgfx_sprites
             visual/test_bgfx_sprites.cpp
         )
 
-        target_include_directories(test_22_bgfx_sprites PRIVATE
-            /usr/include/SDL2
-        )
-
-        target_link_libraries(test_22_bgfx_sprites PRIVATE
-            GroveEngine::impl
-            bgfx
-            bx
-            SDL2
-            pthread
-            dl
-            X11
-        )
+        if(SDL2_FOUND)
+            target_link_libraries(test_22_bgfx_sprites PRIVATE
+                GroveEngine::impl
+                bgfx
+                bx
+                SDL2::SDL2
+            )
+        else()
+            target_include_directories(test_22_bgfx_sprites PRIVATE
+                /usr/include/SDL2
+            )
+            target_link_libraries(test_22_bgfx_sprites PRIVATE
+                GroveEngine::impl
+                bgfx
+                bx
+                SDL2
+                pthread
+                dl
+                X11
+            )
+        endif()
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_22_bgfx_sprites' enabled (run manually)")
@@ -729,17 +783,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
             visual/test_23_bgfx_sprites_visual.cpp
         )
 
-        target_include_directories(test_23_bgfx_sprites_visual PRIVATE
-            /usr/include/SDL2
-        )
-
-        target_link_libraries(test_23_bgfx_sprites_visual PRIVATE
-            GroveEngine::impl
-            SDL2
-            pthread
-            dl
-            X11
-        )
+        if(SDL2_FOUND)
+            target_link_libraries(test_23_bgfx_sprites_visual PRIVATE
+                GroveEngine::impl
+                SDL2::SDL2
+            )
+        else()
+            target_include_directories(test_23_bgfx_sprites_visual PRIVATE
+                /usr/include/SDL2
+            )
+            target_link_libraries(test_23_bgfx_sprites_visual PRIVATE
+                GroveEngine::impl
+                SDL2
+                pthread
+                dl
+                X11
+            )
+        endif()
 
         # Not added to CTest (requires display)
         message(STATUS "Visual test 'test_23_bgfx_sprites_visual' enabled (run manually)")
@@ -750,17 +810,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 visual/test_24_ui_basic.cpp
             )
 
-            target_include_directories(test_24_ui_basic PRIVATE
-                /usr/include/SDL2
-            )
-
-            target_link_libraries(test_24_ui_basic PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_24_ui_basic PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_24_ui_basic PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_24_ui_basic PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_24_ui_basic' enabled (run manually)")
@@ -770,17 +836,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 visual/test_25_ui_layout.cpp
             )
 
-            target_include_directories(test_25_ui_layout PRIVATE
-                /usr/include/SDL2
-            )
-
-            target_link_libraries(test_25_ui_layout PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_25_ui_layout PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_25_ui_layout PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_25_ui_layout PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_25_ui_layout' enabled (run manually)")
@@ -790,17 +862,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 visual/test_26_ui_buttons.cpp
             )
 
-            target_include_directories(test_26_ui_buttons PRIVATE
-                /usr/include/SDL2
-            )
-
-            target_link_libraries(test_26_ui_buttons PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_26_ui_buttons PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_26_ui_buttons PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_26_ui_buttons PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_26_ui_buttons' enabled (run manually)")
@@ -810,17 +888,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 visual/test_28_ui_scroll.cpp
             )
 
-            target_include_directories(test_28_ui_scroll PRIVATE
-                /usr/include/SDL2
-            )
-
-            target_link_libraries(test_28_ui_scroll PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_28_ui_scroll PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_28_ui_scroll PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_28_ui_scroll PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_28_ui_scroll' enabled (run manually)")
@@ -830,17 +914,23 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 visual/test_29_ui_advanced.cpp
             )
 
-            target_include_directories(test_29_ui_advanced PRIVATE
-                /usr/include/SDL2
-            )
-
-            target_link_libraries(test_29_ui_advanced PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_29_ui_advanced PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_29_ui_advanced PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_29_ui_advanced PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display)
             message(STATUS "Visual test 'test_29_ui_advanced' enabled (run manually)")
@@ -853,17 +943,26 @@ if(GROVE_BUILD_BGFX_RENDERER)
             )
 
             target_include_directories(test_30_input_module PRIVATE
-                /usr/include/SDL2
                 ${CMAKE_SOURCE_DIR}/modules
             )
 
-            target_link_libraries(test_30_input_module PRIVATE
-                GroveEngine::impl
-                SDL2
-                pthread
-                dl
-                X11
-            )
+            if(SDL2_FOUND)
+                target_link_libraries(test_30_input_module PRIVATE
+                    GroveEngine::impl
+                    SDL2::SDL2
+                )
+            else()
+                target_include_directories(test_30_input_module PRIVATE
+                    /usr/include/SDL2
+                )
+                target_link_libraries(test_30_input_module PRIVATE
+                    GroveEngine::impl
+                    SDL2
+                    pthread
+                    dl
+                    X11
+                )
+            endif()
 
             # Not added to CTest (requires display and user interaction)
             message(STATUS "Visual test 'test_30_input_module' enabled (run manually)")
@@ -877,16 +976,28 @@ if(GROVE_BUILD_BGFX_RENDERER)
 
             target_include_directories(test_full_stack_interactive PRIVATE
                 ${CMAKE_SOURCE_DIR}/modules
+                ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
             )
 
-            # Platform-specific SDL2 and window system libraries
+            # Platform-specific: On Windows, link BgfxRenderer statically (bgfx DLL issues)
             if(WIN32)
+                # Static linking for BgfxRenderer - required on Windows
+                # bgfx crashes when loaded from DLL due to threading/TLS issues
+                target_compile_definitions(test_full_stack_interactive PRIVATE USE_STATIC_BGFX)
                 target_link_libraries(test_full_stack_interactive PRIVATE
                     GroveEngine::impl
+                    BgfxRenderer_static
                     SDL2::SDL2
                     spdlog::spdlog
                 )
+                # MSVC: Use console subsystem for main() entry point
+                if(MSVC)
+                    set_target_properties(test_full_stack_interactive PROPERTIES
+                        LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+                    )
+                endif()
             else()
+                # Dynamic linking on Linux/Mac - works fine
                 target_include_directories(test_full_stack_interactive PRIVATE
                     /usr/include/SDL2
                 )
@@ -1192,23 +1303,151 @@ message(STATUS "Integration test 'IT_015_input_ui_integration_minimal' enabled (
 # UIModule Interactive Showcase Demo
 # ============================================
 
-if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER)
+if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     add_executable(demo_ui_showcase
         demo/demo_ui_showcase.cpp
     )
 
-    target_link_libraries(demo_ui_showcase PRIVATE
-        GroveEngine::core
-        GroveEngine::impl
-        SDL2
-        pthread
-        dl
-    )
-
-    # Add X11 on Linux for SDL window integration
-    if(UNIX AND NOT APPLE)
-        target_link_libraries(demo_ui_showcase PRIVATE X11)
+    if(SDL2_FOUND)
+        target_link_libraries(demo_ui_showcase PRIVATE
+            GroveEngine::core
+            GroveEngine::impl
+            SDL2::SDL2
+        )
+    else()
+        target_link_libraries(demo_ui_showcase PRIVATE
+            GroveEngine::core
+            GroveEngine::impl
+            SDL2
+            pthread
+            dl
+        )
+        # Add X11 on Linux for SDL window integration
+        if(UNIX AND NOT APPLE)
+            target_link_libraries(demo_ui_showcase PRIVATE X11)
+        endif()
     endif()
 
     message(STATUS "UIModule showcase demo 'demo_ui_showcase' enabled")
+endif()
+
+# Minimal test using BgfxRenderer_static only (no DLL loading)
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER)
+    add_executable(test_bgfx_static_only WIN32
+        visual/test_bgfx_static_only.cpp
+    )
+    target_include_directories(test_bgfx_static_only PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_bgfx_static_only PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "Minimal BgfxRenderer_static test 'test_bgfx_static_only' enabled")
+endif()
+
+# Test using BgfxDevice directly (no BgfxRendererModule)
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER)
+    add_executable(test_bgfx_device_only WIN32
+        visual/test_bgfx_device_only.cpp
+    )
+    target_include_directories(test_bgfx_device_only PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_bgfx_device_only PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "BgfxDevice direct test 'test_bgfx_device_only' enabled")
+endif()
+
+# ================================================================================
+# Complete Showcases (Renderer and UI demonstrations)
+# ================================================================================
+
+# BgfxRenderer Complete Showcase - all rendering features
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    add_executable(test_renderer_showcase WIN32
+        visual/test_renderer_showcase.cpp
+    )
+    target_include_directories(test_renderer_showcase PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_renderer_showcase PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "BgfxRenderer showcase 'test_renderer_showcase' enabled")
+endif()
+
+# UIModule Complete Showcase - all UI widgets
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_ui_showcase WIN32
+        visual/test_ui_showcase.cpp
+    )
+    target_include_directories(test_ui_showcase PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ui_showcase PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "UIModule showcase 'test_ui_showcase' enabled")
+endif()
+
+# Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    add_executable(test_sprite_debug WIN32
+        visual/test_sprite_debug.cpp
+    )
+    target_include_directories(test_sprite_debug PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_sprite_debug PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "Sprite diagnostic 'test_sprite_debug' enabled")
+endif()
+
+# Single Button Test - one UIButton only
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_single_button WIN32
+        visual/test_single_button.cpp
+    )
+    target_include_directories(test_single_button PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_single_button PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Single button test 'test_single_button' enabled")
 endif()

@@ -4,6 +4,7 @@
 #include "../Resources/ResourceCache.h"
 #include <algorithm>
 #include <cstring>
+#include <spdlog/spdlog.h>
 
 namespace grove {
 
@@ -58,15 +59,19 @@ void SpritePass::setup(rhi::IRHIDevice& device) {
     // Create texture sampler uniform (must match shader: s_texColor)
     m_textureSampler = device.createUniform("s_texColor", 1);
 
-    // Create default white 1x1 texture (used when no texture is bound)
-    uint32_t whitePixel = 0xFFFFFFFF;  // RGBA white
+    // Create default white 4x4 texture (used when no texture is bound)
+    // Some drivers have issues with 1x1 textures
+    uint32_t whitePixels[16];
+    for (int i = 0; i < 16; ++i) whitePixels[i] = 0xFFFFFFFF;  // RGBA white
     rhi::TextureDesc texDesc;
-    texDesc.width = 1;
-    texDesc.height = 1;
+    texDesc.width = 4;
+    texDesc.height = 4;
     texDesc.format = rhi::TextureDesc::RGBA8;
-    texDesc.data = &whitePixel;
-    texDesc.dataSize = sizeof(whitePixel);
+    texDesc.data = whitePixels;
+    texDesc.dataSize = sizeof(whitePixels);
     m_defaultTexture = device.createTexture(texDesc);
+
+    spdlog::info("SpritePass: defaultTexture valid={} (4x4 white)", m_defaultTexture.isValid());
 }
 
 void SpritePass::shutdown(rhi::IRHIDevice& device) {
@@ -91,11 +96,9 @@ void SpritePass::flushBatch(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
 }
 
 void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
-    if (frame.spriteCount == 0) {
-        return;
-    }
+    if (frame.spriteCount == 0) return;
 
-    // Set render state for sprites (alpha blending, no depth)
+    // Set render state ONCE (like TextPass does)
     rhi::RenderState state;
     state.blend = rhi::BlendMode::Alpha;
     state.cull = rhi::CullMode::None;
@@ -103,90 +106,35 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
     state.depthWrite = false;
     cmd.setState(state);
 
-    // Build sorted indices by layer (primary) and textureId (secondary) for batching
+    // Sort sprites by layer for correct draw order
     m_sortedIndices.clear();
     m_sortedIndices.reserve(frame.spriteCount);
     for (size_t i = 0; i < frame.spriteCount; ++i) {
         m_sortedIndices.push_back(static_cast<uint32_t>(i));
     }
-
-    // Sort by layer first (ascending: layer 0 = background, rendered first)
-    // Then by textureId to batch sprites on the same layer
     std::sort(m_sortedIndices.begin(), m_sortedIndices.end(),
         [&frame](uint32_t a, uint32_t b) {
-            const SpriteInstance& sa = frame.sprites[a];
-            const SpriteInstance& sb = frame.sprites[b];
-            if (sa.layer != sb.layer) {
-                return sa.layer < sb.layer;
-            }
-            return sa.textureId < sb.textureId;
+            return frame.sprites[a].layer < frame.sprites[b].layer;
         });
 
-    // Process sprites in batches by texture
-    // Use transient buffers for proper multi-batch rendering
-    uint32_t batchStart = 0;
-    while (batchStart < frame.spriteCount) {
-        // Find the end of current batch (same texture)
-        uint16_t currentTexId = static_cast<uint16_t>(frame.sprites[m_sortedIndices[batchStart]].textureId);
-        uint32_t batchEnd = batchStart + 1;
-
-        while (batchEnd < frame.spriteCount) {
-            uint16_t nextTexId = static_cast<uint16_t>(frame.sprites[m_sortedIndices[batchEnd]].textureId);
-            if (nextTexId != currentTexId) {
-                break;  // Texture changed, flush this batch
-            }
-            ++batchEnd;
-        }
-
-        uint32_t batchCount = batchEnd - batchStart;
-
-        // Resolve texture handle for this batch
-        rhi::TextureHandle batchTexture;
-        if (currentTexId == 0 || !m_resourceCache) {
-            batchTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
-        } else {
-            batchTexture = m_resourceCache->getTextureById(currentTexId);
-            if (!batchTexture.isValid()) {
-                batchTexture = m_activeTexture.isValid() ? m_activeTexture : m_defaultTexture;
-            }
-        }
-
-        // Allocate transient instance buffer for this batch
-        rhi::TransientInstanceBuffer transientBuffer = device.allocTransientInstanceBuffer(batchCount);
-
-        if (transientBuffer.isValid()) {
-            // Copy sprite data to transient buffer
-            SpriteInstance* dest = static_cast<SpriteInstance*>(transientBuffer.data);
-            for (uint32_t i = 0; i < batchCount; ++i) {
-                dest[i] = frame.sprites[m_sortedIndices[batchStart + i]];
-            }
-
-            // Re-set state for each batch to ensure clean state
-            cmd.setState(state);
-
-            // Set buffers and draw
-            cmd.setVertexBuffer(m_quadVB);
-            cmd.setIndexBuffer(m_quadIB);
-            cmd.setTransientInstanceBuffer(transientBuffer, 0, batchCount);
-            cmd.setTexture(0, batchTexture, m_textureSampler);
-            cmd.drawInstanced(6, batchCount);
-            cmd.submit(0, m_shader, 0);
-        } else {
-            // Fallback: use dynamic buffer (may have issues with multiple batches)
-            // This should only happen if GPU runs out of transient memory
-            std::vector<SpriteInstance> batchData;
-            batchData.reserve(batchCount);
-            for (uint32_t i = 0; i < batchCount; ++i) {
-                batchData.push_back(frame.sprites[m_sortedIndices[batchStart + i]]);
-            }
-            device.updateBuffer(m_instanceBuffer, batchData.data(),
-                               static_cast<uint32_t>(batchData.size() * sizeof(SpriteInstance)));
-            cmd.setInstanceBuffer(m_instanceBuffer, 0, batchCount);
-            flushBatch(device, cmd, batchTexture, batchCount);
-        }
-
-        batchStart = batchEnd;
+    // Copy sorted sprites to temporary buffer (like TextPass does with glyphs)
+    std::vector<SpriteInstance> sortedSprites;
+    sortedSprites.reserve(frame.spriteCount);
+    for (uint32_t idx : m_sortedIndices) {
+        sortedSprites.push_back(frame.sprites[idx]);
     }
+
+    // Update dynamic instance buffer with ALL sprites (like TextPass)
+    device.updateBuffer(m_instanceBuffer, sortedSprites.data(),
+                       static_cast<uint32_t>(sortedSprites.size() * sizeof(SpriteInstance)));
+
+    // Set buffers and draw ALL sprites in ONE call (like TextPass)
+    cmd.setVertexBuffer(m_quadVB);
+    cmd.setIndexBuffer(m_quadIB);
+    cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(sortedSprites.size()));
+    cmd.setTexture(0, m_defaultTexture, m_textureSampler);
+    cmd.drawInstanced(6, static_cast<uint32_t>(sortedSprites.size()));
+    cmd.submit(0, m_shader, 0);
 }
 
 } // namespace grove

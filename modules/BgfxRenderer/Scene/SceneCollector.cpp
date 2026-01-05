@@ -3,6 +3,7 @@
 #include "grove/IDataNode.h"
 #include "../Frame/FrameAllocator.h"
 #include <cstring>
+#include <spdlog/spdlog.h>
 
 namespace grove {
 
@@ -196,6 +197,7 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.y = static_cast<float>(data.getDouble("y", 0.0));
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", 1.0));
+
     // i_data1
     sprite.rotation = static_cast<float>(data.getDouble("rotation", 0.0));
     sprite.u0 = static_cast<float>(data.getDouble("u0", 0.0));
@@ -366,8 +368,13 @@ void SceneCollector::parseDebugRect(const IDataNode& data) {
     DebugRect rect;
     rect.x = static_cast<float>(data.getDouble("x", 0.0));
     rect.y = static_cast<float>(data.getDouble("y", 0.0));
-    rect.w = static_cast<float>(data.getDouble("w", 0.0));
-    rect.h = static_cast<float>(data.getDouble("h", 0.0));
+    // Accept both "w"/"h" and "width"/"height" for convenience
+    double w = data.getDouble("w", 0.0);
+    if (w == 0.0) w = data.getDouble("width", 0.0);
+    double h = data.getDouble("h", 0.0);
+    if (h == 0.0) h = data.getDouble("height", 0.0);
+    rect.w = static_cast<float>(w);
+    rect.h = static_cast<float>(h);
     rect.color = static_cast<uint32_t>(data.getInt("color", 0x00FF00FF));
     rect.filled = data.getBool("filled", false);
 

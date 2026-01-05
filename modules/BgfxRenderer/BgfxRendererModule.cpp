@@ -177,61 +177,45 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 }
 
 void BgfxRendererModule::process(const IDataNode& input) {
-    // Validate device
     if (!m_device) {
-        m_logger->error("BgfxRenderer::process called but device is not initialized");
+        m_logger->error("Device not initialized");
         return;
     }
 
-    // Read deltaTime from input (provided by ModuleSystem)
-    float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
-
-    // Check for resize in input
-    int newWidth = input.getInt("windowWidth", 0);
-    int newHeight = input.getInt("windowHeight", 0);
-    if (newWidth > 0 && newHeight > 0 &&
-        (static_cast<uint16_t>(newWidth) != m_width || static_cast<uint16_t>(newHeight) != m_height)) {
-        m_width = static_cast<uint16_t>(newWidth);
-        m_height = static_cast<uint16_t>(newHeight);
-        m_device->reset(m_width, m_height);
-        m_logger->info("Window resized to {}x{}", m_width, m_height);
+    // Reset frame allocator for this frame
+    if (m_frameAllocator) {
+        m_frameAllocator->reset();
     }
 
-    // 1. Collect IIO messages (pull-based)
-    if (m_sceneCollector && m_io) {
+    // Collect scene data from IIO messages and prepare frame packet
+    if (m_sceneCollector && m_renderGraph && m_frameAllocator && m_io) {
+        // Get delta time from input (or default to 16ms)
+        float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
+
+        // Collect all IIO messages for this frame
         m_sceneCollector->collect(m_io, deltaTime);
+
+        // Generate immutable FramePacket for render passes
+        FramePacket packet = m_sceneCollector->finalize(*m_frameAllocator);
+
+        // Apply view transform (projection matrix for 2D rendering)
+        m_device->setViewClear(0, packet.clearColor, 1.0f);
+        m_device->setViewRect(0, packet.mainView.viewportX, packet.mainView.viewportY,
+                               packet.mainView.viewportW, packet.mainView.viewportH);
+        m_device->setViewTransform(0, packet.mainView.viewMatrix, packet.mainView.projMatrix);
+
+        // Execute render graph with collected scene data
+        m_renderGraph->execute(packet, *m_device);
+
+        // Clear staging buffers for next frame
+        m_sceneCollector->clear();
     }
 
-    // 2. Build immutable FramePacket
-    if (!m_frameAllocator || !m_sceneCollector) {
-        m_logger->error("BgfxRenderer::process - frameAllocator or sceneCollector not initialized");
-        return;
-    }
-    m_frameAllocator->reset();
-    FramePacket frame = m_sceneCollector->finalize(*m_frameAllocator);
-
-    // 3. Set view clear color
-    m_device->setViewClear(0, frame.clearColor, 1.0f);
-    m_device->setViewRect(0, 0, 0, m_width, m_height);
-    m_device->setViewTransform(0, frame.mainView.viewMatrix, frame.mainView.projMatrix);
-
-    // 4. Execute render graph
-    m_renderGraph->execute(frame, *m_device);
-
-    // 5. Update and render debug overlay
-    if (m_debugOverlay) {
-        m_debugOverlay->update(deltaTime, static_cast<uint32_t>(frame.spriteCount), 1);
-        m_debugOverlay->render(m_width, m_height);
-    }
-
-    // 6. Present
+    // Present frame
     m_device->frame();
 
-    // 7. Cleanup for next frame
-    m_sceneCollector->clear();
     m_frameCount++;
 }
-
 void BgfxRendererModule::shutdown() {
     m_logger->info("BgfxRenderer shutting down, {} frames rendered", m_frameCount);
 
@@ -299,7 +283,10 @@ std::unique_ptr<IDataNode> BgfxRendererModule::getHealthStatus() {
 
 // ============================================================================
 // C Export (required for dlopen/LoadLibrary)
+// Skip when building as static library to avoid multiple definition errors
 // ============================================================================
+
+#ifndef GROVE_MODULE_STATIC
 
 #ifdef _WIN32
 #define GROVE_MODULE_EXPORT __declspec(dllexport)
@@ -318,3 +305,5 @@ GROVE_MODULE_EXPORT void destroyModule(grove::IModule* module) {
 }
 
 }
+
+#endif // GROVE_MODULE_STATIC

@@ -1,6 +1,28 @@
 # InputModule - Input capture and conversion module
 # Converts native input events (SDL, GLFW, etc.) to IIO messages
 
+# Find SDL2 - REQUIRED for InputModule to function
+find_package(SDL2 QUIET)
+
+# Check if SDL2 is available
+set(SDL2_USABLE FALSE)
+if(SDL2_FOUND)
+    set(SDL2_USABLE TRUE)
+    message(STATUS "InputModule: SDL2 found via find_package")
+elseif(UNIX AND EXISTS "/usr/include/SDL2/SDL.h")
+    set(SDL2_USABLE TRUE)
+    message(STATUS "InputModule: SDL2 found at system path (Linux)")
+endif()
+
+if(NOT SDL2_USABLE)
+    message(WARNING "InputModule: SDL2 not found - InputModule will NOT be built")
+    message(STATUS "  On Windows MinGW, install via: pacman -S mingw-w64-ucrt-x86_64-SDL2")
+    message(STATUS "  On Ubuntu/Debian, install via: apt install libsdl2-dev")
+    # Set a variable so parent can know InputModule was skipped
+    set(GROVE_INPUT_MODULE_SKIPPED TRUE PARENT_SCOPE)
+    return()
+endif()
+
 add_library(InputModule SHARED
     InputModule.cpp
     Core/InputState.cpp
@@ -8,17 +30,13 @@ add_library(InputModule SHARED
     Backends/SDLBackend.cpp
 )
 
-target_include_directories(InputModule
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        /usr/include/SDL2
-)
-
-# Try to find SDL2, but don't fail if not found (use system paths)
-find_package(SDL2 QUIET)
-
 if(SDL2_FOUND)
+    target_include_directories(InputModule
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+    )
+
     target_link_libraries(InputModule
         PRIVATE
             GroveEngine::impl
@@ -27,7 +45,14 @@ if(SDL2_FOUND)
             spdlog::spdlog
     )
 else()
-    # Fallback to system SDL2
+    # Linux system SDL2
+    target_include_directories(InputModule
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+            /usr/include/SDL2
+    )
+
     target_link_libraries(InputModule
         PRIVATE
             GroveEngine::impl

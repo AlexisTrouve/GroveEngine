@@ -70,3 +70,56 @@ if(UNIX AND NOT APPLE)
         dl
     )
 endif()
+
+# ============================================================================
+# UIModule Static Library (for tests that can't use DLL loading)
+# ============================================================================
+
+add_library(UIModule_static STATIC
+    # Main module
+    UIModule.cpp
+
+    # Core
+    Core/UITree.cpp
+    Core/UILayout.cpp
+    Core/UIContext.cpp
+    Core/UIStyle.cpp
+    Core/UITooltip.cpp
+
+    # Widgets
+    Widgets/UIPanel.cpp
+    Widgets/UILabel.cpp
+    Widgets/UIButton.cpp
+    Widgets/UIImage.cpp
+    Widgets/UISlider.cpp
+    Widgets/UICheckbox.cpp
+    Widgets/UIProgressBar.cpp
+    Widgets/UITextInput.cpp
+    Widgets/UIScrollPanel.cpp
+
+    # Rendering
+    Rendering/UIRenderer.cpp
+)
+
+target_include_directories(UIModule_static PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+)
+
+target_link_libraries(UIModule_static PUBLIC
+    GroveEngine::impl
+    spdlog::spdlog
+    nlohmann_json::nlohmann_json
+)
+
+target_compile_features(UIModule_static PRIVATE cxx_std_17)
+
+# Mark as static build to skip C exports (avoids multiple definition errors)
+target_compile_definitions(UIModule_static PRIVATE GROVE_MODULE_STATIC)
+
+if(WIN32)
+    target_compile_definitions(UIModule_static PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+endif()

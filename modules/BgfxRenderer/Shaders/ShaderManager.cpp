@@ -124,6 +124,11 @@ void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string&
         vsSize = sizeof(vs_sprite_mtl);
         fsData = fs_sprite_mtl;
         fsSize = sizeof(fs_sprite_mtl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_sprite_dx11;
+        vsSize = sizeof(vs_sprite_dx11);
+        fsData = fs_sprite_dx11;
+        fsSize = sizeof(fs_sprite_dx11);
     } else {
         // Fallback to Vulkan (most common in WSL2)
         vsData = vs_sprite_spv;

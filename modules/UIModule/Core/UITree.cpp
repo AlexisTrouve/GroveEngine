@@ -66,60 +66,59 @@ void UITree::registerDefaultWidgets() {
         button->onClick = node.getString("onClick", "");
         button->enabled = node.getBool("enabled", true);
 
+        // Helper lambda to parse a button style
+        auto parseButtonStyle = [](IDataNode* styleNode, ButtonStyle& style) {
+            if (!styleNode) return;
+
+            std::string bgColorStr = styleNode->getString("bgColor", "");
+            if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
+                style.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
+            }
+            std::string textColorStr = styleNode->getString("textColor", "");
+            if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
+                style.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
+            }
+            std::string borderColorStr = styleNode->getString("borderColor", "");
+            if (borderColorStr.size() >= 2 && (borderColorStr.substr(0, 2) == "0x" || borderColorStr.substr(0, 2) == "0X")) {
+                style.borderColor = static_cast<uint32_t>(std::stoul(borderColorStr, nullptr, 16));
+            }
+            style.borderWidth = static_cast<float>(styleNode->getDouble("borderWidth", style.borderWidth));
+            style.borderRadius = static_cast<float>(styleNode->getDouble("borderRadius", style.borderRadius));
+            style.textureId = styleNode->getInt("textureId", 0);
+            style.useTexture = style.textureId > 0;
+        };
+
         // Parse style (const_cast safe for read-only operations)
         auto& mutableNode = const_cast<IDataNode&>(node);
         if (auto* style = mutableNode.getChildReadOnly("style")) {
             // Normal style
             if (auto* normalStyle = style->getChildReadOnly("normal")) {
-                std::string bgColorStr = normalStyle->getString("bgColor", "0x444444FF");
-                if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
-                    button->normalStyle.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
-                }
-                std::string textColorStr = normalStyle->getString("textColor", "0xFFFFFFFF");
-                if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
-                    button->normalStyle.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
-                }
+                parseButtonStyle(normalStyle, button->normalStyle);
             }
 
             // Hover style
             if (auto* hoverStyle = style->getChildReadOnly("hover")) {
-                std::string bgColorStr = hoverStyle->getString("bgColor", "0x666666FF");
-                if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
-                    button->hoverStyle.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
-                }
-                std::string textColorStr = hoverStyle->getString("textColor", "0xFFFFFFFF");
-                if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
-                    button->hoverStyle.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
-                }
+                parseButtonStyle(hoverStyle, button->hoverStyle);
+                button->hoverStyleSet = true;
             }
 
             // Pressed style
             if (auto* pressedStyle = style->getChildReadOnly("pressed")) {
-                std::string bgColorStr = pressedStyle->getString("bgColor", "0x333333FF");
-                if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
-                    button->pressedStyle.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
-                }
-                std::string textColorStr = pressedStyle->getString("textColor", "0xFFFFFFFF");
-                if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
-                    button->pressedStyle.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
-                }
+                parseButtonStyle(pressedStyle, button->pressedStyle);
+                button->pressedStyleSet = true;
             }
 
             // Disabled style
             if (auto* disabledStyle = style->getChildReadOnly("disabled")) {
-                std::string bgColorStr = disabledStyle->getString("bgColor", "0x222222FF");
-                if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
-                    button->disabledStyle.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
-                }
-                std::string textColorStr = disabledStyle->getString("textColor", "0x666666FF");
-                if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
-                    button->disabledStyle.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
-                }
+                parseButtonStyle(disabledStyle, button->disabledStyle);
             }
 
             // Font size from style root
             button->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
         }
+
+        // Auto-generate hover/pressed styles if not explicitly set
+        button->generateDefaultStyles();
 
         return button;
     });

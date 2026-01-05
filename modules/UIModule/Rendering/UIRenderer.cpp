@@ -1,5 +1,6 @@
 #include "UIRenderer.h"
 #include <grove/JsonDataNode.h>
+#include <spdlog/spdlog.h>
 
 namespace grove {
 
@@ -10,11 +11,19 @@ UIRenderer::UIRenderer(IIO* io)
 void UIRenderer::drawRect(float x, float y, float w, float h, uint32_t color) {
     if (!m_io) return;
 
+    // DEBUG: Log color being sent
+    static uint32_t lastLoggedColor = 0;
+    if (color != lastLoggedColor && (color == 0xFF0000FF || color == 0x00FF00FF)) {
+        spdlog::info("UIRenderer::drawRect color=0x{:08X} at ({}, {})", color, x, y);
+        lastLoggedColor = color;
+    }
+
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", static_cast<double>(x));
-    sprite->setDouble("y", static_cast<double>(y));
-    sprite->setDouble("width", static_cast<double>(w));
-    sprite->setDouble("height", static_cast<double>(h));
+    // Position at center of rect (sprite shader centers quads)
+    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
+    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("scaleX", static_cast<double>(w));
+    sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", 0);  // White/solid color texture
     sprite->setInt("layer", nextLayer());
@@ -40,10 +49,11 @@ void UIRenderer::drawSprite(float x, float y, float w, float h, int textureId, u
     if (!m_io) return;
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", static_cast<double>(x));
-    sprite->setDouble("y", static_cast<double>(y));
-    sprite->setDouble("width", static_cast<double>(w));
-    sprite->setDouble("height", static_cast<double>(h));
+    // Position at center of sprite (sprite shader centers quads)
+    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
+    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("scaleX", static_cast<double>(w));
+    sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     sprite->setInt("layer", nextLayer());

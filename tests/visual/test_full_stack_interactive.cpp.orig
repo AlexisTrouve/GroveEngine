@@ -484,13 +484,9 @@ int main(int argc, char* argv[]) {
     while (running) {
         logger->info("Frame {} start", frameCount);
         spdlog::default_logger()->flush();
-        logger->info("  SDL_PollEvent...");
-        spdlog::default_logger()->flush();
         // Handle SDL events
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            logger->info("  Event type: {}", event.type);
-            spdlog::default_logger()->flush();
             if (event.type == SDL_QUIT) {
                 running = false;
             }
@@ -499,8 +495,6 @@ int main(int argc, char* argv[]) {
             }
 
             // Feed to InputModule via exported C function
-            logger->info("  feedEventFunc...");
-            spdlog::default_logger()->flush();
             feedEventFunc(inputModuleBase.get(), &event);
         }
 

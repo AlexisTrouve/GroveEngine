@@ -121,9 +121,9 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             size_t tileX = t % chunk.width;
             size_t tileY = t / chunk.width;
 
-            // Calculate world position
-            float worldX = chunk.x + tileX * chunk.tileWidth;
-            float worldY = chunk.y + tileY * chunk.tileHeight;
+            // Calculate world position (add 0.5 tile offset because sprite shader centers quads)
+            float worldX = chunk.x + (tileX + 0.5f) * chunk.tileWidth;
+            float worldY = chunk.y + (tileY + 0.5f) * chunk.tileHeight;
 
             // Calculate UV coords from tile index
             // tileIndex-1 because 0 is empty, actual tiles start at 1

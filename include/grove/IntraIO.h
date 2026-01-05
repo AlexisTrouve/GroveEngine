@@ -70,6 +70,15 @@ private:
         std::chrono::high_resolution_clock::time_point lastBatch;
         std::unordered_map<std::string, Message> batchedMessages; // For replaceable messages
         std::vector<Message> accumulatedMessages; // For non-replaceable messages
+
+        // Default constructor
+        Subscription() = default;
+
+        // Move-only (Message contains unique_ptr)
+        Subscription(Subscription&&) = default;
+        Subscription& operator=(Subscription&&) = default;
+        Subscription(const Subscription&) = delete;
+        Subscription& operator=(const Subscription&) = delete;
     };
 
     std::vector<Subscription> highFreqSubscriptions;

@@ -26,6 +26,17 @@ struct Message {
     std::string topic;
     std::unique_ptr<IDataNode> data;
     uint64_t timestamp;
+
+    // Default constructor
+    Message() = default;
+
+    // Move constructor and assignment (unique_ptr is move-only)
+    Message(Message&&) = default;
+    Message& operator=(Message&&) = default;
+
+    // Delete copy (unique_ptr cannot be copied)
+    Message(const Message&) = delete;
+    Message& operator=(const Message&) = delete;
 };
 
 struct IOHealth {

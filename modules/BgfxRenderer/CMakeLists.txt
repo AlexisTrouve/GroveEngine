@@ -19,12 +19,15 @@ FetchContent_Declare(
 
 # CRITICAL: Disable bgfx multithreading BEFORE fetching to avoid TLS issues when running from a DLL on Windows
 # Without this, bgfx::frame() crashes on Frame 1 due to render thread/DLL memory conflicts
-add_compile_definitions(BGFX_CONFIG_MULTITHREADED=0)
+# Must use CMAKE_CXX_FLAGS to ensure the definition is passed to ALL compilation units including bgfx
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBGFX_CONFIG_MULTITHREADED=0")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DBGFX_CONFIG_MULTITHREADED=0")
 
 # Fix for MinGW GCC 15+ - glslang headers don't include <stdint.h>
 # Use stdint.h (C header, works in C++ too) to ensure uint32_t is defined
 if(MINGW)
-    add_compile_options(-include stdint.h)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include stdint.h")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -include stdint.h")
 endif()
 
 # bgfx options
@@ -35,6 +38,17 @@ set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
 set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(bgfx)
+
+# CRITICAL: Force single-threaded mode on bgfx targets AFTER they're created
+# This is necessary because CMAKE_CXX_FLAGS might not be applied to FetchContent targets
+# Without this, bgfx::frame() crashes in DLL context due to render thread issues
+if(TARGET bgfx)
+    target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MULTITHREADED=0)
+    message(STATUS "BGFX: Forcing BGFX_CONFIG_MULTITHREADED=0 on bgfx target")
+endif()
+if(TARGET bx)
+    target_compile_definitions(bx PRIVATE BGFX_CONFIG_MULTITHREADED=0)
+endif()
 
 # ============================================================================
 # BgfxRenderer Shared Library
@@ -122,6 +136,89 @@ endif()
 
 if(APPLE)
     target_link_libraries(BgfxRenderer PRIVATE
+        "-framework Cocoa"
+        "-framework QuartzCore"
+        "-framework Metal"
+    )
+endif()
+
+# ============================================================================
+# BgfxRenderer STATIC Library (for Windows where DLL+bgfx doesn't work)
+# ============================================================================
+# On Windows, bgfx crashes when loaded from a DLL due to threading/TLS issues.
+# This static library allows linking bgfx directly into the executable while
+# still using the IModule interface.
+
+add_library(BgfxRenderer_static STATIC
+    # Main module
+    BgfxRendererModule.cpp
+
+    # RHI
+    RHI/RHICommandBuffer.cpp
+    RHI/BgfxDevice.cpp
+
+    # Frame
+    Frame/FrameAllocator.cpp
+
+    # RenderGraph
+    RenderGraph/RenderGraph.cpp
+
+    # Shaders
+    Shaders/ShaderManager.cpp
+
+    # Passes
+    Passes/ClearPass.cpp
+    Passes/TilemapPass.cpp
+    Passes/SpritePass.cpp
+    Passes/TextPass.cpp
+    Passes/ParticlePass.cpp
+    Passes/DebugPass.cpp
+
+    # Text
+    Text/BitmapFont.cpp
+
+    # Scene
+    Scene/SceneCollector.cpp
+
+    # Resources
+    Resources/ResourceCache.cpp
+    Resources/TextureLoader.cpp
+
+    # Debug
+    Debug/DebugOverlay.cpp
+)
+
+target_include_directories(BgfxRenderer_static PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${bgfx_SOURCE_DIR}/bimg/3rdparty
+)
+
+target_link_libraries(BgfxRenderer_static PUBLIC
+    GroveEngine::impl
+    bgfx
+    bx
+    spdlog::spdlog
+)
+
+target_compile_features(BgfxRenderer_static PRIVATE cxx_std_17)
+
+# Mark as static build to skip C exports (avoids multiple definition errors)
+target_compile_definitions(BgfxRenderer_static PRIVATE GROVE_MODULE_STATIC)
+
+if(WIN32)
+    target_compile_definitions(BgfxRenderer_static PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+endif()
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(BgfxRenderer_static PUBLIC pthread dl X11 GL)
+endif()
+
+if(APPLE)
+    target_link_libraries(BgfxRenderer_static PUBLIC
         "-framework Cocoa"
         "-framework QuartzCore"
         "-framework Metal"

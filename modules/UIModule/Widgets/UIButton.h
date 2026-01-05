@@ -25,6 +25,8 @@ struct ButtonStyle {
     uint32_t borderColor = 0x000000FF;
     float borderWidth = 0.0f;
     float borderRadius = 0.0f;
+    int textureId = 0;  // 0 = no texture (solid color), >0 = texture ID
+    bool useTexture = false;
 };
 
 /**
@@ -71,16 +73,34 @@ public:
     ButtonStyle pressedStyle;
     ButtonStyle disabledStyle;
 
+    // Track if styles were explicitly set (for auto-generation)
+    bool hoverStyleSet = false;
+    bool pressedStyleSet = false;
+
     // Current state
     ButtonState state = ButtonState::Normal;
     bool isHovered = false;
     bool isPressed = false;
+
+    /**
+     * @brief Auto-generate hover/pressed styles from normal style
+     * Call this after setting normalStyle if hover/pressed weren't explicitly set
+     */
+    void generateDefaultStyles();
 
 private:
     /**
      * @brief Get the appropriate style for current state
      */
     const ButtonStyle& getCurrentStyle() const;
+
+    /**
+     * @brief Adjust color brightness
+     * @param color RGBA color
+     * @param factor >1 to lighten, <1 to darken
+     * @return Adjusted color
+     */
+    static uint32_t adjustBrightness(uint32_t color, float factor);
 };
 
 } // namespace grove

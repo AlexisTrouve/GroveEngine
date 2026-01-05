@@ -14,8 +14,8 @@ IntraIOManager::IntraIOManager() {
     logger->info("🌐🔗 IntraIOManager created - Central message router initialized");
 
     // TEMPORARY: Disable batch thread to debug Windows crash
-    batchThreadRunning = true;
-    batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
+    batchThreadRunning = false;
+    // batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
     logger->info("⚠️ Batch flush thread DISABLED (debugging Windows crash)");
 }
 
@@ -26,14 +26,30 @@ IntraIOManager::~IntraIOManager() {
     if (batchThread.joinable()) {
         batchThread.join();
     }
-    logger->info("🛑 Batch flush thread stopped");
 
-    // Get stats before locking to avoid recursive lock
-    auto stats = getRoutingStats();
-    logger->info("📊 Final routing stats:");
-    logger->info("   Total routed messages: {}", stats["total_routed_messages"].get<size_t>());
-    logger->info("   Total routes: {}", stats["total_routes"].get<size_t>());
-    logger->info("   Active instances: {}", stats["active_instances"].get<size_t>());
+    // IMPORTANT: During static destruction order on Windows (especially MinGW GCC 15),
+    // spdlog's registry may be destroyed BEFORE this singleton destructor runs.
+    // Using a destroyed logger causes STATUS_STACK_BUFFER_OVERRUN (0xc0000409).
+    // We must check if our logger is still valid before using it.
+    bool loggerValid = false;
+    try {
+        // Check if spdlog registry still exists and our logger is registered
+        loggerValid = logger && spdlog::get(logger->name()) != nullptr;
+    } catch (...) {
+        // spdlog registry may throw during destruction
+        loggerValid = false;
+    }
+
+    if (loggerValid) {
+        logger->info("🛑 Batch flush thread stopped");
+
+        // Get stats before locking to avoid recursive lock
+        auto stats = getRoutingStats();
+        logger->info("📊 Final routing stats:");
+        logger->info("   Total routed messages: {}", stats["total_routed_messages"].get<size_t>());
+        logger->info("   Total routes: {}", stats["total_routes"].get<size_t>());
+        logger->info("   Active instances: {}", stats["active_instances"].get<size_t>());
+    }
 
     {
         std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
@@ -48,7 +64,9 @@ IntraIOManager::~IntraIOManager() {
         batchBuffers.clear();
     }
 
-    logger->info("🌐🔗 IntraIOManager destroyed");
+    if (loggerValid) {
+        logger->info("🌐🔗 IntraIOManager destroyed");
+    }
 }
 
 std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& instanceId) {

@@ -424,7 +424,10 @@ std::unique_ptr<IDataNode> UIModule::getHealthStatus() {
 
 // ============================================================================
 // C Export (required for dlopen/LoadLibrary)
+// Skip when building as static library to avoid multiple definition errors
 // ============================================================================
+
+#ifndef GROVE_MODULE_STATIC
 
 #ifdef _WIN32
 #define GROVE_MODULE_EXPORT __declspec(dllexport)
@@ -443,3 +446,5 @@ GROVE_MODULE_EXPORT void destroyModule(grove::IModule* module) {
 }
 
 }
+
+#endif // GROVE_MODULE_STATIC
