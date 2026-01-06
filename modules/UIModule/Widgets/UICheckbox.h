@@ -52,6 +52,11 @@ public:
     // State
     bool isHovered = false;
     bool isPressed = false;
+
+private:
+    // Retained mode render IDs (m_renderId from base class used for box background)
+    uint32_t m_checkRenderId = 0;  // Checkmark element
+    uint32_t m_textRenderId = 0;   // Label text element
 };
 
 } // namespace grove

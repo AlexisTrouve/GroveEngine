@@ -22,16 +22,32 @@ void UISlider::update(UIContext& ctx, float deltaTime) {
 }
 
 void UISlider::render(UIRenderer& renderer) {
+    // Register with renderer on first render (need 3 entries: track, fill, handle)
+    if (!m_registered) {
+        m_renderId = renderer.registerEntry();        // Track (background)
+        m_fillRenderId = renderer.registerEntry();    // Fill (progress)
+        m_handleRenderId = renderer.registerEntry();  // Handle
+        m_registered = true;
+        // Set destroy callback to unregister all three
+        setDestroyCallback([&renderer, fillId = m_fillRenderId, handleId = m_handleRenderId](uint32_t id) {
+            renderer.unregisterEntry(id);
+            renderer.unregisterEntry(fillId);
+            renderer.unregisterEntry(handleId);
+        });
+    }
+
     // Render track (background)
-    renderer.drawRect(absX, absY, width, height, trackColor);
+    int trackLayer = renderer.nextLayer();
+    renderer.updateRect(m_renderId, absX, absY, width, height, trackColor, trackLayer);
 
     // Render fill (progress)
+    int fillLayer = renderer.nextLayer();
     if (horizontal) {
         float fillWidth = (value - minValue) / (maxValue - minValue) * width;
-        renderer.drawRect(absX, absY, fillWidth, height, fillColor);
+        renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
     } else {
         float fillHeight = (value - minValue) / (maxValue - minValue) * height;
-        renderer.drawRect(absX, absY + height - fillHeight, width, fillHeight, fillColor);
+        renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
     }
 
     // Render handle
@@ -39,13 +55,16 @@ void UISlider::render(UIRenderer& renderer) {
     calculateHandlePosition(handleX, handleY);
 
     // Handle is a small square
+    int handleLayer = renderer.nextLayer();
     float halfHandle = handleSize * 0.5f;
-    renderer.drawRect(
+    renderer.updateRect(
+        m_handleRenderId,
         handleX - halfHandle,
         handleY - halfHandle,
         handleSize,
         handleSize,
-        handleColor
+        handleColor,
+        handleLayer
     );
 
     // Render children on top

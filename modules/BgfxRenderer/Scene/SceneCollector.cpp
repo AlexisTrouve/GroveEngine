@@ -26,7 +26,28 @@ void SceneCollector::collect(IIO* io, float deltaTime) {
         if (!msg.data) continue;
 
         // Route message based on topic
-        if (msg.topic == "render:sprite") {
+        // Retained mode (new) - sprites
+        if (msg.topic == "render:sprite:add") {
+            parseSpriteAdd(*msg.data);
+        }
+        else if (msg.topic == "render:sprite:update") {
+            parseSpriteUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:sprite:remove") {
+            parseSpriteRemove(*msg.data);
+        }
+        // Retained mode (new) - text
+        else if (msg.topic == "render:text:add") {
+            parseTextAdd(*msg.data);
+        }
+        else if (msg.topic == "render:text:update") {
+            parseTextUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:text:remove") {
+            parseTextRemove(*msg.data);
+        }
+        // Ephemeral mode (legacy)
+        else if (msg.topic == "render:sprite") {
             parseSprite(*msg.data);
         }
         else if (msg.topic == "render:sprite:batch") {
@@ -65,13 +86,22 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
-    // Copy sprites to frame allocator
-    if (!m_sprites.empty()) {
-        SpriteInstance* sprites = allocator.allocateArray<SpriteInstance>(m_sprites.size());
+    // Copy sprites to frame allocator (merge retained + ephemeral)
+    size_t totalSprites = m_retainedSprites.size() + m_sprites.size();
+    if (totalSprites > 0) {
+        SpriteInstance* sprites = allocator.allocateArray<SpriteInstance>(totalSprites);
         if (sprites) {
-            std::memcpy(sprites, m_sprites.data(), m_sprites.size() * sizeof(SpriteInstance));
+            size_t idx = 0;
+            // Copy retained sprites first
+            for (const auto& [renderId, sprite] : m_retainedSprites) {
+                sprites[idx++] = sprite;
+            }
+            // Copy ephemeral sprites
+            if (!m_sprites.empty()) {
+                std::memcpy(&sprites[idx], m_sprites.data(), m_sprites.size() * sizeof(SpriteInstance));
+            }
             packet.sprites = sprites;
-            packet.spriteCount = m_sprites.size();
+            packet.spriteCount = totalSprites;
         }
     } else {
         packet.sprites = nullptr;
@@ -106,27 +136,45 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.tilemapCount = 0;
     }
 
-    // Copy texts (with string data)
-    if (!m_texts.empty()) {
-        TextCommand* texts = allocator.allocateArray<TextCommand>(m_texts.size());
+    // Copy texts (with string data) - merge retained + ephemeral
+    size_t totalTexts = m_retainedTexts.size() + m_texts.size();
+    if (totalTexts > 0) {
+        TextCommand* texts = allocator.allocateArray<TextCommand>(totalTexts);
         if (texts) {
-            std::memcpy(texts, m_texts.data(), m_texts.size() * sizeof(TextCommand));
+            size_t idx = 0;
 
-            // Copy string data to frame allocator and fix up pointers
-            for (size_t i = 0; i < m_texts.size() && i < m_textStrings.size(); ++i) {
-                const std::string& str = m_textStrings[i];
-                if (!str.empty()) {
-                    // Allocate string + null terminator
+            // Copy retained texts first
+            for (const auto& [renderId, textCmd] : m_retainedTexts) {
+                texts[idx] = textCmd;
+                // Copy string data
+                auto strIt = m_retainedTextStrings.find(renderId);
+                if (strIt != m_retainedTextStrings.end() && !strIt->second.empty()) {
+                    const std::string& str = strIt->second;
                     char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
                     if (textCopy) {
                         std::memcpy(textCopy, str.c_str(), str.size() + 1);
-                        texts[i].text = textCopy;
+                        texts[idx].text = textCopy;
                     }
                 }
+                idx++;
+            }
+
+            // Copy ephemeral texts
+            for (size_t i = 0; i < m_texts.size(); ++i) {
+                texts[idx] = m_texts[i];
+                if (i < m_textStrings.size() && !m_textStrings[i].empty()) {
+                    const std::string& str = m_textStrings[i];
+                    char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
+                    if (textCopy) {
+                        std::memcpy(textCopy, str.c_str(), str.size() + 1);
+                        texts[idx].text = textCopy;
+                    }
+                }
+                idx++;
             }
 
             packet.texts = texts;
-            packet.textCount = m_texts.size();
+            packet.textCount = totalTexts;
         }
     } else {
         packet.texts = nullptr;
@@ -404,6 +452,127 @@ void SceneCollector::initDefaultView(uint16_t width, uint16_t height) {
     m_mainView.projMatrix[12] = -1.0f;
     m_mainView.projMatrix[13] = 1.0f;
     m_mainView.projMatrix[15] = 1.0f;
+}
+
+// ============================================================================
+// Retained Mode Parsing (sprites persist across frames)
+// ============================================================================
+
+void SceneCollector::parseSpriteAdd(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    SpriteInstance sprite;
+    sprite.x = static_cast<float>(data.getDouble("x", 0.0));
+    sprite.y = static_cast<float>(data.getDouble("y", 0.0));
+    sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
+    sprite.scaleY = static_cast<float>(data.getDouble("scaleY", 1.0));
+    sprite.rotation = static_cast<float>(data.getDouble("rotation", 0.0));
+    sprite.u0 = static_cast<float>(data.getDouble("u0", 0.0));
+    sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
+    sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
+    sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
+    sprite.textureId = static_cast<float>(data.getInt("textureId", 0));
+    sprite.layer = static_cast<float>(data.getInt("layer", 0));
+    sprite.padding0 = 0.0f;
+    sprite.reserved[0] = 0.0f;
+    sprite.reserved[1] = 0.0f;
+    sprite.reserved[2] = 0.0f;
+    sprite.reserved[3] = 0.0f;
+
+    uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+    sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
+
+    m_retainedSprites[renderId] = sprite;
+}
+
+void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    auto it = m_retainedSprites.find(renderId);
+    if (it == m_retainedSprites.end()) {
+        // Not found - treat as add
+        parseSpriteAdd(data);
+        return;
+    }
+
+    // Update existing sprite
+    SpriteInstance& sprite = it->second;
+    sprite.x = static_cast<float>(data.getDouble("x", sprite.x));
+    sprite.y = static_cast<float>(data.getDouble("y", sprite.y));
+    sprite.scaleX = static_cast<float>(data.getDouble("scaleX", sprite.scaleX));
+    sprite.scaleY = static_cast<float>(data.getDouble("scaleY", sprite.scaleY));
+    sprite.rotation = static_cast<float>(data.getDouble("rotation", sprite.rotation));
+    sprite.textureId = static_cast<float>(data.getInt("textureId", static_cast<int>(sprite.textureId)));
+    sprite.layer = static_cast<float>(data.getInt("layer", static_cast<int>(sprite.layer)));
+
+    uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+    sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
+}
+
+void SceneCollector::parseSpriteRemove(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    m_retainedSprites.erase(renderId);
+}
+
+void SceneCollector::parseTextAdd(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    TextCommand text;
+    text.x = static_cast<float>(data.getDouble("x", 0.0));
+    text.y = static_cast<float>(data.getDouble("y", 0.0));
+    text.fontId = static_cast<uint16_t>(data.getInt("fontId", 0));
+    text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", 16));
+    text.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    text.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+    text.text = nullptr;  // Will be set from m_retainedTextStrings in finalize
+
+    m_retainedTexts[renderId] = text;
+    m_retainedTextStrings[renderId] = data.getString("text", "");
+}
+
+void SceneCollector::parseTextUpdate(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    auto it = m_retainedTexts.find(renderId);
+    if (it == m_retainedTexts.end()) {
+        // Not found - treat as add
+        parseTextAdd(data);
+        return;
+    }
+
+    // Update existing text
+    TextCommand& text = it->second;
+    text.x = static_cast<float>(data.getDouble("x", text.x));
+    text.y = static_cast<float>(data.getDouble("y", text.y));
+    text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", text.fontSize));
+    text.color = static_cast<uint32_t>(data.getInt("color", text.color));
+    text.layer = static_cast<uint16_t>(data.getInt("layer", text.layer));
+
+    // Update text string if provided
+    std::string newText = data.getString("text", "");
+    if (!newText.empty()) {
+        m_retainedTextStrings[renderId] = newText;
+    }
+}
+
+void SceneCollector::parseTextRemove(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    m_retainedTexts.erase(renderId);
+    m_retainedTextStrings.erase(renderId);
 }
 
 } // namespace grove

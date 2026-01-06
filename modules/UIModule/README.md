@@ -11,7 +11,7 @@ UIModule provides a full-featured UI system that integrates with BgfxRenderer fo
 - **10 Widget Types**: Buttons, Labels, Panels, Checkboxes, Sliders, Text Inputs, Progress Bars, Images, Scroll Panels, Tooltips
 - **Flexible Layout**: JSON-based UI definition with hierarchical widget trees
 - **Automatic Input**: Consumes `input:*` topics from InputModule automatically
-- **Rendering Integration**: Publishes `render:*` topics to BgfxRenderer
+- **Retained Mode Rendering**: Widgets cache render state and only publish IIO messages when visual properties change, reducing message traffic for static UIs
 - **Layer Management**: UI renders on top of game content (layer 1000+)
 - **Hot-Reload Support**: Full state preservation across module reloads
 
@@ -213,10 +213,25 @@ void GameModule::process(const IDataNode& input) {
 
 ### Topics Published (Rendering)
 
+**Retained Mode (current):**
+
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, w, h, color, layer, ...}` | UI rectangles/images |
-| `render:text` | `{x, y, text, fontSize, color, layer}` | UI text |
+| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Register new sprite |
+| `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Update existing sprite |
+| `render:sprite:remove` | `{renderId}` | Unregister sprite |
+| `render:text:add` | `{renderId, x, y, text, fontSize, color, layer}` | Register new text |
+| `render:text:update` | `{renderId, x, y, text, fontSize, color, layer}` | Update existing text |
+| `render:text:remove` | `{renderId}` | Unregister text |
+
+**Immediate Mode (legacy, still supported):**
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `render:sprite` | `{x, y, w, h, color, layer, ...}` | Ephemeral sprite (1 frame) |
+| `render:text` | `{x, y, text, fontSize, color, layer}` | Ephemeral text (1 frame) |
+
+See [UI Rendering Documentation](../../docs/UI_RENDERING.md) for details on retained mode rendering.
 
 ## Widget Properties Reference
 
@@ -377,10 +392,33 @@ UIModule fully supports hot-reload with state preservation:
 - Transient animation states
 - Mouse hover states (recalculated on next mouse move)
 
+## Rendering Modes
+
+UIModule uses **retained mode rendering** to optimize IIO message traffic. Widgets register render entries once and only publish updates when visual properties change.
+
+### Retained Mode
+
+Widgets cache their render state and compare against previous values each frame. Only changed properties trigger IIO messages.
+
+**Message Reduction:**
+- Static UI (20 widgets, 0 changes/frame): 100% reduction (0 messages after initial registration)
+- Mostly static UI (20 widgets, 3 changes/frame): 85% reduction (3 messages vs 20)
+- Fully dynamic UI (20 widgets, 20 changes/frame): 0% reduction (retained mode has comparison overhead)
+
+**Topics:** `render:sprite:add/update/remove`, `render:text:add/update/remove`
+
+### Immediate Mode (Legacy)
+
+Widgets publish render commands every frame regardless of changes. Still supported for compatibility and ephemeral content (debug overlays, particles).
+
+**Topics:** `render:sprite`, `render:text`
+
+See [UI Rendering Documentation](../../docs/UI_RENDERING.md) for implementation details and migration guide.
+
 ## Performance
 
 - **Target**: < 1ms per frame for UI updates
-- **Batching**: Multiple UI rectangles batched into single render commands
+- **Retained mode**: Reduces IIO traffic by 85%+ for typical UIs (static menus, HUDs)
 - **Event filtering**: Only processes mouse events within widget bounds
 - **Layout caching**: Widget tree built once from JSON, not every frame
 

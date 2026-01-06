@@ -30,43 +30,81 @@ void UITextInput::update(UIContext& ctx, float deltaTime) {
 }
 
 void UITextInput::render(UIRenderer& renderer) {
+    // Register with renderer on first render (need 5 entries: bg, border, text, placeholder, cursor)
+    if (!m_registered) {
+        m_renderId = renderer.registerEntry();            // Background
+        m_borderRenderId = renderer.registerEntry();      // Border
+        m_textRenderId = renderer.registerEntry();        // Text content
+        m_placeholderRenderId = renderer.registerEntry(); // Placeholder text
+        m_cursorRenderId = renderer.registerEntry();      // Cursor
+        m_registered = true;
+        // Set destroy callback to unregister all entries
+        setDestroyCallback([&renderer,
+                           borderId = m_borderRenderId,
+                           textId = m_textRenderId,
+                           placeholderId = m_placeholderRenderId,
+                           cursorId = m_cursorRenderId](uint32_t id) {
+            renderer.unregisterEntry(id);
+            renderer.unregisterEntry(borderId);
+            renderer.unregisterEntry(textId);
+            renderer.unregisterEntry(placeholderId);
+            renderer.unregisterEntry(cursorId);
+        });
+    }
+
     const TextInputStyle& style = getCurrentStyle();
 
+    // Retained mode: update entries with current state
+    int bgLayer = renderer.nextLayer();
+
     // Render background
-    renderer.drawRect(absX, absY, width, height, style.bgColor);
+    renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
 
     // Render border
+    int borderLayer = renderer.nextLayer();
     uint32_t borderColor = isFocused ? style.focusBorderColor : style.borderColor;
-    // TODO: Implement proper border rendering
-    // For now, render as thin line at bottom
-    renderer.drawRect(absX, absY + height - style.borderWidth,
-                     width, style.borderWidth, borderColor);
+    renderer.updateRect(m_borderRenderId, absX, absY + height - style.borderWidth,
+                       width, style.borderWidth, borderColor, borderLayer);
 
     // Calculate text area
     float textX = absX + PADDING;
     float textY = absY + height * 0.5f;
-    float textAreaWidth = width - 2 * PADDING;
 
     // Render text or placeholder
-    if (text.empty() && !placeholder.empty() && !isFocused) {
-        // Show placeholder
-        renderer.drawText(textX, textY, placeholder, fontSize, style.placeholderColor);
+    bool showPlaceholder = text.empty() && !placeholder.empty() && !isFocused;
+
+    if (showPlaceholder) {
+        // Show placeholder, hide text and cursor
+        int placeholderLayer = renderer.nextLayer();
+        renderer.updateText(m_placeholderRenderId, textX, textY, placeholder,
+                           fontSize, style.placeholderColor, placeholderLayer);
+        // Hide text and cursor by setting empty/zero-size
+        renderer.updateText(m_textRenderId, 0, 0, "", fontSize, 0, 0);
+        renderer.updateRect(m_cursorRenderId, 0, 0, 0, 0, 0, 0);
     } else {
-        // Show actual text
-        std::string displayText = getDisplayText();
+        // Show actual text, hide placeholder
+        renderer.updateText(m_placeholderRenderId, 0, 0, "", fontSize, 0, 0);
+
         std::string visibleText = getVisibleText();
+        int textLayer = renderer.nextLayer();
 
         if (!visibleText.empty()) {
-            renderer.drawText(textX - scrollOffset, textY, visibleText,
-                            fontSize, style.textColor);
+            renderer.updateText(m_textRenderId, textX - scrollOffset, textY, visibleText,
+                               fontSize, style.textColor, textLayer);
+        } else {
+            renderer.updateText(m_textRenderId, 0, 0, "", fontSize, 0, 0);
         }
 
         // Render cursor if focused and visible
+        int cursorLayer = renderer.nextLayer();
         if (isFocused && cursorVisible) {
             float cursorX = textX + getCursorPixelOffset() - scrollOffset;
-            renderer.drawRect(cursorX, absY + PADDING,
-                            CURSOR_WIDTH, height - 2 * PADDING,
-                            style.cursorColor);
+            renderer.updateRect(m_cursorRenderId, cursorX, absY + PADDING,
+                               CURSOR_WIDTH, height - 2 * PADDING,
+                               style.cursorColor, cursorLayer);
+        } else {
+            // Hide cursor
+            renderer.updateRect(m_cursorRenderId, 0, 0, 0, 0, 0, 0);
         }
     }
 

@@ -30,29 +30,37 @@ void UIButton::update(UIContext& ctx, float deltaTime) {
 }
 
 void UIButton::render(UIRenderer& renderer) {
+    // Register with renderer on first render (need 2 entries: bg + text)
+    if (!m_registered) {
+        m_renderId = renderer.registerEntry();       // Background
+        m_textRenderId = renderer.registerEntry();   // Text
+        m_registered = true;
+        // Set destroy callback to unregister both
+        setDestroyCallback([&renderer, textId = m_textRenderId](uint32_t id) {
+            renderer.unregisterEntry(id);
+            renderer.unregisterEntry(textId);
+        });
+    }
+
     const ButtonStyle& style = getCurrentStyle();
+
+    // Retained mode: only publish if changed
+    int bgLayer = renderer.nextLayer();
 
     // Render background (texture or solid color)
     if (style.useTexture && style.textureId > 0) {
-        renderer.drawSprite(absX, absY, width, height, style.textureId, style.bgColor);
+        renderer.updateSprite(m_renderId, absX, absY, width, height, style.textureId, style.bgColor, bgLayer);
     } else {
-        renderer.drawRect(absX, absY, width, height, style.bgColor);
-    }
-
-    // Render border if specified
-    if (style.borderWidth > 0.0f) {
-        // TODO: Implement border rendering in UIRenderer
-        // For now, just render a slightly darker rect as border
+        renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
     }
 
     // Render text centered
     if (!text.empty()) {
-        // Calculate text position (centered)
-        // Note: UIRenderer doesn't support text centering yet, so we approximate
+        int textLayer = renderer.nextLayer();
         float textX = absX + width * 0.5f;
         float textY = absY + height * 0.5f;
 
-        renderer.drawText(textX, textY, text, fontSize, style.textColor);
+        renderer.updateText(m_textRenderId, textX, textY, text, fontSize, style.textColor, textLayer);
     }
 
     // Render children on top

@@ -75,6 +75,10 @@ private:
      * @brief Calculate value from mouse position
      */
     float calculateValueFromPosition(float x, float y) const;
+
+    // Retained mode render IDs (track uses m_renderId from base class)
+    uint32_t m_fillRenderId = 0;    // Fill element
+    uint32_t m_handleRenderId = 0;  // Handle element
 };
 
 } // namespace grove

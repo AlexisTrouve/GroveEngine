@@ -19,8 +19,19 @@ void UIPanel::update(UIContext& ctx, float deltaTime) {
 }
 
 void UIPanel::render(UIRenderer& renderer) {
-    // Render background rectangle
-    renderer.drawRect(absX, absY, width, height, bgColor);
+    // Register with renderer on first render
+    if (!m_registered) {
+        m_renderId = renderer.registerEntry();
+        m_registered = true;
+        // Set destroy callback to unregister
+        setDestroyCallback([&renderer](uint32_t id) {
+            renderer.unregisterEntry(id);
+        });
+    }
+
+    // Retained mode: only publish if changed
+    int layer = renderer.nextLayer();
+    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, layer);
 
     // Render children on top
     renderChildren(renderer);

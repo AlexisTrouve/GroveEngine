@@ -183,6 +183,12 @@ private:
      * @brief Update scroll offset to keep cursor visible
      */
     void updateScrollOffset();
+
+    // Retained mode render IDs (m_renderId from base class is used for background)
+    uint32_t m_borderRenderId = 0;       // Border element
+    uint32_t m_textRenderId = 0;         // Text content element
+    uint32_t m_placeholderRenderId = 0;  // Placeholder text element
+    uint32_t m_cursorRenderId = 0;       // Cursor element
 };
 
 } // namespace grove

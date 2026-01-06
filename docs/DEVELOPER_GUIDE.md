@@ -251,13 +251,15 @@ gameIO->subscribe("ui:*");  // All UI events
 UIModule publishes render commands to BgfxRenderer via `UIRenderer`:
 
 ```cpp
-// UIModule automatically publishes:
-// - render:sprite (for UI rectangles/images)
-// - render:text (for labels/buttons)
+// UIModule uses retained mode rendering (only publishes on change):
+// - render:sprite:add/update/remove (for UI rectangles/images)
+// - render:text:add/update/remove (for labels/buttons)
 
 // BgfxRenderer consumes these and renders the UI
 // Layer management ensures UI renders on top (layer 1000+)
 ```
+
+**Retained Mode:** Widgets cache render state and only publish IIO messages when visual properties change. This reduces message traffic by 85%+ for typical UIs. See [UI Rendering Documentation](UI_RENDERING.md) for details.
 
 **Full Topic Reference:** See [IIO Topics - UI Events](#ui-events)
 
@@ -391,16 +393,38 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 #### Sprites
 
+**Retained Mode (UIModule current):**
+
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer}` | Render single sprite |
+| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Register new sprite (retained) |
+| `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Update existing sprite |
+| `render:sprite:remove` | `{renderId}` | Unregister sprite |
+
+**Immediate Mode (legacy, still supported):**
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer}` | Render single sprite (ephemeral) |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
 
 #### Text
 
+**Retained Mode (UIModule current):**
+
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:text` | `{x, y, text, fontSize, color, layer}` | Render text |
+| `render:text:add` | `{renderId, x, y, text, fontSize, color, layer}` | Register new text (retained) |
+| `render:text:update` | `{renderId, x, y, text, fontSize, color, layer}` | Update existing text |
+| `render:text:remove` | `{renderId}` | Unregister text |
+
+**Immediate Mode (legacy, still supported):**
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `render:text` | `{x, y, text, fontSize, color, layer}` | Render text (ephemeral) |
+
+**Note:** See [UI Rendering Documentation](UI_RENDERING.md) for details on retained mode rendering.
 
 #### Tilemap
 

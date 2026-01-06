@@ -3,6 +3,7 @@
 #include "../Frame/FramePacket.h"
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 namespace grove {
 
@@ -33,7 +34,12 @@ public:
     void clear();
 
 private:
-    // Staging buffers (filled during collect, copied to FramePacket in finalize)
+    // Retained mode: persistent sprites/texts (not cleared each frame)
+    std::unordered_map<uint32_t, SpriteInstance> m_retainedSprites;
+    std::unordered_map<uint32_t, TextCommand> m_retainedTexts;
+    std::unordered_map<uint32_t, std::string> m_retainedTextStrings;  // Text content for retained texts
+
+    // Ephemeral mode: staging buffers (filled during collect, cleared each frame)
     std::vector<SpriteInstance> m_sprites;
     std::vector<TilemapChunk> m_tilemaps;
     std::vector<std::vector<uint16_t>> m_tilemapTiles;  // Owns tile data until finalize
@@ -49,7 +55,7 @@ private:
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
 
-    // Message parsing helpers
+    // Message parsing helpers (ephemeral mode - legacy)
     void parseSprite(const IDataNode& data);
     void parseSpriteBatch(const IDataNode& data);
     void parseTilemap(const IDataNode& data);
@@ -59,6 +65,14 @@ private:
     void parseClear(const IDataNode& data);
     void parseDebugLine(const IDataNode& data);
     void parseDebugRect(const IDataNode& data);
+
+    // Message parsing helpers (retained mode - new)
+    void parseSpriteAdd(const IDataNode& data);
+    void parseSpriteUpdate(const IDataNode& data);
+    void parseSpriteRemove(const IDataNode& data);
+    void parseTextAdd(const IDataNode& data);
+    void parseTextUpdate(const IDataNode& data);
+    void parseTextRemove(const IDataNode& data);
 
     // Initialize default view
     void initDefaultView(uint16_t width, uint16_t height);

@@ -89,6 +89,14 @@ public:
 private:
     void renderScrollbar(UIRenderer& renderer);
     void updateScrollInteraction(UIContext& ctx);
+
+    // Retained mode render IDs
+    uint32_t m_borderTopId = 0;
+    uint32_t m_borderBottomId = 0;
+    uint32_t m_borderLeftId = 0;
+    uint32_t m_borderRightId = 0;
+    uint32_t m_scrollTrackId = 0;
+    uint32_t m_scrollThumbId = 0;
 };
 
 } // namespace grove

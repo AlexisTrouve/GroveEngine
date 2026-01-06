@@ -4,12 +4,16 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <functional>
 #include "UILayout.h"
 
 namespace grove {
 
 class UIContext;
 class UIRenderer;
+
+// Callback for when widget is destroyed (to notify renderer)
+using WidgetDestroyCallback = std::function<void(uint32_t renderId)>;
 
 /**
  * @brief Base interface for all UI widgets
@@ -19,7 +23,12 @@ class UIRenderer;
  */
 class UIWidget {
 public:
-    virtual ~UIWidget() = default;
+    virtual ~UIWidget() {
+        // Notify renderer to remove this widget's render entries
+        if (m_renderId != 0 && m_destroyCallback) {
+            m_destroyCallback(m_renderId);
+        }
+    }
 
     /**
      * @brief Update widget state
@@ -125,6 +134,71 @@ protected:
                 child->render(renderer);
             }
         }
+    }
+
+    // ========================================================================
+    // Retained Mode / Dirty Tracking
+    // ========================================================================
+protected:
+    uint32_t m_renderId = 0;           // Unique ID for render system (0 = not registered)
+    bool m_geometryDirty = true;       // Position/size changed, needs re-render
+    bool m_appearanceDirty = true;     // Color/style changed, needs re-render
+    bool m_registered = false;         // Has been registered with renderer
+    WidgetDestroyCallback m_destroyCallback;  // Called on destruction
+
+public:
+    /**
+     * @brief Get render ID (0 if not registered)
+     */
+    uint32_t getRenderId() const { return m_renderId; }
+
+    /**
+     * @brief Set render ID (called by UIRenderer on registration)
+     */
+    void setRenderId(uint32_t id) { m_renderId = id; }
+
+    /**
+     * @brief Check if widget needs re-rendering
+     */
+    bool isDirty() const { return m_geometryDirty || m_appearanceDirty; }
+
+    /**
+     * @brief Check if registered with renderer
+     */
+    bool isRegistered() const { return m_registered; }
+
+    /**
+     * @brief Mark as registered
+     */
+    void setRegistered(bool reg) { m_registered = reg; }
+
+    /**
+     * @brief Mark geometry as dirty (position, size changed)
+     */
+    void markGeometryDirty() {
+        m_geometryDirty = true;
+    }
+
+    /**
+     * @brief Mark appearance as dirty (color, style changed)
+     */
+    void markAppearanceDirty() {
+        m_appearanceDirty = true;
+    }
+
+    /**
+     * @brief Clear dirty flags after rendering
+     */
+    void clearDirtyFlags() {
+        m_geometryDirty = false;
+        m_appearanceDirty = false;
+    }
+
+    /**
+     * @brief Set callback for widget destruction
+     */
+    void setDestroyCallback(WidgetDestroyCallback callback) {
+        m_destroyCallback = std::move(callback);
     }
 };
 

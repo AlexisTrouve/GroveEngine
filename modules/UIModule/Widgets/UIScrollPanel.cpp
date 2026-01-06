@@ -40,19 +40,58 @@ void UIScrollPanel::update(UIContext& ctx, float deltaTime) {
 void UIScrollPanel::render(UIRenderer& renderer) {
     if (!visible) return;
 
+    // Register with renderer on first render
+    // Need 7 entries: background + 4 borders + scrollbar track + scrollbar thumb
+    if (!m_registered) {
+        m_renderId = renderer.registerEntry();        // Background
+        m_borderTopId = renderer.registerEntry();     // Border top
+        m_borderBottomId = renderer.registerEntry();  // Border bottom
+        m_borderLeftId = renderer.registerEntry();    // Border left
+        m_borderRightId = renderer.registerEntry();   // Border right
+        m_scrollTrackId = renderer.registerEntry();   // Scrollbar track
+        m_scrollThumbId = renderer.registerEntry();   // Scrollbar thumb
+        m_registered = true;
+
+        // Set destroy callback to unregister all entries
+        setDestroyCallback([&renderer,
+                           borderTopId = m_borderTopId,
+                           borderBottomId = m_borderBottomId,
+                           borderLeftId = m_borderLeftId,
+                           borderRightId = m_borderRightId,
+                           scrollTrackId = m_scrollTrackId,
+                           scrollThumbId = m_scrollThumbId](uint32_t id) {
+            renderer.unregisterEntry(id);              // Background
+            renderer.unregisterEntry(borderTopId);
+            renderer.unregisterEntry(borderBottomId);
+            renderer.unregisterEntry(borderLeftId);
+            renderer.unregisterEntry(borderRightId);
+            renderer.unregisterEntry(scrollTrackId);
+            renderer.unregisterEntry(scrollThumbId);
+        });
+    }
+
     // Render background
-    renderer.drawRect(absX, absY, width, height, bgColor);
+    int bgLayer = renderer.nextLayer();
+    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
 
     // Render border if needed
     if (borderWidth > 0.0f) {
+        int borderLayer = renderer.nextLayer();
         // Top border
-        renderer.drawRect(absX, absY, width, borderWidth, borderColor);
+        renderer.updateRect(m_borderTopId, absX, absY, width, borderWidth, borderColor, borderLayer);
         // Bottom border
-        renderer.drawRect(absX, absY + height - borderWidth, width, borderWidth, borderColor);
+        renderer.updateRect(m_borderBottomId, absX, absY + height - borderWidth, width, borderWidth, borderColor, borderLayer);
         // Left border
-        renderer.drawRect(absX, absY, borderWidth, height, borderColor);
+        renderer.updateRect(m_borderLeftId, absX, absY, borderWidth, height, borderColor, borderLayer);
         // Right border
-        renderer.drawRect(absX + width - borderWidth, absY, borderWidth, height, borderColor);
+        renderer.updateRect(m_borderRightId, absX + width - borderWidth, absY, borderWidth, height, borderColor, borderLayer);
+    } else {
+        // Hide borders by setting zero size when not needed
+        int borderLayer = renderer.nextLayer();
+        renderer.updateRect(m_borderTopId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderBottomId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderLeftId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
     }
 
     // Render children with scroll offset and clipping
@@ -90,6 +129,11 @@ void UIScrollPanel::render(UIRenderer& renderer) {
     // Render scrollbar
     if (showScrollbar && scrollVertical && contentHeight > height) {
         renderScrollbar(renderer);
+    } else {
+        // Hide scrollbar elements when not needed
+        int scrollLayer = renderer.nextLayer();
+        renderer.updateRect(m_scrollTrackId, 0, 0, 0, 0, 0, scrollLayer);
+        renderer.updateRect(m_scrollThumbId, 0, 0, 0, 0, 0, scrollLayer);
     }
 }
 
@@ -180,14 +224,16 @@ void UIScrollPanel::getScrollbarRect(float& outX, float& outY, float& outW, floa
 void UIScrollPanel::renderScrollbar(UIRenderer& renderer) {
     // Render scrollbar background track
     float trackX = absX + width - scrollbarWidth;
-    renderer.drawRect(trackX, absY, scrollbarWidth, height, scrollbarBgColor);
+    int trackLayer = renderer.nextLayer();
+    renderer.updateRect(m_scrollTrackId, trackX, absY, scrollbarWidth, height, scrollbarBgColor, trackLayer);
 
     // Render scrollbar thumb
     float sbX, sbY, sbW, sbH;
     getScrollbarRect(sbX, sbY, sbW, sbH);
 
     // Use hover color if hovered (would need ctx passed to render, simplified for now)
-    renderer.drawRect(sbX, sbY, sbW, sbH, scrollbarColor);
+    int thumbLayer = renderer.nextLayer();
+    renderer.updateRect(m_scrollThumbId, sbX, sbY, sbW, sbH, scrollbarColor, thumbLayer);
 }
 
 void UIScrollPanel::updateScrollInteraction(UIContext& ctx) {

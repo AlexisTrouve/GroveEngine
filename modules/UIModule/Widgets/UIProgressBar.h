@@ -41,6 +41,11 @@ public:
     uint32_t fillColor = 0x2ecc71FF;
     uint32_t textColor = 0xFFFFFFFF;
     float fontSize = 14.0f;
+
+private:
+    // Retained mode render IDs
+    uint32_t m_fillRenderId = 0;  // Separate ID for fill bar element
+    uint32_t m_textRenderId = 0;  // Separate ID for text element
 };
 
 } // namespace grove

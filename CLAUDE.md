@@ -12,7 +12,8 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 **Module-specific:**
 - **[BgfxRenderer README](modules/BgfxRenderer/README.md)** - 2D rendering module (sprites, text, tilemap, particles)
 - **[InputModule README](modules/InputModule/README.md)** - Input handling (mouse, keyboard, gamepad)
-- **UIModule** - User interface system (buttons, panels, scrolling, tooltips)
+- **[UIModule README](modules/UIModule/README.md)** - User interface system (buttons, panels, scrolling, tooltips)
+- **[UI Rendering](docs/UI_RENDERING.md)** - Retained mode rendering architecture
 
 ## Available Modules
 

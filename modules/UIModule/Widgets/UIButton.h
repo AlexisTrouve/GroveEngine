@@ -101,6 +101,9 @@ private:
      * @return Adjusted color
      */
     static uint32_t adjustBrightness(uint32_t color, float factor);
+
+    // Retained mode render IDs
+    uint32_t m_textRenderId = 0;  // Separate ID for text element
 };
 
 } // namespace grove
