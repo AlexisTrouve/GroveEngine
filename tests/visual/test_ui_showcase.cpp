@@ -37,20 +37,20 @@
 
 using namespace grove;
 
-// Create the UI layout JSON - must be a single root widget with children
+// Create the UI layout JSON - MINIMAL VERSION WITH ONLY TEXTURED BUTTONS
 static nlohmann::json createUILayout() {
     nlohmann::json root;
 
-    // Root panel (full screen background)
+    // Root panel (TRANSPARENT like test_button_with_png!)
     root["type"] = "panel";
     root["id"] = "root";
     root["x"] = 0;
     root["y"] = 0;
     root["width"] = 1024;
     root["height"] = 768;
-    root["style"] = {{"bgColor", "0x1a1a2eFF"}};
+    root["style"] = {{"bgColor", "0x00000000"}};  // TRANSPARENT!
 
-    // Children array (like test_single_button)
+    // Children array - ONLY TEXTURED BUTTONS
     nlohmann::json children = nlohmann::json::array();
 
     // Title label
@@ -149,6 +149,78 @@ static nlohmann::json createUILayout() {
             {"hover", {{"bgColor", "0xff7675FF"}, {"textColor", "0xFFFFFFFF"}}},
             {"pressed", {{"bgColor", "0xa62021FF"}, {"textColor", "0xFFFFFFFF"}}}
         }}
+    });
+
+    // === TEXTURED BUTTONS PANEL === (TRANSPARENT FOR TESTING)
+    children.push_back({
+        {"type", "panel"},
+        {"id", "textured_buttons_panel"},
+        {"x", 350}, {"y", 120},
+        {"width", 300}, {"height", 280},
+        {"style", {{"bgColor", "0x00000000"}}}  // TRANSPARENT!
+    });
+
+    children.push_back({
+        {"type", "label"},
+        {"id", "textured_buttons_title"},
+        {"x", 365}, {"y", 130},
+        {"width", 250}, {"height", 30},
+        {"text", "Sprite Buttons"},
+        {"style", {{"fontSize", 20}, {"color", "0xFFFFFFFF"}}}
+    });
+
+    // Textured Button 1 - Car (HUGE LIKE WORKING TEST!)
+    children.push_back({
+        {"type", "button"},
+        {"id", "btn_car"},
+        {"x", 50}, {"y", 120},
+        {"width", 400}, {"height", 200},  // Same as test_button_with_png!
+        {"text", ""},
+        {"onClick", "sprite_car"},
+        {"style", {
+            {"normal", {{"textureId", 1}, {"bgColor", "0xFFFFFFFF"}, {"textColor", "0x000000FF"}}},
+            {"hover", {{"textureId", 1}, {"bgColor", "0xFFFF00FF"}, {"textColor", "0x000000FF"}}},  // Yellow tint
+            {"pressed", {{"textureId", 1}, {"bgColor", "0x888888FF"}, {"textColor", "0x000000FF"}}}  // Dark tint
+        }}
+    });
+
+    // Textured Button 2 - Eyes (HUGE!)
+    children.push_back({
+        {"type", "button"},
+        {"id", "btn_eyes"},
+        {"x", 470}, {"y", 120},
+        {"width", 250}, {"height", 200},  // Much bigger!
+        {"text", ""},
+        {"onClick", "sprite_eyes"},
+        {"style", {
+            {"normal", {{"textureId", 2}, {"bgColor", "0xFFFFFFFF"}, {"textColor", "0x000000FF"}}},
+            {"hover", {{"textureId", 2}, {"bgColor", "0x00FFFFFF"}, {"textColor", "0x000000FF"}}},  // Cyan tint
+            {"pressed", {{"textureId", 2}, {"bgColor", "0x888888FF"}, {"textColor", "0x000000FF"}}}
+        }}
+    });
+
+    // Textured Button 3 - Icon (HUGE!)
+    children.push_back({
+        {"type", "button"},
+        {"id", "btn_icon"},
+        {"x", 50}, {"y", 340},
+        {"width", 250}, {"height", 200},  // Much bigger!
+        {"text", ""},
+        {"onClick", "sprite_icon"},
+        {"style", {
+            {"normal", {{"textureId", 3}, {"bgColor", "0xFFFFFFFF"}, {"textColor", "0x000000FF"}}},
+            {"hover", {{"textureId", 3}, {"bgColor", "0xFF00FFFF"}, {"textColor", "0x000000FF"}}},  // Magenta tint
+            {"pressed", {{"textureId", 3}, {"bgColor", "0x888888FF"}, {"textColor", "0x000000FF"}}}
+        }}
+    });
+
+    // Info label for textured buttons
+    children.push_back({
+        {"type", "label"},
+        {"x", 370}, {"y", 340},
+        {"width", 260}, {"height", 50},
+        {"text", "Retained mode:\nTextures only sent once!"},
+        {"style", {{"fontSize", 12}, {"color", "0xAAAAAAFF"}}}
     });
 
     // === MIDDLE COLUMN: Inputs Panel ===
@@ -351,7 +423,7 @@ public:
         m_inputIO = m_inputIOPtr.get();
         m_gameIO = m_gameIOPtr.get();
 
-        // Create and configure BgfxRenderer
+        // Create and configure BgfxRenderer with textures
         m_renderer = std::make_unique<BgfxRendererModule>();
         {
             JsonDataNode config("config");
@@ -359,10 +431,15 @@ public:
                 static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
             config.setInt("windowWidth", 1024);
             config.setInt("windowHeight", 768);
-            config.setString("backend", "d3d11");
+            // config.setString("backend", "d3d11");  // LET BGFX CHOOSE LIKE test_button_with_png!
             config.setBool("vsync", true);
+            // Load textures for sprite buttons
+            config.setString("texture1", "../../assets/textures/5oxaxt1vo2f91.jpg");  // Car
+            config.setString("texture2", "../../assets/textures/1f440.png");  // Eyes emoji
+            config.setString("texture3", "../../assets/textures/IconDesigner.png");  // Icon
             m_renderer->setConfiguration(config, m_rendererIO, nullptr);
         }
+        m_logger->info("✓ Loaded 3 textures for sprite buttons (IDs: 1, 2, 3)");
 
         // Create and configure UIModule with inline layout
         m_uiModule = std::make_unique<UIModule>();
@@ -499,6 +576,15 @@ private:
                 }
                 else if (action == "action_danger") {
                     m_logger->warn("Danger button clicked!");
+                }
+                else if (action == "sprite_car") {
+                    m_logger->info("🚗 Car sprite button clicked! (Texture ID: 1)");
+                }
+                else if (action == "sprite_eyes") {
+                    m_logger->info("👀 Eyes sprite button clicked! (Texture ID: 2)");
+                }
+                else if (action == "sprite_icon") {
+                    m_logger->info("🎨 Icon sprite button clicked! (Texture ID: 3)");
                 }
             }
             else if (msg.topic == "ui:click") {

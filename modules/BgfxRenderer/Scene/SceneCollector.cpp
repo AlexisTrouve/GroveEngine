@@ -28,9 +28,11 @@ void SceneCollector::collect(IIO* io, float deltaTime) {
         // Route message based on topic
         // Retained mode (new) - sprites
         if (msg.topic == "render:sprite:add") {
+            spdlog::info("✅ RETAINED MODE: render:sprite:add received");
             parseSpriteAdd(*msg.data);
         }
         else if (msg.topic == "render:sprite:update") {
+            spdlog::info("✅ RETAINED MODE: render:sprite:update received");
             parseSpriteUpdate(*msg.data);
         }
         else if (msg.topic == "render:sprite:remove") {
@@ -48,6 +50,7 @@ void SceneCollector::collect(IIO* io, float deltaTime) {
         }
         // Ephemeral mode (legacy)
         else if (msg.topic == "render:sprite") {
+            spdlog::info("⚠️ EPHEMERAL MODE: render:sprite received (should not happen in retained mode!)");
             parseSprite(*msg.data);
         }
         else if (msg.topic == "render:sprite:batch") {
@@ -487,6 +490,9 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
     m_retainedSprites[renderId] = sprite;
+    spdlog::info("📥 [SceneCollector] Stored SPRITE renderId={}, pos=({:.1f},{:.1f}), scale={}x{}, textureId={}, layer={}, color=({:.2f},{:.2f},{:.2f},{:.2f})",
+        renderId, sprite.x, sprite.y, sprite.scaleX, sprite.scaleY, (int)sprite.textureId, (int)sprite.layer,
+        sprite.r, sprite.g, sprite.b, sprite.a);
 }
 
 void SceneCollector::parseSpriteUpdate(const IDataNode& data) {

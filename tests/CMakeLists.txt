@@ -1451,3 +1451,180 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     )
     message(STATUS "Single button test 'test_single_button' enabled")
 endif()
+
+# UI Texture Support Test - headless test demonstrating texture properties
+if(GROVE_BUILD_UI_MODULE)
+    add_executable(test_ui_textures
+        visual/test_ui_textures.cpp
+    )
+    target_include_directories(test_ui_textures PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ui_textures PRIVATE
+        GroveEngine::impl
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "UI texture support test 'test_ui_textures' enabled")
+endif()
+
+# Textured UI Visual Demo - shows widgets with custom textures
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_ui_textured_demo WIN32
+        visual/test_ui_textured_demo.cpp
+    )
+    target_include_directories(test_ui_textured_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ui_textured_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Textured UI demo 'test_ui_textured_demo' enabled")
+endif()
+
+# Simple textured UI demo - shows widget properties (no rendering)
+if(GROVE_BUILD_UI_MODULE)
+    add_executable(test_ui_textured_simple
+        visual/test_ui_textured_simple.cpp
+    )
+    target_include_directories(test_ui_textured_simple PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ui_textured_simple PRIVATE
+        GroveEngine::impl
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Simple textured UI demo 'test_ui_textured_simple' enabled")
+endif()
+
+# Textured Button Visual Test - shows REAL textures on buttons
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_textured_button WIN32
+        visual/test_textured_button.cpp
+    )
+    target_include_directories(test_textured_button PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_textured_button PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Textured button test 'test_textured_button' enabled")
+endif()
+
+# Minimal Textured Demo - Direct sprite rendering with textures
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    add_executable(test_textured_demo_minimal WIN32
+        visual/test_textured_demo_minimal.cpp
+    )
+    target_include_directories(test_textured_demo_minimal PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_textured_demo_minimal PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "Minimal textured demo 'test_textured_demo_minimal' enabled")
+endif()
+
+# Button with PNG texture - Load real PNG file and apply to button
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_button_with_png WIN32
+        visual/test_button_with_png.cpp
+    )
+    target_include_directories(test_button_with_png PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_button_with_png PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "PNG button test 'test_button_with_png' enabled")
+endif()
+
+# 3 Buttons Minimal Test - 3 textured buttons in minimal layout
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_3buttons_minimal WIN32
+        visual/test_3buttons_minimal.cpp
+    )
+    target_include_directories(test_3buttons_minimal PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_3buttons_minimal PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "3 buttons minimal test 'test_3buttons_minimal' enabled")
+endif()
+
+# 1 Button Texture 2 Test - diagnostic to see if only texture 1 works
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_1button_texture2 WIN32
+        visual/test_1button_texture2.cpp
+    )
+    target_include_directories(test_1button_texture2 PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_1button_texture2 PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "1 button texture 2 test 'test_1button_texture2' enabled")
+endif()
+
+# Direct sprite texture test - bypasses UIModule, uses renderer directly
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    add_executable(test_direct_sprite_texture WIN32
+        visual/test_direct_sprite_texture.cpp
+    )
+    target_include_directories(test_direct_sprite_texture PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_direct_sprite_texture PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "Direct sprite texture test 'test_direct_sprite_texture' enabled")
+endif()

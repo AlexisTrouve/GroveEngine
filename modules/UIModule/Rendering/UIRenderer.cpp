@@ -155,12 +155,20 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
 }
 
 void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer) {
+    spdlog::info("📤 [UIRenderer] Publishing render:sprite:add - renderId={}, center=({:.1f},{:.1f}), scale={}x{}, textureId={}, layer={}",
+        renderId, x + w * 0.5f, y + h * 0.5f, w, h, textureId, layer);
+
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
     sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
     sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
+    sprite->setDouble("rotation", 0.0);
+    sprite->setDouble("u0", 0.0);
+    sprite->setDouble("v0", 0.0);
+    sprite->setDouble("u1", 1.0);
+    sprite->setDouble("v1", 1.0);
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     sprite->setInt("layer", layer);
@@ -174,6 +182,11 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
     sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
+    sprite->setDouble("rotation", 0.0);
+    sprite->setDouble("u0", 0.0);
+    sprite->setDouble("v0", 0.0);
+    sprite->setDouble("u1", 1.0);
+    sprite->setDouble("v1", 1.0);
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     sprite->setInt("layer", layer);

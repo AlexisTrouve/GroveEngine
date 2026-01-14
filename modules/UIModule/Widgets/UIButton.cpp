@@ -44,11 +44,21 @@ void UIButton::render(UIRenderer& renderer) {
 
     const ButtonStyle& style = getCurrentStyle();
 
+    static int logCount = 0;
+    if (logCount < 10) {  // Log first 10 buttons to see all textured ones
+        spdlog::info("UIButton[{}]::render() id='{}', state={}, normalStyle.textureId={}, useTexture={}",
+            logCount, id, (int)state, normalStyle.textureId, normalStyle.useTexture);
+        spdlog::info("  current style: textureId={}, useTexture={}", style.textureId, style.useTexture);
+        logCount++;
+    }
+
     // Retained mode: only publish if changed
     int bgLayer = renderer.nextLayer();
 
     // Render background (texture or solid color)
     if (style.useTexture && style.textureId > 0) {
+        spdlog::info("🎨 [UIButton '{}'] Rendering SPRITE: renderId={}, pos=({},{}), size={}x{}, textureId={}, color=0x{:08X}, layer={}",
+            id, m_renderId, absX, absY, width, height, style.textureId, style.bgColor, bgLayer);
         renderer.updateSprite(m_renderId, absX, absY, width, height, style.textureId, style.bgColor, bgLayer);
     } else {
         renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
