@@ -61,6 +61,19 @@ public:
     uint32_t handleColor = 0xecf0f1FF;
     float handleSize = 16.0f;
 
+    // Texture support
+    int trackTextureId = 0;              // Track texture ID (0 = solid color)
+    bool useTrackTexture = false;        // Use texture for track
+    uint32_t trackTintColor = 0xFFFFFFFF; // Tint for track texture
+
+    int fillTextureId = 0;               // Fill texture ID (0 = solid color)
+    bool useFillTexture = false;         // Use texture for fill
+    uint32_t fillTintColor = 0xFFFFFFFF; // Tint for fill texture
+
+    int handleTextureId = 0;             // Handle texture ID (0 = solid color)
+    bool useHandleTexture = false;       // Use texture for handle
+    uint32_t handleTintColor = 0xFFFFFFFF; // Tint for handle texture
+
     // State
     bool isDragging = false;
     bool isHovered = false;

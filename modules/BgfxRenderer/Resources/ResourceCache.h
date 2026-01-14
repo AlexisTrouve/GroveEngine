@@ -31,6 +31,10 @@ public:
     // Loading (called from main thread) - returns texture ID
     uint16_t loadTextureWithId(rhi::IRHIDevice& device, const std::string& path);
 
+    // Register an already-created texture (for runtime/procedural textures)
+    // Returns the assigned texture ID
+    uint16_t registerTexture(rhi::TextureHandle handle, const std::string& name = "");
+
     // Legacy loading (returns handle directly)
     rhi::TextureHandle loadTexture(rhi::IRHIDevice& device, const std::string& path);
     rhi::ShaderHandle loadShader(rhi::IRHIDevice& device, const std::string& name,

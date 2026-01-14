@@ -45,6 +45,13 @@ public:
     std::string getType() const override { return "bgfx_renderer"; }
     bool isIdle() const override { return true; }
 
+    // ========================================
+    // Public API for external access
+    // ========================================
+
+    ResourceCache* getResourceCache() const;
+    rhi::IRHIDevice* getDevice() const;
+
 private:
     // Logger
     std::shared_ptr<spdlog::logger> m_logger;

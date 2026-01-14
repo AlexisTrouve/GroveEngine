@@ -23,6 +23,14 @@ namespace grove {
 BgfxRendererModule::BgfxRendererModule() = default;
 BgfxRendererModule::~BgfxRendererModule() = default;
 
+ResourceCache* BgfxRendererModule::getResourceCache() const {
+    return m_resourceCache.get();
+}
+
+rhi::IRHIDevice* BgfxRendererModule::getDevice() const {
+    return m_device.get();
+}
+
 void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) {
     m_io = io;
 

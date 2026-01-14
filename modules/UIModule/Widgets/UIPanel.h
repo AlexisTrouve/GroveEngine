@@ -25,6 +25,11 @@ public:
     float borderRadius = 0.0f;      // For future use
     float borderWidth = 0.0f;
     uint32_t borderColor = 0x000000FF;
+
+    // Texture support
+    int textureId = 0;               // Texture ID (0 = solid color)
+    bool useTexture = false;         // Use texture instead of solid color
+    uint32_t tintColor = 0xFFFFFFFF; // RGBA tint for texture (white = no tint)
 };
 
 } // namespace grove

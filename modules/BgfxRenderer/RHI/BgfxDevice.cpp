@@ -205,9 +205,13 @@ public:
     }
 
     UniformHandle createUniform(const char* name, uint8_t numVec4s) override {
+        // Detect sampler uniforms by name prefix (bgfx convention: s_*)
+        bool isSampler = (name[0] == 's' && name[1] == '_');
+
         bgfx::UniformHandle uniform = bgfx::createUniform(
             name,
-            numVec4s == 1 ? bgfx::UniformType::Vec4 : bgfx::UniformType::Mat4
+            isSampler ? bgfx::UniformType::Sampler :
+                       (numVec4s == 1 ? bgfx::UniformType::Vec4 : bgfx::UniformType::Mat4)
         );
 
         UniformHandle result;
@@ -557,6 +561,15 @@ public:
                     if (hasTexture) {
                         bgfx::TextureHandle tex = { pendingTexture.id };
                         bgfx::UniformHandle sampler = { pendingSampler.id };
+
+                        static int submitCount = 0;
+                        if (submitCount < 10) {
+                            spdlog::info("[Submit #{}] BgfxDevice::submit() - pendingTexture.id={}, tex.idx={}, sampler.idx={}, slot={}",
+                                submitCount, pendingTexture.id, tex.idx, sampler.idx, pendingTextureSlot);
+                            spdlog::info("  bgfx::isValid(tex): {}", bgfx::isValid(tex));
+                            submitCount++;
+                        }
+
                         bgfx::setTexture(pendingTextureSlot, sampler, tex);
                     }
                     bgfx::ProgramHandle program = { cmd.submit.shader.id };

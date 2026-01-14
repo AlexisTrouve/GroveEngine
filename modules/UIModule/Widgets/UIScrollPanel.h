@@ -48,6 +48,19 @@ public:
     float borderWidth = 1.0f;
     uint32_t borderColor = 0x444444FF;
 
+    // Texture support
+    int bgTextureId = 0;                  // Background texture ID (0 = solid color)
+    bool useBgTexture = false;            // Use texture for background
+    uint32_t bgTintColor = 0xFFFFFFFF;    // Tint for background texture
+
+    int scrollbarTrackTextureId = 0;      // Scrollbar track texture ID (0 = solid color)
+    bool useScrollbarTrackTexture = false; // Use texture for scrollbar track
+    uint32_t scrollbarTrackTintColor = 0xFFFFFFFF; // Tint for scrollbar track texture
+
+    int scrollbarThumbTextureId = 0;      // Scrollbar thumb texture ID (0 = solid color)
+    bool useScrollbarThumbTexture = false; // Use texture for scrollbar thumb
+    uint32_t scrollbarThumbTintColor = 0xFFFFFFFF; // Tint for scrollbar thumb texture
+
     // Interaction state
     bool isDraggingContent = false;
     bool isDraggingScrollbar = false;

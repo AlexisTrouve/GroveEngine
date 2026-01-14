@@ -34,22 +34,42 @@ void UICheckbox::render(UIRenderer& renderer) {
     // Box background (retained mode)
     int boxLayer = renderer.nextLayer();
     uint32_t currentBoxColor = isHovered ? 0x475569FF : boxColor;
-    renderer.updateRect(m_renderId, boxX, boxY, boxSize, boxSize, currentBoxColor, boxLayer);
+
+    if (useBoxTexture && boxTextureId > 0) {
+        renderer.updateSprite(m_renderId, boxX, boxY, boxSize, boxSize, boxTextureId, boxTintColor, boxLayer);
+    } else {
+        renderer.updateRect(m_renderId, boxX, boxY, boxSize, boxSize, currentBoxColor, boxLayer);
+    }
 
     // Check mark if checked (retained mode)
     int checkLayer = renderer.nextLayer();
     if (checked) {
-        // Draw a smaller filled rect as checkmark
         float checkPadding = boxSize * 0.25f;
-        renderer.updateRect(
-            m_checkRenderId,
-            boxX + checkPadding,
-            boxY + checkPadding,
-            boxSize - checkPadding * 2,
-            boxSize - checkPadding * 2,
-            checkColor,
-            checkLayer
-        );
+
+        if (useCheckTexture && checkTextureId > 0) {
+            // Draw checkmark texture
+            renderer.updateSprite(
+                m_checkRenderId,
+                boxX + checkPadding,
+                boxY + checkPadding,
+                boxSize - checkPadding * 2,
+                boxSize - checkPadding * 2,
+                checkTextureId,
+                checkTintColor,
+                checkLayer
+            );
+        } else {
+            // Draw a smaller filled rect as checkmark
+            renderer.updateRect(
+                m_checkRenderId,
+                boxX + checkPadding,
+                boxY + checkPadding,
+                boxSize - checkPadding * 2,
+                boxSize - checkPadding * 2,
+                checkColor,
+                checkLayer
+            );
+        }
     } else {
         // Hide checkmark when unchecked (zero-size rect)
         renderer.updateRect(m_checkRenderId, 0, 0, 0, 0, 0x00000000, checkLayer);

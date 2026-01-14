@@ -86,6 +86,9 @@ void UITree::registerDefaultWidgets() {
             style.borderRadius = static_cast<float>(styleNode->getDouble("borderRadius", style.borderRadius));
             style.textureId = styleNode->getInt("textureId", 0);
             style.useTexture = style.textureId > 0;
+            if (style.textureId > 0) {
+                spdlog::info("UIButton style parsed: textureId={}, useTexture={}", style.textureId, style.useTexture);
+            }
         };
 
         // Parse style (const_cast safe for read-only operations)

@@ -38,16 +38,28 @@ void UISlider::render(UIRenderer& renderer) {
 
     // Render track (background)
     int trackLayer = renderer.nextLayer();
-    renderer.updateRect(m_renderId, absX, absY, width, height, trackColor, trackLayer);
+    if (useTrackTexture && trackTextureId > 0) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, trackTextureId, trackTintColor, trackLayer);
+    } else {
+        renderer.updateRect(m_renderId, absX, absY, width, height, trackColor, trackLayer);
+    }
 
     // Render fill (progress)
     int fillLayer = renderer.nextLayer();
     if (horizontal) {
         float fillWidth = (value - minValue) / (maxValue - minValue) * width;
-        renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
+        if (useFillTexture && fillTextureId > 0) {
+            renderer.updateSprite(m_fillRenderId, absX, absY, fillWidth, height, fillTextureId, fillTintColor, fillLayer);
+        } else {
+            renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
+        }
     } else {
         float fillHeight = (value - minValue) / (maxValue - minValue) * height;
-        renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
+        if (useFillTexture && fillTextureId > 0) {
+            renderer.updateSprite(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillTextureId, fillTintColor, fillLayer);
+        } else {
+            renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
+        }
     }
 
     // Render handle
@@ -57,15 +69,29 @@ void UISlider::render(UIRenderer& renderer) {
     // Handle is a small square
     int handleLayer = renderer.nextLayer();
     float halfHandle = handleSize * 0.5f;
-    renderer.updateRect(
-        m_handleRenderId,
-        handleX - halfHandle,
-        handleY - halfHandle,
-        handleSize,
-        handleSize,
-        handleColor,
-        handleLayer
-    );
+
+    if (useHandleTexture && handleTextureId > 0) {
+        renderer.updateSprite(
+            m_handleRenderId,
+            handleX - halfHandle,
+            handleY - halfHandle,
+            handleSize,
+            handleSize,
+            handleTextureId,
+            handleTintColor,
+            handleLayer
+        );
+    } else {
+        renderer.updateRect(
+            m_handleRenderId,
+            handleX - halfHandle,
+            handleY - halfHandle,
+            handleSize,
+            handleSize,
+            handleColor,
+            handleLayer
+        );
+    }
 
     // Render children on top
     renderChildren(renderer);

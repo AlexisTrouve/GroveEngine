@@ -42,6 +42,15 @@ public:
     uint32_t textColor = 0xFFFFFFFF;
     float fontSize = 14.0f;
 
+    // Texture support
+    int bgTextureId = 0;               // Background texture ID (0 = solid color)
+    bool useBgTexture = false;         // Use texture for background
+    uint32_t bgTintColor = 0xFFFFFFFF; // Tint for background texture
+
+    int fillTextureId = 0;             // Fill texture ID (0 = solid color)
+    bool useFillTexture = false;       // Use texture for fill
+    uint32_t fillTintColor = 0xFFFFFFFF; // Tint for fill texture
+
 private:
     // Retained mode render IDs
     uint32_t m_fillRenderId = 0;  // Separate ID for fill bar element

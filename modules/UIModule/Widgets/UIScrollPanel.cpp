@@ -72,7 +72,11 @@ void UIScrollPanel::render(UIRenderer& renderer) {
 
     // Render background
     int bgLayer = renderer.nextLayer();
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+    if (useBgTexture && bgTextureId > 0) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
+    } else {
+        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+    }
 
     // Render border if needed
     if (borderWidth > 0.0f) {
@@ -225,7 +229,12 @@ void UIScrollPanel::renderScrollbar(UIRenderer& renderer) {
     // Render scrollbar background track
     float trackX = absX + width - scrollbarWidth;
     int trackLayer = renderer.nextLayer();
-    renderer.updateRect(m_scrollTrackId, trackX, absY, scrollbarWidth, height, scrollbarBgColor, trackLayer);
+
+    if (useScrollbarTrackTexture && scrollbarTrackTextureId > 0) {
+        renderer.updateSprite(m_scrollTrackId, trackX, absY, scrollbarWidth, height, scrollbarTrackTextureId, scrollbarTrackTintColor, trackLayer);
+    } else {
+        renderer.updateRect(m_scrollTrackId, trackX, absY, scrollbarWidth, height, scrollbarBgColor, trackLayer);
+    }
 
     // Render scrollbar thumb
     float sbX, sbY, sbW, sbH;
@@ -233,7 +242,12 @@ void UIScrollPanel::renderScrollbar(UIRenderer& renderer) {
 
     // Use hover color if hovered (would need ctx passed to render, simplified for now)
     int thumbLayer = renderer.nextLayer();
-    renderer.updateRect(m_scrollThumbId, sbX, sbY, sbW, sbH, scrollbarColor, thumbLayer);
+
+    if (useScrollbarThumbTexture && scrollbarThumbTextureId > 0) {
+        renderer.updateSprite(m_scrollThumbId, sbX, sbY, sbW, sbH, scrollbarThumbTextureId, scrollbarThumbTintColor, thumbLayer);
+    } else {
+        renderer.updateRect(m_scrollThumbId, sbX, sbY, sbW, sbH, scrollbarColor, thumbLayer);
+    }
 }
 
 void UIScrollPanel::updateScrollInteraction(UIContext& ctx) {

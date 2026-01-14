@@ -31,7 +31,16 @@ void UIPanel::render(UIRenderer& renderer) {
 
     // Retained mode: only publish if changed
     int layer = renderer.nextLayer();
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, layer);
+
+    // Check if fully transparent (alpha channel = 0)
+    bool isFullyTransparent = (bgColor & 0xFF) == 0;
+
+    // Render background (texture or solid color) - skip if fully transparent
+    if (useTexture && textureId > 0) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, textureId, tintColor, layer);
+    } else if (!isFullyTransparent) {
+        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, layer);
+    }
 
     // Render children on top
     renderChildren(renderer);

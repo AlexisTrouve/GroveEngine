@@ -49,6 +49,15 @@ public:
     float fontSize = 16.0f;
     float spacing = 8.0f;  // Space between box and text
 
+    // Texture support
+    int boxTextureId = 0;              // Box texture ID (0 = solid color)
+    bool useBoxTexture = false;        // Use texture for box
+    uint32_t boxTintColor = 0xFFFFFFFF; // Tint for box texture
+
+    int checkTextureId = 0;            // Checkmark texture ID (0 = solid rect)
+    bool useCheckTexture = false;      // Use texture for checkmark
+    uint32_t checkTintColor = 0xFFFFFFFF; // Tint for checkmark texture
+
     // State
     bool isHovered = false;
     bool isPressed = false;

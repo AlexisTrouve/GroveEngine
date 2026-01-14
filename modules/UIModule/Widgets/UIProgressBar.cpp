@@ -30,16 +30,28 @@ void UIProgressBar::render(UIRenderer& renderer) {
 
     // Retained mode: only publish if changed
     int bgLayer = renderer.nextLayer();
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+    if (useBgTexture && bgTextureId > 0) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
+    } else {
+        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+    }
 
     // Render fill based on progress
     int fillLayer = renderer.nextLayer();
     if (horizontal) {
         float fillWidth = progress * width;
-        renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
+        if (useFillTexture && fillTextureId > 0) {
+            renderer.updateSprite(m_fillRenderId, absX, absY, fillWidth, height, fillTextureId, fillTintColor, fillLayer);
+        } else {
+            renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
+        }
     } else {
         float fillHeight = progress * height;
-        renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
+        if (useFillTexture && fillTextureId > 0) {
+            renderer.updateSprite(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillTextureId, fillTintColor, fillLayer);
+        } else {
+            renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
+        }
     }
 
     // Render percentage text if enabled
