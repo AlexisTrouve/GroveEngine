@@ -494,14 +494,24 @@ public:
             m_gameIO->publish("input:mouse:wheel", std::move(msg));
         }
         else if (e.type == SDL_KEYDOWN) {
-            auto msg = std::make_unique<JsonDataNode>("key");
-            msg->setInt("keyCode", e.key.keysym.sym);
-            msg->setInt("scancode", e.key.keysym.scancode);
-            msg->setBool("pressed", true);
-            msg->setInt("char", 0);
-            m_gameIO->publish("input:keyboard", std::move(msg));
+            // Only publish special keys (non-printable), printable chars come from SDL_TEXTINPUT
+            int keyCode = e.key.keysym.sym;
+            bool isSpecialKey = (keyCode == SDLK_BACKSPACE || keyCode == SDLK_DELETE ||
+                                keyCode == SDLK_RETURN || keyCode == SDLK_LEFT ||
+                                keyCode == SDLK_RIGHT || keyCode == SDLK_HOME ||
+                                keyCode == SDLK_END || keyCode == SDLK_UP ||
+                                keyCode == SDLK_DOWN || keyCode == SDLK_TAB);
+
+            if (isSpecialKey) {
+                auto msg = std::make_unique<JsonDataNode>("key");
+                msg->setInt("keyCode", keyCode);
+                msg->setBool("pressed", true);
+                msg->setInt("char", 0);
+                m_gameIO->publish("input:keyboard", std::move(msg));
+            }
         }
         else if (e.type == SDL_TEXTINPUT) {
+            // Printable characters come here
             auto msg = std::make_unique<JsonDataNode>("key");
             msg->setInt("keyCode", 0);
             msg->setBool("pressed", true);

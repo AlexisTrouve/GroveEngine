@@ -3,6 +3,7 @@
 #include "../Rendering/UIRenderer.h"
 #include <algorithm>
 #include <cctype>
+#include <spdlog/spdlog.h>
 
 namespace grove {
 
@@ -63,6 +64,14 @@ void UITextInput::render(UIRenderer& renderer) {
     // Render border
     int borderLayer = renderer.nextLayer();
     uint32_t borderColor = isFocused ? style.focusBorderColor : style.borderColor;
+
+    static int renderCount = 0;
+    if (renderCount < 5) {
+        spdlog::info("🎨 UITextInput '{}' render: isFocused={}, borderColor=0x{:08X} (focus=0x{:08X}, normal=0x{:08X})",
+            id, isFocused, borderColor, style.focusBorderColor, style.borderColor);
+        renderCount++;
+    }
+
     renderer.updateRect(m_borderRenderId, absX, absY + height - style.borderWidth,
                        width, style.borderWidth, borderColor, borderLayer);
 
@@ -199,6 +208,7 @@ void UITextInput::gainFocus() {
         isFocused = true;
         cursorBlinkTimer = 0.0f;
         cursorVisible = true;
+        spdlog::info("🎯 UITextInput '{}' gainFocus() called - isFocused={}", id, isFocused);
     }
 }
 

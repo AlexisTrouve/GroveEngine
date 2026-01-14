@@ -3,6 +3,7 @@
 #include "../Widgets/UIButton.h"
 #include "../Widgets/UISlider.h"
 #include "../Widgets/UICheckbox.h"
+#include "../Widgets/UITextInput.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -49,6 +50,12 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
     else if (type == "checkbox") {
         UICheckbox* checkbox = static_cast<UICheckbox*>(widget);
         if (checkbox->containsPoint(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "textinput") {
+        UITextInput* textInput = static_cast<UITextInput*>(widget);
+        if (textInput->containsPoint(x, y)) {
             return widget;
         }
     }
@@ -133,6 +140,14 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
 
         if (handled) {
             return target;  // Return for value_changed publishing
+        }
+    }
+    else if (type == "textinput") {
+        UITextInput* textInput = static_cast<UITextInput*>(target);
+        handled = textInput->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
+
+        if (handled) {
+            return target;  // Return for focus handling in UIModule
         }
     }
 

@@ -208,6 +208,9 @@ void UIModule::updateUI(float deltaTime) {
             // Publish type-specific events
             std::string widgetType = clickedWidget->getType();
 
+            m_logger->info("🖱️ Widget clicked: id='{}', type='{}', mousePressed={}",
+                clickedWidget->id, widgetType, m_context->mousePressed);
+
             // Handle focus for text inputs
             if (widgetType == "textinput" && m_context->mousePressed) {
                 UITextInput* textInput = static_cast<UITextInput*>(clickedWidget);
