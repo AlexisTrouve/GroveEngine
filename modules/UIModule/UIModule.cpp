@@ -9,10 +9,12 @@
 #include "Widgets/UICheckbox.h"
 #include "Widgets/UITextInput.h"
 #include "Widgets/UIScrollPanel.h"
+#include "Widgets/UILabel.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <chrono>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -80,6 +82,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         m_io->subscribe("ui:load");        // Load new layout
         m_io->subscribe("ui:set_value");   // Set widget value
         m_io->subscribe("ui:set_visible"); // Show/hide widget
+        m_io->subscribe("ui:set_text");    // Set widget text (for labels)
     }
 
     m_logger->info("UIModule initialized");
@@ -144,6 +147,36 @@ void UIModule::processInput() {
             if (m_root) {
                 if (UIWidget* widget = m_root->findById(widgetId)) {
                     widget->visible = visible;
+                }
+            }
+        }
+        else if (msg.topic == "ui:set_text") {
+            // Timestamp on receive
+            auto now = std::chrono::high_resolution_clock::now();
+            auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+
+            std::string widgetId = msg.data->getString("id", "");
+            std::string text = msg.data->getString("text", "");
+
+            // Extract original timestamp if present
+            double t0 = msg.data->getDouble("_timestamp_publish", 0);
+            if (t0 > 0) {
+                double latency = (micros - t0) / 1000.0; // Convert to milliseconds
+                m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs (latency from T0: {:.2f} ms)", micros, latency);
+            } else {
+                m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs", micros);
+            }
+
+            if (m_root) {
+                if (UIWidget* widget = m_root->findById(widgetId)) {
+                    // Only labels support text updates
+                    if (widget->getType() == "label") {
+                        UILabel* label = static_cast<UILabel*>(widget);
+                        label->text = text;
+                        m_logger->info("Updated text for label '{}': '{}'", widgetId, text);
+                    } else {
+                        m_logger->warn("Widget '{}' is not a label, cannot set text", widgetId);
+                    }
                 }
             }
         }
@@ -257,6 +290,13 @@ void UIModule::updateUI(float deltaTime) {
                 valueEvent->setDouble("value", slider->getValue());
                 valueEvent->setDouble("min", slider->minValue);
                 valueEvent->setDouble("max", slider->maxValue);
+
+                // Add timestamp for latency measurement
+                auto now = std::chrono::high_resolution_clock::now();
+                auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+                valueEvent->setDouble("_timestamp_publish", static_cast<double>(micros));
+
+                m_logger->info("⏱️ [T0] UIModule publishing ui:value_changed at {} µs", micros);
                 m_io->publish("ui:value_changed", std::move(valueEvent));
 
                 // Publish onChange action if specified

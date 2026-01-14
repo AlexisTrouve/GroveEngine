@@ -1,0 +1,376 @@
+# UIModule - Widget Reference
+
+Complete reference for all available widgets and their properties.
+
+## Widget Overview
+
+| Widget | Purpose | Events |
+|--------|---------|--------|
+| **UIButton** | Clickable button | `ui:click`, `ui:action` |
+| **UILabel** | Static/dynamic text | - |
+| **UIPanel** | Container widget | - |
+| **UICheckbox** | Toggle checkbox | `ui:value_changed` |
+| **UISlider** | Value slider | `ui:value_changed` |
+| **UITextInput** | Text entry field | `ui:value_changed`, `ui:text_submitted` |
+| **UIProgressBar** | Progress indicator | - |
+| **UIImage** | Sprite/texture display | - |
+| **UIScrollPanel** | Scrollable container | `ui:scroll` |
+| **UITooltip** | Hover tooltip | - |
+
+## Common Properties
+
+All widgets support these base properties:
+
+```json
+{
+  "type": "WidgetType",
+  "id": "unique_id",
+  "x": 0,
+  "y": 0,
+  "width": 100,
+  "height": 100,
+  "visible": true,
+  "tooltip": "Optional tooltip text"
+}
+```
+
+## UIButton
+
+Clickable button with hover/press states.
+
+```json
+{
+  "type": "button",
+  "id": "my_button",
+  "x": 100,
+  "y": 100,
+  "width": 200,
+  "height": 50,
+  "text": "Click Me",
+  "onClick": "button_action",
+  "style": {
+    "normal": {
+      "bgColor": "0x0984e3FF",
+      "textColor": "0xFFFFFFFF",
+      "textureId": 0
+    },
+    "hover": {
+      "bgColor": "0x74b9ffFF",
+      "textColor": "0xFFFFFFFF"
+    },
+    "pressed": {
+      "bgColor": "0x0652a1FF",
+      "textColor": "0xFFFFFFFF"
+    }
+  }
+}
+```
+
+**Properties:**
+- `text` - Button label text
+- `onClick` - Action name published to `ui:action`
+- `style` - Visual states (normal, hover, pressed)
+  - `bgColor` - Background color (hex RGBA)
+  - `textColor` - Text color (hex RGBA)
+  - `textureId` - Sprite texture ID (0 = solid color)
+
+**Events:**
+- `ui:click` - `{widgetId, x, y}`
+- `ui:action` - `{widgetId, action}` where action = onClick value
+
+## UILabel
+
+Static or dynamic text display.
+
+```json
+{
+  "type": "label",
+  "id": "my_label",
+  "x": 100,
+  "y": 100,
+  "width": 300,
+  "height": 50,
+  "text": "Hello World",
+  "style": {
+    "fontSize": 24,
+    "color": "0xFFFFFFFF"
+  }
+}
+```
+
+**Properties:**
+- `text` - Label text (can be updated via `ui:set_text`)
+- `style.fontSize` - Font size in pixels
+- `style.color` - Text color (hex RGBA)
+
+**Dynamic Updates:**
+```cpp
+auto msg = std::make_unique<JsonDataNode>("set_text");
+msg->setString("id", "my_label");
+msg->setString("text", "New Text");
+m_io->publish("ui:set_text", std::move(msg));
+```
+
+## UIPanel
+
+Container widget with background color.
+
+```json
+{
+  "type": "panel",
+  "id": "my_panel",
+  "x": 0,
+  "y": 0,
+  "width": 400,
+  "height": 300,
+  "style": {
+    "bgColor": "0x2d3436FF"
+  }
+}
+```
+
+**Properties:**
+- `style.bgColor` - Background color (hex RGBA, use `0x00000000` for transparent)
+
+## UICheckbox
+
+Toggle checkbox with check state.
+
+```json
+{
+  "type": "checkbox",
+  "id": "enable_vsync",
+  "x": 100,
+  "y": 100,
+  "width": 24,
+  "height": 24,
+  "checked": true,
+  "text": "Enable VSync"
+}
+```
+
+**Properties:**
+- `checked` - Initial checked state
+- `text` - Optional label text next to checkbox
+
+**Events:**
+- `ui:value_changed` - `{widgetId, checked}`
+
+## UISlider
+
+Horizontal or vertical value slider.
+
+```json
+{
+  "type": "slider",
+  "id": "volume_slider",
+  "x": 100,
+  "y": 100,
+  "width": 300,
+  "height": 24,
+  "min": 0.0,
+  "max": 100.0,
+  "value": 50.0,
+  "orientation": "horizontal"
+}
+```
+
+**Properties:**
+- `min` - Minimum value
+- `max` - Maximum value
+- `value` - Current value
+- `orientation` - "horizontal" or "vertical"
+
+**Events:**
+- `ui:value_changed` - `{widgetId, value, min, max}`
+
+## UITextInput
+
+Text entry field with cursor and focus state.
+
+```json
+{
+  "type": "textinput",
+  "id": "player_name",
+  "x": 100,
+  "y": 100,
+  "width": 300,
+  "height": 40,
+  "text": "",
+  "placeholder": "Enter name...",
+  "maxLength": 32,
+  "style": {
+    "fontSize": 20,
+    "textColor": "0xFFFFFFFF",
+    "bgColor": "0x34495eFF",
+    "borderColor": "0x666666FF"
+  }
+}
+```
+
+**Properties:**
+- `text` - Initial text
+- `placeholder` - Placeholder text when empty
+- `maxLength` - Maximum character limit
+- `style.fontSize` - Font size
+- `style.textColor` - Text color
+- `style.bgColor` - Background color
+- `style.borderColor` - Border color (changes to blue when focused)
+
+**Events:**
+- `ui:value_changed` - `{widgetId, text}` - on each character change
+- `ui:text_submitted` - `{widgetId, text}` - on Enter key
+
+## UIProgressBar
+
+Progress indicator (0.0 to 1.0).
+
+```json
+{
+  "type": "progressbar",
+  "id": "loading_bar",
+  "x": 100,
+  "y": 100,
+  "width": 400,
+  "height": 30,
+  "value": 0.65,
+  "style": {
+    "bgColor": "0x34495eFF",
+    "fillColor": "0x2ecc71FF"
+  }
+}
+```
+
+**Properties:**
+- `value` - Progress value (0.0 = empty, 1.0 = full)
+- `style.bgColor` - Background color
+- `style.fillColor` - Fill color
+
+**Dynamic Updates:**
+```cpp
+auto msg = std::make_unique<JsonDataNode>("set_value");
+msg->setString("id", "loading_bar");
+msg->setDouble("value", 0.75);  // 75%
+m_io->publish("ui:set_value", std::move(msg));
+```
+
+## UIImage
+
+Display a sprite/texture.
+
+```json
+{
+  "type": "image",
+  "id": "logo",
+  "x": 100,
+  "y": 100,
+  "width": 200,
+  "height": 200,
+  "textureId": 5
+}
+```
+
+**Properties:**
+- `textureId` - Texture ID from BgfxRenderer
+
+## UIScrollPanel
+
+Scrollable container with vertical scrollbar.
+
+```json
+{
+  "type": "scrollpanel",
+  "id": "inventory_panel",
+  "x": 100,
+  "y": 100,
+  "width": 400,
+  "height": 600,
+  "contentHeight": 1200,
+  "scrollY": 0.0,
+  "scrollbarWidth": 20,
+  "style": {
+    "bgColor": "0x2d3436FF"
+  }
+}
+```
+
+**Properties:**
+- `contentHeight` - Total height of scrollable content
+- `scrollY` - Initial scroll position (0.0 = top)
+- `scrollbarWidth` - Width of scrollbar in pixels
+- `style.bgColor` - Background color
+
+**Events:**
+- `ui:scroll` - `{widgetId, scrollY}`
+
+## UITooltip
+
+Hover tooltip (managed automatically by UIModule).
+
+```json
+{
+  "type": "tooltip",
+  "id": "help_tooltip",
+  "x": 100,
+  "y": 100,
+  "width": 200,
+  "height": 60,
+  "text": "This is a helpful tooltip",
+  "visible": false,
+  "style": {
+    "fontSize": 14,
+    "bgColor": "0x2c3e50FF",
+    "textColor": "0xFFFFFFFF"
+  }
+}
+```
+
+**Note:** Tooltips are automatically shown when `tooltip` property is set on any widget:
+
+```json
+{
+  "type": "button",
+  "id": "save_button",
+  "tooltip": "Save your progress",
+  ...
+}
+```
+
+## Creating Custom Widgets
+
+1. Create `Widgets/MyWidget.h/.cpp`
+2. Inherit from `UIWidget`
+3. Implement required methods:
+
+```cpp
+class MyWidget : public UIWidget {
+public:
+    void update(UIContext& ctx, float deltaTime) override;
+    void render(UIRenderer& renderer) override;
+    std::string getType() const override { return "mywidget"; }
+
+    // Event handlers
+    bool onMouseButton(int button, bool pressed, float x, float y) override;
+    void onMouseMove(float x, float y) override;
+};
+```
+
+4. Register in `UITree::createWidget()`:
+
+```cpp
+if (type == "mywidget") {
+    auto widget = std::make_unique<MyWidget>();
+    // ... configure from JSON
+    return widget;
+}
+```
+
+5. Use in JSON layouts:
+
+```json
+{
+  "type": "mywidget",
+  "id": "custom1",
+  ...
+}
+```

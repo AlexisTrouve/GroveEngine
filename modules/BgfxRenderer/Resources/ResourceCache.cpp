@@ -3,6 +3,7 @@
 #include "../RHI/RHIDevice.h"
 #include <mutex>
 #include <shared_mutex>
+#include <spdlog/spdlog.h>
 
 namespace grove {
 
@@ -26,8 +27,19 @@ rhi::ShaderHandle ResourceCache::getShader(const std::string& name) const {
 
 rhi::TextureHandle ResourceCache::getTextureById(uint16_t id) const {
     std::shared_lock lock(m_mutex);
+    static bool logged = false;
+    if (!logged && id > 0) {
+        spdlog::info("ResourceCache::getTextureById({}) - cache size: {}", id, m_textureById.size());
+        logged = true;
+    }
     if (id < m_textureById.size()) {
-        return m_textureById[id];
+        auto handle = m_textureById[id];
+        static bool handleLogged = false;
+        if (!handleLogged && id > 0) {
+            spdlog::info("  -> Found handle with id: {}, valid: {}", handle.id, handle.isValid());
+            handleLogged = true;
+        }
+        return handle;
     }
     return rhi::TextureHandle{}; // Invalid handle
 }
@@ -41,12 +53,37 @@ uint16_t ResourceCache::getTextureId(const std::string& path) const {
     return 0; // Invalid ID
 }
 
+uint16_t ResourceCache::registerTexture(rhi::TextureHandle handle, const std::string& name) {
+    if (!handle.isValid()) {
+        return 0; // Invalid handle
+    }
+
+    std::unique_lock lock(m_mutex);
+
+    // Assign new ID
+    uint16_t newId = static_cast<uint16_t>(m_textureById.size());
+    if (newId == 0) {
+        // Reserve index 0 as invalid/default
+        m_textureById.push_back(rhi::TextureHandle{});
+        newId = 1;
+    }
+
+    m_textureById.push_back(handle);
+    if (!name.empty()) {
+        m_pathToTextureId[name] = newId;
+        m_textures[name] = handle;
+    }
+
+    return newId;
+}
+
 uint16_t ResourceCache::loadTextureWithId(rhi::IRHIDevice& device, const std::string& path) {
     // Check if already loaded
     {
         std::shared_lock lock(m_mutex);
         auto it = m_pathToTextureId.find(path);
         if (it != m_pathToTextureId.end()) {
+            spdlog::info("📋 ResourceCache: Texture '{}' already loaded with ID {}", path, it->second);
             return it->second;
         }
     }
@@ -55,6 +92,7 @@ uint16_t ResourceCache::loadTextureWithId(rhi::IRHIDevice& device, const std::st
     auto result = TextureLoader::loadFromFile(device, path);
 
     if (!result.success) {
+        spdlog::error("❌ ResourceCache: FAILED to load texture '{}': {}", path, result.error);
         return 0; // Invalid ID
     }
 
@@ -81,6 +119,8 @@ uint16_t ResourceCache::loadTextureWithId(rhi::IRHIDevice& device, const std::st
         m_textureById.push_back(result.handle);
         m_pathToTextureId[path] = newId;
         m_textures[path] = result.handle;
+
+        spdlog::info("✅ ResourceCache: Texture '{}' registered with ID {} (handle={})", path, newId, result.handle.id);
 
         return newId;
     }

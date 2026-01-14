@@ -25,6 +25,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <chrono>
 
 #include "BgfxRendererModule.h"
 #include "UIModule.h"
@@ -433,10 +434,10 @@ public:
             config.setInt("windowHeight", 768);
             // config.setString("backend", "d3d11");  // LET BGFX CHOOSE LIKE test_button_with_png!
             config.setBool("vsync", true);
-            // Load textures for sprite buttons
-            config.setString("texture1", "../../assets/textures/5oxaxt1vo2f91.jpg");  // Car
-            config.setString("texture2", "../../assets/textures/1f440.png");  // Eyes emoji
-            config.setString("texture3", "../../assets/textures/IconDesigner.png");  // Icon
+            // Load textures for sprite buttons (paths relative to project root)
+            config.setString("texture1", "assets/textures/5oxaxt1vo2f91.jpg");  // Car
+            config.setString("texture2", "assets/textures/1f440.png");  // Eyes emoji
+            config.setString("texture3", "assets/textures/IconDesigner.png");  // Icon
             m_renderer->setConfiguration(config, m_rendererIO, nullptr);
         }
         m_logger->info("✓ Loaded 3 textures for sprite buttons (IDs: 1, 2, 3)");
@@ -606,10 +607,38 @@ private:
                            std::to_string(static_cast<int>(y)) + ")";
             }
             else if (msg.topic == "ui:value_changed") {
+                // Timestamp on receive
+                auto now = std::chrono::high_resolution_clock::now();
+                auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+
                 std::string widgetId = msg.data->getString("widgetId", "");
                 if (widgetId == "volume_slider") {
                     double value = msg.data->getDouble("value", 0);
                     logEntry = "Volume: " + std::to_string(static_cast<int>(value)) + "%";
+
+                    // Extract original timestamp
+                    double t0 = msg.data->getDouble("_timestamp_publish", 0);
+                    if (t0 > 0) {
+                        double latency = (micros - t0) / 1000.0; // ms
+                        m_logger->info("⏱️ [T1] Game received ui:value_changed at {} µs (latency from T0: {:.2f} ms)", micros, latency);
+                    }
+
+                    // Update the slider label text
+                    auto updateMsg = std::make_unique<JsonDataNode>("set_text");
+                    updateMsg->setString("id", "slider_label");
+                    updateMsg->setString("text", "Volume: " + std::to_string(static_cast<int>(value)) + "%");
+
+                    // Forward original timestamp
+                    if (t0 > 0) {
+                        updateMsg->setDouble("_timestamp_publish", t0);
+                    }
+
+                    // Timestamp before publish
+                    auto now2 = std::chrono::high_resolution_clock::now();
+                    auto micros2 = std::chrono::duration_cast<std::chrono::microseconds>(now2.time_since_epoch()).count();
+                    m_logger->info("⏱️ [T2] Game publishing ui:set_text at {} µs (processing time: {:.2f} ms)", micros2, (micros2 - micros) / 1000.0);
+
+                    m_gameIO->publish("ui:set_text", std::move(updateMsg));
                 }
                 else if (widgetId.find("chk_") == 0) {
                     bool checked = msg.data->getBool("checked", false);

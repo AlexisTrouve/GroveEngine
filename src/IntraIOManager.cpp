@@ -13,10 +13,10 @@ IntraIOManager::IntraIOManager() {
     logger = stillhammer::createDomainLogger("IntraIOManager", "io", config);
     logger->info("🌐🔗 IntraIOManager created - Central message router initialized");
 
-    // TEMPORARY: Disable batch thread to debug Windows crash
-    batchThreadRunning = false;
-    // batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
-    logger->info("⚠️ Batch flush thread DISABLED (debugging Windows crash)");
+    // Start batch flush thread for low-latency message delivery
+    batchThreadRunning = true;
+    batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
+    logger->info("✅ Batch flush thread started for push-based message delivery");
 }
 
 IntraIOManager::~IntraIOManager() {

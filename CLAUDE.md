@@ -12,7 +12,12 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 **Module-specific:**
 - **[BgfxRenderer README](modules/BgfxRenderer/README.md)** - 2D rendering module (sprites, text, tilemap, particles)
 - **[InputModule README](modules/InputModule/README.md)** - Input handling (mouse, keyboard, gamepad)
-- **[UIModule README](modules/UIModule/README.md)** - User interface system (buttons, panels, scrolling, tooltips)
+- **[UIModule README](modules/UIModule/README.md)** - User interface system overview
+
+**UIModule Documentation (⚠️ READ BEFORE WORKING ON UI):**
+- **[UI Widgets](docs/UI_WIDGETS.md)** - Widget properties, JSON configuration, custom widgets
+- **[UI Topics](docs/UI_TOPICS.md)** - IIO topics reference and usage patterns
+- **[UI Architecture](docs/UI_ARCHITECTURE.md)** - Threading model, limitations, design principles
 - **[UI Rendering](docs/UI_RENDERING.md)** - Retained mode rendering architecture
 
 ## Available Modules
@@ -36,6 +41,10 @@ cmake --build build -j4
 
 # Run all tests (23+ tests)
 cd build && ctest --output-on-failure
+
+# Run visual tests (IMPORTANT: always run from project root for correct asset paths)
+./build/tests/test_ui_showcase      # UI showcase with all widgets
+./build/tests/test_renderer_showcase # Renderer showcase (sprites, text, particles)
 
 # Build with ThreadSanitizer
 cmake -DGROVE_ENABLE_TSAN=ON -B build-tsan
@@ -100,7 +109,8 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 ### UIModule
 - **UIRenderer**: Publishes render commands to BgfxRenderer via IIO (layer 1000+)
 - **Widgets**: UIButton, UIPanel, UILabel, UICheckbox, UISlider, UITextInput, UIProgressBar, UIImage, UIScrollPanel, UITooltip
-- **IIO Topics**: Consumes `input:*`, publishes `ui:click`, `ui:action`, `ui:value_changed`, etc.
+- **IIO Topics**: Consumes `input:*`, `ui:set_text`, `ui:set_visible`; publishes `ui:click`, `ui:action`, `ui:value_changed`, etc.
+- **⚠️ Before modifying UI code:** Read [UI Architecture](docs/UI_ARCHITECTURE.md) for threading model, [UI Widgets](docs/UI_WIDGETS.md) for widget properties, [UI Topics](docs/UI_TOPICS.md) for IIO patterns
 
 ### InputModule
 - **Backends**: SDLBackend (mouse, keyboard, gamepad Phase 2)
