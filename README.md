@@ -1,17 +1,17 @@
 # GroveEngine 🌳
 
-**Modular C++ Engine Architecture for Rapid Development with Hot-Reload**
+**Experimental Modular C++ Engine Architecture for Rapid Prototyping**
 
-GroveEngine is a lightweight, modular engine architecture designed for blazing-fast development iteration (0.4ms hot-reload validated) and optimized for Claude Code workflows.
+GroveEngine is a lightweight, modular engine architecture designed for blazing-fast development iteration (0.4ms hot-reload validated) and optimized for AI-assisted prototyping. Currently in **development stage** - suitable for experimentation and learning, not production games.
 
 ## Key Features
 
 - 🔥 **Hot-Reload 0.4ms** - Validated blazing-fast module reloading
 - 🧩 **Modular Architecture** - Clean separation via interfaces (IEngine, IModule, IIO, IModuleSystem)
 - 🚀 **Development Velocity** - Edit → Build → Hot-reload < 1 second total
-- 🤖 **Claude Code Optimized** - 200-300 line modules for AI-friendly development
-- 📦 **Autonomous Builds** - Each module builds independently (`cmake .`)
-- 🔌 **Progressive Scaling** - Debug → Production → Cloud without rewriting
+- 🤖 **AI-Assisted Development** - 200-300 line modules optimized for Claude Code
+- 📦 **Autonomous Builds** - Each module builds independently
+- ⚠️ **Experimental** - Non-deterministic, development-focused architecture
 
 ## Architecture Overview
 
@@ -31,7 +31,9 @@ grove::IEngine (Orchestration)
 
 ## Current Status
 
-### ✅ Production-Ready Components
+⚠️ **Development Stage**: GroveEngine is currently **development-ready** but **not production-ready**. The engine is non-deterministic and suited for prototyping, experimentation, and rapid iteration. Production use requires significant additional work (see Roadmap).
+
+### ✅ Implemented Components
 - **Core Engine**:
   - `DebugEngine` - Comprehensive logging and health monitoring
   - `SequentialModuleSystem` - Single-threaded module execution
@@ -58,11 +60,20 @@ grove::IEngine (Orchestration)
 
 - **Test Suite**: 20+ integration tests + visual demos
 
-### 🚧 Roadmap
+### ⚠️ Known Limitations
+- **Non-Deterministic Execution**: Module execution order not guaranteed
+- **Single-Threaded Only**: Only SequentialModuleSystem implemented
+- **No Determinism Guarantees**: Not suitable for networked games or replays
+- **Development Focus**: Optimized for rapid iteration, not stability
+
+### 🚧 Roadmap to Production
+- **Deterministic Execution**: Predictable module execution order
 - **Module Systems**: ThreadedModuleSystem, MultithreadedModuleSystem
 - **IO Systems**: LocalIO (IPC), NetworkIO (distributed)
 - **Input**: Gamepad support (Phase 2)
 - **Renderer**: Advanced text rendering, post-processing effects
+- **Stability**: Error recovery, graceful degradation
+- **Performance**: Profiling, optimization, memory pooling
 
 ## Quick Start
 
@@ -196,10 +207,12 @@ Complex behavior emerges from the interaction of simple, well-defined modules.
 - State persistence: **100% success rate**
 - Classification: **🚀 BLAZING** (Theoretical maximum achieved)
 
-## Projects Using GroveEngine
+## Origin & Development
 
-- **AISSIA** - AI Smart Schedule & Interactive Assistant (in development)
-- **WarFactory** (original architecture source)
+- **WarFactory** - Original architecture source and inspiration
+- **AISSIA** - Experimental AI assistant project (development/testing)
+
+GroveEngine is currently used for prototyping and experimentation, not production deployments.
 
 ## License
 
