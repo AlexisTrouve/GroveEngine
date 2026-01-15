@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test_07_limits:*)",
+      "Bash(make:*)",
+      "Bash(ldd:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

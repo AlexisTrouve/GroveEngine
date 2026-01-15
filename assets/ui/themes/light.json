@@ -1,0 +1,63 @@
+{
+  "name": "light",
+  "colors": {
+    "primary": "0x2980b9FF",
+    "secondary": "0x27ae60FF",
+    "background": "0xecf0f1FF",
+    "surface": "0xFFFFFFFF",
+    "text": "0x2c3e50FF",
+    "textMuted": "0x7f8c8dFF",
+    "border": "0xbdc3c7FF",
+    "danger": "0xc0392bFF",
+    "warning": "0xe67e22FF",
+    "success": "0x229954FF"
+  },
+  "panel": {
+    "bgColor": "$background",
+    "padding": 15
+  },
+  "label": {
+    "textColor": "$text",
+    "fontSize": 16
+  },
+  "button": {
+    "padding": 10,
+    "fontSize": 16,
+    "borderRadius": 4,
+    "normal": {
+      "bgColor": "$primary",
+      "textColor": "0xFFFFFFFF"
+    },
+    "hover": {
+      "bgColor": "0x3498dbFF",
+      "textColor": "0xFFFFFFFF"
+    },
+    "pressed": {
+      "bgColor": "0x21618cFF",
+      "textColor": "0xFFFFFFFF"
+    },
+    "disabled": {
+      "bgColor": "$border",
+      "textColor": "$textMuted"
+    }
+  },
+  "slider": {
+    "bgColor": "$border",
+    "accentColor": "$primary",
+    "handleSize": 18
+  },
+  "checkbox": {
+    "bgColor": "$border",
+    "accentColor": "$secondary",
+    "textColor": "$text",
+    "fontSize": 16,
+    "boxSize": 24,
+    "spacing": 8
+  },
+  "progressbar": {
+    "bgColor": "$border",
+    "accentColor": "$secondary",
+    "textColor": "$text",
+    "fontSize": 14
+  }
+}

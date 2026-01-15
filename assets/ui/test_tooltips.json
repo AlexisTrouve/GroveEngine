@@ -1,0 +1,284 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "style": {
+    "bgColor": "0x1a1a1aFF"
+  },
+  "layout": {
+    "type": "vertical",
+    "spacing": 20,
+    "padding": 30
+  },
+  "children": [
+    {
+      "type": "label",
+      "text": "Tooltips Test - Hover over widgets!",
+      "tooltip": "This is the header label. Tooltips appear after 500ms hover.",
+      "style": {
+        "fontSize": 28.0,
+        "color": "0xFFFFFFFF"
+      }
+    },
+    {
+      "type": "panel",
+      "layout": {
+        "type": "horizontal",
+        "spacing": 15
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "btn_save",
+          "text": "Save",
+          "tooltip": "Save your current work to disk",
+          "onClick": "file:save",
+          "width": 120,
+          "height": 40,
+          "style": {
+            "fontSize": 16.0,
+            "normal": {
+              "bgColor": "0x27ae60FF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0x2ecc71FF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "pressed": {
+              "bgColor": "0x1e8449FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        },
+        {
+          "type": "button",
+          "id": "btn_load",
+          "text": "Load",
+          "tooltip": "Load a previously saved file",
+          "onClick": "file:load",
+          "width": 120,
+          "height": 40,
+          "style": {
+            "fontSize": 16.0,
+            "normal": {
+              "bgColor": "0x2980b9FF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0x3498dbFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "pressed": {
+              "bgColor": "0x1f618dFF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        },
+        {
+          "type": "button",
+          "id": "btn_delete",
+          "text": "Delete",
+          "tooltip": "WARNING: This will permanently delete your data!",
+          "onClick": "file:delete",
+          "width": 120,
+          "height": 40,
+          "style": {
+            "fontSize": 16.0,
+            "normal": {
+              "bgColor": "0xc0392bFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "hover": {
+              "bgColor": "0xe74c3cFF",
+              "textColor": "0xFFFFFFFF"
+            },
+            "pressed": {
+              "bgColor": "0x922b21FF",
+              "textColor": "0xFFFFFFFF"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "tooltip": "This panel contains settings controls",
+      "style": {
+        "bgColor": "0x2c3e50FF",
+        "padding": 15
+      },
+      "layout": {
+        "type": "vertical",
+        "spacing": 15
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Settings",
+          "style": {
+            "fontSize": 20.0,
+            "color": "0xecf0f1FF"
+          }
+        },
+        {
+          "type": "panel",
+          "layout": {
+            "type": "horizontal",
+            "spacing": 10
+          },
+          "children": [
+            {
+              "type": "label",
+              "text": "Volume:",
+              "tooltip": "Master audio volume",
+              "style": {
+                "fontSize": 16.0,
+                "color": "0xecf0f1FF"
+              }
+            },
+            {
+              "type": "slider",
+              "id": "slider_volume",
+              "tooltip": "Drag to adjust volume (0-100)",
+              "min": 0.0,
+              "max": 100.0,
+              "value": 75.0,
+              "width": 400,
+              "height": 25,
+              "onChange": "settings:volume"
+            }
+          ]
+        },
+        {
+          "type": "checkbox",
+          "id": "check_fullscreen",
+          "text": "Fullscreen Mode",
+          "tooltip": "Toggle fullscreen display mode",
+          "checked": false,
+          "onChange": "settings:fullscreen",
+          "style": {
+            "fontSize": 16.0
+          }
+        },
+        {
+          "type": "checkbox",
+          "id": "check_vsync",
+          "text": "Enable VSync",
+          "tooltip": "Synchronize framerate with monitor refresh rate",
+          "checked": true,
+          "onChange": "settings:vsync",
+          "style": {
+            "fontSize": 16.0
+          }
+        },
+        {
+          "type": "checkbox",
+          "id": "check_autosave",
+          "text": "Auto-save",
+          "tooltip": "Automatically save your progress every 5 minutes",
+          "checked": true,
+          "onChange": "settings:autosave",
+          "style": {
+            "fontSize": 16.0
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "layout": {
+        "type": "vertical",
+        "spacing": 10
+      },
+      "children": [
+        {
+          "type": "label",
+          "text": "Progress Indicators",
+          "style": {
+            "fontSize": 18.0,
+            "color": "0xFFFFFFFF"
+          }
+        },
+        {
+          "type": "progressbar",
+          "id": "progress_download",
+          "tooltip": "Download progress: 45%",
+          "value": 45.0,
+          "width": 700,
+          "height": 30,
+          "style": {
+            "bgColor": "0x34495eFF",
+            "fillColor": "0x3498dbFF"
+          }
+        },
+        {
+          "type": "progressbar",
+          "id": "progress_health",
+          "tooltip": "Player health: 80/100",
+          "value": 80.0,
+          "width": 700,
+          "height": 30,
+          "style": {
+            "bgColor": "0x34495eFF",
+            "fillColor": "0x2ecc71FF"
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "layout": {
+        "type": "horizontal",
+        "spacing": 20,
+        "padding": 10
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "btn_corner_tl",
+          "text": "Top Left",
+          "tooltip": "This tooltip should avoid the top-left corner",
+          "width": 100,
+          "height": 35
+        },
+        {
+          "type": "button",
+          "id": "btn_corner_tr",
+          "text": "Top Right",
+          "tooltip": "This tooltip should avoid the top-right corner",
+          "width": 100,
+          "height": 35
+        },
+        {
+          "type": "button",
+          "id": "btn_corner_bl",
+          "text": "Bottom Left",
+          "tooltip": "This tooltip should avoid the bottom-left corner",
+          "width": 100,
+          "height": 35
+        },
+        {
+          "type": "button",
+          "id": "btn_corner_br",
+          "text": "Bottom Right",
+          "tooltip": "This tooltip should avoid the bottom-right corner",
+          "width": 100,
+          "height": 35
+        }
+      ]
+    },
+    {
+      "type": "label",
+      "text": "Hover over any widget above to see its tooltip!",
+      "tooltip": "Even labels can have tooltips. Pretty cool, right?",
+      "style": {
+        "fontSize": 14.0,
+        "color": "0x95a5a6FF"
+      }
+    }
+  ]
+}

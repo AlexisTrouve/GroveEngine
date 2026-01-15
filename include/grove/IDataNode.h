@@ -1,0 +1,317 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <functional>
+#include "IDataValue.h"
+
+namespace grove {
+
+/**
+ * @brief Interface for a single node in the data tree
+ *
+ * Each node can have:
+ * - Children nodes (tree navigation)
+ * - Its own data blob (IDataValue)
+ * - Properties accessible by name with type safety
+ */
+class IDataNode {
+public:
+    virtual ~IDataNode() = default;
+
+    // ========================================
+    // TREE NAVIGATION
+    // ========================================
+
+    /**
+     * @brief Get direct child by name (transfers ownership)
+     * @param name Exact name of the child
+     * @return Child node or nullptr if not found
+     * @warning This removes the child from the tree. Use getChildReadOnly() for non-destructive reads.
+     */
+    virtual std::unique_ptr<IDataNode> getChild(const std::string& name) = 0;
+
+    /**
+     * @brief Get direct child by name (read-only, no ownership transfer)
+     * @param name Exact name of the child
+     * @return Raw pointer to child node or nullptr if not found
+     * @note The returned pointer is valid as long as the parent node exists and the child isn't removed.
+     */
+    virtual IDataNode* getChildReadOnly(const std::string& name) = 0;
+
+    /**
+     * @brief Get names of all direct children
+     * @return Vector of child names
+     */
+    virtual std::vector<std::string> getChildNames() = 0;
+
+    /**
+     * @brief Check if this node has any children
+     * @return true if children exist
+     */
+    virtual bool hasChildren() = 0;
+
+    /**
+     * @brief Check if this node has a direct child with the given name
+     * @param name Exact name of the child to check
+     * @return true if child exists
+     */
+    virtual bool hasChild(const std::string& name) const = 0;
+
+    // ========================================
+    // EXACT SEARCH IN CHILDREN
+    // ========================================
+
+    /**
+     * @brief Find all children with exact name (direct children only)
+     * @param name Exact name to search for
+     * @return Vector of matching child nodes
+     */
+    virtual std::vector<IDataNode*> getChildrenByName(const std::string& name) = 0;
+
+    /**
+     * @brief Check if any children have the exact name
+     * @param name Exact name to search for
+     * @return true if found
+     */
+    virtual bool hasChildrenByName(const std::string& name) const = 0;
+
+    /**
+     * @brief Get first child with exact name
+     * @param name Exact name to search for
+     * @return First matching child or nullptr
+     */
+    virtual IDataNode* getFirstChildByName(const std::string& name) = 0;
+
+    // ========================================
+    // PATTERN MATCHING SEARCH (DEEP SEARCH IN WHOLE SUBTREE)
+    // ========================================
+
+    /**
+     * @brief Find all nodes in subtree matching pattern
+     * @param pattern Pattern with wildcards (* supported)
+     * @return Vector of matching nodes in entire subtree
+     *
+     * Examples:
+     * - "component*" matches "component_armor", "component_engine"
+     * - "*heavy*" matches "tank_heavy_mk1", "artillery_heavy"
+     * - "model_*" matches "model_01", "model_02"
+     */
+    virtual std::vector<IDataNode*> getChildrenByNameMatch(const std::string& pattern) = 0;
+
+    /**
+     * @brief Check if any nodes in subtree match pattern
+     * @param pattern Pattern with wildcards
+     * @return true if any matches found
+     */
+    virtual bool hasChildrenByNameMatch(const std::string& pattern) const = 0;
+
+    /**
+     * @brief Get first node in subtree matching pattern
+     * @param pattern Pattern with wildcards
+     * @return First matching node or nullptr
+     */
+    virtual IDataNode* getFirstChildByNameMatch(const std::string& pattern) = 0;
+
+    // ========================================
+    // QUERY BY PROPERTIES
+    // ========================================
+
+    /**
+     * @brief Query nodes in subtree by property value
+     * @param propName Property name to check
+     * @param predicate Function to test property value
+     * @return Vector of nodes where predicate returns true
+     *
+     * Example:
+     * // Find all tanks with armor > 150
+     * queryByProperty("armor", [](const IDataValue& val) {
+     *     return val.isNumber() && val.asInt() > 150;
+     * });
+     */
+    virtual std::vector<IDataNode*> queryByProperty(const std::string& propName,
+                                                   const std::function<bool(const IDataValue&)>& predicate) = 0;
+
+    // ========================================
+    // NODE'S OWN DATA
+    // ========================================
+
+    /**
+     * @brief Get this node's data blob
+     * @return Data value or null if no data
+     */
+    virtual std::unique_ptr<IDataValue> getData() const = 0;
+
+    /**
+     * @brief Check if this node has data
+     * @return true if data exists
+     */
+    virtual bool hasData() const = 0;
+
+    /**
+     * @brief Set this node's data
+     * @param data Data to set
+     */
+    virtual void setData(std::unique_ptr<IDataValue> data) = 0;
+
+    // ========================================
+    // TYPED DATA ACCESS BY PROPERTY NAME
+    // ========================================
+
+    /**
+     * @brief Get string property from this node's data
+     * @param name Property name
+     * @param defaultValue Default if property not found or wrong type
+     * @return Property value or default
+     */
+    virtual std::string getString(const std::string& name, const std::string& defaultValue = "") const = 0;
+
+    /**
+     * @brief Get integer property from this node's data
+     * @param name Property name
+     * @param defaultValue Default if property not found or wrong type
+     * @return Property value or default
+     */
+    virtual int getInt(const std::string& name, int defaultValue = 0) const = 0;
+
+    /**
+     * @brief Get double property from this node's data
+     * @param name Property name
+     * @param defaultValue Default if property not found or wrong type
+     * @return Property value or default
+     */
+    virtual double getDouble(const std::string& name, double defaultValue = 0.0) const = 0;
+
+    /**
+     * @brief Get boolean property from this node's data
+     * @param name Property name
+     * @param defaultValue Default if property not found or wrong type
+     * @return Property value or default
+     */
+    virtual bool getBool(const std::string& name, bool defaultValue = false) const = 0;
+
+    /**
+     * @brief Check if property exists in this node's data
+     * @param name Property name
+     * @return true if property exists
+     */
+    virtual bool hasProperty(const std::string& name) const = 0;
+
+    // ========================================
+    // TYPED DATA MODIFICATION BY PROPERTY NAME
+    // ========================================
+
+    /**
+     * @brief Set string property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setString(const std::string& name, const std::string& value) = 0;
+
+    /**
+     * @brief Set integer property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setInt(const std::string& name, int value) = 0;
+
+    /**
+     * @brief Set double property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setDouble(const std::string& name, double value) = 0;
+
+    /**
+     * @brief Set boolean property in this node's data
+     * @param name Property name
+     * @param value Value to set
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setBool(const std::string& name, bool value) = 0;
+
+    // ========================================
+    // HASH SYSTEM FOR VALIDATION & SYNCHRO
+    // ========================================
+
+    /**
+     * @brief Get hash of this node's data only
+     * @return SHA256 hash of data blob
+     */
+    virtual std::string getDataHash() = 0;
+
+    /**
+     * @brief Get recursive hash of this node and all children
+     * @return SHA256 hash of entire subtree
+     */
+    virtual std::string getTreeHash() = 0;
+
+    /**
+     * @brief Get hash of specific child subtree
+     * @param childPath Path to child from this node
+     * @return SHA256 hash of child subtree
+     */
+    virtual std::string getSubtreeHash(const std::string& childPath) = 0;
+
+    // ========================================
+    // METADATA
+    // ========================================
+
+    /**
+     * @brief Get full path from root to this node
+     * @return Path string (e.g., "vehicles/tanks/heavy/model5")
+     */
+    virtual std::string getPath() const = 0;
+
+    /**
+     * @brief Get this node's name
+     * @return Node name
+     */
+    virtual std::string getName() const = 0;
+
+    /**
+     * @brief Get node type (extensible for templates/inheritance later)
+     * @return Node type identifier
+     */
+    virtual std::string getNodeType() const = 0;
+
+    // ========================================
+    // TREE MODIFICATION (For data/ and runtime/ nodes)
+    // ========================================
+
+    /**
+     * @brief Add or update a child node
+     * @param name Child name
+     * @param node Child node to add/replace
+     *
+     * If a child with this name already exists, it will be replaced.
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void setChild(const std::string& name, std::unique_ptr<IDataNode> node) = 0;
+
+    /**
+     * @brief Remove a child node
+     * @param name Child name to remove
+     * @return true if child was found and removed
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual bool removeChild(const std::string& name) = 0;
+
+    /**
+     * @brief Clear all children from this node
+     *
+     * Only works for data/ and runtime/ nodes. Config nodes are read-only.
+     */
+    virtual void clearChildren() = 0;
+};
+
+} // namespace grove

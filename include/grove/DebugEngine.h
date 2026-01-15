@@ -1,0 +1,133 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <atomic>
+#include <spdlog/spdlog.h>
+
+#include "IEngine.h"
+#include "IModuleSystem.h"
+#include "IIO.h"
+#include "IDataNode.h"
+#include "ModuleLoader.h"
+
+namespace grove {
+
+/**
+ * @brief Debug engine implementation with comprehensive logging
+ *
+ * DebugEngine provides maximum visibility into engine operations:
+ * - Verbose logging of all operations
+ * - Step-by-step execution capabilities
+ * - Module isolation and debugging
+ * - Performance metrics and timing
+ * - IIO health monitoring and reporting
+ * - Detailed socket management logging
+ */
+class DebugEngine : public IEngine {
+private:
+    std::shared_ptr<spdlog::logger> logger;
+    std::atomic<bool> running{false};
+    std::atomic<bool> debugPaused{false};
+
+    // Module management
+    std::vector<std::unique_ptr<IModuleSystem>> moduleSystems;
+    std::vector<std::string> moduleNames;
+    std::vector<std::unique_ptr<ModuleLoader>> moduleLoaders;
+
+    // Socket management
+    std::unique_ptr<IIO> coordinatorSocket;
+    std::vector<std::unique_ptr<IIO>> clientSockets;
+
+    // Performance tracking
+    std::chrono::high_resolution_clock::time_point lastFrameTime;
+    std::chrono::high_resolution_clock::time_point engineStartTime;
+    size_t frameCount = 0;
+
+    // Configuration
+    std::unique_ptr<IDataNode> engineConfig;
+
+    // Helper methods
+    void logEngineStart();
+    void logEngineShutdown();
+    void logFrameStart(float deltaTime);
+    void logFrameEnd(float frameTime);
+    void logModuleHealth();
+    void logSocketHealth();
+    void processModuleSystems(float deltaTime);
+    void processClientMessages();
+    void processCoordinatorMessages();
+    float calculateDeltaTime();
+    void validateConfiguration();
+
+public:
+    DebugEngine();
+    virtual ~DebugEngine();
+
+    // IEngine implementation
+    void initialize() override;
+    void run() override;
+    void step(float deltaTime) override;
+    void shutdown() override;
+    void loadModules(const std::string& configPath) override;
+    void registerMainSocket(std::unique_ptr<IIO> coordinatorSocket) override;
+    void registerNewClientSocket(std::unique_ptr<IIO> clientSocket) override;
+    EngineType getType() const override;
+
+    // Debug-specific methods
+    void pauseExecution();
+    void resumeExecution();
+    void stepSingleFrame();
+    bool isPaused() const;
+    std::unique_ptr<IDataNode> getDetailedStatus() const;
+    void setLogLevel(spdlog::level::level_enum level);
+
+    // Hot-reload methods
+    /**
+     * @brief Register a module from .so file with hot-reload support
+     * @param name Module identifier
+     * @param modulePath Path to .so file
+     * @param strategy Module system strategy (sequential, threaded, etc.)
+     */
+    void registerModuleFromFile(const std::string& name, const std::string& modulePath, ModuleSystemType strategy);
+
+    /**
+     * @brief Hot-reload a module by name
+     * @param name Module identifier to reload
+     *
+     * This performs zero-downtime hot-reload:
+     * 1. Extract state from current module
+     * 2. Unload old .so
+     * 3. Load new .so (recompiled version)
+     * 4. Restore state to new module
+     * 5. Continue execution without stopping engine
+     */
+    void reloadModule(const std::string& name);
+
+    /**
+     * @brief Get list of all registered module names
+     */
+    std::vector<std::string> getModuleNames() const { return moduleNames; }
+
+    /**
+     * @brief Dump the current state of a specific module to logs
+     * @param name Module identifier
+     *
+     * Retrieves the module's state via getState() and pretty-prints it
+     * as formatted JSON in the logs. Useful for debugging and inspection.
+     */
+    void dumpModuleState(const std::string& name);
+
+    /**
+     * @brief Dump the state of all registered modules to logs
+     *
+     * Iterates through all modules and dumps their state.
+     * Useful for comprehensive system state snapshots.
+     */
+    void dumpAllModulesState();
+};
+
+} // namespace grove

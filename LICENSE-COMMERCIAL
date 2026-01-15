@@ -1,0 +1,342 @@
+GROVEENGINE COMMERCIAL LICENSE
+Version 1.0 - January 2025
+
+Copyright (C) 2025 StillHammer
+Contact: alexistrouve.pro@gmail.com
+
+================================================================================
+1. PREAMBLE
+================================================================================
+
+GroveEngine is a modular C++ engine architecture designed for rapid game
+development with hot-reload capabilities. This Commercial License allows you
+to use GroveEngine in proprietary, closed-source commercial projects under a
+fair royalty model.
+
+This license is intended for:
+- Independent game developers
+- Game studios creating commercial products
+- Anyone who wants to keep their game code proprietary
+
+If you prefer to develop open-source games, consider using the GPL v3 license
+instead (see LICENSE-GPL).
+
+================================================================================
+2. GRANT OF LICENSE
+================================================================================
+
+Subject to the terms and conditions of this license, StillHammer grants you a
+worldwide, non-exclusive, non-transferable license to:
+
+- Use GroveEngine in unlimited commercial projects
+- Modify the engine source code for your own use
+- Distribute games built with GroveEngine
+- Keep your game code and modifications proprietary
+- Use GroveEngine in both released and unreleased projects
+
+This license does NOT grant you the right to:
+- Redistribute GroveEngine itself (source or binary)
+- Sublicense GroveEngine to third parties
+- Transfer this license to another entity
+- Remove or modify license headers in GroveEngine source files
+
+================================================================================
+3. ROYALTY TERMS
+================================================================================
+
+3.1 FREE TIER (€0 - €100,000 gross revenue per project)
+
+GroveEngine is FREE for projects earning up to €100,000 in gross revenue.
+- No upfront payment required
+- No royalties owed
+- Full commercial use permitted
+- All engine features included
+
+3.2 ROYALTY TIER (Above €100,000 gross revenue per project)
+
+For projects exceeding €100,000 in gross revenue:
+- 1% royalty on gross revenue above €100,000
+- Calculated per-project, not per-entity
+- Annual reporting and payment
+
+3.3 GROSS REVENUE DEFINITION
+
+"Gross Revenue" means all revenue directly attributable to a project built
+with GroveEngine, including but not limited to:
+- Game sales (digital and physical)
+- In-app purchases and microtransactions
+- Subscriptions
+- DLC and expansions
+- Advertising revenue
+- Licensing fees
+
+Gross revenue does NOT include:
+- Platform fees (Steam, Epic, App Store, etc.)
+- Payment processing fees
+- Refunds issued to customers
+- Taxes (VAT, sales tax, etc.)
+
+3.4 CALCULATION EXAMPLES
+
+Example 1: Indie game earning €80,000
+→ Royalty: €0 (within free tier)
+
+Example 2: Successful game earning €250,000
+→ Free tier: €100,000 = €0
+→ Royalty tier: €150,000 × 1% = €1,500
+→ Total royalty owed: €1,500
+
+Example 3: Hit game earning €1,000,000
+→ Free tier: €100,000 = €0
+→ Royalty tier: €900,000 × 1% = €9,000
+→ Total royalty owed: €9,000
+
+Note: Unreal Engine equivalent (5% above $1M USD) would be ~€47,500 on €1M
+
+================================================================================
+4. REPORTING & PAYMENT
+================================================================================
+
+4.1 ANNUAL REPORTING
+
+For projects exceeding €100,000 in gross revenue, you must submit an annual
+revenue report by January 31st of the following year.
+
+Report must include:
+- Project name
+- Calendar year covered
+- Total gross revenue for the year
+- Platform breakdown (optional but helpful)
+- Calculated royalty amount
+
+Send reports to: alexistrouve.pro@gmail.com
+Subject: "GroveEngine Royalty Report [Year] - [Project Name]"
+
+4.2 PAYMENT TERMS
+
+- Payment due within 30 days of report submission
+- Accepted methods: Bank transfer (SEPA/SWIFT), PayPal
+- Payment instructions will be provided upon report receipt
+- Currency: Euro (EUR) - convert if reporting in other currencies
+
+4.3 LATE PAYMENT
+
+Late payments incur a penalty of 5% per month of the outstanding amount.
+If payment is more than 90 days overdue, this license may be terminated.
+
+4.4 GOOD FAITH
+
+We operate on good faith and trust. You are responsible for accurate reporting.
+See Section 8 (Audit Rights) for verification procedures.
+
+================================================================================
+5. SUPPORT
+================================================================================
+
+This Commercial License includes basic support:
+
+- Email support: alexistrouve.pro@gmail.com
+- Response time: 72 hours (business days)
+- Bug fixes: Priority access to engine bug fixes
+- Updates: All engine updates included at no additional cost
+- Documentation: Access to all engine documentation
+
+Support does NOT include:
+- Game-specific consulting or development
+- Custom engine features (available separately)
+- Guaranteed response time SLA
+- Phone or video support
+
+For custom development or consulting, contact us separately.
+
+================================================================================
+6. ATTRIBUTION
+================================================================================
+
+All commercial projects using GroveEngine must include the following attribution:
+
+"Powered by GroveEngine"
+
+Attribution must appear in:
+- Game credits screen (if present)
+- Game documentation or README
+- Or other reasonable location visible to end users
+
+Optional: You may use the GroveEngine logo (provided separately) in your credits.
+
+================================================================================
+7. RESTRICTIONS
+================================================================================
+
+You MAY NOT:
+
+- Redistribute GroveEngine source code or binaries
+- Create a competing engine based on GroveEngine
+- Sublicense GroveEngine to third parties
+- Remove copyright notices from GroveEngine source files
+- Use GroveEngine trademarks without permission
+- Reverse engineer compiled GroveEngine binaries (source is provided)
+
+You MAY:
+
+- Modify GroveEngine for your own projects
+- Create and sell unlimited games with GroveEngine
+- Share compiled games with end users
+- Use GroveEngine in both commercial and non-commercial projects
+
+================================================================================
+8. AUDIT RIGHTS
+================================================================================
+
+StillHammer reserves the right to audit your revenue reporting to ensure
+compliance with this license.
+
+8.1 AUDIT PROCEDURE
+
+- 30 days written notice before audit
+- Audit conducted by qualified third-party accountant
+- Access to relevant financial records (only GroveEngine projects)
+- Results kept confidential
+
+8.2 AUDIT COSTS
+
+- Normally borne by StillHammer
+- If underreporting > 5%, licensee pays audit costs
+- Owed royalties + penalties must be paid immediately
+
+8.3 FREQUENCY
+
+Audits will not occur more than once per calendar year except in cases of
+suspected fraud.
+
+================================================================================
+9. TERMINATION
+================================================================================
+
+9.1 TERMINATION FOR BREACH
+
+This license terminates immediately if you:
+- Fail to pay royalties within 90 days of due date
+- Redistribute GroveEngine in violation of Section 7
+- Violate any material term of this license
+
+9.2 EFFECT OF TERMINATION
+
+Upon termination:
+- You must cease distribution of new copies of your games
+- Existing distributed copies may continue to operate (end-user protection)
+- You must pay all outstanding royalties
+- You may not start new GroveEngine projects
+
+9.3 CURE PERIOD
+
+For payment-related breaches, you have 30 days to cure after written notice.
+For other breaches, cure period is 14 days.
+
+================================================================================
+10. WARRANTY DISCLAIMER
+================================================================================
+
+GROVEENGINE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, STILLHAMMER DISCLAIMS ALL WARRANTIES,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
+
+- Warranties of merchantability
+- Fitness for a particular purpose
+- Non-infringement
+- Quiet enjoyment
+- Quality or performance
+
+YOU ASSUME ALL RISK ASSOCIATED WITH USING GROVEENGINE.
+
+================================================================================
+11. LIMITATION OF LIABILITY
+================================================================================
+
+IN NO EVENT SHALL STILLHAMMER BE LIABLE FOR ANY DAMAGES, INCLUDING:
+
+- Loss of profits or revenue
+- Loss of data
+- Business interruption
+- Indirect, incidental, or consequential damages
+
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+TOTAL LIABILITY SHALL NOT EXCEED THE LESSER OF:
+- €1,000
+- Royalties paid by you in the previous 12 months
+
+Some jurisdictions do not allow limitation of liability, so this may not
+apply to you.
+
+================================================================================
+12. GENERAL PROVISIONS
+================================================================================
+
+12.1 GOVERNING LAW
+
+This license is governed by the laws of France, without regard to conflict
+of law provisions.
+
+12.2 ENTIRE AGREEMENT
+
+This license constitutes the entire agreement between you and StillHammer
+regarding GroveEngine commercial use.
+
+12.3 AMENDMENTS
+
+StillHammer may update this license. Updates apply to new projects but do not
+retroactively affect existing licensed projects (grandfather clause).
+
+12.4 SEVERABILITY
+
+If any provision is found unenforceable, the remaining provisions remain in
+full effect.
+
+12.5 NO WAIVER
+
+Failure to enforce any provision does not waive the right to enforce it later.
+
+================================================================================
+13. CONTACT & ACTIVATION
+================================================================================
+
+To obtain this Commercial License:
+
+1. Email: alexistrouve.pro@gmail.com
+   Subject: "GroveEngine Commercial License Request"
+
+2. Provide:
+   - Your name or company name
+   - Project description (optional)
+   - Expected launch date (optional)
+
+3. You will receive:
+   - License confirmation email
+   - Payment instructions (royalties only due after €100k revenue)
+   - Support contact details
+
+Questions about this license? Contact alexistrouve.pro@gmail.com
+
+================================================================================
+COMPARISON: GroveEngine vs. Other Engines
+================================================================================
+
+| Engine        | Free Tier      | Royalty Rate | Notes                    |
+|---------------|----------------|--------------|--------------------------|
+| GroveEngine   | €0 - €100k     | 1% > €100k   | Best for EU indie devs   |
+| Unreal Engine | $0 - $1M USD   | 5% > $1M USD | Higher %, higher tier    |
+| Unity         | Subscription   | No royalties | Monthly fees required    |
+| Godot         | 100% Free      | No royalties | MIT, but less support    |
+
+GroveEngine offers the most favorable terms for independent developers earning
+between €100k - €500k, with lower royalties than major engines.
+
+================================================================================
+
+Thank you for choosing GroveEngine!
+
+Build amazing games. We'll handle the engine.
+
+StillHammer © 2025
