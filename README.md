@@ -189,7 +189,7 @@ Complex behavior emerges from the interaction of simple, well-defined modules.
 
 ## License
 
-To be defined
+MIT License - see [LICENSE](LICENSE) file for details
 
 ## Contributing
 

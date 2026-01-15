@@ -62,8 +62,15 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    void* nativeWindowHandle = (void*)(uintptr_t)wmi.info.x11.window;
-    void* nativeDisplayHandle = wmi.info.x11.display;
+    void* nativeWindowHandle;
+    void* nativeDisplayHandle;
+#ifdef _WIN32
+    nativeWindowHandle = wmi.info.win.window;
+    nativeDisplayHandle = nullptr;
+#else
+    nativeWindowHandle = (void*)(uintptr_t)wmi.info.x11.window;
+    nativeDisplayHandle = wmi.info.x11.display;
+#endif
 
     std::cout << "Window created: " << width << "x" << height << "\n";
 

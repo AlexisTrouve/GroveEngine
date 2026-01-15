@@ -174,8 +174,13 @@ int main(int argc, char* argv[]) {
 
     // Setup bgfx platform data
     bgfx::PlatformData pd;
+#ifdef _WIN32
+    pd.ndt = nullptr;
+    pd.nwh = wmi.info.win.window;
+#else
     pd.ndt = wmi.info.x11.display;
     pd.nwh = (void*)(uintptr_t)wmi.info.x11.window;
+#endif
     pd.context = nullptr;
     pd.backBuffer = nullptr;
     pd.backBufferDS = nullptr;
