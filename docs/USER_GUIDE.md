@@ -2,6 +2,8 @@
 
 GroveEngine is a C++17 hot-reload module system designed for building modular applications with runtime code replacement capabilities.
 
+⚠️ **IMPORTANT**: GroveEngine is **experimental** and **development-ready**, NOT production-ready. It is non-deterministic and optimized for rapid prototyping. See main [README.md](../README.md#current-status) for full limitations.
+
 ## Table of Contents
 
 1. [Overview](#overview)

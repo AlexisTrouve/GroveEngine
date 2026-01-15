@@ -2,18 +2,59 @@
 
 **Comprehensive guide for building applications with GroveEngine**
 
+⚠️ **IMPORTANT**: GroveEngine is currently in **development stage** - suitable for prototyping and experimentation, **not production games**. The engine is non-deterministic and optimized for rapid iteration, not stability. See [Current Limitations](#current-limitations) below.
+
 ## Table of Contents
 
-1. [Getting Started](#getting-started)
-2. [Core System](#core-system)
-3. [Available Modules](#available-modules)
+1. [Current Limitations](#current-limitations)
+2. [Getting Started](#getting-started)
+3. [Core System](#core-system)
+4. [Available Modules](#available-modules)
    - [BgfxRenderer - 2D Rendering](#bgfxrenderer---2d-rendering)
    - [UIModule - User Interface](#uimodule---user-interface)
    - [InputModule - Input Handling](#inputmodule---input-handling)
-4. [IIO Topics Reference](#iio-topics-reference)
-5. [Complete Application Example](#complete-application-example)
-6. [Building Your First Game](#building-your-first-game)
-7. [Advanced Topics](#advanced-topics)
+5. [IIO Topics Reference](#iio-topics-reference)
+6. [Complete Application Example](#complete-application-example)
+7. [Building Your First Game](#building-your-first-game)
+8. [Advanced Topics](#advanced-topics)
+
+---
+
+## Current Limitations
+
+⚠️ **GroveEngine is EXPERIMENTAL and NOT production-ready.** Understand these limitations before building with it:
+
+### Non-Deterministic Execution
+- **Module execution order is NOT guaranteed** - modules may run in different orders between frames
+- **Not suitable for networked games** - no deterministic replay or synchronization
+- **Race conditions possible** - only SequentialModuleSystem is currently implemented (single-threaded)
+
+### Development Stage
+- **Optimized for rapid iteration**, not stability
+- **No error recovery** - crashes are not handled gracefully
+- **Limited performance optimizations** - no profiling, memory pooling, or SIMD
+- **Single-threaded only** - ThreadedModuleSystem and MultithreadedModuleSystem are TODO
+
+### Module Limitations
+- **InputModule**: Mouse and keyboard only (gamepad Phase 2 not implemented)
+- **BgfxRenderer**: Basic text rendering only (8x8 bitmap font for debug)
+- **UIModule**: Functional but no advanced layout constraints
+
+### What GroveEngine IS Good For
+✅ **Rapid prototyping** - 0.4ms hot-reload for instant iteration
+✅ **Learning modular architecture** - clean interface-based design
+✅ **AI-assisted development** - 200-300 line modules optimized for Claude Code
+✅ **Experimentation** - test game ideas quickly
+
+### Production Roadmap
+To make GroveEngine production-ready, the following is needed:
+- Deterministic execution guarantees
+- Error recovery and graceful degradation
+- Multi-threaded module systems
+- Performance profiling and optimization
+- Network IO and distributed messaging
+- Complete gamepad support
+- Advanced text rendering
 
 ---
 
@@ -84,7 +125,7 @@ GroveEngine uses a **module-based architecture** with hot-reload support:
 
 ### BgfxRenderer - 2D Rendering
 
-**Status:** ✅ Production Ready (Phase 7-8 complete)
+**Status:** ✅ Development Ready (Phase 8 complete) | ⚠️ Non-deterministic, experimental
 
 Multi-backend 2D renderer using bgfx (DirectX 11/12, OpenGL, Vulkan, Metal).
 
@@ -163,7 +204,7 @@ io->publish("render:camera", std::move(camera));
 
 ### UIModule - User Interface
 
-**Status:** ✅ Production Ready (Phase 7 complete)
+**Status:** ✅ Development Ready (Phase 7 complete) | ⚠️ Experimental
 
 Complete UI widget system with layout, scrolling, and tooltips.
 
@@ -267,9 +308,9 @@ UIModule publishes render commands to BgfxRenderer via `UIRenderer`:
 
 ### InputModule - Input Handling
 
-**Status:** ✅ Production Ready (Phase 1 complete)
+**Status:** ✅ Development Ready (Phase 1-3 complete) | ⚠️ Gamepad Phase 2 TODO
 
-Cross-platform input handling with SDL2 backend (mouse, keyboard, gamepad).
+Cross-platform input handling with SDL2 backend (mouse, keyboard).
 
 #### Features
 

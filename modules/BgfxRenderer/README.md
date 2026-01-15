@@ -1,5 +1,7 @@
 # BgfxRenderer Module
 
+⚠️ **Development Stage**: Experimental, non-deterministic. See [main README](../../README.md#current-status) for limitations.
+
 Module de rendu 2D pour GroveEngine, basé sur [bgfx](https://github.com/bkaradzic/bgfx).
 
 ## Features

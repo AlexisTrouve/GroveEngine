@@ -1,5 +1,7 @@
 # UIModule
 
+⚠️ **Development Stage**: Experimental, part of non-deterministic engine. See [main README](../../README.md#current-status) for limitations.
+
 Complete UI widget system for GroveEngine with layout, scrolling, tooltips, and automatic input handling.
 
 ## Features
@@ -10,7 +12,7 @@ Complete UI widget system for GroveEngine with layout, scrolling, tooltips, and 
 - **Retained Mode Rendering**: Widgets cache state, reducing IIO traffic by 85%+
 - **Layer Management**: UI renders on top of game content (layer 1000+)
 - **Hot-Reload Support**: Full state preservation across module reloads
-- **Thread-Safe**: Designed for multi-threaded production architecture
+- **Thread-Safe Design**: Architecture ready for future multi-threaded systems (currently single-threaded only)
 
 ## Quick Start
 

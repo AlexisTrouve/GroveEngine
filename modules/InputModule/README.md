@@ -1,6 +1,8 @@
 # InputModule
 
-Module de capture et conversion d'événements d'entrée (clavier, souris, gamepad) vers le système IIO de GroveEngine.
+⚠️ **Development Stage**: Phase 1-3 complete (mouse, keyboard). Gamepad support is Phase 2 (TODO). See [main README](../../README.md#current-status).
+
+Module de capture et conversion d'événements d'entrée (clavier, souris) vers le système IIO de GroveEngine.
 
 ## Vue d'ensemble
 
