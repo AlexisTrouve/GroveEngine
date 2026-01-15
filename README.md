@@ -189,7 +189,84 @@ Complex behavior emerges from the interaction of simple, well-defined modules.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
+GroveEngine is **dual-licensed** - you choose the license that fits your project:
+
+### 📜 **GPL v3** (Open Source - Free)
+Use GroveEngine in open-source projects under the [GNU GPL v3](LICENSE-GPL).
+- ✅ **100% Free** - No costs, no royalties
+- ✅ **Full engine access** - Modify and use freely
+- ❗ **Your game must be GPL** - Source code must be published
+- 👥 **Community support**
+
+### 💼 **Commercial License** (Proprietary - Royalty-Based)
+Use GroveEngine in closed-source commercial games under the [Commercial License](LICENSE-COMMERCIAL).
+- ✅ **FREE up to €100,000** revenue per project
+- ✅ **1% royalty** on revenue above €100,000
+- ✅ **Keep your code private** - Proprietary games allowed
+- ✅ **Email support** - 72h response time
+- ✅ **Priority bug fixes**
+
+**🎮 Best for indie developers:** Most favorable royalty model in the industry!
+
+---
+
+### 📊 License Comparison
+
+| Feature                | GPL v3 (Free)          | Commercial                |
+|------------------------|------------------------|---------------------------|
+| **Cost**               | Free                   | Free up to €100k revenue  |
+| **Royalties**          | None                   | 1% above €100k            |
+| **Your game license**  | Must be GPL (open)     | Proprietary allowed       |
+| **Engine modifications** | Share modifications  | Keep private              |
+| **Support**            | Community              | Email (72h) + priority    |
+| **Updates**            | Yes                    | Yes + priority fixes      |
+| **Attribution**        | Required               | Required ("Powered by")   |
+| **Number of projects** | Unlimited              | Unlimited                 |
+
+---
+
+### ❓ FAQ - Which License Should I Choose?
+
+**Q: I'm making a commercial indie game. Which license?**
+A: **Commercial License** - It's FREE until €100k, then only 1% royalties. Much better than Unreal (5% above $1M).
+
+**Q: I'm making an open-source game. Which license?**
+A: **GPL v3** - Perfect for open-source projects, 100% free forever.
+
+**Q: How do I declare my revenue?**
+A: Annual email with your project revenue. Simple and trust-based. Audits possible but rare.
+
+**Q: Can I modify the engine?**
+A: **Yes!** Both licenses allow modifications. GPL requires sharing them, Commercial lets you keep them private.
+
+**Q: Is GroveEngine cheaper than Unreal Engine?**
+A: **Yes!** We charge 1% above €100k vs Unreal's 5% above $1M USD. For a €500k game, you'd pay €4,000 with GroveEngine vs €0 with Unreal (under threshold). For a €1.5M game: €14,000 vs ~€25,000 with Unreal.
+
+**Q: What if my game makes €80,000?**
+A: **€0 royalties!** You're within the free tier. No payment required.
+
+**Q: Is support included?**
+A: GPL = community support. Commercial = email support (72h response) + priority bug fixes.
+
+**Q: How do I get the Commercial License?**
+A: Email **alexistrouve.pro@gmail.com** with subject "GroveEngine Commercial License Request". No upfront payment - royalties only after €100k!
+
+---
+
+### 🏆 Industry Comparison
+
+| Engine        | Free Tier     | Royalty      | Notes                          |
+|---------------|---------------|--------------|--------------------------------|
+| **GroveEngine** | €0 - €100k  | **1%** > €100k | Best for EU indie devs       |
+| Unreal Engine | $0 - $1M USD  | 5% > $1M     | Higher %, higher threshold     |
+| Unity         | Subscription  | None         | Monthly fees (~€2k/year Pro)   |
+| Godot         | 100% Free     | None         | MIT, but minimal official support |
+
+**GroveEngine = Best value for games earning €100k - €500k** 🎯
+
+---
+
+**📧 License Questions?** Contact **alexistrouve.pro@gmail.com**
 
 ## Contributing
 
