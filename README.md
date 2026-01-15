@@ -18,38 +18,51 @@ GroveEngine is a lightweight, modular engine architecture designed for blazing-f
 ```
 grove::IEngine (Orchestration)
 ├── grove::IModuleSystem (Execution strategy)
-│   ├── SequentialModuleSystem (Debug/test - 1 module at a time)
-│   ├── ThreadedModuleSystem (Each module in thread - TODO)
-│   └── MultithreadedModuleSystem (Thread pool - TODO)
+│   ├── SequentialModuleSystem (✅ Implemented - 1 module at a time)
+│   ├── ThreadedModuleSystem (🚧 TODO - Each module in thread)
+│   └── MultithreadedModuleSystem (🚧 TODO - Thread pool)
 ├── grove::IModule (Business logic - 200-300 lines)
 │   └── Your modules (.so/.dll hot-reloadable)
 └── grove::IIO (Communication)
-    ├── IntraIO (Same process - validated)
-    ├── LocalIO (Same machine - TODO)
-    └── NetworkIO (Distributed - TODO)
+    ├── IntraIO (✅ Implemented - Same process pub/sub)
+    ├── LocalIO (🚧 TODO - Same machine IPC)
+    └── NetworkIO (🚧 TODO - Distributed messaging)
 ```
 
 ## Current Status
 
-### ✅ Implemented & Validated
-- **Core Interfaces** (13): IEngine, IModule, IModuleSystem, IIO, ICoordinationModule, ITaskScheduler, IDataTree, IDataNode, IUI, ISerializable
-- **Debug Implementations** (Phase 2 - Pre-IDataTree):
+### ✅ Production-Ready Components
+- **Core Engine**:
   - `DebugEngine` - Comprehensive logging and health monitoring
-  - `SequentialModuleSystem` - Ultra-lightweight execution
+  - `SequentialModuleSystem` - Single-threaded module execution
   - `IntraIO` + `IntraIOManager` - Sub-millisecond pub/sub with pattern matching
-  - `ModuleFactory` - Dynamic .so/.dll loading system
-  - `EngineFactory`, `ModuleSystemFactory`, `IOFactory` - Factory patterns
-- **Hot-Reload System** - 0.4ms average, 0.055ms best performance, perfect state preservation
-- **UI System** - ImGuiUI implementation with hybrid sizing
+  - `ModuleLoader` - Hot-reload system (0.4ms average, 0.055ms best)
 
-### ⚠️ Compatibility Note
-Current implementations use **pre-IDataTree API** (`json` config). The architecture evolved to use `IDataNode` for configuration. Implementations need adaptation or recreation for full IDataTree compatibility.
+- **Rendering Stack** (BgfxRenderer):
+  - Sprite rendering with automatic batching
+  - Tilemap rendering with instancing
+  - Particle effects system
+  - Debug text overlay (8x8 bitmap font)
+  - RHI abstraction over bgfx
 
-### 🚧 TODO
-- Adapt implementations to use IDataTree/IDataNode instead of json
-- Implement ThreadedModuleSystem and MultithreadedModuleSystem
-- Implement LocalIO and NetworkIO
-- Create concrete IDataTree implementations (JSONDataTree, etc.)
+- **UI System** (UIModule):
+  - 10 widget types (button, panel, label, checkbox, slider, text input, progress bar, image, scroll panel, tooltip)
+  - JSON layout loading
+  - Retained mode rendering (85%+ IIO reduction)
+  - Thread-safe input handling
+
+- **Input System** (InputModule):
+  - Mouse (movement, buttons, wheel)
+  - Keyboard (keys, text input)
+  - SDL2 backend
+
+- **Test Suite**: 20+ integration tests + visual demos
+
+### 🚧 Roadmap
+- **Module Systems**: ThreadedModuleSystem, MultithreadedModuleSystem
+- **IO Systems**: LocalIO (IPC), NetworkIO (distributed)
+- **Input**: Gamepad support (Phase 2)
+- **Renderer**: Advanced text rendering, post-processing effects
 
 ## Quick Start
 
@@ -144,9 +157,9 @@ public:
 
 ### Module Documentation
 
-- **[BgfxRenderer](modules/BgfxRenderer/README.md)** - 2D rendering (sprites, text, tilemap, particles)
+- **[BgfxRenderer](modules/BgfxRenderer/README.md)** - 2D rendering (sprites, tilemap, particles, debug text)
 - **[UIModule](modules/UIModule/README.md)** - User interface (10 widget types, layout, scrolling)
-- **[InputModule](modules/InputModule/README.md)** - Input handling (mouse, keyboard, gamepad)
+- **[InputModule](modules/InputModule/README.md)** - Input handling (mouse, keyboard via SDL)
 
 ### Architecture & Internals
 
@@ -163,11 +176,12 @@ public:
 
 ### Progressive Evolution
 ```cpp
-// Start simple (MVP)
+// Current (Production-Ready)
 DebugEngine + SequentialModuleSystem + IntraIO
 
-// Scale transparently (same module code)
+// Future Vision (Roadmap)
 HighPerfEngine + MultithreadedModuleSystem + NetworkIO
+// Same module code - just swap the infrastructure
 ```
 
 ### Complexity Through Simplicity
