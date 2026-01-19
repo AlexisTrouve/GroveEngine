@@ -31,16 +31,24 @@ This is **intentional** to maintain the IIO-based architecture where all communi
 
 **Example:**
 ```cpp
-// Slider value changed
-if (msg.topic == "ui:value_changed" && widgetId == "volume_slider") {
-    double value = msg.data->getDouble("value", 0);
-    setVolume(value);
+// Subscribe to slider value changes (in setConfiguration)
+gameIO->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+    std::string widgetId = msg.data->getString("widgetId", "");
+    if (widgetId == "volume_slider") {
+        double value = msg.data->getDouble("value", 0);
+        setVolume(value);
 
-    // Update label (must go through game module)
-    auto updateMsg = std::make_unique<JsonDataNode>("set_text");
-    updateMsg->setString("id", "volume_label");
-    updateMsg->setString("text", "Volume: " + std::to_string((int)value) + "%");
-    m_io->publish("ui:set_text", std::move(updateMsg));
+        // Update label (must go through game module)
+        auto updateMsg = std::make_unique<JsonDataNode>("set_text");
+        updateMsg->setString("id", "volume_label");
+        updateMsg->setString("text", "Volume: " + std::to_string((int)value) + "%");
+        m_io->publish("ui:set_text", std::move(updateMsg));
+    }
+});
+
+// In process()
+while (gameIO->hasMessages() > 0) {
+    gameIO->pullAndDispatch();  // Callback invoked automatically
 }
 ```
 
@@ -94,8 +102,9 @@ Each module runs in its own thread:
 void uiThread() {
     while(running) {
         // Receive inputs from queue (filled by InputModule thread)
+        // Callbacks registered at subscribe() handle dispatch
         while(io->hasMessages()) {
-            handleMessage(io->pullMessage());
+            io->pullAndDispatch();  // Auto-dispatch to registered callbacks
         }
 
         update(deltaTime);
@@ -111,8 +120,9 @@ void uiThread() {
 void gameThread() {
     while(running) {
         // Pull messages from queue (latency < 1ms)
+        // Callbacks registered at subscribe() handle dispatch
         while(io->hasMessages()) {
-            handleMessage(io->pullMessage());  // Already in queue!
+            io->pullAndDispatch();  // Auto-dispatch, already in queue!
         }
 
         updateGameLogic(deltaTime);
@@ -337,12 +347,14 @@ These features violate core design principles and will **never** be added:
 
 ## Design Principles
 
-1. **IIO-First:** All communication via topics, no direct coupling
-2. **Retained Mode:** Cache state, minimize IIO traffic
-3. **Hot-Reload Safe:** Full state preservation across reloads
-4. **Thread-Safe:** Designed for multi-threaded production use
-5. **Module Independence:** UIModule never imports BgfxRenderer or InputModule headers
-6. **Game Logic Separation:** Widgets are dumb views, game modules handle logic
+1. **IIO-First:** All communication via topics with callback dispatch, no direct coupling
+2. **Callback Dispatch:** Subscribe with handlers, no if-forest dispatch in process()
+3. **Pull-Based Control:** Module controls WHEN to process (pullAndDispatch), callbacks handle HOW
+4. **Retained Mode:** Cache state, minimize IIO traffic
+5. **Hot-Reload Safe:** Full state preservation across reloads
+6. **Thread-Safe:** Designed for multi-threaded production use
+7. **Module Independence:** UIModule never imports BgfxRenderer or InputModule headers
+8. **Game Logic Separation:** Widgets are dumb views, game modules handle logic
 
 ## Integration with Other Modules
 

@@ -41,13 +41,10 @@ public:
     void process(const IDataNode& input) override {
         processCount++;
 
-        // Check for incoming messages
+        // Pull and auto-dispatch incoming messages
         if (io && !subscribeTopic.empty()) {
             while (io->hasMessages() > 0) {
-                auto msg = io->pullMessage();
-                if (msg.topic == subscribeTopic) {
-                    logger->info("{}: Received message on '{}'", name, subscribeTopic);
-                }
+                io->pullAndDispatch();  // Callback invoked automatically
             }
         }
 
@@ -63,9 +60,11 @@ public:
     void setConfiguration(const IDataNode& configNode, IIO* ioLayer, ITaskScheduler* scheduler) override {
         io = ioLayer;
 
-        // Subscribe if needed
+        // Subscribe with callback handler
         if (io && !subscribeTopic.empty()) {
-            io->subscribe(subscribeTopic);
+            io->subscribe(subscribeTopic, [this](const Message& msg) {
+                logger->info("{}: Received message on '{}'", name, msg.topic);
+            });
             logger->info("{}: Subscribed to '{}'", name, subscribeTopic);
         }
 

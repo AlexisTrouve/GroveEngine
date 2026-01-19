@@ -48,15 +48,28 @@ struct IOHealth {
 };
 
 /**
- * @brief Pub/Sub communication interface with pull-based synchronous design
+ * @brief Message handler callback type
  *
- * Pull-based pub/sub system optimized for game modules. Modules have full control
- * over when they process messages, avoiding threading issues.
+ * Callback invoked when a message matching the subscribed pattern is pulled.
+ * Module implements this to handle specific message types without if-forest dispatch.
+ */
+using MessageHandler = std::function<void(const Message&)>;
+
+/**
+ * @brief Pub/Sub communication interface with pull-based callback dispatch
+ *
+ * Pull-based pub/sub system with automatic message dispatch to registered handlers.
+ * Modules subscribe with callbacks, then pull messages - dispatch is automatic.
+ *
+ * Design:
+ * - Modules retain control over WHEN to process (pull-based)
+ * - No if-forest dispatch (callbacks registered at subscription)
+ * - Thread-safe for multi-threaded module systems
  *
  * Features:
  * - Topic patterns with wildcards (e.g., "player:*", "economy:*")
  * - Low-frequency subscriptions for bandwidth optimization
- * - Message consumption (pull removes message from queue)
+ * - Automatic callback dispatch on pull
  * - Engine health monitoring for backpressure management
  */
 class IIO {
@@ -71,18 +84,38 @@ public:
     virtual void publish(const std::string& topic, std::unique_ptr<IDataNode> message) = 0;
 
     /**
-     * @brief Subscribe to topic pattern (high-frequency)
+     * @brief Subscribe to topic pattern with callback handler (high-frequency)
      * @param topicPattern Topic pattern with wildcards (e.g., "player:*")
+     * @param handler Callback invoked when matching message is pulled
      * @param config Optional subscription configuration
+     *
+     * Example:
+     *   io->subscribe("input:mouse", [this](const Message& msg) {
+     *       handleMouseInput(msg);
+     *   });
      */
-    virtual void subscribe(const std::string& topicPattern, const SubscriptionConfig& config = {}) = 0;
+    virtual void subscribe(
+        const std::string& topicPattern,
+        MessageHandler handler,
+        const SubscriptionConfig& config = {}
+    ) = 0;
 
     /**
-     * @brief Subscribe to topic pattern (low-frequency batched)
+     * @brief Subscribe to topic pattern with callback (low-frequency batched)
      * @param topicPattern Topic pattern with wildcards
+     * @param handler Callback invoked when matching message is pulled
      * @param config Subscription configuration (batchInterval, etc.)
+     *
+     * Example:
+     *   io->subscribeLowFreq("analytics:*", [this](const Message& msg) {
+     *       processBatchedAnalytics(msg);
+     *   }, {.batchInterval = 5000});
      */
-    virtual void subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config = {}) = 0;
+    virtual void subscribeLowFreq(
+        const std::string& topicPattern,
+        MessageHandler handler,
+        const SubscriptionConfig& config = {}
+    ) = 0;
 
     /**
      * @brief Get count of pending messages
@@ -91,11 +124,18 @@ public:
     virtual int hasMessages() const = 0;
 
     /**
-     * @brief Pull and consume one message
-     * @return Message from queue (oldest first). Message is removed from queue.
+     * @brief Pull and auto-dispatch one message to registered handler
      * @throws std::runtime_error if no messages available
+     *
+     * Pulls oldest message from queue and invokes the callback registered
+     * during subscribe(). Message is consumed (removed from queue).
+     *
+     * Example usage:
+     *   while (io->hasMessages() > 0) {
+     *       io->pullAndDispatch();  // Callbacks invoked automatically
+     *   }
      */
-    virtual Message pullMessage() = 0;
+    virtual void pullAndDispatch() = 0;
 
     /**
      * @brief Get IO health status for Engine monitoring

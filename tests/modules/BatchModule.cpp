@@ -15,17 +15,10 @@ BatchModule::~BatchModule() {
 void BatchModule::process(const IDataNode& input) {
     if (!io) return;
 
-    // Pull batched messages (should be low-frequency)
+    // Pull and dispatch batched messages (callbacks invoked automatically)
     while (io->hasMessages() > 0) {
         try {
-            auto msg = io->pullMessage();
-            batchCount++;
-
-            bool verbose = input.getBool("verbose", false);
-            if (verbose) {
-                std::cout << "[BatchModule] Received batch #" << batchCount
-                          << " on topic: " << msg.topic << std::endl;
-            }
+            io->pullAndDispatch();
         } catch (const std::exception& e) {
             std::cerr << "[BatchModule] Error pulling message: " << e.what() << std::endl;
         }
@@ -39,6 +32,13 @@ void BatchModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, ITas
     this->scheduler = schedulerPtr;
 
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
+
+    // Subscribe to all messages with callback that counts batches
+    if (io) {
+        io->subscribe("*", [this](const Message& msg) {
+            batchCount++;
+        });
+    }
 }
 
 const IDataNode& BatchModule::getConfiguration() {

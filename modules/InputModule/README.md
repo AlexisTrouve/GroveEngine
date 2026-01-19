@@ -95,9 +95,20 @@ config.setBool("enableMouse", true);
 config.setBool("enableKeyboard", true);
 inputModule->setConfiguration(config, inputIO.get(), nullptr);
 
-// Subscribe to events
-gameIO->subscribe("input:mouse:button");
-gameIO->subscribe("input:keyboard:key");
+// Subscribe to events with callback handlers
+gameIO->subscribe("input:mouse:button", [this](const grove::Message& msg) {
+    int button = msg.data->getInt("button", 0);
+    bool pressed = msg.data->getBool("pressed", false);
+    double x = msg.data->getDouble("x", 0.0);
+    double y = msg.data->getDouble("y", 0.0);
+    handleMouseButton(button, pressed, x, y);
+});
+
+gameIO->subscribe("input:keyboard:key", [this](const grove::Message& msg) {
+    int scancode = msg.data->getInt("scancode", 0);
+    bool pressed = msg.data->getBool("pressed", false);
+    handleKeyboard(scancode, pressed);
+});
 
 // Main loop
 while (running) {
@@ -111,15 +122,9 @@ while (running) {
     grove::JsonDataNode input("input");
     inputModule->process(input);
 
-    // 3. Process game logic
+    // 3. Process game logic - pull and auto-dispatch to callbacks
     while (gameIO->hasMessages() > 0) {
-        auto msg = gameIO->pullMessage();
-
-        if (msg.topic == "input:mouse:button") {
-            int button = msg.data->getInt("button", 0);
-            bool pressed = msg.data->getBool("pressed", false);
-            // Handle click...
-        }
+        gameIO->pullAndDispatch();  // Callbacks invoked automatically
     }
 }
 

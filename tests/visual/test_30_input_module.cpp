@@ -131,11 +131,72 @@ int main(int argc, char* argv[]) {
     // Subscribe to input events
     // ========================================
 
-    testIO->subscribe("input:mouse:move");
-    testIO->subscribe("input:mouse:button");
-    testIO->subscribe("input:mouse:wheel");
-    testIO->subscribe("input:keyboard:key");
-    testIO->subscribe("input:keyboard:text");
+    // Track last mouse move to avoid spam
+    int lastMouseX = -1;
+    int lastMouseY = -1;
+
+    testIO->subscribe("input:mouse:move", [&](const Message& msg) {
+        int x = msg.data->getInt("x", 0);
+        int y = msg.data->getInt("y", 0);
+
+        // Only print if position changed (reduce spam)
+        if (x != lastMouseX || y != lastMouseY) {
+            std::cout << "[MOUSE MOVE] x=" << std::setw(4) << x
+                      << ", y=" << std::setw(4) << y << "\n";
+            lastMouseX = x;
+            lastMouseY = y;
+        }
+    });
+
+    testIO->subscribe("input:mouse:button", [](const Message& msg) {
+        int button = msg.data->getInt("button", 0);
+        bool pressed = msg.data->getBool("pressed", false);
+        int x = msg.data->getInt("x", 0);
+        int y = msg.data->getInt("y", 0);
+
+        const char* buttonNames[] = { "LEFT", "MIDDLE", "RIGHT" };
+        const char* buttonName = (button >= 0 && button < 3) ? buttonNames[button] : "UNKNOWN";
+
+        std::cout << "[MOUSE BUTTON] " << buttonName
+                  << " " << (pressed ? "PRESSED" : "RELEASED")
+                  << " at (" << x << ", " << y << ")\n";
+    });
+
+    testIO->subscribe("input:mouse:wheel", [](const Message& msg) {
+        double delta = msg.data->getDouble("delta", 0.0);
+        std::cout << "[MOUSE WHEEL] delta=" << delta
+                  << " (" << (delta > 0 ? "UP" : "DOWN") << ")\n";
+    });
+
+    testIO->subscribe("input:keyboard:key", [](const Message& msg) {
+        int scancode = msg.data->getInt("scancode", 0);
+        bool pressed = msg.data->getBool("pressed", false);
+        bool repeat = msg.data->getBool("repeat", false);
+        bool shift = msg.data->getBool("shift", false);
+        bool ctrl = msg.data->getBool("ctrl", false);
+        bool alt = msg.data->getBool("alt", false);
+
+        const char* keyName = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
+
+        std::cout << "[KEYBOARD KEY] " << keyName
+                  << " " << (pressed ? "PRESSED" : "RELEASED");
+
+        if (repeat) std::cout << " (REPEAT)";
+        if (shift || ctrl || alt) {
+            std::cout << " [";
+            if (shift) std::cout << "SHIFT ";
+            if (ctrl) std::cout << "CTRL ";
+            if (alt) std::cout << "ALT";
+            std::cout << "]";
+        }
+
+        std::cout << "\n";
+    });
+
+    testIO->subscribe("input:keyboard:text", [](const Message& msg) {
+        std::string text = msg.data->getString("text", "");
+        std::cout << "[KEYBOARD TEXT] \"" << text << "\"\n";
+    });
 
     std::cout << "Subscribed to all input topics\n";
     std::cout << "========================================\n\n";
@@ -147,10 +208,6 @@ int main(int argc, char* argv[]) {
     bool running = true;
     uint32_t frameCount = 0;
     uint32_t lastTime = SDL_GetTicks();
-
-    // Track last mouse move to avoid spam
-    int lastMouseX = -1;
-    int lastMouseY = -1;
 
     while (running) {
         frameCount++;
@@ -174,68 +231,9 @@ int main(int argc, char* argv[]) {
         grove::JsonDataNode input("input");
         inputModule->process(input);
 
-        // 3. Process IIO messages from InputModule
+        // 3. Dispatch IIO messages from InputModule (callbacks handle printing)
         while (testIO->hasMessages() > 0) {
-            auto msg = testIO->pullMessage();
-
-            if (msg.topic == "input:mouse:move") {
-                int x = msg.data->getInt("x", 0);
-                int y = msg.data->getInt("y", 0);
-
-                // Only print if position changed (reduce spam)
-                if (x != lastMouseX || y != lastMouseY) {
-                    std::cout << "[MOUSE MOVE] x=" << std::setw(4) << x
-                              << ", y=" << std::setw(4) << y << "\n";
-                    lastMouseX = x;
-                    lastMouseY = y;
-                }
-            }
-            else if (msg.topic == "input:mouse:button") {
-                int button = msg.data->getInt("button", 0);
-                bool pressed = msg.data->getBool("pressed", false);
-                int x = msg.data->getInt("x", 0);
-                int y = msg.data->getInt("y", 0);
-
-                const char* buttonNames[] = { "LEFT", "MIDDLE", "RIGHT" };
-                const char* buttonName = (button >= 0 && button < 3) ? buttonNames[button] : "UNKNOWN";
-
-                std::cout << "[MOUSE BUTTON] " << buttonName
-                          << " " << (pressed ? "PRESSED" : "RELEASED")
-                          << " at (" << x << ", " << y << ")\n";
-            }
-            else if (msg.topic == "input:mouse:wheel") {
-                double delta = msg.data->getDouble("delta", 0.0);
-                std::cout << "[MOUSE WHEEL] delta=" << delta
-                          << " (" << (delta > 0 ? "UP" : "DOWN") << ")\n";
-            }
-            else if (msg.topic == "input:keyboard:key") {
-                int scancode = msg.data->getInt("scancode", 0);
-                bool pressed = msg.data->getBool("pressed", false);
-                bool repeat = msg.data->getBool("repeat", false);
-                bool shift = msg.data->getBool("shift", false);
-                bool ctrl = msg.data->getBool("ctrl", false);
-                bool alt = msg.data->getBool("alt", false);
-
-                const char* keyName = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
-
-                std::cout << "[KEYBOARD KEY] " << keyName
-                          << " " << (pressed ? "PRESSED" : "RELEASED");
-
-                if (repeat) std::cout << " (REPEAT)";
-                if (shift || ctrl || alt) {
-                    std::cout << " [";
-                    if (shift) std::cout << "SHIFT ";
-                    if (ctrl) std::cout << "CTRL ";
-                    if (alt) std::cout << "ALT";
-                    std::cout << "]";
-                }
-
-                std::cout << "\n";
-            }
-            else if (msg.topic == "input:keyboard:text") {
-                std::string text = msg.data->getString("text", "");
-                std::cout << "[KEYBOARD TEXT] \"" << text << "\"\n";
-            }
+            testIO->pullAndDispatch();
         }
 
         // 4. Cap at ~60 FPS

@@ -48,9 +48,15 @@ int main(int argc, char* argv[]) {
     auto uiIO = IntraIOManager::getInstance().createInstance("ui");
     auto rendererIO = IntraIOManager::getInstance().createInstance("renderer");
 
-    gameIO->subscribe("ui:hover");
-    gameIO->subscribe("ui:click");
-    gameIO->subscribe("ui:action");
+    gameIO->subscribe("ui:hover", [](const Message& msg) {
+        // Hover events (not logged to avoid spam)
+    });
+    gameIO->subscribe("ui:click", [&logger](const Message& msg) {
+        logger->info("🖱️  BOUTON CLICKÉ!");
+    });
+    gameIO->subscribe("ui:action", [&logger](const Message& msg) {
+        logger->info("🖱️  ACTION!");
+    });
 
     // Initialize BgfxRenderer WITH 3 TEXTURES loaded via config
     auto renderer = std::make_unique<BgfxRendererModule>();
@@ -176,12 +182,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Check for UI events
+        // Dispatch UI events (callbacks handle logging)
         while (gameIO->hasMessages() > 0) {
-            auto msg = gameIO->pullMessage();
-            if (msg.topic == "ui:action") {
-                logger->info("🖱️  BOUTON CLICKÉ!");
-            }
+            gameIO->pullAndDispatch();
         }
 
         // Update modules

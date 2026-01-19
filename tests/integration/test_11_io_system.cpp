@@ -225,8 +225,13 @@ int main() {
     // ========================================================================
     std::cout << "=== TEST 1: Basic Publish-Subscribe ===\n";
 
-    // Consumer subscribes to "test:basic"
-    consumerIO->subscribe("test:basic");
+    // Count received messages
+    int receivedCount = 0;
+
+    // Consumer subscribes to "test:basic" with callback
+    consumerIO->subscribe("test:basic", [&](const Message& msg) {
+        receivedCount++;
+    });
 
     // Publish 100 messages
     for (int i = 0; i < 100; i++) {
@@ -240,11 +245,9 @@ int main() {
     // Process to allow routing
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Count received messages
-    int receivedCount = 0;
+    // Dispatch messages to trigger callbacks
     while (consumerIO->hasMessages() > 0) {
-        auto msg = consumerIO->pullMessage();
-        receivedCount++;
+        consumerIO->pullAndDispatch();
     }
 
     ASSERT_EQ(receivedCount, 100, "Should receive all 100 messages");
@@ -258,8 +261,15 @@ int main() {
     // ========================================================================
     std::cout << "=== TEST 2: Pattern Matching ===\n";
 
-    // Subscribe to patterns
-    consumerIO->subscribe("player:.*");
+    // Count player messages (should match 3 of 4)
+    int playerMsgCount = 0;
+
+    // Subscribe to patterns with callback
+    consumerIO->subscribe("player:.*", [&](const Message& msg) {
+        if (msg.topic.find("player:") == 0) {
+            playerMsgCount++;
+        }
+    });
 
     // Publish test messages
     std::vector<std::string> testTopics = {
@@ -276,13 +286,9 @@ int main() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Count player messages (should match 3 of 4)
-    int playerMsgCount = 0;
+    // Dispatch messages to trigger callbacks
     while (consumerIO->hasMessages() > 0) {
-        auto msg = consumerIO->pullMessage();
-        if (msg.topic.find("player:") == 0) {
-            playerMsgCount++;
-        }
+        consumerIO->pullAndDispatch();
     }
 
     std::cout << "  Pattern 'player:.*' matched " << playerMsgCount << " messages\n";
@@ -297,11 +303,25 @@ int main() {
     std::cout << "=== TEST 3: Multi-Module Routing (1-to-many) ===\n";
     std::cout << "  Testing for known bug: std::move limitation in routing\n";
 
-    // All modules subscribe to "broadcast:.*"
-    consumerIO->subscribe("broadcast:.*");
-    broadcastIO->subscribe("broadcast:.*");
-    batchIO->subscribe("broadcast:.*");
-    stressIO->subscribe("broadcast:.*");
+    // Track received messages per module
+    int consumerReceived = 0;
+    int broadcastReceived = 0;
+    int batchReceived = 0;
+    int stressReceived = 0;
+
+    // All modules subscribe to "broadcast:.*" with callbacks
+    consumerIO->subscribe("broadcast:.*", [&](const Message& msg) {
+        consumerReceived++;
+    });
+    broadcastIO->subscribe("broadcast:.*", [&](const Message& msg) {
+        broadcastReceived++;
+    });
+    batchIO->subscribe("broadcast:.*", [&](const Message& msg) {
+        batchReceived++;
+    });
+    stressIO->subscribe("broadcast:.*", [&](const Message& msg) {
+        stressReceived++;
+    });
 
     // Publish 10 broadcast messages
     for (int i = 0; i < 10; i++) {
@@ -311,11 +331,11 @@ int main() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Check which modules received messages
-    int consumerReceived = consumerIO->hasMessages();
-    int broadcastReceived = broadcastIO->hasMessages();
-    int batchReceived = batchIO->hasMessages();
-    int stressReceived = stressIO->hasMessages();
+    // Dispatch messages to all subscribers
+    while (consumerIO->hasMessages() > 0) consumerIO->pullAndDispatch();
+    while (broadcastIO->hasMessages() > 0) broadcastIO->pullAndDispatch();
+    while (batchIO->hasMessages() > 0) batchIO->pullAndDispatch();
+    while (stressIO->hasMessages() > 0) stressIO->pullAndDispatch();
 
     std::cout << "  Broadcast distribution:\n";
     std::cout << "    ConsumerModule:  " << consumerReceived << " messages\n";
@@ -340,21 +360,25 @@ int main() {
     reporter.addAssertion("multi_module_routing_tested", true);
     std::cout << "✓ TEST 3 COMPLETED (bug documented)\n\n";
 
-    // Clean up for next test
-    while (consumerIO->hasMessages() > 0) consumerIO->pullMessage();
-    while (broadcastIO->hasMessages() > 0) broadcastIO->pullMessage();
-    while (batchIO->hasMessages() > 0) batchIO->pullMessage();
-    while (stressIO->hasMessages() > 0) stressIO->pullMessage();
+    // Clean up for next test (already dispatched, so just clear any remaining)
+    while (consumerIO->hasMessages() > 0) consumerIO->pullAndDispatch();
+    while (broadcastIO->hasMessages() > 0) broadcastIO->pullAndDispatch();
+    while (batchIO->hasMessages() > 0) batchIO->pullAndDispatch();
+    while (stressIO->hasMessages() > 0) stressIO->pullAndDispatch();
 
     // ========================================================================
     // TEST 4: Low-Frequency Subscriptions (Batching)
     // ========================================================================
     std::cout << "=== TEST 4: Low-Frequency Subscriptions ===\n";
 
+    int batchesReceived = 0;
+
     SubscriptionConfig batchConfig;
     batchConfig.replaceable = true;
     batchConfig.batchInterval = 1000; // 1 second
-    batchIO->subscribeLowFreq("batch:.*", batchConfig);
+    batchIO->subscribeLowFreq("batch:.*", [&](const Message& msg) {
+        batchesReceived++;
+    }, batchConfig);
 
     std::cout << "  Publishing 100 messages over 2 seconds...\n";
     int batchPublished = 0;
@@ -375,10 +399,8 @@ int main() {
 
     // Check batched messages
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    int batchesReceived = 0;
     while (batchIO->hasMessages() > 0) {
-        auto msg = batchIO->pullMessage();
-        batchesReceived++;
+        batchIO->pullAndDispatch();
     }
 
     std::cout << "  Published: " << batchPublished << " messages over " << batchDuration << "s\n";
@@ -397,7 +419,9 @@ int main() {
     // ========================================================================
     std::cout << "=== TEST 5: Backpressure & Queue Overflow ===\n";
 
-    consumerIO->subscribe("stress:flood");
+    consumerIO->subscribe("stress:flood", [](const Message& msg) {
+        // Just consume the message (counting not needed for this test)
+    });
 
     std::cout << "  Publishing 10000 messages without pulling...\n";
     for (int i = 0; i < 10000; i++) {
@@ -421,18 +445,20 @@ int main() {
     std::cout << "✓ TEST 5 PASSED\n\n";
 
     // Clean up queue
-    while (consumerIO->hasMessages() > 0) consumerIO->pullMessage();
+    while (consumerIO->hasMessages() > 0) consumerIO->pullAndDispatch();
 
     // ========================================================================
     // TEST 6: Thread Safety (Concurrent Pub/Pull)
     // ========================================================================
     std::cout << "=== TEST 6: Thread Safety ===\n";
 
-    consumerIO->subscribe("thread:.*");
-
     std::atomic<int> publishedTotal{0};
     std::atomic<int> receivedTotal{0};
     std::atomic<bool> running{true};
+
+    consumerIO->subscribe("thread:.*", [&](const Message& msg) {
+        receivedTotal++;
+    });
 
     std::cout << "  Launching 5 publisher threads...\n";
     std::vector<std::thread> publishers;
@@ -457,8 +483,7 @@ int main() {
             while (running || consumerIO->hasMessages() > 0) {
                 if (consumerIO->hasMessages() > 0) {
                     try {
-                        auto msg = consumerIO->pullMessage();
-                        receivedTotal++;
+                        consumerIO->pullAndDispatch();
                     } catch (...) {
                         // Expected: may have race conditions
                     }

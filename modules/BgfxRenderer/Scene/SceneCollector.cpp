@@ -8,22 +8,9 @@
 namespace grove {
 
 void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
-    // Subscribe to all render topics (multi-level wildcard .* matches render:sprite AND render:debug:line)
-    io->subscribe("render:.*");
-
-    // Initialize default view with provided dimensions (will be overridden by camera messages)
-    initDefaultView(width > 0 ? width : 1280, height > 0 ? height : 720);
-}
-
-void SceneCollector::collect(IIO* io, float deltaTime) {
-    m_deltaTime = deltaTime;
-    m_frameNumber++;
-
-    // Pull all pending messages
-    while (io->hasMessages() > 0) {
-        Message msg = io->pullMessage();
-
-        if (!msg.data) continue;
+    // Subscribe to all render topics with callback handler
+    io->subscribe("render:.*", [this](const Message& msg) {
+        if (!msg.data) return;
 
         // Route message based on topic
         // Retained mode (new) - sprites
@@ -77,6 +64,19 @@ void SceneCollector::collect(IIO* io, float deltaTime) {
         else if (msg.topic == "render:debug:rect") {
             parseDebugRect(*msg.data);
         }
+    });
+
+    // Initialize default view with provided dimensions (will be overridden by camera messages)
+    initDefaultView(width > 0 ? width : 1280, height > 0 ? height : 720);
+}
+
+void SceneCollector::collect(IIO* io, float deltaTime) {
+    m_deltaTime = deltaTime;
+    m_frameNumber++;
+
+    // Pull and dispatch all pending messages (callbacks invoked automatically)
+    while (io->hasMessages() > 0) {
+        io->pullAndDispatch();
     }
 }
 

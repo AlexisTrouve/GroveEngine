@@ -115,9 +115,37 @@ GroveEngine uses a **module-based architecture** with hot-reload support:
 | Component | Purpose | Documentation |
 |-----------|---------|---------------|
 | **IModule** | Module interface | [USER_GUIDE.md](USER_GUIDE.md#imodule) |
-| **IIO** | Pub/Sub messaging | [USER_GUIDE.md](USER_GUIDE.md#iio) |
+| **IIO** | Pull-based pub/sub with callback dispatch | [USER_GUIDE.md](USER_GUIDE.md#iio) |
 | **IDataNode** | Configuration & data | [USER_GUIDE.md](USER_GUIDE.md#idatanode) |
 | **ModuleLoader** | Hot-reload system | [USER_GUIDE.md](USER_GUIDE.md#moduleloader) |
+
+#### IIO Callback Dispatch Pattern
+
+GroveEngine uses a **pull-based callback dispatch** pattern for message processing:
+
+```cpp
+// OLD API (deprecated):
+// io->subscribe("topic:pattern");
+// while (io->hasMessages()) {
+//     auto msg = io->pullMessage();
+//     if (msg.topic == "topic:pattern") { /* handle */ }
+// }
+
+// NEW API (callback-based):
+io->subscribe("topic:pattern", [this](const Message& msg) {
+    // Handle message - no if-forest needed
+});
+
+while (io->hasMessages()) {
+    io->pullAndDispatch();  // Callbacks invoked automatically
+}
+```
+
+**Key advantages:**
+- **No if-forest dispatch**: Register handlers at subscription, not in process loop
+- **Module controls WHEN**: Pull-based processing for deterministic ordering
+- **Callbacks handle HOW**: Clean separation of concerns
+- **Thread-safe**: Callbacks invoked in module's thread context
 
 ---
 
@@ -252,22 +280,19 @@ uiModule->setConfiguration(uiConfig, uiIO.get(), nullptr);
 ```
 
 ```cpp
-// In your game module - subscribe to button events
-gameIO->subscribe("ui:click");
-gameIO->subscribe("ui:action");
+// In your game module - subscribe to button events with callbacks (in setConfiguration)
+gameIO->subscribe("ui:action", [this](const grove::Message& msg) {
+    std::string action = msg.data->getString("action", "");
+    std::string widgetId = msg.data->getString("widgetId", "");
 
-// In process()
-while (gameIO->hasMessages() > 0) {
-    auto msg = gameIO->pullMessage();
-
-    if (msg.topic == "ui:action") {
-        std::string action = msg.data->getString("action", "");
-        std::string widgetId = msg.data->getString("widgetId", "");
-
-        if (action == "start_game" && widgetId == "play_button") {
-            startGame();
-        }
+    if (action == "start_game" && widgetId == "play_button") {
+        startGame();
     }
+});
+
+// In process() - pull and dispatch to callbacks
+while (gameIO->hasMessages() > 0) {
+    gameIO->pullAndDispatch();  // Callback invoked automatically
 }
 ```
 
@@ -352,37 +377,34 @@ JsonDataNode input("input");
 inputModule->process(input);
 ```
 
-#### Consuming Input Events
+#### Consuming Input Events with Callbacks
 
 ```cpp
-// Subscribe to input topics
-gameIO->subscribe("input:mouse:button");
-gameIO->subscribe("input:keyboard:key");
+// Subscribe to input topics with callback handlers (in setConfiguration)
+gameIO->subscribe("input:mouse:button", [this](const grove::Message& msg) {
+    int button = msg.data->getInt("button", 0);  // 0=left, 1=middle, 2=right
+    bool pressed = msg.data->getBool("pressed", false);
+    double x = msg.data->getDouble("x", 0.0);
+    double y = msg.data->getDouble("y", 0.0);
 
-// In process()
+    if (button == 0 && pressed) {
+        // Left mouse button pressed at (x, y)
+        handleClick(x, y);
+    }
+});
+
+gameIO->subscribe("input:keyboard:key", [this](const grove::Message& msg) {
+    int scancode = msg.data->getInt("scancode", 0);  // SDL_SCANCODE_*
+    bool pressed = msg.data->getBool("pressed", false);
+
+    if (scancode == SDL_SCANCODE_SPACE && pressed) {
+        playerJump();
+    }
+});
+
+// In process() - pull and auto-dispatch to callbacks
 while (gameIO->hasMessages() > 0) {
-    auto msg = gameIO->pullMessage();
-
-    if (msg.topic == "input:mouse:button") {
-        int button = msg.data->getInt("button", 0);  // 0=left, 1=middle, 2=right
-        bool pressed = msg.data->getBool("pressed", false);
-        double x = msg.data->getDouble("x", 0.0);
-        double y = msg.data->getDouble("y", 0.0);
-
-        if (button == 0 && pressed) {
-            // Left mouse button pressed at (x, y)
-            handleClick(x, y);
-        }
-    }
-
-    if (msg.topic == "input:keyboard:key") {
-        int scancode = msg.data->getInt("scancode", 0);  // SDL_SCANCODE_*
-        bool pressed = msg.data->getBool("pressed", false);
-
-        if (scancode == SDL_SCANCODE_SPACE && pressed) {
-            playerJump();
-        }
-    }
+    gameIO->pullAndDispatch();  // Callbacks invoked automatically
 }
 ```
 
@@ -687,25 +709,28 @@ public:
                           grove::ITaskScheduler* scheduler) override {
         m_io = io;
 
-        // Subscribe to UI events
-        m_io->subscribe("ui:action");
-        m_io->subscribe("ui:click");
+        // Subscribe to UI events with callback handlers
+        m_io->subscribe("ui:action", [this](const grove::Message& msg) {
+            std::string action = msg.data->getString("action", "");
+            if (action == "start_game") {
+                startGame();
+            }
+        });
+
+        m_io->subscribe("ui:click", [this](const grove::Message& msg) {
+            std::string widgetId = msg.data->getString("widgetId", "");
+            double x = msg.data->getDouble("x", 0.0);
+            double y = msg.data->getDouble("y", 0.0);
+            handleClick(widgetId, x, y);
+        });
     }
 
     void process(const grove::IDataNode& input) override {
         double deltaTime = input.getDouble("deltaTime", 0.016);
 
-        // Process UI events
+        // Process UI events - pull and auto-dispatch to callbacks
         while (m_io->hasMessages() > 0) {
-            auto msg = m_io->pullMessage();
-
-            if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-
-                if (action == "start_game") {
-                    startGame();
-                }
-            }
+            m_io->pullAndDispatch();  // Callbacks invoked automatically
         }
 
         // Update game logic
@@ -905,23 +930,34 @@ io->subscribeLowFreq("analytics:*", config);
 #### Request-Response Pattern
 
 ```cpp
-// Module A: Request pathfinding
+// Module A: Subscribe to response first (in setConfiguration)
+moduleA_io->subscribe("pathfinding:response", [this](const grove::Message& msg) {
+    std::string requestId = msg.data->getString("requestId", "");
+    // ... apply path result ...
+});
+
+// Module A: Request pathfinding (in process)
 auto request = std::make_unique<JsonDataNode>("request");
 request->setString("requestId", "path_123");
 request->setDouble("startX", 10.0);
 request->setDouble("startY", 20.0);
-io->publish("pathfinding:request", std::move(request));
+moduleA_io->publish("pathfinding:request", std::move(request));
 
-// Module B: Respond with path
-moduleB_io->subscribe("pathfinding:request");
-// ... compute path ...
-auto response = std::make_unique<JsonDataNode>("response");
-response->setString("requestId", "path_123");
-// ... add path data ...
-moduleB_io->publish("pathfinding:response", std::move(response));
+// Module B: Subscribe to request (in setConfiguration)
+moduleB_io->subscribe("pathfinding:request", [this](const grove::Message& msg) {
+    std::string requestId = msg.data->getString("requestId", "");
+    // ... compute path ...
 
-// Module A: Receive response
-moduleA_io->subscribe("pathfinding:response");
+    auto response = std::make_unique<JsonDataNode>("response");
+    response->setString("requestId", requestId);
+    // ... add path data ...
+    m_io->publish("pathfinding:response", std::move(response));
+});
+
+// Module A/B: In process() - pull and dispatch
+while (io->hasMessages() > 0) {
+    io->pullAndDispatch();  // Callbacks invoked automatically
+}
 ```
 
 #### Event Aggregation
@@ -932,8 +968,15 @@ io->publish("combat:damage", damageData);
 io->publish("combat:kill", killData);
 io->publish("combat:levelup", levelupData);
 
-// Analytics module aggregates all combat events
-analyticsIO->subscribe("combat:*");
+// Analytics module aggregates all combat events (in setConfiguration)
+analyticsIO->subscribe("combat:*", [this](const grove::Message& msg) {
+    aggregateCombatEvent(msg);
+});
+
+// In process()
+while (analyticsIO->hasMessages() > 0) {
+    analyticsIO->pullAndDispatch();  // Callback invoked for each event
+}
 ```
 
 ### Testing Strategies
@@ -978,12 +1021,24 @@ ldd build/modules/GameLogic.so
 #### IIO messages not received
 
 ```cpp
-// Verify subscription BEFORE publishing
-io->subscribe("render:sprite");  // Must be before publish
+// Verify subscription with callback BEFORE publishing (in setConfiguration)
+io->subscribe("render:sprite", [this](const grove::Message& msg) {
+    handleSprite(msg);
+});
 
 // Check topic patterns
-io->subscribe("render:*");  // Matches render:sprite, render:text
-io->subscribe("render:sprite:*");  // Only matches render:sprite:batch
+io->subscribe("render:*", [this](const grove::Message& msg) {
+    // Matches render:sprite, render:text, etc.
+});
+
+io->subscribe("render:sprite:*", [this](const grove::Message& msg) {
+    // Only matches render:sprite:batch, render:sprite:add, etc.
+});
+
+// Remember to pullAndDispatch in process()
+while (io->hasMessages() > 0) {
+    io->pullAndDispatch();
+}
 ```
 
 #### Hot-reload state loss

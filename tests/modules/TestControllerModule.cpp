@@ -29,16 +29,39 @@ public:
 
         std::cout << "[TestController] Initializing...\n";
 
-        // Subscribe to UI events
+        // Subscribe to UI events with callbacks
         if (m_io) {
-            m_io->subscribe("ui:click");
-            m_io->subscribe("ui:action");
-            m_io->subscribe("ui:value_changed");
-            m_io->subscribe("ui:text_changed");
-            m_io->subscribe("ui:text_submit");
-            m_io->subscribe("ui:hover");
-            m_io->subscribe("ui:focus_gained");
-            m_io->subscribe("ui:focus_lost");
+            m_io->subscribe("ui:click", [this](const grove::Message& msg) {
+                handleClick(*msg.data);
+            });
+
+            m_io->subscribe("ui:action", [this](const grove::Message& msg) {
+                handleAction(*msg.data);
+            });
+
+            m_io->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+                handleValueChanged(*msg.data);
+            });
+
+            m_io->subscribe("ui:text_changed", [this](const grove::Message& msg) {
+                handleTextChanged(*msg.data);
+            });
+
+            m_io->subscribe("ui:text_submit", [this](const grove::Message& msg) {
+                handleTextSubmit(*msg.data);
+            });
+
+            m_io->subscribe("ui:hover", [this](const grove::Message& msg) {
+                handleHover(*msg.data);
+            });
+
+            m_io->subscribe("ui:focus_gained", [this](const grove::Message& msg) {
+                handleFocusGained(*msg.data);
+            });
+
+            m_io->subscribe("ui:focus_lost", [this](const grove::Message& msg) {
+                handleFocusLost(*msg.data);
+            });
         }
 
         std::cout << "[TestController] Subscribed to UI events\n";
@@ -49,34 +72,9 @@ public:
 
         m_frameCount++;
 
-        // Process incoming UI events
+        // Pull and dispatch all pending messages (callbacks invoked automatically)
         while (m_io->hasMessages() > 0) {
-            auto msg = m_io->pullMessage();
-
-            if (msg.topic == "ui:click") {
-                handleClick(*msg.data);
-            }
-            else if (msg.topic == "ui:action") {
-                handleAction(*msg.data);
-            }
-            else if (msg.topic == "ui:value_changed") {
-                handleValueChanged(*msg.data);
-            }
-            else if (msg.topic == "ui:text_changed") {
-                handleTextChanged(*msg.data);
-            }
-            else if (msg.topic == "ui:text_submit") {
-                handleTextSubmit(*msg.data);
-            }
-            else if (msg.topic == "ui:hover") {
-                handleHover(*msg.data);
-            }
-            else if (msg.topic == "ui:focus_gained") {
-                handleFocusGained(*msg.data);
-            }
-            else if (msg.topic == "ui:focus_lost") {
-                handleFocusLost(*msg.data);
-            }
+            m_io->pullAndDispatch();
         }
 
         // Simulate some game logic

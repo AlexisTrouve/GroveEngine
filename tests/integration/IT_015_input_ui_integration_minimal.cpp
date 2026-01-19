@@ -24,14 +24,25 @@ TEST_CASE("IT_015_Minimal: IIO Message Publishing", "[integration][input][ui][mi
     auto publisher = ioManager.createInstance("publisher");
     auto subscriber = ioManager.createInstance("subscriber");
 
-    // Subscribe to input events
-    subscriber->subscribe("input:mouse:move");
-    subscriber->subscribe("input:mouse:button");
-    subscriber->subscribe("input:keyboard:key");
-
     int mouseMoveCount = 0;
     int mouseButtonCount = 0;
     int keyboardKeyCount = 0;
+
+    // Subscribe to input events with callbacks
+    subscriber->subscribe("input:mouse:move", [&](const Message& msg) {
+        mouseMoveCount++;
+        int x = msg.data->getInt("x", 0);
+        int y = msg.data->getInt("y", 0);
+        std::cout << "✅ Received input:mouse:move (" << x << ", " << y << ")\n";
+    });
+    subscriber->subscribe("input:mouse:button", [&](const Message& msg) {
+        mouseButtonCount++;
+        std::cout << "✅ Received input:mouse:button\n";
+    });
+    subscriber->subscribe("input:keyboard:key", [&](const Message& msg) {
+        keyboardKeyCount++;
+        std::cout << "✅ Received input:keyboard:key\n";
+    });
 
     // Publish input events
     std::cout << "Publishing input events...\n";
@@ -56,24 +67,9 @@ TEST_CASE("IT_015_Minimal: IIO Message Publishing", "[integration][input][ui][mi
     keyData->setBool("pressed", true);
     publisher->publish("input:keyboard:key", std::move(keyData));
 
-    // Collect messages
+    // Dispatch messages to trigger callbacks
     while (subscriber->hasMessages() > 0) {
-        auto msg = subscriber->pullMessage();
-
-        if (msg.topic == "input:mouse:move") {
-            mouseMoveCount++;
-            int x = msg.data->getInt("x", 0);
-            int y = msg.data->getInt("y", 0);
-            std::cout << "✅ Received input:mouse:move (" << x << ", " << y << ")\n";
-        }
-        else if (msg.topic == "input:mouse:button") {
-            mouseButtonCount++;
-            std::cout << "✅ Received input:mouse:button\n";
-        }
-        else if (msg.topic == "input:keyboard:key") {
-            keyboardKeyCount++;
-            std::cout << "✅ Received input:keyboard:key\n";
-        }
+        subscriber->pullAndDispatch();
     }
 
     // Verify

@@ -15,18 +15,10 @@ ConsumerModule::~ConsumerModule() {
 void ConsumerModule::process(const IDataNode& input) {
     if (!io) return;
 
-    // Pull all available messages
+    // Pull and dispatch all available messages (callbacks invoked automatically)
     while (io->hasMessages() > 0) {
         try {
-            auto msg = io->pullMessage();
-            receivedCount++;
-
-            // Optionally log message details
-            bool verbose = input.getBool("verbose", false);
-            if (verbose) {
-                std::cout << "[ConsumerModule] Received message #" << receivedCount
-                          << " on topic: " << msg.topic << std::endl;
-            }
+            io->pullAndDispatch();
         } catch (const std::exception& e) {
             std::cerr << "[ConsumerModule] Error pulling message: " << e.what() << std::endl;
         }
@@ -41,6 +33,13 @@ void ConsumerModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, I
 
     // Store config
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
+
+    // Subscribe to all messages with callback that counts them
+    if (io) {
+        io->subscribe("*", [this](const Message& msg) {
+            receivedCount++;
+        });
+    }
 }
 
 const IDataNode& ConsumerModule::getConfiguration() {

@@ -79,11 +79,28 @@ int main() {
     // Load config
     tree->loadConfigFile("gameplay.json");
 
-    // Player subscribes to config changes
-    playerIO->subscribe("config:gameplay:changed");
+    // Track config change events
+    std::atomic<int> configChangedEvents{0};
+
+    // Player subscribes to config changes with callback
+    playerIO->subscribe("config:gameplay:changed", [&](const Message& msg) {
+        configChangedEvents++;
+        // Read new config from tree
+        auto configRoot = tree->getConfigRoot();
+        auto gameplay = configRoot->getChild("gameplay");
+        if (gameplay) {
+            std::string difficulty = gameplay->getString("difficulty");
+            double hpMult = gameplay->getDouble("hpMultiplier");
+
+            std::cout << "  PlayerModule received config change: difficulty=" << difficulty
+                      << ", hpMult=" << hpMult << "\n";
+
+            ASSERT_EQ(difficulty, "hard", "Difficulty should be updated");
+            ASSERT_TRUE(std::abs(hpMult - 1.5) < 0.001, "HP multiplier should be updated");
+        }
+    });
 
     // Setup reload callback for ConfigWatcher
-    std::atomic<int> configChangedEvents{0};
     tree->onTreeReloaded([&]() {
         std::cout << "  → Config reloaded, publishing event...\n";
         auto data = std::make_unique<JsonDataNode>("configChange", nlohmann::json{
@@ -111,24 +128,9 @@ int main() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Check if player received message
-    if (playerIO->hasMessages() > 0) {
-        auto msg = playerIO->pullMessage();
-        configChangedEvents++;
-
-        // Read new config from tree
-        auto configRoot = tree->getConfigRoot();
-        auto gameplay = configRoot->getChild("gameplay");
-        if (gameplay) {
-            std::string difficulty = gameplay->getString("difficulty");
-            double hpMult = gameplay->getDouble("hpMultiplier");
-
-            std::cout << "  PlayerModule received config change: difficulty=" << difficulty
-                      << ", hpMult=" << hpMult << "\n";
-
-            ASSERT_EQ(difficulty, "hard", "Difficulty should be updated");
-            ASSERT_TRUE(std::abs(hpMult - 1.5) < 0.001, "HP multiplier should be updated");
-        }
+    // Dispatch player messages (callback handles verification)
+    while (playerIO->hasMessages() > 0) {
+        playerIO->pullAndDispatch();
     }
 
     auto reloadEnd = std::chrono::high_resolution_clock::now();
@@ -166,23 +168,12 @@ int main() {
 
     std::cout << "  Data saved to disk\n";
 
-    // Economy subscribes to player events FIRST
-    economyIO->subscribe("player:*");
-
-    // Then publish level up event
-    auto levelUpData = std::make_unique<JsonDataNode>("levelUp", nlohmann::json{
-        {"event", "level_up"},
-        {"newLevel", 6},
-        {"goldBonus", 500}
-    });
-    playerIO->publish("player:level_up", std::move(levelUpData));
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Economy processes message
     int messagesReceived = 0;
-    while (economyIO->hasMessages() > 0) {
-        auto msg = economyIO->pullMessage();
+    int syncErrors = 0;  // Will be used in TEST 3
+
+    // Economy subscribes to player events with callback
+    // This callback will be reused across TEST 2 and TEST 3
+    economyIO->subscribe("player:*", [&](const Message& msg) {
         messagesReceived++;
         std::cout << "  EconomyModule received: " << msg.topic << "\n";
 
@@ -195,10 +186,38 @@ int main() {
                 if (profileData) {
                     int gold = profileData->getInt("gold");
                     std::cout << "  Player gold: " << gold << "\n";
-                    ASSERT_EQ(gold, 1000, "Gold should match saved value");
+
+                    // For TEST 2: verify initial gold
+                    if (msg.topic == "player:level_up") {
+                        ASSERT_EQ(gold, 1000, "Gold should match saved value");
+                    }
+
+                    // For TEST 3: verify synchronization
+                    if (msg.topic == "player:gold:updated") {
+                        int msgGold = msg.data->getInt("gold");
+                        if (msgGold != gold) {
+                            std::cerr << "  SYNC ERROR: msg=" << msgGold << " data=" << gold << "\n";
+                            syncErrors++;
+                        }
+                    }
                 }
             }
         }
+    });
+
+    // Then publish level up event
+    auto levelUpData = std::make_unique<JsonDataNode>("levelUp", nlohmann::json{
+        {"event", "level_up"},
+        {"newLevel", 6},
+        {"goldBonus", 500}
+    });
+    playerIO->publish("player:level_up", std::move(levelUpData));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Dispatch economy messages (callback handles verification)
+    while (economyIO->hasMessages() > 0) {
+        economyIO->pullAndDispatch();
     }
 
     ASSERT_EQ(messagesReceived, 1, "Should receive 1 player event");
@@ -211,7 +230,8 @@ int main() {
     // ========================================================================
     std::cout << "\n=== TEST 3: Multi-Module State Synchronization ===\n";
 
-    int syncErrors = 0;
+    // Note: syncErrors is already declared earlier and captured by the economyIO callback
+    // The callback will automatically verify synchronization for "player:gold:updated" messages
 
     for (int i = 0; i < 10; i++) {
         // Update gold in DataNode using read-only access
@@ -236,27 +256,9 @@ int main() {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-        // Economy verifies synchronization
-        if (economyIO->hasMessages() > 0) {
-            auto msg = economyIO->pullMessage();
-            int msgGold = msg.data->getInt("gold");
-
-            // Read from DataNode using read-only access
-            auto dataRoot = tree->getDataRoot();
-            if (dataRoot) {
-                auto playerCheck = dataRoot->getChildReadOnly("player");
-                if (playerCheck) {
-                    auto profileCheck = playerCheck->getChildReadOnly("profile");
-                    if (profileCheck) {
-                        int dataGold = profileCheck->getInt("gold");
-
-                        if (msgGold != dataGold) {
-                            std::cerr << "  SYNC ERROR: msg=" << msgGold << " data=" << dataGold << "\n";
-                            syncErrors++;
-                        }
-                    }
-                }
-            }
+        // Dispatch economy messages (callback will verify synchronization)
+        while (economyIO->hasMessages() > 0) {
+            economyIO->pullAndDispatch();
         }
     }
 
@@ -274,12 +276,16 @@ int main() {
 
     auto runtimeRoot = tree->getRuntimeRoot();
 
-    // Subscribe to metrics with low-frequency
+    int snapshotsReceived = 0;
+
+    // Subscribe to metrics with low-frequency and callback
     SubscriptionConfig metricsConfig;
     metricsConfig.replaceable = true;
     metricsConfig.batchInterval = 1000; // 1 second
 
-    playerIO->subscribeLowFreq("metrics:*", metricsConfig);
+    playerIO->subscribeLowFreq("metrics:*", [&](const Message& msg) {
+        snapshotsReceived++;
+    }, metricsConfig);
 
     // Publish 20 metrics over 2 seconds
     for (int i = 0; i < 20; i++) {
@@ -295,10 +301,8 @@ int main() {
 
     // Check batched messages
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    int snapshotsReceived = 0;
     while (playerIO->hasMessages() > 0) {
-        playerIO->pullMessage();
-        snapshotsReceived++;
+        playerIO->pullAndDispatch();
     }
 
     std::cout << "Snapshots received: " << snapshotsReceived << " (expected ~2 due to batching)\n";

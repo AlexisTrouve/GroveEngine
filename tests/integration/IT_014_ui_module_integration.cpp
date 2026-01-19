@@ -110,16 +110,27 @@ TEST_CASE("IT_014: UIModule Full Integration", "[integration][ui][phase7]") {
                             std::cout << "⚠️  Renderer not healthy (expected for noop backend), skipping renderer process calls\n";
                         }
 
-                        // Subscribe to events we want to verify
-                        gameIO->subscribe("ui:click");
-                        gameIO->subscribe("ui:action");
-                        gameIO->subscribe("ui:value_changed");
-                        gameIO->subscribe("ui:hover");
-
                         int clickCount = 0;
                         int actionCount = 0;
                         int valueChangeCount = 0;
                         int hoverCount = 0;
+
+                        // Subscribe to events we want to verify with callbacks
+                        gameIO->subscribe("ui:click", [&](const Message& msg) {
+                            clickCount++;
+                        });
+                        gameIO->subscribe("ui:action", [&](const Message& msg) {
+                            actionCount++;
+                        });
+                        gameIO->subscribe("ui:value_changed", [&](const Message& msg) {
+                            valueChangeCount++;
+                        });
+                        gameIO->subscribe("ui:hover", [&](const Message& msg) {
+                            bool enter = msg.data->getBool("enter", false);
+                            if (enter) {
+                                hoverCount++;
+                            }
+                        });
 
                         // Simulate 60 frames (~1 second at 60fps)
                         for (int frame = 0; frame < 60; frame++) {
@@ -169,30 +180,9 @@ TEST_CASE("IT_014: UIModule Full Integration", "[integration][ui][phase7]") {
                                 renderer->process(frameInput);
                             }
 
-                            // Check for events
+                            // Dispatch events (callbacks handle counting and logging)
                             while (gameIO->hasMessages() > 0) {
-                                auto msg = gameIO->pullMessage();
-
-                                if (msg.topic == "ui:click") {
-                                    clickCount++;
-                                    std::cout << "  Frame " << frame << ": Click event received\n";
-                                }
-                                else if (msg.topic == "ui:action") {
-                                    actionCount++;
-                                    std::string action = msg.data->getString("action", "");
-                                    std::cout << "  Frame " << frame << ": Action event: " << action << "\n";
-                                }
-                                else if (msg.topic == "ui:value_changed") {
-                                    valueChangeCount++;
-                                    std::cout << "  Frame " << frame << ": Value changed\n";
-                                }
-                                else if (msg.topic == "ui:hover") {
-                                    bool enter = msg.data->getBool("enter", false);
-                                    if (enter) {
-                                        hoverCount++;
-                                        std::cout << "  Frame " << frame << ": Hover event\n";
-                                    }
-                                }
+                                gameIO->pullAndDispatch();
                             }
 
                             // Small delay to simulate real-time

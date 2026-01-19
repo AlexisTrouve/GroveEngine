@@ -46,12 +46,13 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonData);
 }
 
-void IntraIO::subscribe(const std::string& topicPattern, const SubscriptionConfig& config) {
+void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
     std::lock_guard<std::mutex> lock(operationMutex);
 
     Subscription sub;
     sub.originalPattern = topicPattern;
     sub.pattern = compileTopicPattern(topicPattern);
+    sub.handler = handler;  // Store callback
     sub.config = config;
     sub.lastBatch = std::chrono::high_resolution_clock::now();
 
@@ -61,12 +62,13 @@ void IntraIO::subscribe(const std::string& topicPattern, const SubscriptionConfi
     IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, false);
 }
 
-void IntraIO::subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config) {
+void IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
     std::lock_guard<std::mutex> lock(operationMutex);
 
     Subscription sub;
     sub.originalPattern = topicPattern;
     sub.pattern = compileTopicPattern(topicPattern);
+    sub.handler = handler;  // Store callback
     sub.config = config;
     sub.lastBatch = std::chrono::high_resolution_clock::now();
 
@@ -81,24 +83,38 @@ int IntraIO::hasMessages() const {
     return static_cast<int>(messageQueue.size() + lowFreqMessageQueue.size());
 }
 
-Message IntraIO::pullMessage() {
+void IntraIO::pullAndDispatch() {
     std::lock_guard<std::mutex> lock(operationMutex);
 
     if (messageQueue.empty() && lowFreqMessageQueue.empty()) {
         throw std::runtime_error("No messages available");
     }
 
+    // Pull message from queue
     Message msg;
+    bool isLowFreq = false;
     if (!messageQueue.empty()) {
         msg = std::move(messageQueue.front());
         messageQueue.pop();
     } else {
         msg = std::move(lowFreqMessageQueue.front());
         lowFreqMessageQueue.pop();
+        isLowFreq = true;
     }
 
     totalPulled++;
-    return msg;
+
+    // Find ALL matching handlers and dispatch to each
+    const auto& subscriptions = isLowFreq ? lowFreqSubscriptions : highFreqSubscriptions;
+
+    for (const auto& sub : subscriptions) {
+        if (matchesPattern(msg.topic, sub.pattern)) {
+            // Found matching subscription - invoke handler
+            if (sub.handler) {
+                sub.handler(msg);
+            }
+        }
+    }
 }
 
 IOHealth IntraIO::getHealth() const {
@@ -224,17 +240,26 @@ bool IntraIO::matchesPattern(const std::string& topic, const std::regex& pattern
 }
 
 std::regex IntraIO::compileTopicPattern(const std::string& pattern) const {
-    // Convert wildcard pattern to regex
-    std::string regexPattern = pattern;
+    // Patterns can be:
+    // 1. Simple wildcard: "*" → convert to ".*" regex
+    // 2. Regex patterns: "player:.*", "test:.*" → use as-is
 
-    // Escape special regex characters except *
+    // If pattern contains ".*" already, assume it's a regex pattern
+    if (pattern.find(".*") != std::string::npos) {
+        // Already a regex pattern - use as-is
+        return std::regex(pattern);
+    }
+
+    // Otherwise, convert simple wildcards to regex
     std::string escaped;
-    for (char c : regexPattern) {
+    for (char c : pattern) {
         if (c == '*') {
+            // Simple wildcard: convert to regex ".*"
             escaped += ".*";
-        } else if (c == '.' || c == '+' || c == '?' || c == '^' || c == '$' ||
+        } else if (c == '+' || c == '?' || c == '^' || c == '$' ||
                    c == '(' || c == ')' || c == '[' || c == ']' || c == '{' ||
-                   c == '}' || c == '|' || c == '\\') {
+                   c == '}' || c == '|' || c == '\\' || c == '.') {
+            // Escape special regex characters
             escaped += '\\';
             escaped += c;
         } else {

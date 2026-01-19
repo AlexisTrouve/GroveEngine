@@ -12,12 +12,10 @@ PlayerModule::~PlayerModule() {
 }
 
 void PlayerModule::process(const IDataNode& input) {
-    // Process incoming messages from IO
-    if (io && io->hasMessages() > 0) {
-        auto msg = io->pullMessage();
-
-        if (msg.topic.find("config:") == 0) {
-            handleConfigChange();
+    // Pull and dispatch all pending messages (callbacks invoked automatically)
+    if (io) {
+        while (io->hasMessages() > 0) {
+            io->pullAndDispatch();
         }
     }
 }
@@ -31,9 +29,11 @@ void PlayerModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, ITa
     // Store config
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
 
-    // Subscribe to config changes
+    // Subscribe to config changes with callback
     if (io) {
-        io->subscribe("config:gameplay:changed");
+        io->subscribe("config:gameplay:changed", [this](const Message& msg) {
+            handleConfigChange();
+        });
     }
 }
 

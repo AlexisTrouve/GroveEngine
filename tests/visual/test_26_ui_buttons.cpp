@@ -80,10 +80,31 @@ int main(int argc, char* argv[]) {
 
     std::cout << "IIO Manager setup complete\n";
 
-    // Subscribe to UI events to see button clicks
-    uiIO->subscribe("ui:click");
-    uiIO->subscribe("ui:hover");
-    uiIO->subscribe("ui:action");
+    // Subscribe to UI events to see button clicks with callbacks
+    uiIO->subscribe("ui:click", [](const Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
+    });
+    uiIO->subscribe("ui:hover", [](const Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        bool enter = msg.data->getBool("enter", false);
+        if (enter && !widgetId.empty()) {
+            std::cout << "  [UI EVENT] Hover: " << widgetId << "\n";
+        }
+    });
+    bool running = true;  // Will be captured by callback
+
+    uiIO->subscribe("ui:action", [&running](const Message& msg) {
+        std::string action = msg.data->getString("action", "");
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::cout << "  [UI EVENT] Action: " << action << " (from " << widgetId << ")\n";
+
+        // Handle quit action
+        if (action == "app:quit") {
+            std::cout << "\nQuit button clicked - exiting!\n";
+            running = false;
+        }
+    });
 
     // ========================================
     // Load BgfxRenderer module
@@ -186,7 +207,7 @@ int main(int argc, char* argv[]) {
     std::cout << "\nMove mouse over buttons and click them!\n";
     std::cout << "Press ESC to exit or wait 30 seconds\n\n";
 
-    bool running = true;
+    // running is already declared above with callbacks
     uint32_t frameCount = 0;
     Uint32 startTime = SDL_GetTicks();
     const Uint32 testDuration = 30000;  // 30 seconds
@@ -234,32 +255,9 @@ int main(int argc, char* argv[]) {
             running = false;
         }
 
-        // Check for UI events
+        // Dispatch UI events (callbacks handle logging and quit action)
         while (uiIO->hasMessages() > 0) {
-            auto msg = uiIO->pullMessage();
-
-            if (msg.topic == "ui:click") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
-            }
-            else if (msg.topic == "ui:hover") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                bool enter = msg.data->getBool("enter", false);
-                if (enter && !widgetId.empty()) {
-                    std::cout << "  [UI EVENT] Hover: " << widgetId << "\n";
-                }
-            }
-            else if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::cout << "  [UI EVENT] Action: " << action << " (from " << widgetId << ")\n";
-
-                // Handle quit action
-                if (action == "app:quit") {
-                    std::cout << "\nQuit button clicked - exiting!\n";
-                    running = false;
-                }
-            }
+            uiIO->pullAndDispatch();
         }
 
         // ========================================

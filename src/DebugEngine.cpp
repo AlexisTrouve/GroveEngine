@@ -429,10 +429,7 @@ void DebugEngine::processClientMessages() {
 
             for (int j = 0; j < messagesToProcess; ++j) {
                 try {
-                    auto message = socket->pullMessage();
-                    std::string dataPreview = message.data ? message.data->getData()->toString() : "null";
-                    logger->debug("📩 Client {} message: topic='{}', data present={}",
-                                i, message.topic, message.data != nullptr);
+                    socket->pullAndDispatch();
 
                     // TODO: Route message to appropriate module or process it
                     logger->trace("🚧 TODO: Route client message to modules");
@@ -456,9 +453,7 @@ void DebugEngine::processCoordinatorMessages() {
 
         for (int i = 0; i < messagesToProcess; ++i) {
             try {
-                auto message = coordinatorSocket->pullMessage();
-                logger->debug("📩 Coordinator message: topic='{}', data present={}",
-                            message.topic, message.data != nullptr);
+                coordinatorSocket->pullAndDispatch();
 
                 // TODO: Handle coordinator commands (shutdown, config reload, etc.)
                 logger->trace("🚧 TODO: Handle coordinator commands");

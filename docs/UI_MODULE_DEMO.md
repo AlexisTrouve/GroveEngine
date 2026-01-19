@@ -221,20 +221,22 @@ uiIO->publish("input:text", std::move(textInput));
 ### Event Logging
 
 ```cpp
-while (uiIO->hasMessages() > 0) {
-    auto msg = uiIO->pullMessage();
+// Subscribe to UI events with callbacks (during setup)
+uiIO->subscribe("ui:click", [&clickCount, &eventLog](const grove::Message& msg) {
+    clickCount++;
+    std::string widgetId = msg.data->getString("widgetId", "");
+    eventLog.add("🖱️  Click: " + widgetId);
+});
 
-    if (msg.topic == "ui:click") {
-        clickCount++;
-        std::string widgetId = msg.data->getString("widgetId", "");
-        eventLog.add("🖱️  Click: " + widgetId);
-    }
-    else if (msg.topic == "ui:action") {
-        actionCount++;
-        std::string action = msg.data->getString("action", "");
-        eventLog.add("⚡ Action: " + action);
-    }
-    // ... handle other events
+uiIO->subscribe("ui:action", [&actionCount, &eventLog](const grove::Message& msg) {
+    actionCount++;
+    std::string action = msg.data->getString("action", "");
+    eventLog.add("⚡ Action: " + action);
+});
+
+// In main loop - pull and dispatch to callbacks
+while (uiIO->hasMessages() > 0) {
+    uiIO->pullAndDispatch();  // Callbacks invoked automatically
 }
 ```
 

@@ -53,13 +53,21 @@ TEST_CASE("IT_015: UIModule Input Integration", "[integration][input][ui][phase3
     REQUIRE_NOTHROW(uiModule->setConfiguration(uiConfig, uiIO.get(), nullptr));
     std::cout << "✅ UIModule loaded\n\n";
 
-    // Subscribe to events
-    testIO->subscribe("ui:click");
-    testIO->subscribe("ui:hover");
-    testIO->subscribe("ui:action");
-
     int uiClicksReceived = 0;
     int uiHoversReceived = 0;
+
+    // Subscribe to events with callbacks
+    testIO->subscribe("ui:click", [&](const Message& msg) {
+        uiClicksReceived++;
+        std::cout << "✅ Received ui:click event\n";
+    });
+    testIO->subscribe("ui:hover", [&](const Message& msg) {
+        uiHoversReceived++;
+        std::cout << "✅ Received ui:hover event\n";
+    });
+    testIO->subscribe("ui:action", [](const Message& msg) {
+        // Just acknowledge action events
+    });
 
     // Publish input events via IIO (simulates InputModule output)
     std::cout << "Publishing input events...\n";
@@ -85,16 +93,9 @@ TEST_CASE("IT_015: UIModule Input Integration", "[integration][input][ui][phase3
     // Process UIModule again
     uiModule->process(inputData);
 
-    // Collect UI events
+    // Dispatch UI events (callbacks handle counting)
     while (testIO->hasMessages() > 0) {
-        auto msg = testIO->pullMessage();
-        if (msg.topic == "ui:click") {
-            uiClicksReceived++;
-            std::cout << "✅ Received ui:click event\n";
-        } else if (msg.topic == "ui:hover") {
-            uiHoversReceived++;
-            std::cout << "✅ Received ui:hover event\n";
-        }
+        testIO->pullAndDispatch();
     }
 
     std::cout << "\nResults:\n";

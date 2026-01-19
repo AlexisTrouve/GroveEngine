@@ -73,54 +73,14 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         }
     }
 
-    // Subscribe to input topics
+    // Subscribe to input topics with callbacks
     if (m_io) {
-        m_io->subscribe("input:mouse:move");
-        m_io->subscribe("input:mouse:button");
-        m_io->subscribe("input:mouse:wheel");
-        m_io->subscribe("input:keyboard");
-        m_io->subscribe("ui:load");        // Load new layout
-        m_io->subscribe("ui:set_value");   // Set widget value
-        m_io->subscribe("ui:set_visible"); // Show/hide widget
-        m_io->subscribe("ui:set_text");    // Set widget text (for labels)
-    }
-
-    m_logger->info("UIModule initialized");
-}
-
-void UIModule::process(const IDataNode& input) {
-    float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
-
-    // Begin new frame
-    m_context->beginFrame();
-    m_renderer->beginFrame();
-
-    // Process input messages from IIO
-    processInput();
-
-    // Update UI logic
-    updateUI(deltaTime);
-
-    // Render UI
-    renderUI();
-
-    m_frameCount++;
-}
-
-void UIModule::processInput() {
-    if (!m_io) return;
-
-    while (m_io->hasMessages() > 0) {
-        auto msg = m_io->pullMessage();
-
-        if (msg.topic == "input:mouse:move") {
+        m_io->subscribe("input:mouse:move", [this](const Message& msg) {
             m_context->mouseX = static_cast<float>(msg.data->getDouble("x", 0.0));
             m_context->mouseY = static_cast<float>(msg.data->getDouble("y", 0.0));
-        }
-        else if (msg.topic == "input:mouse:wheel") {
-            m_context->mouseWheelDelta = static_cast<float>(msg.data->getDouble("delta", 0.0));
-        }
-        else if (msg.topic == "input:mouse:button") {
+        });
+
+        m_io->subscribe("input:mouse:button", [this](const Message& msg) {
             bool pressed = msg.data->getBool("pressed", false);
             if (pressed && !m_context->mouseDown) {
                 m_context->mousePressed = true;
@@ -129,19 +89,26 @@ void UIModule::processInput() {
                 m_context->mouseReleased = true;
             }
             m_context->mouseDown = pressed;
-        }
-        else if (msg.topic == "input:keyboard") {
+        });
+
+        m_io->subscribe("input:mouse:wheel", [this](const Message& msg) {
+            m_context->mouseWheelDelta = static_cast<float>(msg.data->getDouble("delta", 0.0));
+        });
+
+        m_io->subscribe("input:keyboard", [this](const Message& msg) {
             m_context->keyPressed = true;
             m_context->keyCode = msg.data->getInt("keyCode", 0);
             m_context->keyChar = static_cast<char>(msg.data->getInt("char", 0));
-        }
-        else if (msg.topic == "ui:load") {
+        });
+
+        m_io->subscribe("ui:load", [this](const Message& msg) {
             std::string layoutPath = msg.data->getString("path", "");
             if (!layoutPath.empty()) {
                 loadLayout(layoutPath);
             }
-        }
-        else if (msg.topic == "ui:set_visible") {
+        });
+
+        m_io->subscribe("ui:set_visible", [this](const Message& msg) {
             std::string widgetId = msg.data->getString("id", "");
             bool visible = msg.data->getBool("visible", true);
             if (m_root) {
@@ -149,8 +116,9 @@ void UIModule::processInput() {
                     widget->visible = visible;
                 }
             }
-        }
-        else if (msg.topic == "ui:set_text") {
+        });
+
+        m_io->subscribe("ui:set_text", [this](const Message& msg) {
             // Timestamp on receive
             auto now = std::chrono::high_resolution_clock::now();
             auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
@@ -179,7 +147,37 @@ void UIModule::processInput() {
                     }
                 }
             }
-        }
+        });
+    }
+
+    m_logger->info("UIModule initialized");
+}
+
+void UIModule::process(const IDataNode& input) {
+    float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
+
+    // Begin new frame
+    m_context->beginFrame();
+    m_renderer->beginFrame();
+
+    // Process input messages from IIO
+    processInput();
+
+    // Update UI logic
+    updateUI(deltaTime);
+
+    // Render UI
+    renderUI();
+
+    m_frameCount++;
+}
+
+void UIModule::processInput() {
+    if (!m_io) return;
+
+    // Pull and dispatch all pending messages (callbacks invoked automatically)
+    while (m_io->hasMessages() > 0) {
+        m_io->pullAndDispatch();
     }
 }
 

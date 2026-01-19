@@ -54,8 +54,20 @@ TEST_CASE("IIO sprite message routing between modules", "[bgfx][integration]") {
     auto gameIO = ioManager.createInstance("test_game_module");
     auto rendererIO = ioManager.createInstance("test_renderer_module");
 
-    // Renderer subscribes to render topics
-    rendererIO->subscribe("render:*");
+    int messageCount = 0;
+    bool firstMessageVerified = false;
+
+    // Renderer subscribes to render topics with callback
+    rendererIO->subscribe("render:*", [&](const Message& msg) {
+        messageCount++;
+        if (messageCount == 1) {
+            // Verify first message
+            REQUIRE(msg.topic == "render:sprite");
+            REQUIRE(msg.data != nullptr);
+            REQUIRE_THAT(msg.data->getDouble("x"), WithinAbs(100.0, 0.01));
+            firstMessageVerified = true;
+        }
+    });
 
     // Game module publishes sprites via IIO
     for (int i = 0; i < 3; ++i) {
@@ -71,14 +83,14 @@ TEST_CASE("IIO sprite message routing between modules", "[bgfx][integration]") {
         gameIO->publish("render:sprite", std::move(spriteData));
     }
 
-    // Messages should be routed to renderer
-    REQUIRE(rendererIO->hasMessages() == 3);
+    // Dispatch messages to trigger callbacks
+    while (rendererIO->hasMessages() > 0) {
+        rendererIO->pullAndDispatch();
+    }
 
-    // Pull and verify first message
-    auto msg1 = rendererIO->pullMessage();
-    REQUIRE(msg1.topic == "render:sprite");
-    REQUIRE(msg1.data != nullptr);
-    REQUIRE_THAT(msg1.data->getDouble("x"), WithinAbs(100.0, 0.01));
+    // Verify we received all 3 messages
+    REQUIRE(messageCount == 3);
+    REQUIRE(firstMessageVerified);
 
     // Cleanup
     rendererIO->clearAllMessages();

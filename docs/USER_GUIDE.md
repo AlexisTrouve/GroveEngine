@@ -34,7 +34,7 @@ GroveEngine provides:
 - Modules contain pure business logic (200-300 lines recommended)
 - No infrastructure code in modules (threading, networking, persistence)
 - All data via `IDataNode` abstraction (backend agnostic)
-- Pull-based message processing (modules control when they read messages)
+- Pull-based message processing with callback dispatch (modules control WHEN to process, callbacks handle HOW)
 
 ---
 
@@ -57,10 +57,10 @@ Hierarchical data structure for configuration, state, and messages. Supports:
 
 ### IIO
 
-Pub/Sub communication interface:
+Pull-based pub/sub communication with callback dispatch:
 - `publish()`: Send messages to topics
-- `subscribe()`: Listen to topic patterns
-- `pullMessage()`: Consume received messages
+- `subscribe()`: Register callback handler for topic pattern
+- `pullAndDispatch()`: Pull and auto-dispatch message to handler
 
 ### ModuleLoader
 
@@ -257,11 +257,9 @@ void MyModule::process(const grove::IDataNode& input) {
     // Your processing logic here
     m_counter++;
 
-    // Process incoming messages
+    // Process incoming messages (dispatch to registered callbacks)
     while (m_io && m_io->hasMessages() > 0) {
-        auto msg = m_io->pullMessage();
-        m_logger->debug("Received message on topic: {}", msg.topic);
-        // Handle message...
+        m_io->pullAndDispatch();  // Callbacks invoked automatically
     }
 
     // Publish events if needed
@@ -394,7 +392,20 @@ void destroyModule(grove::IModule* module) {
 
 ### IIO Pub/Sub System
 
-Modules communicate via topics using publish/subscribe pattern.
+Modules communicate via topics using publish/subscribe pattern with callback dispatch.
+
+#### Key Design: Pull-Based with Callback Dispatch
+
+Unlike traditional push-based systems, IIO gives modules control over **WHEN** to process messages while callbacks handle **HOW** to process them:
+
+1. **Subscribe with Callback** (in `setConfiguration`): Register handlers for topic patterns
+2. **Pull and Dispatch** (in `process`): Module controls when to process - callbacks invoked automatically
+
+**Benefits:**
+- **No if-forest dispatch**: Logic registered at subscription, not scattered in process()
+- **Module controls timing**: Pull-based means deterministic frame ordering
+- **Thread-safe**: Callbacks invoked in module's own thread context
+- **Clean separation**: Subscription setup vs. message processing
 
 #### Publishing Messages
 
@@ -411,7 +422,7 @@ void MyModule::process(const grove::IDataNode& input) {
 }
 ```
 
-#### Subscribing to Topics
+#### Subscribing to Topics with Callbacks
 
 ```cpp
 void MyModule::setConfiguration(const grove::IDataNode& configNode,
@@ -419,31 +430,40 @@ void MyModule::setConfiguration(const grove::IDataNode& configNode,
                                  grove::ITaskScheduler* scheduler) {
     m_io = io;
 
-    // Subscribe to specific topic
-    m_io->subscribe("game:player:*");
+    // Subscribe to specific topic with callback handler
+    m_io->subscribe("game:player:position", [this](const grove::Message& msg) {
+        double x = msg.data->getDouble("x", 0.0);
+        double y = msg.data->getDouble("y", 0.0);
+        // Handle position update...
+    });
+
+    // Subscribe with wildcard pattern
+    m_io->subscribe("game:player:*", [this](const grove::Message& msg) {
+        handlePlayerEvent(msg);
+    });
 
     // Subscribe with low-frequency batching (for non-critical updates)
     grove::SubscriptionConfig config;
     config.batchInterval = 1000;  // 1 second batches
-    m_io->subscribeLowFreq("analytics:*", config);
+    m_io->subscribeLowFreq("analytics:*", [this](const grove::Message& msg) {
+        processBatchedAnalytics(msg);
+    }, config);
 }
 ```
 
-#### Processing Messages
+#### Processing Messages with Callback Dispatch
 
 ```cpp
 void MyModule::process(const grove::IDataNode& input) {
-    // Pull-based: module controls when to process messages
+    // Pull-based: module controls WHEN to process messages
+    // Callbacks registered at subscribe() handle HOW to process
     while (m_io->hasMessages() > 0) {
-        grove::Message msg = m_io->pullMessage();
-
-        if (msg.topic == "game:player:position") {
-            double x = msg.data->getDouble("x", 0.0);
-            double y = msg.data->getDouble("y", 0.0);
-            // Handle position update...
-        }
+        m_io->pullAndDispatch();  // Automatically invokes registered callback
     }
 }
+
+// No more if-forest dispatch - callbacks were registered at subscription:
+// subscribe("game:player:position", [this](const Message& msg) { ... });
 ```
 
 ### Topic Patterns
@@ -670,10 +690,10 @@ void MyModule::process(const grove::IDataNode& input) {
 | Method | Description |
 |--------|-------------|
 | `publish(topic, data)` | Publish message to topic |
-| `subscribe(pattern, config)` | Subscribe to topic pattern |
-| `subscribeLowFreq(pattern, config)` | Subscribe with batching |
+| `subscribe(pattern, handler, config)` | Subscribe with callback handler |
+| `subscribeLowFreq(pattern, handler, config)` | Subscribe with batching and callback |
 | `hasMessages()` | Count of pending messages |
-| `pullMessage()` | Consume one message |
+| `pullAndDispatch()` | Pull and auto-dispatch message to handler |
 | `getHealth()` | Get IO health metrics |
 
 ### IModule

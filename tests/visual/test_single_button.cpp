@@ -45,10 +45,22 @@ int main(int argc, char* argv[]) {
     auto uiIO = IntraIOManager::getInstance().createInstance("ui");
     auto gameIO = IntraIOManager::getInstance().createInstance("game");
 
-    // Subscribe to UI events for logging
-    gameIO->subscribe("ui:hover");
-    gameIO->subscribe("ui:click");
-    gameIO->subscribe("ui:action");
+    // Subscribe to UI events for logging with callbacks
+    gameIO->subscribe("ui:hover", [&logger](const Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        bool enter = msg.data->getBool("enter", false);
+        logger->info("[UI EVENT] HOVER {} widget '{}'",
+            enter ? "ENTER" : "LEAVE", widgetId);
+    });
+    gameIO->subscribe("ui:click", [&logger](const Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        logger->info("[UI EVENT] CLICK on widget '{}'", widgetId);
+    });
+    gameIO->subscribe("ui:action", [&logger](const Message& msg) {
+        std::string action = msg.data->getString("action", "");
+        std::string widgetId = msg.data->getString("widgetId", "");
+        logger->info("[UI EVENT] ACTION '{}' from widget '{}'", action, widgetId);
+    });
 
     // Initialize BgfxRenderer
     auto renderer = std::make_unique<BgfxRendererModule>();
@@ -176,25 +188,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Check for UI events
+        // Dispatch UI events (callbacks handle logging)
         while (gameIO->hasMessages() > 0) {
-            auto msg = gameIO->pullMessage();
-
-            if (msg.topic == "ui:hover") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                bool enter = msg.data->getBool("enter", false);
-                logger->info("[UI EVENT] HOVER {} widget '{}'",
-                    enter ? "ENTER" : "LEAVE", widgetId);
-            }
-            else if (msg.topic == "ui:click") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                logger->info("[UI EVENT] CLICK on widget '{}'", widgetId);
-            }
-            else if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-                std::string widgetId = msg.data->getString("widgetId", "");
-                logger->info("[UI EVENT] ACTION '{}' from widget '{}'", action, widgetId);
-            }
+            gameIO->pullAndDispatch();
         }
 
         JsonDataNode input("input");

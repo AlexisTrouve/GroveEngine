@@ -66,6 +66,7 @@ private:
     struct Subscription {
         std::regex pattern;
         std::string originalPattern;
+        MessageHandler handler;  // Callback for this subscription
         SubscriptionConfig config;
         std::chrono::high_resolution_clock::time_point lastBatch;
         std::unordered_map<std::string, Message> batchedMessages; // For replaceable messages
@@ -74,7 +75,7 @@ private:
         // Default constructor
         Subscription() = default;
 
-        // Move-only (Message contains unique_ptr)
+        // Move-only (Message contains unique_ptr, handler is copyable)
         Subscription(Subscription&&) = default;
         Subscription& operator=(Subscription&&) = default;
         Subscription(const Subscription&) = delete;
@@ -113,10 +114,10 @@ public:
 
     // IIO implementation
     void publish(const std::string& topic, std::unique_ptr<IDataNode> message) override;
-    void subscribe(const std::string& topicPattern, const SubscriptionConfig& config = {}) override;
-    void subscribeLowFreq(const std::string& topicPattern, const SubscriptionConfig& config = {}) override;
+    void subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
+    void subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
     int hasMessages() const override;
-    Message pullMessage() override;
+    void pullAndDispatch() override;
     IOHealth getHealth() const override;
     IOType getType() const override;
 

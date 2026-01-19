@@ -37,19 +37,23 @@ config.setString("layoutFile", "./ui/menu.json");
 config.setInt("baseLayer", 1000);
 uiModule->setConfiguration(config, uiIO.get(), nullptr);
 
-// Subscribe to UI events
-gameIO->subscribe("ui:action");
-gameIO->subscribe("ui:value_changed");
+// Subscribe to UI events with callback handlers
+gameIO->subscribe("ui:action", [this](const grove::Message& msg) {
+    std::string action = msg.data->getString("action", "");
+    handleAction(action);
+});
+
+gameIO->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+    std::string widgetId = msg.data->getString("widgetId", "");
+    double value = msg.data->getDouble("value", 0.0);
+    handleValueChange(widgetId, value);
+});
 
 // Game loop
 while(running) {
-    // Handle UI events
+    // Handle UI events - pull and auto-dispatch to callbacks
     while (gameIO->hasMessages() > 0) {
-        auto msg = gameIO->pullMessage();
-        if (msg.topic == "ui:action") {
-            std::string action = msg.data->getString("action", "");
-            handleAction(action);
-        }
+        gameIO->pullAndDispatch();  // Callbacks invoked automatically
     }
 
     uiModule->process(deltaTime);

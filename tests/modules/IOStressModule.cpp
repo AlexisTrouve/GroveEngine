@@ -15,11 +15,10 @@ IOStressModule::~IOStressModule() {
 void IOStressModule::process(const IDataNode& input) {
     if (!io) return;
 
-    // Pull all available messages (high-frequency consumer)
+    // Pull and dispatch all available messages (high-frequency consumer)
     while (io->hasMessages() > 0) {
         try {
-            auto msg = io->pullMessage();
-            receivedCount++;
+            io->pullAndDispatch();
         } catch (const std::exception& e) {
             std::cerr << "[IOStressModule] Error pulling message: " << e.what() << std::endl;
         }
@@ -33,6 +32,13 @@ void IOStressModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, I
     this->scheduler = schedulerPtr;
 
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
+
+    // Subscribe to all messages with callback that counts them
+    if (io) {
+        io->subscribe("*", [this](const Message& msg) {
+            receivedCount++;
+        });
+    }
 }
 
 const IDataNode& IOStressModule::getConfiguration() {

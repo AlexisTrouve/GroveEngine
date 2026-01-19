@@ -22,10 +22,11 @@ void MetricsModule::process(const IDataNode& input) {
         accumulator = 0.0f;
     }
 
-    // Process incoming messages from IO
-    if (io && io->hasMessages() > 0) {
-        auto msg = io->pullMessage();
-        std::cout << "[MetricsModule] Received: " << msg.topic << std::endl;
+    // Pull and dispatch all pending messages (callbacks invoked automatically)
+    if (io) {
+        while (io->hasMessages() > 0) {
+            io->pullAndDispatch();
+        }
     }
 }
 
@@ -38,9 +39,11 @@ void MetricsModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, IT
     // Store config
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
 
-    // Subscribe to economy events
+    // Subscribe to economy events with callback
     if (io) {
-        io->subscribe("economy:*");
+        io->subscribe("economy:*", [this](const Message& msg) {
+            std::cout << "[MetricsModule] Received: " << msg.topic << std::endl;
+        });
     }
 }
 

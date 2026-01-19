@@ -12,11 +12,11 @@ EconomyModule::~EconomyModule() {
 }
 
 void EconomyModule::process(const IDataNode& input) {
-    // Process incoming messages from IO
-    if (io && io->hasMessages() > 0) {
-        auto msg = io->pullMessage();
-        playerEventsProcessed++;
-        handlePlayerEvent(msg.topic, msg.data.get());
+    // Pull and dispatch all pending messages (callbacks invoked automatically)
+    if (io) {
+        while (io->hasMessages() > 0) {
+            io->pullAndDispatch();
+        }
     }
 }
 
@@ -29,9 +29,12 @@ void EconomyModule::setConfiguration(const IDataNode& configNode, IIO* ioPtr, IT
     // Store config
     config = std::make_unique<JsonDataNode>("config", nlohmann::json::object());
 
-    // Subscribe to player events
+    // Subscribe to player events with callback
     if (io) {
-        io->subscribe("player:*");
+        io->subscribe("player:*", [this](const Message& msg) {
+            playerEventsProcessed++;
+            handlePlayerEvent(msg.topic, msg.data.get());
+        });
     }
 }
 

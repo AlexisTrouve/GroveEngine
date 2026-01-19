@@ -129,12 +129,34 @@ int main() {
 
         std::cout << "\n=== Phase 4: Setup IIO Subscriptions ===\n";
 
-        testIO->subscribe("ui:click");
-        testIO->subscribe("ui:action");
-        testIO->subscribe("ui:value_changed");
-        testIO->subscribe("ui:hover");
-        testIO->subscribe("render:sprite");
-        testIO->subscribe("render:text");
+        int uiClickCount = 0;
+        int uiActionCount = 0;
+        int uiValueChangeCount = 0;
+        int uiHoverCount = 0;
+        int renderSpriteCount = 0;
+        int renderTextCount = 0;
+
+        testIO->subscribe("ui:click", [&](const Message& msg) {
+            uiClickCount++;
+        });
+        testIO->subscribe("ui:action", [&](const Message& msg) {
+            uiActionCount++;
+        });
+        testIO->subscribe("ui:value_changed", [&](const Message& msg) {
+            uiValueChangeCount++;
+        });
+        testIO->subscribe("ui:hover", [&](const Message& msg) {
+            bool enter = msg.data->getBool("enter", false);
+            if (enter) {
+                uiHoverCount++;
+            }
+        });
+        testIO->subscribe("render:sprite", [&](const Message& msg) {
+            renderSpriteCount++;
+        });
+        testIO->subscribe("render:text", [&](const Message& msg) {
+            renderTextCount++;
+        });
 
         std::cout << "  ✓ Subscribed to UI events (click, action, value_changed, hover)\n";
         std::cout << "  ✓ Subscribed to render events (sprite, text)\n";
@@ -144,13 +166,6 @@ int main() {
         // ====================================================================
 
         std::cout << "\n=== Phase 5: Run Parallel Processing (100 frames) ===\n";
-
-        int uiClickCount = 0;
-        int uiActionCount = 0;
-        int uiValueChangeCount = 0;
-        int uiHoverCount = 0;
-        int renderSpriteCount = 0;
-        int renderTextCount = 0;
 
         for (int frame = 0; frame < 100; frame++) {
             // Simulate mouse input at specific frames
@@ -182,41 +197,9 @@ int main() {
             // Process all modules in parallel
             system->processModules(1.0f / 60.0f);
 
-            // Collect IIO messages from modules
+            // Dispatch IIO messages from modules (callbacks handle counting)
             while (testIO->hasMessages() > 0) {
-                auto msg = testIO->pullMessage();
-
-                if (msg.topic == "ui:click") {
-                    uiClickCount++;
-                    if (frame < 30) {
-                        std::cout << "  Frame " << frame << ": UI click event\n";
-                    }
-                }
-                else if (msg.topic == "ui:action") {
-                    uiActionCount++;
-                    if (frame < 30) {
-                        std::string action = msg.data->getString("action", "");
-                        std::cout << "  Frame " << frame << ": UI action '" << action << "'\n";
-                    }
-                }
-                else if (msg.topic == "ui:value_changed") {
-                    uiValueChangeCount++;
-                }
-                else if (msg.topic == "ui:hover") {
-                    bool enter = msg.data->getBool("enter", false);
-                    if (enter) {
-                        uiHoverCount++;
-                        if (frame < 30) {
-                            std::cout << "  Frame " << frame << ": UI hover event\n";
-                        }
-                    }
-                }
-                else if (msg.topic == "render:sprite") {
-                    renderSpriteCount++;
-                }
-                else if (msg.topic == "render:text") {
-                    renderTextCount++;
-                }
+                testIO->pullAndDispatch();
             }
 
             if ((frame + 1) % 20 == 0) {

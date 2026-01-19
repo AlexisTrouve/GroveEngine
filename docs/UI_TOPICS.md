@@ -57,31 +57,28 @@ See [UI Rendering Documentation](UI_RENDERING.md) for details on retained vs imm
 
 ## Usage Examples
 
-### Handling UI Events
+### Handling UI Events with Callbacks
 
 ```cpp
-// Subscribe to UI events
-gameIO->subscribe("ui:action");
-gameIO->subscribe("ui:value_changed");
+// Subscribe to UI events with callback handlers (in setConfiguration)
+gameIO->subscribe("ui:action", [this](const grove::Message& msg) {
+    std::string action = msg.data->getString("action", "");
+    if (action == "start_game") {
+        startGame();
+    }
+});
 
-// In game loop
+gameIO->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+    std::string widgetId = msg.data->getString("widgetId", "");
+    if (widgetId == "volume_slider") {
+        double value = msg.data->getDouble("value", 50.0);
+        setVolume(value);
+    }
+});
+
+// In game loop (process method)
 while (m_io->hasMessages() > 0) {
-    auto msg = m_io->pullMessage();
-
-    if (msg.topic == "ui:action") {
-        std::string action = msg.data->getString("action", "");
-        if (action == "start_game") {
-            startGame();
-        }
-    }
-
-    if (msg.topic == "ui:value_changed") {
-        std::string widgetId = msg.data->getString("widgetId", "");
-        if (widgetId == "volume_slider") {
-            double value = msg.data->getDouble("value", 50.0);
-            setVolume(value);
-        }
-    }
+    m_io->pullAndDispatch();  // Callbacks invoked automatically
 }
 ```
 
@@ -112,14 +109,23 @@ m_io->publish("ui:set_value", std::move(msg));
 Common pattern: update a label when a slider changes.
 
 ```cpp
-if (msg.topic == "ui:value_changed" && widgetId == "volume_slider") {
-    double value = msg.data->getDouble("value", 50.0);
-    setVolume(value);
+// Subscribe to slider value changes (in setConfiguration)
+gameIO->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+    std::string widgetId = msg.data->getString("widgetId", "");
+    if (widgetId == "volume_slider") {
+        double value = msg.data->getDouble("value", 50.0);
+        setVolume(value);
 
-    // Update label to show current value
-    auto updateMsg = std::make_unique<JsonDataNode>("set_text");
-    updateMsg->setString("id", "volume_label");
-    updateMsg->setString("text", "Volume: " + std::to_string((int)value) + "%");
-    m_io->publish("ui:set_text", std::move(updateMsg));
+        // Update label to show current value
+        auto updateMsg = std::make_unique<JsonDataNode>("set_text");
+        updateMsg->setString("id", "volume_label");
+        updateMsg->setString("text", "Volume: " + std::to_string((int)value) + "%");
+        m_io->publish("ui:set_text", std::move(updateMsg));
+    }
+});
+
+// In process()
+while (gameIO->hasMessages() > 0) {
+    gameIO->pullAndDispatch();  // Callback invoked automatically
 }
 ```
