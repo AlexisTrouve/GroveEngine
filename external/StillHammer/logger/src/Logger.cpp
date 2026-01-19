@@ -2,6 +2,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <algorithm>
+#include <mutex>
 
 // Use native API instead of std::filesystem (MinGW compatibility)
 #ifdef _WIN32
@@ -90,6 +91,10 @@ std::shared_ptr<spdlog::logger> createLogger(
     const std::string& name,
     const LoggerConfig& config
 ) {
+    // Thread-safe logger creation: protect check-then-register pattern
+    static std::mutex loggerCreationMutex;
+    std::lock_guard<std::mutex> lock(loggerCreationMutex);
+
     // Check if logger already exists
     auto existing = spdlog::get(name);
     if (existing) {

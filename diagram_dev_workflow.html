@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GroveEngine - Development Workflow</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .diagram-container {
+            width: 1200px;
+            height: 800px;
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .step-box {
+            filter: drop-shadow(3px 3px 5px rgba(0,0,0,0.2));
+        }
+
+        .step-edit {
+            fill: #e1f5fe;
+            stroke: #0288d1;
+            stroke-width: 3;
+        }
+
+        .step-build {
+            fill: #fff3e0;
+            stroke: #f57c00;
+            stroke-width: 3;
+        }
+
+        .step-reload {
+            fill: #ffebee;
+            stroke: #d32f2f;
+            stroke-width: 3;
+        }
+
+        .step-test {
+            fill: #e8f5e9;
+            stroke: #388e3c;
+            stroke-width: 3;
+        }
+
+        .step-iterate {
+            fill: #f3e5f5;
+            stroke: #7b1fa2;
+            stroke-width: 3;
+        }
+
+        .arrow {
+            stroke: #424242;
+            stroke-width: 4;
+            fill: none;
+            marker-end: url(#arrowhead-large);
+        }
+
+        .arrow-fast {
+            stroke: #d32f2f;
+            stroke-width: 4;
+            fill: none;
+            marker-end: url(#arrowhead-fast);
+        }
+
+        .step-number {
+            font-size: 24px;
+            font-weight: bold;
+            fill: #fff;
+        }
+
+        .step-title {
+            font-size: 18px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .step-desc {
+            font-size: 11px;
+            fill: #555;
+        }
+
+        .timing-fast {
+            font-size: 16px;
+            font-weight: bold;
+            fill: #d32f2f;
+        }
+
+        .timing-normal {
+            font-size: 14px;
+            fill: #666;
+        }
+
+        .main-title {
+            font-size: 32px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            fill: #666;
+        }
+
+        .metric-box {
+            fill: #f5f5f5;
+            stroke: #ddd;
+            stroke-width: 2;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            fill: #d32f2f;
+        }
+
+        .metric-label {
+            font-size: 11px;
+            fill: #666;
+        }
+
+        .comparison-box {
+            fill: #fff3e0;
+            stroke: #f57c00;
+            stroke-width: 2;
+        }
+
+        .comparison-title {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .comparison-text {
+            font-size: 11px;
+            fill: #555;
+        }
+
+        .icon {
+            font-size: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="diagram-container">
+        <svg viewBox="0 0 1120 720" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="arrowhead-large" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+                    <polygon points="0 0, 12 4, 0 8" fill="#424242" />
+                </marker>
+                <marker id="arrowhead-fast" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+                    <polygon points="0 0, 12 4, 0 8" fill="#d32f2f" />
+                </marker>
+            </defs>
+
+            <!-- Title -->
+            <text x="560" y="35" class="main-title" text-anchor="middle">GroveEngine Development Workflow</text>
+            <text x="560" y="55" class="subtitle" text-anchor="middle">Edit → Build → Hot-Reload Cycle • Total: &lt;1 second</text>
+
+            <!-- Step 1: Edit Code -->
+            <g class="step-box">
+                <rect x="50" y="120" width="180" height="120" rx="10" class="step-edit"/>
+                <circle cx="90" cy="150" r="20" fill="#0288d1"/>
+                <text x="90" y="159" class="step-number" text-anchor="middle">1</text>
+
+                <text class="icon" x="140" y="155" text-anchor="middle">✏️</text>
+
+                <text x="140" y="190" class="step-title" text-anchor="middle">Edit Code</text>
+                <text x="140" y="210" class="step-desc" text-anchor="middle">VSCode / IDE</text>
+                <text x="140" y="225" class="step-desc" text-anchor="middle">Modify module logic</text>
+            </g>
+
+            <!-- Arrow 1→2 -->
+            <path d="M 230 180 L 310 180" class="arrow"/>
+            <text x="270" y="170" class="timing-normal" text-anchor="middle">Save file</text>
+
+            <!-- Step 2: Build -->
+            <g class="step-box">
+                <rect x="310" y="120" width="180" height="120" rx="10" class="step-build"/>
+                <circle cx="350" cy="150" r="20" fill="#f57c00"/>
+                <text x="350" y="159" class="step-number" text-anchor="middle">2</text>
+
+                <text class="icon" x="400" y="155" text-anchor="middle">🔨</text>
+
+                <text x="400" y="190" class="step-title" text-anchor="middle">Build</text>
+                <text x="400" y="210" class="step-desc" text-anchor="middle">cmake --build build -j4</text>
+                <text x="400" y="225" class="timing-normal" text-anchor="middle">~300ms</text>
+            </g>
+
+            <!-- Arrow 2→3 (FAST) -->
+            <path d="M 490 180 L 570 180" class="arrow-fast"/>
+            <text x="530" y="170" class="timing-fast" text-anchor="middle">⚡ FAST</text>
+
+            <!-- Step 3: Hot-Reload -->
+            <g class="step-box">
+                <rect x="570" y="120" width="180" height="120" rx="10" class="step-reload"/>
+                <circle cx="610" cy="150" r="20" fill="#d32f2f"/>
+                <text x="610" y="159" class="step-number" text-anchor="middle">3</text>
+
+                <text class="icon" x="660" y="155" text-anchor="middle">🔥</text>
+
+                <text x="660" y="190" class="step-title" text-anchor="middle">Hot-Reload</text>
+                <text x="660" y="210" class="step-desc" text-anchor="middle">ModuleLoader.reload()</text>
+                <text x="660" y="225" class="timing-fast" text-anchor="middle">0.4ms avg</text>
+            </g>
+
+            <!-- Arrow 3→4 -->
+            <path d="M 660 240 L 660 310" class="arrow"/>
+            <text x="680" y="280" class="timing-normal">Instant</text>
+
+            <!-- Step 4: Test in Game -->
+            <g class="step-box">
+                <rect x="570" y="310" width="180" height="120" rx="10" class="step-test"/>
+                <circle cx="610" cy="340" r="20" fill="#388e3c"/>
+                <text x="610" y="349" class="step-number" text-anchor="middle">4</text>
+
+                <text class="icon" x="660" y="345" text-anchor="middle">🎮</text>
+
+                <text x="660" y="380" class="step-title" text-anchor="middle">Test in Game</text>
+                <text x="660" y="400" class="step-desc" text-anchor="middle">Game still running</text>
+                <text x="660" y="415" class="step-desc" text-anchor="middle">State preserved</text>
+            </g>
+
+            <!-- Arrow 4→5 -->
+            <path d="M 570 370 L 490 370" class="arrow"/>
+            <text x="530" y="390" class="timing-normal" text-anchor="middle">Evaluate</text>
+
+            <!-- Step 5: Iterate -->
+            <g class="step-box">
+                <rect x="310" y="310" width="180" height="120" rx="10" class="step-iterate"/>
+                <circle cx="350" cy="340" r="20" fill="#7b1fa2"/>
+                <text x="350" y="349" class="step-number" text-anchor="middle">5</text>
+
+                <text class="icon" x="400" y="345" text-anchor="middle">🔄</text>
+
+                <text x="400" y="380" class="step-title" text-anchor="middle">Iterate</text>
+                <text x="400" y="400" class="step-desc" text-anchor="middle">Need changes?</text>
+                <text x="400" y="415" class="step-desc" text-anchor="middle">Loop back to Step 1</text>
+            </g>
+
+            <!-- Arrow 5→1 (loop back) -->
+            <path d="M 310 370 Q 140 370 140 240" class="arrow"/>
+            <text x="200" y="310" class="timing-normal">Refine</text>
+
+            <!-- Arrow 5→Done (straight down) -->
+            <path d="M 400 430 L 400 480" class="arrow"/>
+            <text x="420" y="460" class="timing-normal">Done ✓</text>
+
+            <!-- Done box -->
+            <rect x="310" y="480" width="180" height="60" rx="10" fill="#c8e6c9" stroke="#388e3c" stroke-width="3"/>
+            <text x="400" y="510" class="step-title" text-anchor="middle" fill="#2e7d32">✓ Feature Complete</text>
+            <text x="400" y="528" class="step-desc" text-anchor="middle">Ship to production</text>
+
+            <!-- Metrics Panel -->
+            <rect x="800" y="120" width="280" height="140" rx="8" class="metric-box"/>
+            <text x="940" y="145" class="step-title" text-anchor="middle">Total Cycle Time</text>
+
+            <text x="940" y="190" class="metric-value" text-anchor="middle">&lt; 1s</text>
+            <text x="940" y="215" class="metric-label" text-anchor="middle">Edit → Test Complete</text>
+
+            <line x1="820" y1="230" x2="1060" y2="230" stroke="#ddd" stroke-width="2"/>
+
+            <text x="830" y="248" class="comparison-text">Breakdown:</text>
+            <text x="840" y="263" class="comparison-text">• Edit: instant</text>
+            <text x="840" y="278" class="comparison-text">• Build: ~300ms</text>
+            <text x="840" y="293" class="comparison-text" fill="#d32f2f" font-weight="bold">• Hot-Reload: 0.4ms ⚡</text>
+            <text x="840" y="308" class="comparison-text">• Test: instant</text>
+
+            <!-- Comparison with Traditional Workflow -->
+            <rect x="800" y="280" width="280" height="180" rx="8" class="comparison-box"/>
+            <text x="940" y="305" class="comparison-title" text-anchor="middle">vs. Traditional Workflow</text>
+
+            <text x="820" y="330" class="comparison-text" font-weight="bold">GroveEngine:</text>
+            <text x="830" y="345" class="comparison-text">1. Edit code</text>
+            <text x="830" y="360" class="comparison-text">2. Build (300ms)</text>
+            <text x="830" y="375" class="comparison-text" fill="#d32f2f" font-weight="bold">3. Hot-reload (0.4ms) ⚡</text>
+            <text x="830" y="390" class="comparison-text" fill="#388e3c" font-weight="bold">4. Test IMMEDIATELY ✓</text>
+
+            <text x="820" y="410" class="comparison-text" font-weight="bold">Traditional Engine:</text>
+            <text x="830" y="425" class="comparison-text">1. Edit code</text>
+            <text x="830" y="440" class="comparison-text">2. Build (5-30s) 😴</text>
+            <text x="830" y="455" class="comparison-text">3. Restart game (10-60s) 😴</text>
+
+            <!-- Hot-Reload Detail -->
+            <rect x="800" y="480" width="280" height="140" rx="8" fill="#ffebee" stroke="#d32f2f" stroke-width="2"/>
+            <text x="940" y="505" class="comparison-title" text-anchor="middle">Hot-Reload Breakdown (0.4ms)</text>
+
+            <text x="820" y="530" class="comparison-text">1. Extract state → 0.1ms</text>
+            <text x="820" y="545" class="comparison-text">2. Unload old .so → 0.05ms</text>
+            <text x="820" y="560" class="comparison-text">3. Load new .so → 0.15ms</text>
+            <text x="820" y="575" class="comparison-text">4. Restore state → 0.1ms</text>
+
+            <text x="940" y="600" class="metric-label" text-anchor="middle" fill="#d32f2f" font-weight="bold">
+                100% state preservation • Game keeps running
+            </text>
+
+            <!-- Benefits -->
+            <rect x="50" y="480" width="230" height="140" rx="8" fill="#e3f2fd" stroke="#2196f3" stroke-width="2"/>
+            <text x="165" y="505" class="comparison-title" text-anchor="middle">🚀 Benefits</text>
+
+            <text x="65" y="530" class="comparison-text">✓ Instant feedback loop</text>
+            <text x="65" y="545" class="comparison-text">✓ No context switching</text>
+            <text x="65" y="560" class="comparison-text">✓ No restart delays</text>
+            <text x="65" y="575" class="comparison-text">✓ Flow state maintained</text>
+            <text x="65" y="590" class="comparison-text">✓ 10-100x faster iteration</text>
+            <text x="65" y="605" class="comparison-text">✓ Perfect for experimentation</text>
+
+            <!-- Footer -->
+            <text x="560" y="650" class="subtitle" text-anchor="middle">
+                GroveEngine enables rapid prototyping with sub-second iteration cycles
+            </text>
+
+            <text x="560" y="680" class="comparison-text" text-anchor="middle">
+                Traditional: 15-90 seconds/iteration • GroveEngine: &lt;1 second/iteration • 15-90x faster! 🔥
+            </text>
+
+            <text x="560" y="710" class="comparison-text" text-anchor="middle" fill="#999">
+                GroveEngine © 2025 StillHammer • Optimized for AI-assisted rapid development
+            </text>
+        </svg>
+    </div>
+</body>
+</html>

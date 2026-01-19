@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GroveEngine - Module Lifecycle</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .diagram-container {
+            width: 1400px;
+            height: 900px;
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .state {
+            filter: drop-shadow(3px 3px 5px rgba(0,0,0,0.2));
+        }
+
+        .state-unloaded {
+            fill: #e0e0e0;
+            stroke: #757575;
+            stroke-width: 3;
+        }
+
+        .state-loaded {
+            fill: #fff9c4;
+            stroke: #f57f17;
+            stroke-width: 3;
+        }
+
+        .state-configured {
+            fill: #c8e6c9;
+            stroke: #388e3c;
+            stroke-width: 3;
+        }
+
+        .state-running {
+            fill: #81c784;
+            stroke: #2e7d32;
+            stroke-width: 4;
+        }
+
+        .state-hotreload {
+            fill: #ffccbc;
+            stroke: #d84315;
+            stroke-width: 3;
+        }
+
+        .state-error {
+            fill: #ffcdd2;
+            stroke: #c62828;
+            stroke-width: 3;
+        }
+
+        .state-shutdown {
+            fill: #b0bec5;
+            stroke: #455a64;
+            stroke-width: 3;
+        }
+
+        .transition-arrow {
+            stroke: #424242;
+            stroke-width: 2.5;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+
+        .transition-hot {
+            stroke: #d32f2f;
+            stroke-width: 3;
+            fill: none;
+            marker-end: url(#arrowhead-hot);
+        }
+
+        .transition-label {
+            font-size: 11px;
+            font-weight: bold;
+            fill: #424242;
+        }
+
+        .state-name {
+            font-size: 15px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .state-desc {
+            font-size: 9px;
+            fill: #555;
+        }
+
+        .main-title {
+            font-size: 32px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            fill: #666;
+        }
+
+        .timing {
+            font-size: 9px;
+            fill: #d32f2f;
+            font-weight: bold;
+        }
+
+        .detail-box {
+            fill: #f5f5f5;
+            stroke: #ddd;
+            stroke-width: 2;
+        }
+
+        .detail-title {
+            font-size: 12px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .detail-text {
+            font-size: 9px;
+            fill: #555;
+        }
+
+        .legend-box {
+            fill: #e3f2fd;
+            stroke: #2196f3;
+            stroke-width: 2;
+        }
+
+        .code-text {
+            font-family: 'Consolas', monospace;
+            font-size: 9px;
+            fill: #1a1a1a;
+        }
+
+        .circle-guide {
+            fill: none;
+            stroke: #e0e0e0;
+            stroke-width: 1;
+            stroke-dasharray: 5,5;
+        }
+    </style>
+</head>
+<body>
+    <div class="diagram-container">
+        <svg viewBox="0 0 1320 820" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="#424242" />
+                </marker>
+                <marker id="arrowhead-hot" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="#d32f2f" />
+                </marker>
+            </defs>
+
+            <!-- Title -->
+            <text x="660" y="30" class="main-title" text-anchor="middle">Module Lifecycle State Machine</text>
+            <text x="660" y="50" class="subtitle" text-anchor="middle">GroveEngine • Circular Flow • Hot-Reload Cycle</text>
+
+            <!-- Circle guide (optional, for visual reference) -->
+            <circle cx="280" cy="330" r="200" class="circle-guide"/>
+
+            <!-- State 1: UNLOADED (top, 12 o'clock) -->
+            <rect x="200" y="100" width="160" height="70" rx="8" class="state state-unloaded"/>
+            <text x="280" y="125" class="state-name" text-anchor="middle">UNLOADED</text>
+            <text x="280" y="142" class="state-desc" text-anchor="middle">Initial state</text>
+            <text x="280" y="156" class="state-desc" text-anchor="middle">No .so/.dll loaded</text>
+
+            <!-- State 2: LOADED (2 o'clock position) -->
+            <rect x="380" y="160" width="160" height="70" rx="8" class="state state-loaded"/>
+            <text x="460" y="185" class="state-name" text-anchor="middle">LOADED</text>
+            <text x="460" y="202" class="state-desc" text-anchor="middle">Library loaded</text>
+            <text x="460" y="216" class="state-desc" text-anchor="middle">createModule()</text>
+
+            <!-- State 3: CONFIGURED (4 o'clock position) -->
+            <rect x="410" y="310" width="160" height="70" rx="8" class="state state-configured"/>
+            <text x="490" y="335" class="state-name" text-anchor="middle">CONFIGURED</text>
+            <text x="490" y="352" class="state-desc" text-anchor="middle">Config set</text>
+            <text x="490" y="366" class="state-desc" text-anchor="middle">IIO connected</text>
+
+            <!-- State 4: RUNNING (5 o'clock position, emphasized) -->
+            <rect x="350" y="450" width="160" height="80" rx="8" class="state state-running"/>
+            <text x="430" y="478" class="state-name" text-anchor="middle">RUNNING</text>
+            <text x="430" y="497" class="state-desc" text-anchor="middle">Active execution</text>
+            <text x="430" y="511" class="state-desc" text-anchor="middle">process() loop</text>
+            <text x="430" y="525" class="state-desc" text-anchor="middle">60 FPS</text>
+
+            <!-- State 5: ERROR (7 o'clock position, lower) -->
+            <rect x="150" y="570" width="160" height="70" rx="8" class="state state-error"/>
+            <text x="230" y="595" class="state-name" text-anchor="middle">ERROR</text>
+            <text x="230" y="612" class="state-desc" text-anchor="middle">Exception caught</text>
+            <text x="230" y="626" class="state-desc" text-anchor="middle">Recovery possible</text>
+
+            <!-- State 6: SHUTDOWN (9 o'clock position) -->
+            <rect x="30" y="360" width="160" height="70" rx="8" class="state state-shutdown"/>
+            <text x="110" y="385" class="state-name" text-anchor="middle">SHUTDOWN</text>
+            <text x="110" y="402" class="state-desc" text-anchor="middle">Cleanup complete</text>
+            <text x="110" y="416" class="state-desc" text-anchor="middle">Module destroyed</text>
+
+            <!-- State 7: HOT-RELOAD (right side, much lower) -->
+            <rect x="450" y="600" width="160" height="80" rx="8" class="state state-hotreload"/>
+            <text x="530" y="628" class="state-name" text-anchor="middle">HOT-RELOAD</text>
+            <text x="530" y="647" class="state-desc" text-anchor="middle">Extract state (0.1ms)</text>
+            <text x="530" y="661" class="state-desc" text-anchor="middle">Unload/Load (0.2ms)</text>
+            <text x="530" y="675" class="state-desc" text-anchor="middle">Restore state (0.1ms)</text>
+
+            <!-- Transition: UNLOADED → LOADED -->
+            <path d="M 340 135 C 360 135, 370 160, 380 180" class="transition-arrow"/>
+            <text x="360" y="155" class="transition-label">load()</text>
+
+            <!-- Transition: LOADED → CONFIGURED -->
+            <path d="M 500 230 L 520 310" class="transition-arrow"/>
+            <text x="525" y="275" class="transition-label">setConfig()</text>
+
+            <!-- Transition: CONFIGURED → RUNNING -->
+            <path d="M 500 380 L 470 450" class="transition-arrow"/>
+            <text x="500" y="420" class="transition-label">process()</text>
+
+            <!-- Self-loop: RUNNING → RUNNING (process loop) -->
+            <path d="M 510 475 C 560 475, 560 510, 510 510" class="transition-arrow"/>
+            <text x="565" y="495" class="transition-label">process()</text>
+
+            <!-- Transition: RUNNING → ERROR -->
+            <path d="M 350 520 C 310 540, 280 560, 270 570" class="transition-arrow"/>
+            <text x="300" y="550" class="transition-label">Exception</text>
+
+            <!-- Transition: ERROR → SHUTDOWN -->
+            <path d="M 190 570 C 160 530, 140 480, 140 430" class="transition-arrow"/>
+            <text x="145" y="500" class="transition-label">Fatal</text>
+
+            <!-- Transition: SHUTDOWN → UNLOADED (restart) -->
+            <path d="M 150 360 C 170 270, 210 180, 240 170" class="transition-arrow"/>
+            <text x="160" y="260" class="transition-label">unload()</text>
+
+            <!-- Transition: ERROR → RUNNING (recovery) -->
+            <path d="M 310 595 C 350 560, 380 540, 400 530" class="transition-arrow"/>
+            <text x="350" y="580" class="transition-label">recover()</text>
+
+            <!-- Transition: RUNNING → SHUTDOWN (direct) -->
+            <path d="M 350 490 C 270 480, 210 440, 190 410" class="transition-arrow"/>
+            <text x="250" y="460" class="transition-label">shutdown()</text>
+
+            <!-- HOT-RELOAD cycle: RUNNING → HOT-RELOAD (right curve) -->
+            <path d="M 490 525 C 510 550, 525 575, 530 600" class="transition-hot"/>
+            <text x="520" y="560" class="transition-label" fill="#d32f2f">reload()</text>
+            <text x="520" y="575" class="timing">0.4ms</text>
+
+            <!-- HOT-RELOAD cycle: HOT-RELOAD → RUNNING (left curve) -->
+            <path d="M 470 610 C 460 585, 450 560, 440 530" class="transition-hot"/>
+            <text x="445" y="570" class="transition-label" fill="#d32f2f">restored</text>
+
+            <!-- Right Panel: Hot-Reload Details -->
+            <rect x="720" y="80" width="280" height="165" rx="8" class="detail-box"/>
+            <text x="860" y="105" class="detail-title" text-anchor="middle">Hot-Reload Cycle (0.4ms)</text>
+
+            <text x="735" y="128" class="detail-text" font-weight="bold">1. Extract State:</text>
+            <text x="745" y="143" class="code-text">auto state = module->getState();</text>
+            <text x="950" y="143" class="timing">0.1ms</text>
+
+            <text x="735" y="163" class="detail-text" font-weight="bold">2. Unload Library:</text>
+            <text x="745" y="178" class="code-text">dlclose(handle);</text>
+            <text x="950" y="178" class="timing">0.05ms</text>
+
+            <text x="735" y="198" class="detail-text" font-weight="bold">3. Load New Library:</text>
+            <text x="745" y="213" class="code-text">handle = dlopen(path, RTLD_NOW);</text>
+            <text x="950" y="213" class="timing">0.15ms</text>
+
+            <text x="735" y="233" class="detail-text" font-weight="bold">4. Restore State:</text>
+            <text x="745" y="248" class="code-text">module->setState(state);</text>
+            <text x="950" y="248" class="timing">0.1ms</text>
+
+            <!-- Right Panel: State Preservation -->
+            <rect x="720" y="260" width="280" height="135" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+            <text x="860" y="285" class="detail-title" text-anchor="middle" fill="#2e7d32">State Preservation (100%)</text>
+
+            <text x="735" y="308" class="detail-text">What gets preserved:</text>
+            <text x="745" y="323" class="detail-text">• Player position, velocity, health</text>
+            <text x="745" y="338" class="detail-text">• Enemy AI states, pathfinding data</text>
+            <text x="745" y="353" class="detail-text">• UI widget states, text inputs</text>
+            <text x="745" y="368" class="detail-text">• Timers, counters, game state</text>
+            <text x="745" y="383" class="detail-text">• Any serializable module data</text>
+
+            <!-- Right Panel: Configuration -->
+            <rect x="720" y="410" width="280" height="110" rx="8" class="detail-box"/>
+            <text x="860" y="435" class="detail-title" text-anchor="middle">Configuration Phase</text>
+
+            <text x="735" y="458" class="code-text">setConfiguration(config, io, scheduler):</text>
+            <text x="745" y="473" class="detail-text">• config: IDataNode (JSON/XML)</text>
+            <text x="745" y="488" class="detail-text">• io: IIO for pub/sub messaging</text>
+            <text x="745" y="503" class="detail-text">• scheduler: ITaskScheduler</text>
+
+            <!-- Right Panel: IModule Interface -->
+            <rect x="720" y="535" width="280" height="135" rx="8" class="legend-box"/>
+            <text x="860" y="560" class="detail-title" text-anchor="middle">IModule Interface</text>
+
+            <text x="735" y="583" class="code-text">Required methods:</text>
+            <text x="745" y="598" class="detail-text">• process(deltaTime) - Main loop (60 FPS)</text>
+            <text x="745" y="613" class="detail-text">• getState() - Serialize to IDataNode</text>
+            <text x="745" y="628" class="detail-text">• setState(state) - Deserialize</text>
+            <text x="745" y="643" class="detail-text">• setConfiguration() - Init config</text>
+            <text x="745" y="658" class="detail-text">• shutdown() - Clean cleanup</text>
+
+            <!-- Right Panel: Performance -->
+            <rect x="720" y="685" width="280" height="80" rx="8" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
+            <text x="860" y="710" class="detail-title" text-anchor="middle" fill="#e65100">Performance Metrics</text>
+
+            <text x="735" y="733" class="detail-text">Cold start (UNLOADED→RUNNING): <tspan class="timing" font-size="12px">~51ms</tspan></text>
+            <text x="735" y="753" class="detail-text">Hot-reload cycle: <tspan class="timing" font-size="12px">0.4ms avg</tspan> (0.055ms best)</text>
+
+            <!-- Bottom Left: State Legend -->
+            <rect x="1020" y="80" width="280" height="200" rx="8" class="legend-box"/>
+            <text x="1160" y="105" class="detail-title" text-anchor="middle">State Legend</text>
+
+            <rect x="1035" y="120" width="30" height="20" rx="4" class="state-unloaded"/>
+            <text x="1075" y="134" class="detail-text">Unloaded - Initial/Final</text>
+
+            <rect x="1035" y="150" width="30" height="20" rx="4" class="state-loaded"/>
+            <text x="1075" y="164" class="detail-text">Loaded - Library in memory</text>
+
+            <rect x="1035" y="180" width="30" height="20" rx="4" class="state-configured"/>
+            <text x="1075" y="194" class="detail-text">Configured - Ready to start</text>
+
+            <rect x="1035" y="210" width="30" height="20" rx="4" class="state-running"/>
+            <text x="1075" y="224" class="detail-text">Running - Active execution</text>
+
+            <rect x="1035" y="240" width="30" height="20" rx="4" class="state-hotreload"/>
+            <text x="1075" y="254" class="detail-text">Hot-Reload - 0.4ms transition</text>
+
+            <!-- Bottom Left: Typical Flow -->
+            <rect x="1020" y="295" width="280" height="110" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+            <text x="1160" y="320" class="detail-title" text-anchor="middle" fill="#2e7d32">Typical Development Flow</text>
+
+            <text x="1035" y="343" class="detail-text">1. Load module once (UNLOADED→RUNNING)</text>
+            <text x="1035" y="358" class="detail-text">2. Edit code in VSCode/IDE</text>
+            <text x="1035" y="373" class="detail-text">3. Build with cmake (300ms)</text>
+            <text x="1035" y="388" class="detail-text">4. Hot-reload (0.4ms, 60+ times/hour)</text>
+
+            <!-- Bottom Left: Error Handling -->
+            <rect x="1020" y="420" width="280" height="110" rx="8" fill="#ffebee" stroke="#d32f2f" stroke-width="2"/>
+            <text x="1160" y="445" class="detail-title" text-anchor="middle" fill="#c62828">Error Handling</text>
+
+            <text x="1035" y="468" class="detail-text">Exception in process() → ERROR state</text>
+            <text x="1035" y="483" class="detail-text">Recovery possible → back to RUNNING</text>
+            <text x="1035" y="498" class="detail-text">Fatal error → SHUTDOWN</text>
+            <text x="1035" y="513" class="detail-text">Module logs errors via spdlog</text>
+
+            <!-- Bottom Left: Benefits -->
+            <rect x="1020" y="545" width="280" height="135" rx="8" fill="#e3f2fd" stroke="#2196f3" stroke-width="2"/>
+            <text x="1160" y="570" class="detail-title" text-anchor="middle" fill="#0d47a1">Key Benefits</text>
+
+            <text x="1035" y="593" class="detail-text">✓ Sub-millisecond reload (0.4ms avg)</text>
+            <text x="1035" y="608" class="detail-text">✓ 100% state preservation</text>
+            <text x="1035" y="623" class="detail-text">✓ Game keeps running (no restart)</text>
+            <text x="1035" y="638" class="detail-text">✓ Zero context switching</text>
+            <text x="1035" y="653" class="detail-text">✓ Instant feedback loop</text>
+            <text x="1035" y="668" class="detail-text">✓ Perfect for rapid prototyping</text>
+
+            <!-- Bottom Left: Notes -->
+            <rect x="1020" y="695" width="280" height="70" rx="8" class="detail-box"/>
+            <text x="1160" y="720" class="detail-title" text-anchor="middle">Implementation Notes</text>
+
+            <text x="1035" y="740" class="detail-text">• Each ModuleLoader manages ONE module</text>
+            <text x="1035" y="755" class="detail-text">• Don't reuse loaders (causes SEGFAULT)</text>
+
+            <!-- Footer -->
+            <text x="660" y="810" class="subtitle" text-anchor="middle">
+                GroveEngine © 2025 • Hot-Reload System • Zero-downtime Development
+            </text>
+        </svg>
+    </div>
+</body>
+</html>

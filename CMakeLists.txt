@@ -132,6 +132,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/IntraIO.cpp  # ✅ Fixed for IDataNode
         src/IntraIOManager.cpp  # ✅ Fixed for IDataNode
         src/SequentialModuleSystem.cpp  # ✅ Fixed for IDataNode
+        src/ThreadedModuleSystem.cpp  # ✅ Phase 2 implementation
         src/IOFactory.cpp  # ✅ Fixed for IDataNode
         src/ModuleFactory.cpp  # ✅ Should work (no json in main API)
         src/ModuleSystemFactory.cpp  # ✅ Needs check

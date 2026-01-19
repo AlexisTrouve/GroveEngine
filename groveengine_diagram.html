@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GroveEngine Architecture Diagram</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .diagram-container {
+            width: 1200px;
+            height: 800px;
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .box {
+            stroke-width: 2;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.2));
+        }
+
+        .app-box {
+            fill: #e8f5e9;
+            stroke: #4caf50;
+        }
+
+        .iio-box {
+            fill: #e3f2fd;
+            stroke: #2196f3;
+        }
+
+        .system-box {
+            fill: #fff3e0;
+            stroke: #ff9800;
+        }
+
+        .core-box {
+            fill: #f3e5f5;
+            stroke: #9c27b0;
+        }
+
+        .title-text {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .subtitle-text {
+            font-size: 11px;
+            fill: #666;
+        }
+
+        .detail-text {
+            font-size: 9px;
+            fill: #888;
+        }
+
+        .layer-label {
+            font-size: 11px;
+            font-weight: bold;
+            fill: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .arrow {
+            stroke: #666;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+
+        .arrow-label {
+            font-size: 10px;
+            fill: #666;
+            font-weight: bold;
+        }
+
+        .main-title {
+            font-size: 28px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .badge {
+            fill: #2196f3;
+            stroke: none;
+        }
+
+        .badge-text {
+            fill: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .metric-label {
+            font-size: 10px;
+            fill: #666;
+        }
+
+        .metric-value {
+            font-size: 16px;
+            font-weight: bold;
+            fill: #2196f3;
+        }
+    </style>
+</head>
+<body>
+    <div class="diagram-container">
+        <svg viewBox="0 0 1120 720" xmlns="http://www.w3.org/2000/svg">
+            <!-- Definitions -->
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="#666" />
+                </marker>
+            </defs>
+
+            <!-- Title -->
+            <text x="560" y="30" class="main-title" text-anchor="middle">🌳 GroveEngine Architecture</text>
+
+            <!-- Badges -->
+            <rect x="380" y="40" width="120" height="20" rx="10" class="badge"/>
+            <text x="440" y="53" class="badge-text" text-anchor="middle">0.4ms Hot-Reload</text>
+
+            <rect x="510" y="40" width="100" height="20" rx="10" class="badge"/>
+            <text x="560" y="53" class="badge-text" text-anchor="middle">Experimental</text>
+
+            <rect x="620" y="40" width="120" height="20" rx="10" class="badge"/>
+            <text x="680" y="53" class="badge-text" text-anchor="middle">Dual License 1%</text>
+
+            <!-- Layer 1: Application -->
+            <text x="20" y="90" class="layer-label">Application Layer</text>
+
+            <!-- Game Logic Module -->
+            <rect x="20" y="100" width="200" height="80" rx="8" class="box app-box"/>
+            <text x="120" y="122" class="title-text" text-anchor="middle">Game Logic Module</text>
+            <text x="120" y="138" class="subtitle-text" text-anchor="middle">Your Custom Code</text>
+            <text x="30" y="155" class="detail-text">• 200-300 lines</text>
+            <text x="30" y="167" class="detail-text">• Pure business logic</text>
+
+            <!-- UI Module -->
+            <rect x="240" y="100" width="200" height="80" rx="8" class="box app-box"/>
+            <text x="340" y="122" class="title-text" text-anchor="middle">UIModule</text>
+            <text x="340" y="138" class="subtitle-text" text-anchor="middle">Phase 7 Complete</text>
+            <text x="250" y="155" class="detail-text">• 10 widget types</text>
+            <text x="250" y="167" class="detail-text">• Retained rendering</text>
+
+            <!-- Custom Modules -->
+            <rect x="460" y="100" width="200" height="80" rx="8" class="box app-box"/>
+            <text x="560" y="122" class="title-text" text-anchor="middle">Custom Modules</text>
+            <text x="560" y="138" class="subtitle-text" text-anchor="middle">Extensible</text>
+            <text x="470" y="155" class="detail-text">• AI, Physics, Audio...</text>
+            <text x="470" y="167" class="detail-text">• Hot-swappable</text>
+
+            <!-- Arrows from App to IIO -->
+            <line x1="120" y1="180" x2="120" y2="230" class="arrow"/>
+            <line x1="340" y1="180" x2="340" y2="230" class="arrow"/>
+            <line x1="560" y1="180" x2="560" y2="230" class="arrow"/>
+
+            <text x="340" y="210" class="arrow-label" text-anchor="middle">publish/subscribe</text>
+
+            <!-- Layer 2: IIO Pub/Sub -->
+            <text x="20" y="250" class="layer-label">IIO Messaging Layer</text>
+
+            <rect x="20" y="260" width="640" height="90" rx="8" class="box iio-box"/>
+            <text x="340" y="285" class="title-text" text-anchor="middle">IntraIOManager (TopicTree)</text>
+            <text x="340" y="303" class="subtitle-text" text-anchor="middle">Sub-millisecond Pub/Sub • Wildcard Patterns • Zero Coupling</text>
+
+            <text x="40" y="325" class="detail-text">Topics: render:*, ui:*, input:*, game:*</text>
+            <text x="40" y="337" class="detail-text">Pattern matching: O(k) where k = pattern depth</text>
+
+            <!-- Arrows from IIO to System -->
+            <line x1="120" y1="350" x2="120" y2="395" class="arrow"/>
+            <line x1="340" y1="350" x2="340" y2="395" class="arrow"/>
+            <line x1="560" y1="350" x2="560" y2="395" class="arrow"/>
+
+            <!-- Layer 3: System Modules -->
+            <text x="20" y="415" class="layer-label">System Modules Layer</text>
+
+            <!-- BgfxRenderer -->
+            <rect x="20" y="425" width="200" height="100" rx="8" class="box system-box"/>
+            <text x="120" y="447" class="title-text" text-anchor="middle">BgfxRenderer</text>
+            <text x="120" y="463" class="subtitle-text" text-anchor="middle">Phase 8 Complete</text>
+            <text x="30" y="480" class="detail-text">• Sprites + batching</text>
+            <text x="30" y="492" class="detail-text">• Tilemap + particles</text>
+            <text x="30" y="504" class="detail-text">• DX11/12, GL, Vulkan</text>
+            <text x="30" y="516" class="detail-text">• Multi-texture support</text>
+
+            <!-- InputModule -->
+            <rect x="240" y="425" width="200" height="100" rx="8" class="box system-box"/>
+            <text x="340" y="447" class="title-text" text-anchor="middle">InputModule</text>
+            <text x="340" y="463" class="subtitle-text" text-anchor="middle">Phase 1-3</text>
+            <text x="250" y="480" class="detail-text">• Mouse + Keyboard</text>
+            <text x="250" y="492" class="detail-text">• SDL2 backend</text>
+            <text x="250" y="504" class="detail-text">• Thread-safe buffer</text>
+            <text x="250" y="516" class="detail-text">• Gamepad: TODO</text>
+
+            <!-- NetworkIO -->
+            <rect x="460" y="425" width="200" height="100" rx="8" class="box system-box"/>
+            <text x="560" y="447" class="title-text" text-anchor="middle">NetworkIO</text>
+            <text x="560" y="463" class="subtitle-text" text-anchor="middle">TODO</text>
+            <text x="470" y="480" class="detail-text">• Distributed pub/sub</text>
+            <text x="470" y="492" class="detail-text">• Remote IPC</text>
+            <text x="470" y="504" class="detail-text">• Network transparency</text>
+
+            <!-- Arrows from System to Core -->
+            <line x1="120" y1="525" x2="120" y2="570" class="arrow"/>
+            <line x1="340" y1="525" x2="340" y2="570" class="arrow"/>
+            <line x1="560" y1="525" x2="560" y2="570" class="arrow"/>
+
+            <!-- Layer 4: Core Infrastructure -->
+            <text x="20" y="590" class="layer-label">Core Infrastructure</text>
+
+            <!-- ModuleLoader -->
+            <rect x="20" y="600" width="300" height="90" rx="8" class="box core-box"/>
+            <text x="170" y="622" class="title-text" text-anchor="middle">ModuleLoader + Hot-Reload</text>
+            <text x="170" y="638" class="subtitle-text" text-anchor="middle">Dynamic .so/.dll Loading</text>
+            <text x="30" y="655" class="detail-text">• 0.4ms average reload</text>
+            <text x="30" y="667" class="detail-text">• 0.055ms best time</text>
+            <text x="30" y="679" class="detail-text">• 100% state preservation</text>
+
+            <!-- SequentialModuleSystem -->
+            <rect x="340" y="600" width="320" height="90" rx="8" class="box core-box"/>
+            <text x="500" y="622" class="title-text" text-anchor="middle">SequentialModuleSystem</text>
+            <text x="500" y="638" class="subtitle-text" text-anchor="middle">Single-threaded Execution</text>
+            <text x="350" y="655" class="detail-text">• Deterministic order (current)</text>
+            <text x="350" y="667" class="detail-text">• Multi-threaded: TODO</text>
+            <text x="350" y="679" class="detail-text">• Factory pattern (swappable infra)</text>
+
+            <!-- Right panel: Metrics -->
+            <text x="720" y="90" class="layer-label">Key Metrics</text>
+
+            <!-- Metric 1 -->
+            <rect x="720" y="100" width="180" height="60" rx="8" fill="#f5f5f5" stroke="#ddd" stroke-width="2"/>
+            <text x="810" y="125" class="metric-value" text-anchor="middle">0.4ms</text>
+            <text x="810" y="150" class="metric-label" text-anchor="middle">Hot-Reload Average</text>
+
+            <!-- Metric 2 -->
+            <rect x="920" y="100" width="180" height="60" rx="8" fill="#f5f5f5" stroke="#ddd" stroke-width="2"/>
+            <text x="1010" y="125" class="metric-value" text-anchor="middle">20+</text>
+            <text x="1010" y="150" class="metric-label" text-anchor="middle">Integration Tests</text>
+
+            <!-- Metric 3 -->
+            <rect x="720" y="175" width="180" height="60" rx="8" fill="#f5f5f5" stroke="#ddd" stroke-width="2"/>
+            <text x="810" y="200" class="metric-value" text-anchor="middle">100%</text>
+            <text x="810" y="225" class="metric-label" text-anchor="middle">State Preserved</text>
+
+            <!-- Metric 4 -->
+            <rect x="920" y="175" width="180" height="60" rx="8" fill="#f5f5f5" stroke="#ddd" stroke-width="2"/>
+            <text x="1010" y="200" class="metric-value" text-anchor="middle">1%</text>
+            <text x="1010" y="225" class="metric-label" text-anchor="middle">Royalty Rate</text>
+
+            <!-- Status Box -->
+            <rect x="720" y="260" width="380" height="130" rx="8" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
+            <text x="910" y="285" class="title-text" text-anchor="middle" fill="#e65100">⚠️ Development Stage</text>
+            <text x="730" y="310" class="detail-text" fill="#555">Status: Experimental, non-deterministic</text>
+            <text x="730" y="325" class="detail-text" fill="#555">Best for: Rapid prototyping, learning, experimentation</text>
+            <text x="730" y="340" class="detail-text" fill="#555">Not suitable for: Production games, networked apps</text>
+            <text x="730" y="360" class="detail-text" fill="#555">License: GPL v3 (free) / Commercial (1% royalty &gt; €100k)</text>
+            <text x="730" y="375" class="detail-text" fill="#555">Contact: alexistrouve.pro@gmail.com</text>
+
+            <!-- Technologies Box -->
+            <rect x="720" y="410" width="380" height="100" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+            <text x="910" y="435" class="title-text" text-anchor="middle" fill="#2e7d32">Technologies Stack</text>
+            <text x="730" y="455" class="detail-text">• C++17 • CMake 3.20+ • bgfx (rendering)</text>
+            <text x="730" y="470" class="detail-text">• SDL2 (input) • nlohmann/json • spdlog (logging)</text>
+            <text x="730" y="485" class="detail-text">• TopicTree (O(k) pattern matching)</text>
+            <text x="730" y="500" class="detail-text">• Platforms: Windows, Linux (macOS untested)</text>
+
+            <!-- Use Cases -->
+            <rect x="720" y="530" width="380" height="100" rx="8" fill="#e3f2fd" stroke="#2196f3" stroke-width="2"/>
+            <text x="910" y="555" class="title-text" text-anchor="middle" fill="#0d47a1">Perfect For</text>
+            <text x="730" y="575" class="detail-text">✓ Rapid game prototyping with instant iteration</text>
+            <text x="730" y="590" class="detail-text">✓ Learning modular architecture patterns</text>
+            <text x="730" y="605" class="detail-text">✓ AI-assisted development (Claude Code optimized)</text>
+            <text x="730" y="620" class="detail-text">✓ Testing game mechanics quickly (hot-reload)</text>
+
+            <!-- Footer -->
+            <text x="560" y="710" class="detail-text" text-anchor="middle" fill="#999">
+                GroveEngine © 2025 StillHammer • github.com/AlexisTrouve/GroveEngine
+            </text>
+        </svg>
+    </div>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GroveEngine - IIO Messaging System</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .diagram-container {
+            width: 1200px;
+            height: 800px;
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .module-box {
+            filter: drop-shadow(3px 3px 5px rgba(0,0,0,0.2));
+        }
+
+        .publisher {
+            fill: #e8f5e9;
+            stroke: #4caf50;
+            stroke-width: 3;
+        }
+
+        .subscriber {
+            fill: #e3f2fd;
+            stroke: #2196f3;
+            stroke-width: 3;
+        }
+
+        .iio-core {
+            fill: #fff3e0;
+            stroke: #ff9800;
+            stroke-width: 3;
+        }
+
+        .message-flow {
+            stroke: #4caf50;
+            stroke-width: 3;
+            fill: none;
+            marker-end: url(#arrowhead-msg);
+            stroke-dasharray: 8, 4;
+            animation: dash 1.5s linear infinite;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -12;
+            }
+        }
+
+        .subscribe-flow {
+            stroke: #2196f3;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead-sub);
+        }
+
+        .module-name {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .module-desc {
+            font-size: 10px;
+            fill: #666;
+        }
+
+        .topic-text {
+            font-size: 11px;
+            font-weight: bold;
+            fill: #4caf50;
+        }
+
+        .subscribe-text {
+            font-size: 10px;
+            fill: #2196f3;
+        }
+
+        .main-title {
+            font-size: 32px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            fill: #666;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            fill: #1a1a1a;
+        }
+
+        .detail-box {
+            fill: #f5f5f5;
+            stroke: #ddd;
+            stroke-width: 2;
+        }
+
+        .detail-text {
+            font-size: 10px;
+            fill: #555;
+        }
+
+        .highlight-box {
+            fill: #ffebee;
+            stroke: #d32f2f;
+            stroke-width: 2;
+        }
+
+        .code-text {
+            font-family: 'Consolas', monospace;
+            font-size: 9px;
+            fill: #1a1a1a;
+        }
+
+        .metric-value {
+            font-size: 20px;
+            font-weight: bold;
+            fill: #ff9800;
+        }
+
+        .tree-line {
+            stroke: #999;
+            stroke-width: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="diagram-container">
+        <svg viewBox="0 0 1120 720" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="arrowhead-msg" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="#4caf50" />
+                </marker>
+                <marker id="arrowhead-sub" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="#2196f3" />
+                </marker>
+            </defs>
+
+            <!-- Title -->
+            <text x="560" y="35" class="main-title" text-anchor="middle">IIO Pub/Sub Messaging System</text>
+            <text x="560" y="55" class="subtitle" text-anchor="middle">IntraIOManager • TopicTree Pattern Matching • Zero Module Coupling</text>
+
+            <!-- Example Scenario Label -->
+            <text x="30" y="90" class="section-title">Example: Player Movement Message Flow</text>
+
+            <!-- Publisher: PlayerModule -->
+            <rect x="50" y="110" width="160" height="80" rx="8" class="module-box publisher"/>
+            <text x="130" y="135" class="module-name" text-anchor="middle">PlayerModule</text>
+            <text x="130" y="150" class="module-desc" text-anchor="middle">Game Logic</text>
+            <text x="60" y="170" class="detail-text">io.publish(</text>
+            <text x="70" y="182" class="topic-text">"player:position",</text>
+            <text x="70" y="194" class="detail-text">{x: 100, y: 200})</text>
+
+            <!-- Arrow from PlayerModule to IIO -->
+            <path d="M 210 150 L 280 230" class="message-flow"/>
+            <text x="235" y="185" class="topic-text">publish</text>
+
+            <!-- IIO Core: IntraIOManager -->
+            <rect x="280" y="200" width="280" height="200" rx="8" class="module-box iio-core"/>
+            <text x="420" y="225" class="module-name" text-anchor="middle" font-size="16px">IntraIOManager</text>
+            <text x="420" y="242" class="module-desc" text-anchor="middle">Message Router + TopicTree</text>
+
+            <!-- TopicTree visualization -->
+            <text x="295" y="265" class="detail-text" font-weight="bold">TopicTree Pattern Matching:</text>
+
+            <!-- Tree structure -->
+            <circle cx="420" cy="285" r="4" fill="#ff9800"/>
+            <text x="430" y="290" class="code-text">player:</text>
+
+            <!-- Branches -->
+            <line x1="420" y1="289" x2="360" y2="310" class="tree-line"/>
+            <line x1="420" y1="289" x2="420" y2="310" class="tree-line"/>
+            <line x1="420" y1="289" x2="480" y2="310" class="tree-line"/>
+
+            <circle cx="360" cy="310" r="3" fill="#ff9800"/>
+            <text x="330" y="315" class="code-text">position</text>
+
+            <circle cx="420" cy="310" r="3" fill="#ff9800"/>
+            <text x="395" y="315" class="code-text">health</text>
+
+            <circle cx="480" cy="310" r="3" fill="#ff9800"/>
+            <text x="455" y="315" class="code-text">score</text>
+
+            <!-- Subscribers list -->
+            <text x="295" y="340" class="detail-text" font-weight="bold">Matched Subscribers:</text>
+
+            <text x="305" y="357" class="subscribe-text">1. "player:position" → UIModule</text>
+            <text x="305" y="370" class="subscribe-text">2. "player:*" → CollisionModule</text>
+            <text x="305" y="383" class="subscribe-text">3. "*" → MetricsModule</text>
+
+            <!-- Performance note -->
+            <rect x="290" y="395" width="260" height="35" rx="6" fill="#ffebee" stroke="#d32f2f" stroke-width="1"/>
+            <text x="420" y="412" class="detail-text" text-anchor="middle" font-weight="bold" fill="#d32f2f">
+                ⚡ O(k) matching where k = topic depth
+            </text>
+            <text x="420" y="424" class="detail-text" text-anchor="middle" fill="#666">
+                Sub-millisecond routing • Lock-free design
+            </text>
+
+            <!-- Subscribers receiving messages -->
+
+            <!-- Subscriber 1: UIModule -->
+            <rect x="610" y="110" width="160" height="80" rx="8" class="module-box subscriber"/>
+            <text x="690" y="135" class="module-name" text-anchor="middle">UIModule</text>
+            <text x="690" y="150" class="module-desc" text-anchor="middle">User Interface</text>
+            <text x="620" y="170" class="subscribe-text">subscribed:</text>
+            <text x="625" y="182" class="topic-text">"player:position"</text>
+
+            <path d="M 560 230 L 610 150" class="message-flow"/>
+            <text x="575" y="185" class="topic-text">match ✓</text>
+
+            <!-- Subscriber 2: CollisionModule -->
+            <rect x="610" y="220" width="160" height="80" rx="8" class="module-box subscriber"/>
+            <text x="690" y="245" class="module-name" text-anchor="middle">CollisionModule</text>
+            <text x="690" y="260" class="module-desc" text-anchor="middle">Physics</text>
+            <text x="620" y="280" class="subscribe-text">subscribed:</text>
+            <text x="625" y="292" class="topic-text">"player:*"</text>
+
+            <path d="M 560 260 L 610 260" class="message-flow"/>
+            <text x="575" y="255" class="topic-text">match ✓</text>
+
+            <!-- Subscriber 3: MetricsModule -->
+            <rect x="610" y="330" width="160" height="80" rx="8" class="module-box subscriber"/>
+            <text x="690" y="355" class="module-name" text-anchor="middle">MetricsModule</text>
+            <text x="690" y="370" class="module-desc" text-anchor="middle">Analytics</text>
+            <text x="620" y="390" class="subscribe-text">subscribed:</text>
+            <text x="625" y="402" class="topic-text">"*" (all topics)</text>
+
+            <path d="M 560 290 L 610 370" class="message-flow"/>
+            <text x="575" y="335" class="topic-text">match ✓</text>
+
+            <!-- Code Example Section -->
+            <rect x="50" y="430" width="720" height="260" rx="8" class="detail-box"/>
+            <text x="410" y="455" class="section-title" text-anchor="middle">Code Example: Complete Pub/Sub Flow</text>
+
+            <!-- Publisher code -->
+            <text x="65" y="480" class="detail-text" font-weight="bold">1. Publisher (PlayerModule):</text>
+            <rect x="65" y="485" width="340" height="90" rx="4" fill="#e8f5e9"/>
+            <text x="75" y="502" class="code-text">// Create message data</text>
+            <text x="75" y="515" class="code-text">auto data = std::make_unique&lt;JsonDataNode&gt;("position");</text>
+            <text x="75" y="528" class="code-text">data-&gt;setDouble("x", playerX);</text>
+            <text x="75" y="541" class="code-text">data-&gt;setDouble("y", playerY);</text>
+            <text x="75" y="554" class="code-text">data-&gt;setDouble("vx", velocityX);</text>
+            <text x="75" y="567" class="code-text" fill="#4caf50" font-weight="bold">io-&gt;publish("player:position", std::move(data));</text>
+
+            <!-- Subscriber code -->
+            <text x="420" y="480" class="detail-text" font-weight="bold">2. Subscriber (UIModule):</text>
+            <rect x="420" y="485" width="340" height="90" rx="4" fill="#e3f2fd"/>
+            <text x="430" y="502" class="code-text">// Subscribe to topic pattern</text>
+            <text x="430" y="515" class="code-text" fill="#2196f3" font-weight="bold">io-&gt;subscribe("player:position");</text>
+            <text x="430" y="528" class="code-text">// In process() loop:</text>
+            <text x="430" y="541" class="code-text">while (io-&gt;hasMessages()) {</text>
+            <text x="440" y="554" class="code-text">  auto msg = io-&gt;pullMessage();</text>
+            <text x="440" y="567" class="code-text">  updatePlayerUI(msg.data);</text>
+            <text x="430" y="580" class="code-text">}</text>
+
+            <!-- Wildcard patterns -->
+            <text x="65" y="600" class="detail-text" font-weight="bold">3. Wildcard Pattern Examples:</text>
+            <rect x="65" y="605" width="695" height="75" rx="4" fill="#fff3e0"/>
+
+            <text x="75" y="622" class="code-text">"player:position"      → Exact match only</text>
+            <text x="75" y="635" class="code-text">"player:*"             → Matches player:position, player:health, player:score</text>
+            <text x="75" y="648" class="code-text">"render:*"             → Matches render:sprite, render:text, render:clear</text>
+            <text x="75" y="661" class="code-text">"*"                    → Matches ALL topics (use for logging/metrics)</text>
+            <text x="75" y="674" class="code-text">"ui:button:*"          → Matches ui:button:click, ui:button:hover</text>
+
+            <!-- Performance Metrics -->
+            <rect x="800" y="430" width="270" height="140" rx="8" class="highlight-box"/>
+            <text x="935" y="455" class="section-title" text-anchor="middle" fill="#d32f2f">Performance</text>
+
+            <text x="820" y="480" class="detail-text">Routing time:</text>
+            <text x="935" y="505" class="metric-value" text-anchor="middle">&lt; 0.1ms</text>
+
+            <text x="820" y="525" class="detail-text">Pattern match complexity:</text>
+            <text x="935" y="545" class="metric-value" text-anchor="middle">O(k)</text>
+            <text x="935" y="560" class="detail-text" text-anchor="middle">k = topic depth (e.g., 2 for "player:pos")</text>
+
+            <!-- Benefits -->
+            <rect x="800" y="585" width="270" height="105" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+            <text x="935" y="608" class="section-title" text-anchor="middle" fill="#2e7d32">Benefits</text>
+
+            <text x="815" y="630" class="detail-text">✓ Zero module coupling</text>
+            <text x="815" y="645" class="detail-text">✓ Easy to add/remove modules</text>
+            <text x="815" y="660" class="detail-text">✓ Dynamic subscriptions at runtime</text>
+            <text x="815" y="675" class="detail-text">✓ Thread-safe message queuing</text>
+
+            <!-- Footer -->
+            <text x="560" y="710" class="subtitle" text-anchor="middle">
+                IIO enables complete module decoupling • Add/remove modules without changing existing code
+            </text>
+        </svg>
+    </div>
+</body>
+</html>

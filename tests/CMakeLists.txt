@@ -161,6 +161,75 @@ add_dependencies(test_01_production_hotreload TankModule)
 # CTest integration
 grove_add_test(ProductionHotReload test_01_production_hotreload ${CMAKE_CURRENT_BINARY_DIR})
 
+# ThreadedModuleSystem Tests
+add_executable(test_threaded_module_system
+    integration/test_threaded_module_system.cpp
+)
+
+target_link_libraries(test_threaded_module_system PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# CTest integration
+grove_add_test(ThreadedModuleSystem test_threaded_module_system ${CMAKE_CURRENT_BINARY_DIR})
+
+# ThreadedModuleSystem Stress Tests
+add_executable(test_threaded_stress
+    integration/test_threaded_stress.cpp
+)
+
+target_link_libraries(test_threaded_stress PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# CTest integration
+grove_add_test(ThreadedStress test_threaded_stress ${CMAKE_CURRENT_BINARY_DIR})
+
+# ThreadedModuleSystem Real Module Integration Test
+add_executable(test_threaded_real_modules
+    integration/test_threaded_real_modules.cpp
+)
+
+target_link_libraries(test_threaded_real_modules PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# Note: This test requires BgfxRenderer and UIModule to be built
+# It will run manually, not automatically via CTest
+message(STATUS "Real module test 'test_threaded_real_modules' enabled (requires BgfxRenderer+UIModule)")
+
+# ThreadedModuleSystem Simple Real-World Test (no DLL loading)
+add_executable(test_threaded_simple_real
+    integration/test_threaded_simple_real.cpp
+)
+
+target_link_libraries(test_threaded_simple_real PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+    stillhammer_logger
+)
+
+# This test can be added to CTest as it doesn't require external modules
+grove_add_test(ThreadedSimpleReal test_threaded_simple_real ${CMAKE_CURRENT_BINARY_DIR})
+
+# Logger Thread-Safety Test
+add_executable(test_logger_threadsafe
+    integration/test_logger_threadsafe.cpp
+)
+
+target_link_libraries(test_logger_threadsafe PRIVATE
+    stillhammer_logger
+)
+
+grove_add_test(LoggerThreadSafe test_logger_threadsafe ${CMAKE_CURRENT_BINARY_DIR})
+
 # ChaosModule pour tests de robustesse
 add_library(ChaosModule SHARED
     modules/ChaosModule.cpp
@@ -676,6 +745,21 @@ target_link_libraries(benchmark_e2e PRIVATE
     GroveEngine::core
     GroveEngine::impl
     topictree::topictree
+)
+
+# ThreadedModuleSystem vs SequentialModuleSystem performance comparison
+add_executable(benchmark_threaded_vs_sequential
+    benchmarks/benchmark_threaded_vs_sequential.cpp
+)
+
+target_include_directories(benchmark_threaded_vs_sequential PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_threaded_vs_sequential PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
 )
 
 # ================================================================================

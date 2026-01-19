@@ -20,6 +20,15 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 - **[UI Architecture](docs/UI_ARCHITECTURE.md)** - Threading model, limitations, design principles
 - **[UI Rendering](docs/UI_RENDERING.md)** - Retained mode rendering architecture
 
+## Module Systems
+
+| System | Status | Description | Use Case |
+|--------|--------|-------------|----------|
+| **SequentialModuleSystem** | ✅ Production Ready | Single-threaded, one module at a time | Debug, testing |
+| **ThreadedModuleSystem** | ✅ Phase 2 Complete | One thread per module (parallel execution) | 2-8 modules, ≤30 FPS |
+| **ThreadPoolModuleSystem** | 🚧 Planned (Phase 3) | Shared worker pool, work stealing | High performance (>30 FPS) |
+| **ClusterModuleSystem** | 🚧 Planned (Phase 4) | Distributed across machines | MMO scale |
+
 ## Available Modules
 
 | Module | Status | Description | Build Flag |

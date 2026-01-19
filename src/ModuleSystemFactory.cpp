@@ -5,8 +5,8 @@
 
 // Include implemented systems
 #include <grove/SequentialModuleSystem.h>
+#include <grove/ThreadedModuleSystem.h>
 // Forward declarations for future implementations
-// #include "ThreadedModuleSystem.h"
 // #include "ThreadPoolModuleSystem.h"
 // #include "ClusterModuleSystem.h"
 
@@ -36,10 +36,9 @@ std::unique_ptr<IModuleSystem> ModuleSystemFactory::create(ModuleSystemType syst
 
         case ModuleSystemType::THREADED:
             logger->debug("🔧 Creating ThreadedModuleSystem instance");
-            // TODO: Implement ThreadedModuleSystem
-            // moduleSystem = std::make_unique<ThreadedModuleSystem>();
-            logger->error("❌ ThreadedModuleSystem not yet implemented");
-            throw std::invalid_argument("ThreadedModuleSystem not yet implemented");
+            moduleSystem = std::make_unique<ThreadedModuleSystem>();
+            logger->info("✅ ThreadedModuleSystem created successfully");
+            break;
 
         case ModuleSystemType::THREAD_POOL:
             logger->debug("🔧 Creating ThreadPoolModuleSystem instance");
