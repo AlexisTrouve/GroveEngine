@@ -92,7 +92,8 @@ void SequentialModuleSystem::processModules(float deltaTime) {
 
         auto moduleInput = std::make_unique<JsonDataNode>("input", inputJson);
 
-        logger->trace("📥 Calling module process() with deltaTime: {:.3f}ms", deltaTime * 1000);
+        // PERFORMANCE: Removed logger->trace() from hot path (causes mutex contention)
+        // logger->trace("📥 Calling module process() with deltaTime: {:.3f}ms", deltaTime * 1000);
 
         // Process the module
         module->process(*moduleInput);
@@ -105,12 +106,14 @@ void SequentialModuleSystem::processModules(float deltaTime) {
 
         logProcessEnd(lastProcessDuration);
 
+        // PERFORMANCE: Removed logger->warn() from hot path (causes mutex contention)
         // Check for performance warnings
-        if (lastProcessDuration > 16.67f) { // More than 60fps budget
-            logger->warn("🐌 Slow module processing: {:.2f}ms (target: <16.67ms for 60fps)", lastProcessDuration);
-        }
+        // if (lastProcessDuration > 16.67f) { // More than 60fps budget
+        //     logger->warn("🐌 Slow module processing: {:.2f}ms (target: <16.67ms for 60fps)", lastProcessDuration);
+        // }
 
-        logger->trace("✅ Module processing completed successfully");
+        // PERFORMANCE: Removed logger->trace() from hot path (causes mutex contention)
+        // logger->trace("✅ Module processing completed successfully");
 
     } catch (const std::exception& e) {
         logger->error("❌ Error processing module '{}': {}", moduleName, e.what());

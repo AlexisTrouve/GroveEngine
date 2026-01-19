@@ -762,6 +762,21 @@ target_link_libraries(benchmark_threaded_vs_sequential PRIVATE
     GroveEngine::impl
 )
 
+# ThreadedModuleSystem vs SequentialModuleSystem - REAL CPU-bound benchmark
+add_executable(benchmark_threaded_vs_sequential_cpu
+    benchmarks/benchmark_threaded_vs_sequential_cpu.cpp
+)
+
+target_include_directories(benchmark_threaded_vs_sequential_cpu PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_threaded_vs_sequential_cpu PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
 # ================================================================================
 # BgfxRenderer Tests (only if GROVE_BUILD_BGFX_RENDERER is ON)
 # ================================================================================

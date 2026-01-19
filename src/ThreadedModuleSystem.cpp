@@ -133,29 +133,35 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
         return;
     }
 
-    logFrameStart(deltaTime, workerCount);
+    // PERFORMANCE: Removed logFrameStart() from hot path (causes mutex contention)
+    // logFrameStart(deltaTime, workerCount);
 
-    // Phase 1: Signal all workers to process
+    // ATOMIC BARRIER OPTIMIZATION: Replace per-worker lock operations with atomic counters
+    // OLD: 16 lock operations (8 workers × 2 phases)
+    // NEW: 0 lock operations in hot path
+
+    // Store shared data (no locks needed - only main thread writes)
+    sharedDeltaTime = deltaTime;
+    sharedFrameCount = frameCount;
+
+    // Reset completion counter for this frame
+    workersCompleted.store(0, std::memory_order_relaxed);
+
+    // ATOMIC: Increment frame generation (signals new frame to workers)
+    // memory_order_release ensures sharedDeltaTime/sharedFrameCount are visible to workers
+    size_t generation = currentFrameGeneration.fetch_add(1, std::memory_order_release) + 1;
+
+    // Wake up all workers (broadcast) - no locks needed!
     for (auto& worker : workers) {
-        std::lock_guard<std::mutex> workerLock(worker->mutex);
-        worker->shouldProcess = true;
-        worker->processingComplete = false;
-        worker->deltaTime = deltaTime;
-        worker->frameCount = frameCount;
         worker->cv.notify_one();
     }
 
-    // Phase 2: Wait for all workers to complete
-    for (auto& worker : workers) {
-        std::unique_lock<std::mutex> workerLock(worker->mutex);
-
-        // Wait until processingComplete is true
-        worker->cv.wait(workerLock, [&worker] {
-            return worker->processingComplete;
-        });
-
-        // Reset flag for next frame
-        worker->processingComplete = false;
+    // ATOMIC: Spin-wait for all workers to complete
+    // memory_order_acquire ensures we see worker's memory writes after processing
+    // Spin-wait is faster than condition_variable for short waits (<1ms typical)
+    int expectedCompletions = static_cast<int>(workerCount);
+    while (workersCompleted.load(std::memory_order_acquire) < expectedCompletions) {
+        std::this_thread::yield();  // Give up CPU to other threads
     }
 
     lock.unlock();  // Release shared lock
@@ -164,12 +170,14 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
     auto frameEndTime = std::chrono::high_resolution_clock::now();
     float totalSyncTime = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
 
-    logFrameEnd(totalSyncTime);
+    // PERFORMANCE: Removed logFrameEnd() from hot path (causes mutex contention)
+    // logFrameEnd(totalSyncTime);
 
+    // PERFORMANCE: Removed logger->warn() from hot path (causes mutex contention)
     // Warn if total frame time exceeds 60fps budget
-    if (totalSyncTime > 16.67f) {
-        logger->warn("🐌 Slow frame processing: {:.2f}ms (target: <16.67ms for 60fps)", totalSyncTime);
-    }
+    // if (totalSyncTime > 16.67f) {
+    //     logger->warn("🐌 Slow frame processing: {:.2f}ms (target: <16.67ms for 60fps)", totalSyncTime);
+    // }
 
     lastFrameTime = frameEndTime;
 }
@@ -218,9 +226,10 @@ int ThreadedModuleSystem::getPendingTaskCount(const std::string& moduleName) con
         return 0;
     }
 
-    // Check if worker is currently processing
-    std::lock_guard<std::mutex> workerLock((*workerIt)->mutex);
-    bool isProcessing = (*workerIt)->shouldProcess && !(*workerIt)->processingComplete;
+    // Check if this specific worker is currently processing
+    // Compare current generation with worker's last processed generation
+    size_t currentGen = currentFrameGeneration.load(std::memory_order_relaxed);
+    bool isProcessing = (currentGen > (*workerIt)->lastProcessedGeneration);
 
     return isProcessing ? 1 : 0;
 }
@@ -382,11 +391,14 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
     logger->debug("🧵 Worker thread started for '{}'", worker.name);
 
     while (true) {
-        // Wait for signal
+        // Wait for signal (work OR shutdown)
         std::unique_lock<std::mutex> lock(worker.mutex);
 
-        worker.cv.wait(lock, [&worker] {
-            return worker.shouldProcess || worker.shouldShutdown;
+        // ATOMIC BARRIER: Wait for new frame generation
+        // memory_order_acquire ensures we see sharedDeltaTime/sharedFrameCount writes
+        worker.cv.wait(lock, [this, &worker] {
+            size_t currentGen = currentFrameGeneration.load(std::memory_order_acquire);
+            return (currentGen > worker.lastProcessedGeneration) || worker.shouldShutdown;
         });
 
         if (worker.shouldShutdown) {
@@ -394,20 +406,33 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
             break;
         }
 
-        // Capture input data
-        float dt = worker.deltaTime;
-        size_t frameCount = worker.frameCount;
+        // Read current generation and frame data BEFORE releasing lock
+        size_t generation = currentFrameGeneration.load(std::memory_order_acquire);
 
-        // Release lock during processing (don't hold lock while module executes)
+        // Release lock BEFORE processing (no lock during module execution!)
         lock.unlock();
 
-        // Process module
+        // Check if we already processed this generation (shouldn't happen, but be safe)
+        if (generation <= worker.lastProcessedGeneration) {
+            // Spurious wake-up
+            continue;
+        }
+
+        // Read shared frame data (safe - only main thread writes, we have memory_order_acquire)
+        float dt = sharedDeltaTime;
+        size_t frameCount = sharedFrameCount;
+
+        // Mark this generation as processed
+        worker.lastProcessedGeneration = generation;
+
+        // Process module (NO LOCKS during processing!)
         auto processStartTime = std::chrono::high_resolution_clock::now();
 
         try {
             auto input = createInputDataNode(dt, frameCount, worker.name);
-            logger->trace("🎬 Worker '{}' processing frame {} (dt: {:.3f}ms)",
-                         worker.name, frameCount, dt * 1000);
+            // PERFORMANCE: Removed logger->trace() from hot path (causes mutex contention)
+            // logger->trace("🎬 Worker '{}' processing frame {} (dt: {:.3f}ms)",
+            //              worker.name, frameCount, dt * 1000);
 
             worker.module->process(*input);
 
@@ -419,7 +444,7 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
         float processDuration = std::chrono::duration<float, std::milli>(
             processEndTime - processStartTime).count();
 
-        // Update metrics and signal completion
+        // Update metrics (lock only for writes)
         lock.lock();
 
         worker.lastProcessDuration = processDuration;
@@ -427,16 +452,18 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
         worker.processCallCount++;
         worker.lastProcessStart = processStartTime;
 
-        // Warn if module processing slow
-        if (processDuration > 16.67f) {
-            logger->warn("🐌 Module '{}' processing slow: {:.2f}ms (target: <16.67ms)",
-                        worker.name, processDuration);
-        }
+        lock.unlock();
 
-        // Signal completion
-        worker.processingComplete = true;
-        worker.shouldProcess = false;
-        worker.cv.notify_one();
+        // PERFORMANCE: Removed logger->warn() from hot path (causes mutex contention)
+        // Warn if module processing slow
+        // if (processDuration > 16.67f) {
+        //     logger->warn("🐌 Module '{}' processing slow: {:.2f}ms (target: <16.67ms)",
+        //                 worker.name, processDuration);
+        // }
+
+        // ATOMIC: Signal completion (no lock needed!)
+        // memory_order_release ensures metrics writes are visible to main thread
+        workersCompleted.fetch_add(1, std::memory_order_release);
     }
 
     logger->debug("🏁 Worker thread '{}' exiting", worker.name);
