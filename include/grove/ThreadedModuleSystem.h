@@ -108,6 +108,7 @@ private:
     // Benefits: No mutex locking in hot path, 2-4x performance gain
     std::atomic<int> workersCompleted{0};         // Count of workers that finished processing
     std::atomic<size_t> currentFrameGeneration{0}; // Frame generation counter (increments each frame)
+    std::atomic<bool> isProcessingFrame{false};   // True during processModules() (prevents extractModule deadlock)
 
     // Shared per-frame data (written by main thread during barrier, read by workers)
     // Thread-safe: Only main thread writes (during barrier), workers read (after barrier)

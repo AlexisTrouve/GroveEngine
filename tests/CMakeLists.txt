@@ -777,6 +777,36 @@ target_link_libraries(benchmark_threaded_vs_sequential_cpu PRIVATE
     GroveEngine::impl
 )
 
+# IIO Message Latency Benchmark (through module systems)
+add_executable(benchmark_iio_latency
+    benchmarks/benchmark_iio_latency.cpp
+)
+
+target_include_directories(benchmark_iio_latency PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_iio_latency PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
+# IIO Direct Performance Benchmark (no module system overhead)
+add_executable(benchmark_iio_direct
+    benchmarks/benchmark_iio_direct.cpp
+)
+
+target_include_directories(benchmark_iio_direct PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_iio_direct PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+)
+
 # ================================================================================
 # BgfxRenderer Tests (only if GROVE_BUILD_BGFX_RENDERER is ON)
 # ================================================================================

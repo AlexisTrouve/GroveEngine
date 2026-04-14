@@ -3,7 +3,9 @@
     "allow": [
       "Bash(make test_07_limits:*)",
       "Bash(make:*)",
-      "Bash(ldd:*)"
+      "Bash(ldd:*)",
+      "Bash(ctest:*)",
+      "mcp__duo-slave__connect"
     ],
     "deny": [],
     "ask": []
