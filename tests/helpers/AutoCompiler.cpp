@@ -84,12 +84,17 @@ bool AutoCompiler::compile(int iteration) {
     // Small delay to ensure file is written
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Build the module using make
+    // Build the module using make/ninja
+    // Priority: GROVE_MAKE_COMMAND env var > ninja (Windows default) > make (Linux default)
 #ifdef _WIN32
-    std::string makeCmd = "mingw32-make";
+    const char* envMake = std::getenv("GROVE_MAKE_COMMAND");
+    // Default to "ninja" on Windows — mingw32-make is rarely available,
+    // ninja ships with most CMake/MSVC/Chocolatey setups.
+    std::string makeCmd = envMake ? envMake : "ninja";
     std::string nullDev = "NUL";
 #else
-    std::string makeCmd = "make";
+    const char* envMake = std::getenv("GROVE_MAKE_COMMAND");
+    std::string makeCmd = envMake ? envMake : "make";
     std::string nullDev = "/dev/null";
 #endif
     // Note: Tests run from build/tests/, so we use make -C .. to build from build directory
