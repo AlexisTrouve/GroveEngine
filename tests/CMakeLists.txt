@@ -99,13 +99,23 @@ if(WIN32 AND MINGW)
 endif()
 
 # Test macro - uses WORKING_DIRECTORY with PATH environment for Windows DLL loading
+# Optional 4th arg: timeout in seconds (default 90)
 macro(grove_add_test test_name test_target working_dir)
+    # Parse optional timeout argument (4th positional via ARGN)
+    set(_timeout 90)
+    if(ARGC GREATER 3)
+        set(_timeout ${ARGV3})
+    endif()
     add_test(NAME ${test_name} COMMAND ${test_target} WORKING_DIRECTORY ${working_dir})
     if(WIN32)
         # Set PATH environment variable to include the working directory
         # This ensures dynamically loaded DLLs (via LoadLibrary) can be found
         set_tests_properties(${test_name} PROPERTIES
-            ENVIRONMENT "PATH=${working_dir};${working_dir}/modules;$ENV{PATH}")
+            ENVIRONMENT "PATH=${working_dir};${working_dir}/modules;$ENV{PATH}"
+            TIMEOUT ${_timeout})
+    else()
+        set_tests_properties(${test_name} PROPERTIES
+            TIMEOUT ${_timeout})
     endif()
 endmacro()
 
@@ -173,7 +183,7 @@ target_link_libraries(test_threaded_module_system PRIVATE
 )
 
 # CTest integration
-grove_add_test(ThreadedModuleSystem test_threaded_module_system ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ThreadedModuleSystem test_threaded_module_system ${CMAKE_CURRENT_BINARY_DIR} 180)
 
 # ThreadedModuleSystem Stress Tests
 add_executable(test_threaded_stress
@@ -187,7 +197,7 @@ target_link_libraries(test_threaded_stress PRIVATE
 )
 
 # CTest integration
-grove_add_test(ThreadedStress test_threaded_stress ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ThreadedStress test_threaded_stress ${CMAKE_CURRENT_BINARY_DIR} 180)
 
 # ThreadedModuleSystem Real Module Integration Test
 add_executable(test_threaded_real_modules
@@ -217,7 +227,7 @@ target_link_libraries(test_threaded_simple_real PRIVATE
 )
 
 # This test can be added to CTest as it doesn't require external modules
-grove_add_test(ThreadedSimpleReal test_threaded_simple_real ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(ThreadedSimpleReal test_threaded_simple_real ${CMAKE_CURRENT_BINARY_DIR} 120)
 
 # Logger Thread-Safety Test
 add_executable(test_logger_threadsafe
