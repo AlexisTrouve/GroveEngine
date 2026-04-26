@@ -20,10 +20,17 @@ IntraIO::IntraIO(const std::string& id) : instanceId(id) {
 IntraIO::~IntraIO() {
     std::cout << "[IntraIO] Destroying instance: " << instanceId << std::endl;
     // Unregister from manager to prevent dangling pointer access
-    try {
-        IntraIOManager::getInstance().removeInstance(instanceId);
-    } catch (...) {
-        // Ignore errors during cleanup - manager might already be destroyed
+    // Guard: if the IntraIOManager singleton has already been destroyed
+    // (s_destroyed flag set in its destructor), skip removeInstance().
+    // Without this check, calling getInstance() after singleton destruction
+    // returns a dangling reference, causing a segfault / stack-buffer-overrun
+    // on Windows during static teardown when destruction order is unspecified.
+    if (!IntraIOManager::isDestroyed()) {
+        try {
+            IntraIOManager::getInstance().removeInstance(instanceId);
+        } catch (...) {
+            // Ignore errors during cleanup - manager might already be destroyed
+        }
     }
     std::cout << "[IntraIO] Destroyed instance: " << instanceId << std::endl;
 }

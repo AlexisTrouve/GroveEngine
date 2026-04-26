@@ -90,6 +90,15 @@ private:
     static constexpr size_t LOG_BATCH_SIZE = 100;
     mutable std::atomic<size_t> messagesSinceLastLog{0};
 
+    // -------------------------------------------------------------------------
+    // Destruction sentinel -- set to true at the very end of ~IntraIOManager().
+    // Purpose: allows IntraIO::~IntraIO() (and any other post-exit code) to
+    // detect that the singleton is gone before calling getInstance() again,
+    // preventing use-after-free crashes during static-destruction ordering
+    // (especially on Windows/MinGW where destruction order is not guaranteed).
+    // -------------------------------------------------------------------------
+    static std::atomic<bool> s_destroyed;
+
 public:
     IntraIOManager();
     ~IntraIOManager();
@@ -116,6 +125,11 @@ public:
 
     // Singleton access (for global routing)
     static IntraIOManager& getInstance();
+
+    // Returns true once the singleton destructor has completed.
+    // Use this guard in any code that might call getInstance() during
+    // static teardown (e.g. IntraIO::~IntraIO), to avoid use-after-free.
+    static bool isDestroyed() { return s_destroyed.load(std::memory_order_acquire); }
 };
 
 } // namespace grove

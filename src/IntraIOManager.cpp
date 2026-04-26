@@ -6,6 +6,13 @@
 
 namespace grove {
 
+// ---------------------------------------------------------------------------
+// Static out-of-line definition for the destruction sentinel.
+// Must be defined in exactly one .cpp file (ODR).
+// Initialized to false; the destructor sets it to true as its last action.
+// ---------------------------------------------------------------------------
+std::atomic<bool> IntraIOManager::s_destroyed{false};
+
 IntraIOManager::IntraIOManager() {
     // Create logger with domain organization (file logging disabled for Windows compatibility)
     stillhammer::LoggerConfig config;
@@ -67,7 +74,23 @@ IntraIOManager::~IntraIOManager() {
     if (loggerValid) {
         logger->info("🌐🔗 IntraIOManager destroyed");
     }
+
+    // -----------------------------------------------------------------------
+    // Mark singleton as destroyed BEFORE releasing the logger.
+    // This allows IntraIO::~IntraIO() to check isDestroyed() and skip
+    // calling getInstance().removeInstance(), preventing use-after-free
+    // when IntraIO objects outlive the singleton (rare but possible during
+    // static teardown on Windows/MinGW with unpredictable destruction order).
+    // -----------------------------------------------------------------------
+    s_destroyed.store(true, std::memory_order_release);
+
+    // Explicitly release the spdlog logger shared_ptr NOW, before static
+    // destructors for spdlog itself run.  Without this, the logger member
+    // may still hold a reference when spdlog tears down its registry,
+    // causing STATUS_STACK_BUFFER_OVERRUN / segfault on Windows/MinGW.
+    logger.reset();
 }
+
 
 std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& instanceId) {
     std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
