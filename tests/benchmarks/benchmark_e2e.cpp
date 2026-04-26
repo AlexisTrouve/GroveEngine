@@ -50,16 +50,22 @@ size_t getMemoryUsageMB() {
 }
 
 // Mock Module for simulation
+// Adapted to current IIO API: subscribe() requires a handler callback,
+// and pullMessage() is replaced by pullAndDispatch() (callback-driven dispatch).
 class MockModule {
 public:
     MockModule(const std::string& name, bool isPublisher)
-        : name(name), isPublisher(isPublisher) {
+        : name(name), isPublisher(isPublisher), msgCount(0) {
         io = IOFactory::create("intra", name);
     }
 
     void subscribe(const std::string& pattern) {
         if (!isPublisher) {
-            io->subscribe(pattern);
+            // Current API requires a MessageHandler callback as 2nd argument.
+            // We count received messages via atomic for benchmark metrics.
+            io->subscribe(pattern, [this](const grove::Message& /*msg*/) {
+                msgCount.fetch_add(1, std::memory_order_relaxed);
+            });
         }
     }
 
@@ -74,9 +80,11 @@ public:
     }
 
     int pollMessages() {
+        // pullAndDispatch() replaces the old pullMessage() API.
+        // It pulls one message and invokes the registered handler callback.
         int count = 0;
         while (io->hasMessages() > 0) {
-            io->pullMessage();
+            io->pullAndDispatch();
             count++;
         }
         return count;
@@ -86,6 +94,7 @@ private:
     std::string name;
     bool isPublisher;
     std::unique_ptr<IIO> io;
+    std::atomic<int> msgCount;  // counts messages delivered to handler callback
 };
 
 // ============================================================================

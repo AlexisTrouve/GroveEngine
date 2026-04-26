@@ -56,17 +56,24 @@ void benchmarkE_baseline() {
     auto publisherIO = IOFactory::create("intra", "publisher_e");
     auto subscriberIO = IOFactory::create("intra", "subscriber_e");
 
-    // Subscribe with high-frequency (no batching)
-    subscriberIO->subscribe("test:*");
+    // Subscribe with high-frequency (no batching).
+    // Current API: subscribe() requires a handler callback as 2nd argument.
+    // We use an atomic counter to measure throughput without the old pull-value API.
+    std::atomic<int> receivedCount{0};
+    subscriberIO->subscribe("test:*", [&receivedCount](const grove::Message& /*msg*/) {
+        receivedCount.fetch_add(1, std::memory_order_relaxed);
+    });
 
     // Warm up
     for (int i = 0; i < 100; ++i) {
         publisherIO->publish("test:warmup", createTestMessage(i));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Drain warmup messages via pullAndDispatch (replaces old pullMessage() pull-value API)
     while (subscriberIO->hasMessages() > 0) {
-        subscriberIO->pullMessage();
+        subscriberIO->pullAndDispatch();
     }
+    receivedCount.store(0); // Reset counter after warmup
 
     // Benchmark publishing
     BenchmarkTimer timer;
@@ -81,14 +88,12 @@ void benchmarkE_baseline() {
     // Allow routing to complete
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    // Count received messages
-    int receivedCount = 0;
+    // Count received messages via pullAndDispatch (handler callback increments receivedCount)
     BenchmarkStats latencyStats;
 
     timer.start();
     while (subscriberIO->hasMessages() > 0) {
-        auto msg = subscriberIO->pullMessage();
-        receivedCount++;
+        subscriberIO->pullAndDispatch();
     }
     double pullTime = timer.elapsedMs();
 
@@ -136,11 +141,16 @@ void benchmarkF_batching() {
     auto publisherIO = IOFactory::create("intra", "publisher_f");
     auto subscriberIO = IOFactory::create("intra", "subscriber_f");
 
-    // Subscribe with low-frequency batching
+    // Subscribe with low-frequency batching.
+    // Current API: subscribeLowFreq() requires handler as 2nd arg, config as 3rd.
+    // We count dispatched messages via an atomic to track batching behavior.
     SubscriptionConfig config;
     config.batchInterval = batchIntervalMs;
     config.replaceable = false; // Accumulate messages
-    subscriberIO->subscribeLowFreq("test:*", config);
+    std::atomic<int> batchCount{0};
+    subscriberIO->subscribeLowFreq("test:*", [&batchCount](const grove::Message& /*msg*/) {
+        batchCount.fetch_add(1, std::memory_order_relaxed);
+    }, config);
 
     reporter.printMessage("Configuration:");
     reporter.printResult("  Total messages", static_cast<double>(messageCount), "msgs");
@@ -167,41 +177,39 @@ void benchmarkF_batching() {
     // Wait for final batch to flush
     std::this_thread::sleep_for(std::chrono::milliseconds(batchIntervalMs + 50));
 
-    // Count batches and messages
-    int batchCount = 0;
+    // Drain pending messages via pullAndDispatch (replaces old pullMessage() pull-value API).
+    // The handler registered above increments batchCount for each dispatched message.
     int totalMessages = 0;
 
     while (subscriberIO->hasMessages() > 0) {
-        auto msg = subscriberIO->pullMessage();
-        batchCount++;
-
-        // Each batch may contain multiple messages (check data structure)
-        // For now, count each delivered batch
+        subscriberIO->pullAndDispatch(); // triggers handler → increments batchCount
         totalMessages++;
     }
 
     double totalTime = timer.elapsedMs();
     double expectedBatches = (durationSeconds * 1000.0) / batchIntervalMs;
-    double reductionRatio = static_cast<double>(messageCount) / std::max(1, batchCount);
+    // Load atomic batchCount into a plain int for arithmetic (atomic is not implicitly convertible)
+    int batchCountVal = batchCount.load();
+    double reductionRatio = static_cast<double>(messageCount) / std::max(1, batchCountVal);
 
     // Report
     reporter.printMessage("Results:\n");
 
     reporter.printResult("Published messages", static_cast<double>(messageCount), "msgs");
-    reporter.printResult("Batches received", static_cast<double>(batchCount), "batches");
+    reporter.printResult("Batches received", static_cast<double>(batchCountVal), "batches");
     reporter.printResult("Reduction ratio", reductionRatio, "x");
     reporter.printResult("Publish time", publishTime, "ms");
     reporter.printResult("Total time", totalTime, "ms");
 
     reporter.printSubseparator();
 
-    if (reductionRatio >= 100.0 && batchCount > 0) {
+    if (reductionRatio >= 100.0 && batchCountVal > 0) {
         reporter.printSummary("SUCCESS - Reduction >" + std::to_string(static_cast<int>(reductionRatio)) +
                             "x (" + std::to_string(messageCount) + " msgs → " +
-                            std::to_string(batchCount) + " batches)");
+                            std::to_string(batchCountVal) + " batches)");
     } else {
         reporter.printSummary("Batching active: " + std::to_string(static_cast<int>(reductionRatio)) +
-                            "x reduction (" + std::to_string(batchCount) + " batches)");
+                            "x reduction (" + std::to_string(batchCountVal) + " batches)");
     }
 }
 
@@ -228,7 +236,11 @@ void benchmarkG_thread_overhead() {
 
             SubscriptionConfig config;
             config.batchInterval = batchIntervalMs;
-            sub->subscribeLowFreq("test:sub" + std::to_string(i) + ":*", config);
+            // Current API: subscribeLowFreq() requires handler as 2nd arg, config as 3rd.
+            // No-op handler — this benchmark only measures flush thread overhead, not message content.
+            sub->subscribeLowFreq("test:sub" + std::to_string(i) + ":*",
+                [](const grove::Message& /*msg*/) { /* overhead test: discard */ },
+                config);
 
             subscribers.push_back(std::move(sub));
         }
@@ -281,8 +293,12 @@ void benchmarkH_scalability() {
             config.batchInterval = batchIntervalMs;
             config.replaceable = false;
 
-            // Each subscriber has unique pattern
-            sub->subscribeLowFreq("test:h:" + std::to_string(j) + ":*", config);
+            // Each subscriber has unique pattern.
+            // Current API: subscribeLowFreq() requires handler as 2nd arg, config as 3rd.
+            // No-op handler — scalability test only measures flush timing, not message content.
+            sub->subscribeLowFreq("test:h:" + std::to_string(j) + ":*",
+                [](const grove::Message& /*msg*/) { /* scalability test: discard */ },
+                config);
 
             subscribers.push_back(std::move(sub));
         }
