@@ -1,0 +1,23 @@
+# Normalise line endings on commit; checkout uses platform native endings
+* text=auto
+
+# Force LF for shell scripts and CMake files
+*.sh text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+
+# Force CRLF for Windows-specific files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Treat binary assets as binary (no line-ending conversion)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.so binary
+*.a binary
+*.lib binary
+*.exe binary
