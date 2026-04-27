@@ -1,4 +1,4 @@
-# Build directories
+﻿# Build directories
 build/
 build-*/
 cmake-build-*/
@@ -45,3 +45,7 @@ desktop.ini
 *~
 nul
 tmpclaude-*
+
+# Local dependency cache (downloaded to avoid git clone freezes)
+deps/
+

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 project(GroveEngine VERSION 1.0.0 LANGUAGES CXX)
 
 # C++ Standard
@@ -11,14 +11,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(GROVE_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 
 if(GROVE_ENABLE_TSAN)
-    message(STATUS "🔍 ThreadSanitizer enabled (5-15x slowdown expected)")
+    message(STATUS "ðŸ” ThreadSanitizer enabled (5-15x slowdown expected)")
     add_compile_options(-fsanitize=thread -g -O1 -fno-omit-frame-pointer)
     add_link_options(-fsanitize=thread)
 
     # Disable optimizations that confuse TSan
     add_compile_options(-fno-optimize-sibling-calls)
 
-    message(WARNING "⚠️  TSan cannot be combined with ASan - build separately")
+    message(WARNING "âš ï¸  TSan cannot be combined with ASan - build separately")
 endif()
 
 # ============================================================================
@@ -30,11 +30,11 @@ if(GROVE_ENABLE_HELGRIND)
     find_program(VALGRIND_EXECUTABLE valgrind)
 
     if(VALGRIND_EXECUTABLE)
-        message(STATUS "✅ Valgrind found: ${VALGRIND_EXECUTABLE}")
+        message(STATUS "âœ… Valgrind found: ${VALGRIND_EXECUTABLE}")
 
         # Add custom target for all tests
         add_custom_target(helgrind
-            COMMAND ${CMAKE_COMMAND} -E echo "🔍 Running Helgrind (10-50x slowdown, be patient)..."
+            COMMAND ${CMAKE_COMMAND} -E echo "ðŸ” Running Helgrind (10-50x slowdown, be patient)..."
             COMMAND ${VALGRIND_EXECUTABLE}
                 --tool=helgrind
                 --log-file=${CMAKE_BINARY_DIR}/helgrind-full.log
@@ -48,7 +48,7 @@ if(GROVE_ENABLE_HELGRIND)
 
         # Add convenience target for single test
         add_custom_target(helgrind-single
-            COMMAND ${CMAKE_COMMAND} -E echo "🔍 Running single test with Helgrind..."
+            COMMAND ${CMAKE_COMMAND} -E echo "ðŸ” Running single test with Helgrind..."
             COMMAND ${VALGRIND_EXECUTABLE}
                 --tool=helgrind
                 -v
@@ -61,11 +61,11 @@ if(GROVE_ENABLE_HELGRIND)
             COMMENT "Running test_13_cross_system with Helgrind"
         )
 
-        message(STATUS "✅ Helgrind targets added:")
+        message(STATUS "âœ… Helgrind targets added:")
         message(STATUS "   - make helgrind        (all tests)")
         message(STATUS "   - make helgrind-single (test_13 only)")
     else()
-        message(WARNING "⚠️  Valgrind not found - Helgrind targets disabled")
+        message(WARNING "âš ï¸  Valgrind not found - Helgrind targets disabled")
         message(STATUS "   Install: sudo apt-get install valgrind")
     endif()
 endif()
@@ -89,6 +89,16 @@ FetchContent_Declare(
     GIT_TAG v1.12.0
 )
 FetchContent_MakeAvailable(spdlog)
+
+# Catch2 for unit testing - declared here so all subdirectories can use it
+# without each needing their own FetchContent_Declare (which would cause git clone on fresh builds).
+# tests/CMakeLists.txt uses Catch2::Catch2WithMain without declaring it, so we declare it centrally.
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG v3.5.0
+)
+FetchContent_MakeAvailable(Catch2)
 
 # StillHammer libraries
 add_subdirectory(external/StillHammer/topictree)  # Ultra-fast topic routing
@@ -129,16 +139,16 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/JsonDataNode.cpp
         src/JsonDataTree.cpp
         src/DataTreeFactory.cpp
-        src/IntraIO.cpp  # ✅ Fixed for IDataNode
-        src/IntraIOManager.cpp  # ✅ Fixed for IDataNode
-        src/SequentialModuleSystem.cpp  # ✅ Fixed for IDataNode
-        src/ThreadedModuleSystem.cpp  # ✅ Phase 2 implementation
-        src/IOFactory.cpp  # ✅ Fixed for IDataNode
-        src/ModuleFactory.cpp  # ✅ Should work (no json in main API)
-        src/ModuleSystemFactory.cpp  # ✅ Needs check
-        src/EngineFactory.cpp  # ✅ Needs check
-        src/DebugEngine.cpp  # ✅ Needs migration
-        src/ModuleLoader.cpp  # ✅ Hot-reload support
+        src/IntraIO.cpp  # âœ… Fixed for IDataNode
+        src/IntraIOManager.cpp  # âœ… Fixed for IDataNode
+        src/SequentialModuleSystem.cpp  # âœ… Fixed for IDataNode
+        src/ThreadedModuleSystem.cpp  # âœ… Phase 2 implementation
+        src/IOFactory.cpp  # âœ… Fixed for IDataNode
+        src/ModuleFactory.cpp  # âœ… Should work (no json in main API)
+        src/ModuleSystemFactory.cpp  # âœ… Needs check
+        src/EngineFactory.cpp  # âœ… Needs check
+        src/DebugEngine.cpp  # âœ… Needs migration
+        src/ModuleLoader.cpp  # âœ… Hot-reload support
 
         # --- TODO: Fix API mismatch (json vs IDataNode) ---
         # src/ImGuiUI.cpp  # Requires imgui dependency
