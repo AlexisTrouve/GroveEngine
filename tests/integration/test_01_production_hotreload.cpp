@@ -127,7 +127,7 @@ int main() {
     // Note: This test runs from build/tests/, so we use make -C .. to build from build directory
     int buildResult = system(
 #ifdef _WIN32
-        "mingw32-make -C .. TankModule 2>&1 > NUL"
+        "ninja -C .. TankModule 2>&1 > NUL"
 #else
         "make -C .. TankModule 2>&1 > /dev/null"
 #endif
@@ -267,7 +267,7 @@ int main() {
     // Rebuild to restore original version (test runs from build/tests/)
     system(
 #ifdef _WIN32
-        "mingw32-make -C .. TankModule 2>&1 > NUL"
+        "ninja -C .. TankModule 2>&1 > NUL"
 #else
         "make -C .. TankModule 2>&1 > /dev/null"
 #endif
