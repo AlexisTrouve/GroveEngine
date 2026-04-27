@@ -124,17 +124,28 @@ int main() {
 
     // Recompiler
     std::cout << "  2. Recompiling module...\n";
-    // Note: This test runs from build/tests/, so we use make -C .. to build from build directory
-    int buildResult = system(
+    // Use cmake --build to rebuild TankModule. This is generator-agnostic (works with
+    // ninja, make, MSVC, etc.) and doesn't require ninja/make to be in PATH at runtime.
+    // GROVE_CMAKE_COMMAND env var is set by CMakeLists.txt to the full cmake executable
+    // path detected at configure time. Falls back to "cmake" if not set.
+    {
+        const char* cmakeExe = std::getenv("GROVE_CMAKE_COMMAND");
+        std::string cmakeCmd = cmakeExe ? cmakeExe : "cmake";
+        // Tests run from build/tests/, so the build root is one level up ("..").
+        // We quote the cmake path to handle spaces (e.g. "C:\Program Files\CMake\bin\cmake.exe").
+        std::string buildCmd = "\"" + cmakeCmd + "\"" +
+                               " --build .." +
+                               " --target TankModule";
 #ifdef _WIN32
-        "ninja -C .. TankModule 2>&1 > NUL"
+        buildCmd += " > NUL 2>&1";
 #else
-        "make -C .. TankModule 2>&1 > /dev/null"
+        buildCmd += " > /dev/null 2>&1";
 #endif
-    );
-    if (buildResult != 0) {
-        std::cerr << "❌ Compilation failed!\n";
-        return 1;
+        int buildResult = system(buildCmd.c_str());
+        if (buildResult != 0) {
+            std::cerr << "❌ Compilation failed!\n";
+            return 1;
+        }
     }
     std::cout << "  ✓ Compilation succeeded\n";
 
@@ -264,14 +275,21 @@ int main() {
     outputRestore << contentRestore;
     outputRestore.close();
 
-    // Rebuild to restore original version (test runs from build/tests/)
-    system(
+    // Rebuild to restore original version (test runs from build/tests/).
+    // Same cmake --build approach used during the hot-reload step above.
+    {
+        const char* cmakeExe = std::getenv("GROVE_CMAKE_COMMAND");
+        std::string cmakeCmd = cmakeExe ? cmakeExe : "cmake";
+        std::string buildCmd = "\"" + cmakeCmd + "\"" +
+                               " --build .." +
+                               " --target TankModule";
 #ifdef _WIN32
-        "ninja -C .. TankModule 2>&1 > NUL"
+        buildCmd += " > NUL 2>&1";
 #else
-        "make -C .. TankModule 2>&1 > /dev/null"
+        buildCmd += " > /dev/null 2>&1";
 #endif
-    );
+        system(buildCmd.c_str());
+    }
 
     // === RAPPORTS ===
     std::cout << "\n";

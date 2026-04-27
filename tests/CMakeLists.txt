@@ -98,6 +98,13 @@ if(WIN32 AND MINGW)
     endforeach()
 endif()
 
+# Resolve the directories containing cmake and the build tool (ninja/make) at configure
+# time. These paths are injected into the test environment so that tests which invoke
+# cmake --build or ninja/make at runtime (e.g. hot-reload tests) can find the tools
+# without relying on the user's PATH being set when CTest is invoked.
+get_filename_component(GROVE_CMAKE_DIR "${CMAKE_COMMAND}" DIRECTORY)
+get_filename_component(GROVE_MAKE_DIR  "${CMAKE_MAKE_PROGRAM}" DIRECTORY)
+
 # Test macro - uses WORKING_DIRECTORY with PATH environment for Windows DLL loading
 # Optional 4th arg: timeout in seconds (default 90)
 macro(grove_add_test test_name test_target working_dir)
@@ -116,10 +123,12 @@ macro(grove_add_test test_name test_target working_dir)
         # Set PATH environment variable to include the working directory
         # This ensures dynamically loaded DLLs (via LoadLibrary) can be found
         set_tests_properties(${test_name} PROPERTIES
-            ENVIRONMENT "PATH=${working_dir};${working_dir}/modules;$ENV{PATH}"
+            ENVIRONMENT "PATH=${working_dir};${working_dir}/modules;${GROVE_CMAKE_DIR};${GROVE_MAKE_DIR};$ENV{PATH};GROVE_CMAKE_COMMAND=${CMAKE_COMMAND};GROVE_MAKE_COMMAND=${CMAKE_MAKE_PROGRAM}"
             TIMEOUT ${_timeout})
     else()
+        # On non-Windows, inject cmake/make tool paths so hot-reload tests can find them
         set_tests_properties(${test_name} PROPERTIES
+            ENVIRONMENT "GROVE_CMAKE_COMMAND=${CMAKE_COMMAND};GROVE_MAKE_COMMAND=${CMAKE_MAKE_PROGRAM}"
             TIMEOUT ${_timeout})
     endif()
 endmacro()
