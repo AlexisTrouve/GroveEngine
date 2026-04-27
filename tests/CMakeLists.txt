@@ -1,4 +1,4 @@
-# Hot-reload test suite
+﻿# Hot-reload test suite
 
 # ================================================================================
 # SDL2 Detection (used by visual tests, demos, and InputModule-dependent tests)
@@ -101,10 +101,15 @@ endif()
 # Test macro - uses WORKING_DIRECTORY with PATH environment for Windows DLL loading
 # Optional 4th arg: timeout in seconds (default 90)
 macro(grove_add_test test_name test_target working_dir)
-    # Parse optional timeout argument (4th positional via ARGN)
+    # Parse optional timeout argument via ARGN (args beyond the 3 named params).
+    # Using list(LENGTH ARGN) is more reliable than ARGC/ARGV3 in CMake macros
+    # because ARGC-based checks can silently fail with named param macros.
     set(_timeout 90)
-    if(ARGC GREATER 3)
-        set(_timeout ${ARGV3})
+    # Copy ARGN to a regular variable first - list() can't directly operate on implicit ARGN
+    set(_grove_argn ${ARGN})
+    list(LENGTH _grove_argn _grove_argn_len)
+    if(_grove_argn_len GREATER 0)
+        list(GET _grove_argn 0 _timeout)
     endif()
     add_test(NAME ${test_name} COMMAND ${test_target} WORKING_DIRECTORY ${working_dir})
     if(WIN32)
