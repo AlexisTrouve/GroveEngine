@@ -29,6 +29,10 @@ IntraIOManager::IntraIOManager() {
 IntraIOManager::~IntraIOManager() {
     // Stop batch thread first
     batchThreadRunning = false;
+    // FIX: [BUG E] -- Notify batchCV to wake the thread immediately instead of
+    // waiting up to 100ms for sleep_for to expire in batchFlushLoop.
+    { std::lock_guard<std::mutex> cvLock(batchCVMutex); }  // ensure thread sees batchThreadRunning=false
+    batchCV.notify_all();
     // Join the batch thread
     if (batchThread.joinable()) {
         batchThread.join();
@@ -58,6 +62,22 @@ IntraIOManager::~IntraIOManager() {
         logger->info("   Active instances: {}", stats["active_instances"].get<size_t>());
     }
 
+    // -----------------------------------------------------------------------
+    // DEADLOCK PREVENTION: Set s_destroyed = true BEFORE clearing instances.
+    //
+    // WHY: instances.clear() destroys shared_ptr<IIntraIODelivery> objects held
+    // in the map. If no other shared_ptr to an IntraIO instance exists, this
+    // triggers IntraIO::~IntraIO() in-place — while managerMutex is held below.
+    // IntraIO::~IntraIO() checks isDestroyed() to decide whether to call
+    // removeInstance() (which also locks managerMutex). If s_destroyed is still
+    // false, the destructor tries to acquire managerMutex recursively (shared_mutex
+    // is non-reentrant) → permanent hang.
+    //
+    // FIX: Mark the singleton as destroyed BEFORE the instances.clear() call so
+    // that any IntraIO destructor triggered by the clear will skip removeInstance().
+    // -----------------------------------------------------------------------
+    s_destroyed.store(true, std::memory_order_release);
+
     {
         std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
         instances.clear();
@@ -74,15 +94,6 @@ IntraIOManager::~IntraIOManager() {
     if (loggerValid) {
         logger->info("🌐🔗 IntraIOManager destroyed");
     }
-
-    // -----------------------------------------------------------------------
-    // Mark singleton as destroyed BEFORE releasing the logger.
-    // This allows IntraIO::~IntraIO() to check isDestroyed() and skip
-    // calling getInstance().removeInstance(), preventing use-after-free
-    // when IntraIO objects outlive the singleton (rare but possible during
-    // static teardown on Windows/MinGW with unpredictable destruction order).
-    // -----------------------------------------------------------------------
-    s_destroyed.store(true, std::memory_order_release);
 
     // Explicitly release the spdlog logger shared_ptr NOW, before static
     // destructors for spdlog itself run.  Without this, the logger member
@@ -374,7 +385,17 @@ void IntraIOManager::batchFlushLoop() {
     logger->info("🔄 Batch flush loop started");
 
     while (batchThreadRunning) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // FIX: [BUG E] -- Use CV wait_for instead of sleep_for so destructor can
+        // wake this thread immediately via batchCV.notify_all() instead of waiting
+        // up to 100ms for the sleep to expire. batchCVMutex is a plain std::mutex
+        // (required by condition_variable -- shared_mutex is not allowed).
+        {
+            std::unique_lock<std::mutex> cvLock(batchCVMutex);
+            batchCV.wait_for(cvLock, std::chrono::milliseconds(100),
+                [this] { return !batchThreadRunning.load(); });
+        }
+
+        if (!batchThreadRunning) break;
 
         // Collect buffers that need flushing (under batchMutex only)
         std::vector<BatchBuffer> buffersToFlush;

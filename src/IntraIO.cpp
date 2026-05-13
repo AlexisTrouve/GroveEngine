@@ -36,52 +36,87 @@ IntraIO::~IntraIO() {
 }
 
 void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> message) {
-    std::lock_guard<std::mutex> lock(operationMutex);
+    // DEADLOCK PREVENTION — do NOT hold operationMutex while calling routeMessage().
+    //
+    // WHY this is a deadlock without this fix (ABBA pattern):
+    //   Thread A (caller of publish):
+    //     HOLDS  operationMutex  (old: locked at top of this function)
+    //     WAITS  managerMutex    (routeMessage() calls scoped_lock(managerMutex, batchMutex))
+    //
+    //   Thread B (batchFlushLoop internal thread):
+    //     HOLDS  managerMutex    (flushBatchBufferSafe() locks managerMutex)
+    //     WAITS  operationMutex  (deliverMessage() calls lock_guard(operationMutex))
+    //
+    //   → circular wait → deadlock.
+    //
+    // FIX: Extract and COPY all needed data under the lock, then release the lock
+    // BEFORE calling into IntraIOManager. routeMessage() receives a value copy
+    // of the JSON — it does not touch our internal state.
 
-    totalPublished++;
+    nlohmann::json jsonDataCopy;
+    {
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-    // Extract JSON data from the DataNode
-    auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
-    if (!jsonNode) {
-        throw std::runtime_error("IntraIO::publish() requires JsonDataNode for message data");
+        totalPublished++;
+
+        // Validate and copy the JSON payload while we hold the lock.
+        // We copy (not reference) so that releasing operationMutex cannot
+        // invalidate the data we pass to routeMessage().
+        auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
+        if (!jsonNode) {
+            throw std::runtime_error("IntraIO::publish() requires JsonDataNode for message data");
+        }
+        jsonDataCopy = jsonNode->getJsonData();  // deep copy
     }
+    // operationMutex is now released — safe to call routeMessage()
 
-    // Get the JSON data (this is a const reference, no copy yet)
-    const nlohmann::json& jsonData = jsonNode->getJsonData();
-
-    // Route message via central manager (this will copy JSON for each subscriber)
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonData);
+    // Route the copied message via central manager.
+    // NOTE: routeMessage() acquires managerMutex internally.
+    //       We must NOT hold operationMutex here (see ABBA comment above).
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonDataCopy);
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
-    std::lock_guard<std::mutex> lock(operationMutex);
+    // DEADLOCK PREVENTION — same ABBA risk as publish():
+    // subscribe() → registerSubscription() needs managerMutex.
+    // Build the subscription object under the lock, release, then register with manager.
+    {
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-    Subscription sub;
-    sub.originalPattern = topicPattern;
-    sub.pattern = compileTopicPattern(topicPattern);
-    sub.handler = handler;  // Store callback
-    sub.config = config;
-    sub.lastBatch = std::chrono::high_resolution_clock::now();
+        Subscription sub;
+        sub.originalPattern = topicPattern;
+        sub.pattern = compileTopicPattern(topicPattern);
+        sub.handler = handler;  // Store callback
+        sub.config = config;
+        sub.lastBatch = std::chrono::high_resolution_clock::now();
 
-    highFreqSubscriptions.push_back(std::move(sub));
+        highFreqSubscriptions.push_back(std::move(sub));
+    }
+    // operationMutex released — safe to call into IntraIOManager now
 
-    // Register subscription with central manager for routing
+    // Register subscription with central manager for routing.
+    // NOTE: registerSubscription() acquires managerMutex; operationMutex NOT held.
     IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, false);
 }
 
 void IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
-    std::lock_guard<std::mutex> lock(operationMutex);
+    // DEADLOCK PREVENTION — same ABBA risk as publish()/subscribe().
+    {
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-    Subscription sub;
-    sub.originalPattern = topicPattern;
-    sub.pattern = compileTopicPattern(topicPattern);
-    sub.handler = handler;  // Store callback
-    sub.config = config;
-    sub.lastBatch = std::chrono::high_resolution_clock::now();
+        Subscription sub;
+        sub.originalPattern = topicPattern;
+        sub.pattern = compileTopicPattern(topicPattern);
+        sub.handler = handler;  // Store callback
+        sub.config = config;
+        sub.lastBatch = std::chrono::high_resolution_clock::now();
 
-    lowFreqSubscriptions.push_back(std::move(sub));
+        lowFreqSubscriptions.push_back(std::move(sub));
+    }
+    // operationMutex released — safe to call into IntraIOManager now
 
-    // Register subscription with central manager for routing
+    // Register subscription with central manager for routing.
+    // NOTE: registerSubscription() acquires managerMutex; operationMutex NOT held.
     IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true, config.batchInterval);
 }
 
@@ -91,36 +126,85 @@ int IntraIO::hasMessages() const {
 }
 
 void IntraIO::pullAndDispatch() {
-    std::lock_guard<std::mutex> lock(operationMutex);
+    // DEADLOCK PREVENTION — do NOT hold operationMutex while invoking user callbacks.
+    //
+    // WHY this is a deadlock without this fix (ABBA pattern):
+    //   Thread A (caller of pullAndDispatch):
+    //     HOLDS  operationMutex     (old: locked for the entire function)
+    //     The user callback calls publish() → routeMessage() → WAITS managerMutex
+    //
+    //   Thread B (batchFlushLoop):
+    //     HOLDS  managerMutex       (flushBatchBufferSafe acquires managerMutex)
+    //     WAITS  operationMutex     (deliverMessage() acquires operationMutex)
+    //
+    //   → circular wait → deadlock.
+    //
+    // FIX: Two-phase approach:
+    //   Phase 1: Under the lock, dequeue ONE message and snapshot all matching
+    //            (handler, message) pairs into a local vector.
+    //   Phase 2: Release the lock, then invoke every captured handler.
+    //
+    // This preserves the original semantics exactly:
+    //   - One message dequeued per call (high-freq preferred over low-freq)
+    //   - All matching subscriptions receive the message
+    //   - Same dispatch order
+    //   - Exception if queue is empty
 
-    if (messageQueue.empty() && lowFreqMessageQueue.empty()) {
-        throw std::runtime_error("No messages available");
-    }
+    // Struct to capture a handler reference + the message to deliver.
+    // We store the handler by value (std::function copy) to keep it alive
+    // after we release the lock.
+    struct DispatchEntry {
+        MessageHandler handler;
+        // The message is shared across all matching handlers for this call.
+        // We capture a raw const-pointer to the message and keep it alive via
+        // a shared_ptr so that the message outlives the lock scope.
+        const Message* msgPtr;
+    };
 
-    // Pull message from queue
-    Message msg;
-    bool isLowFreq = false;
-    if (!messageQueue.empty()) {
-        msg = std::move(messageQueue.front());
-        messageQueue.pop();
-    } else {
-        msg = std::move(lowFreqMessageQueue.front());
-        lowFreqMessageQueue.pop();
-        isLowFreq = true;
-    }
+    std::vector<DispatchEntry> toDispatch;
+    // Keep the dequeued message alive past the lock scope via shared ownership.
+    std::shared_ptr<Message> msgHolder;
 
-    totalPulled++;
+    {
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-    // Find ALL matching handlers and dispatch to each
-    const auto& subscriptions = isLowFreq ? lowFreqSubscriptions : highFreqSubscriptions;
+        if (messageQueue.empty() && lowFreqMessageQueue.empty()) {
+            throw std::runtime_error("No messages available");
+        }
 
-    for (const auto& sub : subscriptions) {
-        if (matchesPattern(msg.topic, sub.pattern)) {
-            // Found matching subscription - invoke handler
-            if (sub.handler) {
-                sub.handler(msg);
+        // Dequeue exactly one message — high-freq queue takes priority.
+        bool isLowFreq = false;
+        msgHolder = std::make_shared<Message>();
+        if (!messageQueue.empty()) {
+            *msgHolder = std::move(messageQueue.front());
+            messageQueue.pop();
+        } else {
+            *msgHolder = std::move(lowFreqMessageQueue.front());
+            lowFreqMessageQueue.pop();
+            isLowFreq = true;
+        }
+
+        totalPulled++;
+
+        // Snapshot all matching (handler, message-ptr) pairs into toDispatch.
+        // We do NOT invoke handlers here — only collect them.
+        // This is safe because handlers are std::function objects (copyable) and
+        // the message stays alive via msgHolder (shared_ptr).
+        const auto& subscriptions = isLowFreq ? lowFreqSubscriptions : highFreqSubscriptions;
+        for (const auto& sub : subscriptions) {
+            if (matchesPattern(msgHolder->topic, sub.pattern) && sub.handler) {
+                toDispatch.push_back({ sub.handler, msgHolder.get() });
             }
         }
+    }
+    // operationMutex is now released — safe to invoke user callbacks
+
+    // Phase 2: Invoke all captured handlers WITHOUT holding operationMutex.
+    // Each handler receives a const-ref to the same message (original semantics).
+    // If a handler calls publish() → routeMessage(), it will acquire managerMutex
+    // freely, with no risk of deadlock against batchFlushLoop.
+    for (const auto& entry : toDispatch) {
+        entry.handler(*entry.msgPtr);
     }
 }
 
@@ -216,6 +300,15 @@ void IntraIO::forceProcessLowFreqBatches() {
 }
 
 void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) {
+    // deliverMessage() is called by IntraIOManager::flushBatchBufferSafe() while
+    // holding managerMutex. It ONLY enqueues the message — it does NOT invoke any
+    // user callback. There is therefore no outbound call that could try to re-acquire
+    // managerMutex, so holding operationMutex here is safe.
+    //
+    // Lock order (from IntraIOManager's perspective):
+    //   managerMutex (held by caller) → operationMutex (acquired here)
+    // This is consistent — the reverse (operationMutex → managerMutex) is broken
+    // by the fixes in publish() / subscribe() / pullAndDispatch().
     std::lock_guard<std::mutex> lock(operationMutex);
 
     Message msg;

@@ -78,6 +78,13 @@ private:
     std::thread batchThread;
     std::atomic<bool> batchThreadRunning{false};
 
+    // FIX: [BUG E] -- CV + dedicated mutex for interruptible sleep in batchFlushLoop.
+    // batchCVMutex is separate from batchMutex (shared_mutex) because condition_variable
+    // requires a plain std::mutex. Destructor notifies batchCV so the thread wakes
+    // immediately instead of waiting up to 100ms for sleep_for to expire.
+    std::condition_variable batchCV;
+    std::mutex batchCVMutex;
+
     void batchFlushLoop();
     void flushBatchBuffer(BatchBuffer& buffer);
     void flushBatchBufferSafe(BatchBuffer& buffer);  // Safe version - no nested locks
