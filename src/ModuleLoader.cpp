@@ -127,7 +127,18 @@ void ModuleLoader::retryOrphanedDeletions() {
         logger->warn("⚠️ {} orphaned temp file(s) still pending deletion", stillFailed.size());
     }
 
+    // Move stillFailed back into orphanedTempPaths before emitting the
+    // diagnostic so we can report the post-move accumulated total (M).
     orphanedTempPaths = std::move(stillFailed);
+
+    // Diagnostic: report how many are still locked and the total accumulated.
+    // WHY: Visible in logs during chaos monkey runs to confirm whether
+    // address space pressure is building up from irremovable temp DLLs.
+    // N = still-locked count, M = total accumulated in orphanedTempPaths.
+    if (!orphanedTempPaths.empty()) {
+        logger->warn("⚠️ [{} orphaned temp files still locked after retry — total accumulated: {}]",
+                     orphanedTempPaths.size(), orphanedTempPaths.size());
+    }
 }
 
 // ============================================================================
@@ -150,6 +161,18 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
             logger->warn("⚠️ Loading new module while previous handle still open. "
                          "Consider using separate ModuleLoader instances for independent modules.");
         }
+    }
+
+    // Aggressively drain orphaned temp DLLs before creating the new temp copy.
+    // WHY: Orphaned locked DLLs fragment the Windows address space - each
+    // locked temp file occupies a region that LoadLibraryA cannot reclaim.
+    // Cleaning them here (in addition to the drain in unload()) gives us a
+    // second chance to free those regions before we allocate another one,
+    // directly reducing the risk of SIGSEGV at reload 8+ from exhaustion.
+    retryOrphanedDeletions();
+    if (!orphanedTempPaths.empty()) {
+        logger->warn("⚠️ [{} orphaned temp DLLs persist before loading — address space may be fragmented]",
+                     orphanedTempPaths.size());
     }
 
     logLoadStart(path);
@@ -567,7 +590,19 @@ void ModuleLoader::unload() {
         // 50ms was insufficient under load (multiple modules reloading in
         // parallel); 150ms gives AV scanners and the OS three times as long
         // to complete teardown before the next LoadLibraryA runs.
-        const int minWaitMs = 150;
+        // Adaptive wait: base 150ms + 30ms per completed reload, capped at 500ms.
+        //
+        // WHY ADAPTIVE: Under sustained reload cycles (chaos monkey), address
+        // space fragments progressively - each reload leaves ghost mappings that
+        // Windows has not fully reclaimed.  A flat 150ms wait is sufficient for
+        // the first ~7 reloads but insufficient beyond that (SIGSEGV at reload 8
+        // traced to address-space exhaustion during LoadLibraryA).
+        // Giving the OS more time per accumulated reload reduces the probability
+        // of SIGSEGV from DW2/SJLJ exception table corruption and AV hook
+        // interference.  The 500ms cap prevents unbounded stall in extreme cases.
+        const uint32_t minWaitMs = std::min(150u + reloadCount_ * 30u, 500u);
+        logger->debug("⏳ Post-FreeLibrary adaptive wait: {}ms (reloadCount={})",
+                      minWaitMs, reloadCount_);
         std::this_thread::sleep_for(std::chrono::milliseconds(minWaitMs));
 
         if (!verifyPath.empty()) {
@@ -701,7 +736,12 @@ std::unique_ptr<IModule> ModuleLoader::reload(std::unique_ptr<IModule> currentMo
     auto  reloadEndTime = std::chrono::high_resolution_clock::now();
     float reloadTime    = std::chrono::duration<float, std::milli>(reloadEndTime - reloadStartTime).count();
 
-    logger->info("✅ Hot-reload completed in {:.3f}ms", reloadTime);
+    // Increment reload counter AFTER successful completion so the next
+    // unload() cycle uses the updated count for its adaptive wait.
+    ++reloadCount_;
+
+    logger->info("✅ Hot-reload completed in {:.3f}ms (reloadCount now {})",
+                 reloadTime, reloadCount_);
 
     return newModule;
 }

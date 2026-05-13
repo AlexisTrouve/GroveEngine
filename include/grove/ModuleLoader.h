@@ -51,6 +51,17 @@ private:
      */
     std::vector<std::string> orphanedTempPaths;
 
+    /**
+     * Number of successful hot-reloads performed by this loader instance.
+     *
+     * WHY: Used to scale the post-FreeLibrary wait time adaptively.
+     * Under sustained reload cycles, Windows address space fragments faster —
+     * giving the OS more time to complete teardown (AV hooks, DW2/SJLJ exception
+     * frame deregistration) before the next LoadLibraryA reduces the probability
+     * of SIGSEGV at reload ~8+ from address space exhaustion.
+     */
+    uint32_t reloadCount_ = 0;
+
     // Factory function signature: IModule* createModule()
     using CreateModuleFunc = IModule* (*)();
     CreateModuleFunc createFunc = nullptr;
