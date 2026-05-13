@@ -151,35 +151,50 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
     std::string tempPath;
     bool usedTempCopy = false;
 
-    if (isReload) {
-        // CRITICAL FIX: Wait for the file to be fully written after compilation.
-        // The FileWatcher may detect the change while the compiler is still writing.
-        logger->debug("⏳ Waiting for library file to be fully written...");
-
-        size_t lastSize = 0;
-        size_t stableCount = 0;
-        const int maxAttempts = 20;   // 1 second max (20 × 50 ms)
-        const int stableRequired = 3; // 3 consecutive identical sizes = stable
-
-        for (int i = 0; i < maxAttempts; i++) {
-            size_t currentSize = grove::fs::fileSize(path);
-
-            if (currentSize > 0 && currentSize == lastSize) {
-                stableCount++;
-                if (stableCount >= stableRequired) {
-                    logger->debug("✅ File size stable at {} bytes (after {}ms)",
-                                  currentSize, i * 50);
-                    break;
-                }
-            } else {
-                stableCount = 0; // Reset on size change
-            }
-
-            lastSize = currentSize;
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-
+    // WHY: On Windows, LoadLibraryA holds an exclusive write-lock on the DLL file.
+    // Even for the initial (non-reload) load, we must load from a temp copy so that
+    // the original file path (build/tests/libTestModule.dll) remains writable by the
+    // build tool (ninja/gcc ld.exe). Without this, the first compilation attempt in
+    // test_04_race_condition always fails with ld.exe "Permission denied", because
+    // the initial LoadLibraryA maps the file and prevents overwriting.
+    //
+    // On Linux, dlopen with RTLD_NOW does not lock the .so file for writing —
+    // mmap() is used internally, but the file path can still be replaced. So the
+    // Linux path only needs temp copies when isReload=true (to bypass dlopen cache).
+    //
+    // FIX: on Windows, always enter the temp-copy block. On Linux, only for reload.
+    // The file-stability wait inside the block is still gated on isReload (initial
+    // loads don't need it — the file is already fully present).
 #ifdef _WIN32
+    // Windows: always use a temp copy so the original DLL path stays writable.
+    if (true) {
+        if (isReload) {
+            // For reloads: wait for the new DLL to finish writing before copying.
+            logger->debug("⏳ Waiting for library file to be fully written...");
+
+            size_t lastSize = 0;
+            size_t stableCount = 0;
+            const int maxAttempts = 20;
+            const int stableRequired = 3;
+
+            for (int i = 0; i < maxAttempts; i++) {
+                size_t currentSize = grove::fs::fileSize(path);
+                if (currentSize > 0 && currentSize == lastSize) {
+                    stableCount++;
+                    if (stableCount >= stableRequired) {
+                        logger->debug("✅ File size stable at {} bytes (after {}ms)",
+                                      currentSize, i * 50);
+                        break;
+                    }
+                } else {
+                    stableCount = 0;
+                }
+                lastSize = currentSize;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        }
+        // For initial loads: the file is already fully present; no stability wait needed.
+
         // Windows: Create a unique temp filename in the system temp directory.
         // GetTempFileNameA creates a zero-byte placeholder file; we rename it
         // to .dll before writing the actual DLL so Windows loads it correctly.
@@ -215,8 +230,70 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
                                       tempPath, copiedSize);
                     }
                 } else {
-                    logger->warn("⚠️ Failed to copy library, loading directly");
-                    DeleteFileA(tempPath.c_str());
+                    // First copy attempt failed — Windows may still have the source
+                    // DLL file-mapped from the previous FreeLibrary cycle.  Retry
+                    // with exponential backoff so the OS has time to release the
+                    // lock, rather than immediately falling back to direct load
+                    // (which causes address-space exhaustion after ~23 cycles and
+                    // ultimately a SIGSEGV).
+                    DeleteFileA(tempPath.c_str()); // Remove the stale placeholder
+
+                    bool copySucceeded = false;
+                    for (int retry = 0; retry < 10 && !copySucceeded; ++retry) {
+                        // On the first retry, sleep before trying again.
+                        // Backoff schedule: 100ms, 150ms, 200ms, 250ms, 300ms…
+                        // Start at 100ms because Windows file locks after FreeLibrary
+                        // typically persist for 50–200ms (AV scanner involvement).
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(100 + 50 * retry));
+
+                        // Generate a fresh, unique temp filename each iteration.
+                        // We cannot reuse the old tempFile path because the OS may
+                        // still see it as locked even though DeleteFileA returned.
+                        char retryTempFile[MAX_PATH];
+                        if (GetTempFileNameA(tempDir, "grv", 0, retryTempFile) == 0) {
+                            logger->debug("⏳ Retry {}/10: GetTempFileNameA failed", retry + 1);
+                            continue;
+                        }
+
+                        // GetTempFileNameA creates a zero-byte placeholder; rename it
+                        // to .dll so Windows will accept it as a loadable module.
+                        std::string retryTempPath = std::string(retryTempFile) + ".dll";
+                        DeleteFileA(retryTempFile); // Remove placeholder before copy
+
+                        if (!grove::fs::copyFile(path, retryTempPath)) {
+                            // Copy failed — placeholder may or may not exist; clean up.
+                            DeleteFileA(retryTempPath.c_str());
+                            logger->debug("⏳ Retry {}/10: copyFile failed", retry + 1);
+                            continue;
+                        }
+
+                        // Verify byte-exact completeness before trusting this copy.
+                        auto origSize   = grove::fs::fileSize(path);
+                        auto copiedSize = grove::fs::fileSize(retryTempPath);
+
+                        if (copiedSize != origSize || origSize == 0) {
+                            logger->debug("⏳ Retry {}/10: size mismatch orig={} copied={}",
+                                          retry + 1, origSize, copiedSize);
+                            DeleteFileA(retryTempPath.c_str());
+                            continue;
+                        }
+
+                        // Success — promote the retry copy as the path to load.
+                        actualPath   = retryTempPath;
+                        tempPath     = retryTempPath; // ensures cleanup on unload
+                        usedTempCopy = true;
+                        copySucceeded = true;
+                        logger->debug("🔄 Temp copy succeeded on retry {}/10: {} ({} bytes)",
+                                      retry + 1, retryTempPath, copiedSize);
+                    }
+
+                    if (!copySucceeded) {
+                        // All retries exhausted — last resort: load the original DLL
+                        // directly.  This risks address-space reuse, but is better
+                        // than refusing to load at all.
+                        logger->warn("⚠️ Failed to copy library after 10 retries, loading directly");
+                    }
                 }
             }
         }
@@ -375,34 +452,69 @@ void ModuleLoader::unload() {
     // little and re-check.  We do NOT call FreeLibrary again — that would
     // double-decrement the refcount on a DLL we already freed.
     //
-    // Note: GetModuleHandleA returns NULL for the temp path once the OS has
-    // actually unmapped it, which is what we want to confirm.
+    // IMPORTANT: when we loaded directly (no temp copy), tempLibraryPath is
+    // empty but libraryPath still holds the original DLL path at this point.
+    // We MUST wait for that path to be released too — otherwise the next copy
+    // attempt in load() will find the file still locked, burn all retries, and
+    // fall back to direct load again, eventually causing SIGSEGV from address-
+    // space exhaustion.
     {
-        const int maxVerifyRetries  = 10;
-        const int verifyRetryDelayMs = 10; // 10 ms × 10 = 100 ms max wait
+        // Use whichever path we actually loaded from: temp copy if we made one,
+        // original path otherwise (covers the direct-load fallback case).
+        const std::string& rawVerifyPath = !tempLibraryPath.empty() ? tempLibraryPath : libraryPath;
 
-        for (int i = 0; i < maxVerifyRetries; ++i) {
-            // GetModuleHandleA does NOT increment the refcount (unlike
-            // GetModuleHandleEx without GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT).
-            // If it returns non-null the module is still loaded.
-            if (!tempLibraryPath.empty()) {
-                HMODULE stillLoaded = GetModuleHandleA(tempLibraryPath.c_str());
+        // Normalize the path to its fully-qualified form so GetModuleHandleA can
+        // find it in the process module list.  Windows stores module handles under
+        // their canonical absolute path, not relative paths like "./foo.dll".
+        std::string verifyPath = rawVerifyPath;
+        if (!rawVerifyPath.empty()) {
+            char fullPath[MAX_PATH];
+            if (GetFullPathNameA(rawVerifyPath.c_str(), MAX_PATH, fullPath, nullptr) != 0) {
+                verifyPath = fullPath;
+            }
+        }
+
+        // Allow up to 500ms total (50 × 10ms) — long enough for Windows Defender
+        // and AV hooks to finish their post-FreeLibrary scan, but short enough
+        // not to stall the reload noticeably for the user.
+        const int maxVerifyRetries   = 50;
+        const int verifyRetryDelayMs = 10; // 50 × 10ms = 500ms max wait
+
+        // Minimum guaranteed wait after FreeLibrary, even if GetModuleHandleA
+        // immediately returns NULL.  This covers the window where the OS has
+        // removed the module from its module list but has NOT yet finished
+        // running the DLL's cleanup callbacks (exception-frame deregistration,
+        // TLS destructors, __attribute__((destructor)) functions, etc.).
+        // Without this wait, MinGW's DW2/SJLJ exception tables can accumulate
+        // and corrupt after ~100 repeated DLL load/unload cycles, producing
+        // SIGSEGV inside the next LoadLibraryA or the new module's constructors.
+        //
+        // 50ms ensures Windows has completed all post-FreeLibrary cleanup
+        // including AV scanner hooks and exception frame deregistration before
+        // we proceed with the next LoadLibraryA call.
+        const int minWaitMs = 50;
+        std::this_thread::sleep_for(std::chrono::milliseconds(minWaitMs));
+
+        if (!verifyPath.empty()) {
+            for (int i = 0; i < maxVerifyRetries; ++i) {
+                // GetModuleHandleA does NOT increment the refcount (unlike
+                // GetModuleHandleEx without GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT).
+                // NULL return means the OS has fully unmapped the DLL — safe to proceed.
+                HMODULE stillLoaded = GetModuleHandleA(verifyPath.c_str());
                 if (stillLoaded == NULL) {
-                    // Module is gone from the process module list — good.
                     if (i > 0) {
-                        logger->debug("✅ Module unloaded from process list after {}ms wait",
-                                      i * verifyRetryDelayMs);
+                        logger->debug("✅ Module unloaded from process list after {}ms wait (total: {}ms)",
+                                      i * verifyRetryDelayMs, minWaitMs + i * verifyRetryDelayMs);
                     }
                     break;
                 }
-                logger->debug("⏳ Module still in process list (attempt {}/{}), waiting {}ms...",
-                              i + 1, maxVerifyRetries, verifyRetryDelayMs);
+                logger->debug("⏳ Module still in process list (attempt {}/{}), waiting {}ms... [path={}]",
+                              i + 1, maxVerifyRetries, verifyRetryDelayMs, verifyPath);
                 std::this_thread::sleep_for(std::chrono::milliseconds(verifyRetryDelayMs));
-            } else {
-                // No temp copy — we can't check by path easily; just break.
-                break;
             }
         }
+        // If verifyPath is somehow empty (should not happen), skip the wait —
+        // we have no path to check against (but the minWaitMs above still ran).
     }
 #else
     int dlResult = dlclose(libraryHandle);

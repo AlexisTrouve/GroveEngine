@@ -6,6 +6,7 @@
 #include <chrono>
 #include <iostream>
 #include <cstdlib>
+#include <vector>   // required for std::vector<char> mutable cmdLine buffer (CreateProcess)
 #ifndef _WIN32
 #include <sys/wait.h>
 #endif
@@ -135,83 +136,125 @@ bool AutoCompiler::compile(int iteration) {
 
 #ifdef _WIN32
     // -------------------------------------------------------------------------
-    // WHY CreateProcess instead of std::system():
-    //   std::system() wraps the command in "cmd.exe /C ..." and provides no
-    //   way to enforce a timeout. If ninja hangs (e.g. waiting for a lock file,
-    //   or spawning a console dialog on an error), the thread blocks forever.
-    //   CreateProcess + WaitForSingleObject lets us kill the child after
-    //   COMPILE_TIMEOUT_MS and return failure gracefully.
+    // WHY CreateProcess instead of cmd.exe /C "..." :
+    //   The original code built:
+    //     cmd.exe /C "\"C:/path/ninja.exe\" -C .. Target > NUL 2>&1"
+    //   cmd.exe sees the backslash-escaped inner quotes as literal backslashes,
+    //   causing the error: '\' n'est pas reconnu...
     //
-    // WHY redirect stdout/stderr to NUL:
-    //   Build output is noisy and not useful for test verdicts.
-    //   We silence it the same way the old std::system() code did.
+    //   The fix: skip cmd.exe entirely. Run ninja directly via CreateProcess
+    //   with lpCommandLine starting with the quoted executable path. This is
+    //   the standard Win32 way to launch a subprocess with space-containing paths.
+    //
+    //   Stdout/stderr redirection to NUL is done through STARTUPINFO handles
+    //   rather than shell redirection operators — no shell = no quoting nightmare.
+    //
+    // WHY bInheritHandles = TRUE:
+    //   We open a HANDLE to NUL and pass it via STARTUPINFO. For the child to
+    //   receive those handles, bInheritHandles must be TRUE. We use
+    //   CREATE_NO_WINDOW to keep the console hidden.
     // -------------------------------------------------------------------------
 
-    // Build the full command line for CreateProcess.
-    // We redirect stdout and stderr to NUL by appending to the command string
-    // passed through cmd.exe. Using cmd.exe /C also handles the redirection
-    // operators (>) correctly on Windows.
-    std::string fullCmd = "cmd.exe /C \"" + command + " > NUL 2>&1\"";
+    // Determine the build directory relative to where the test is running.
+    // Tests run from build/tests/, so buildDir_=="build" means one level up.
+    std::string relBuildDir = (buildDir_ == "build") ? ".." : buildDir_;
+
+    // Build the command line string that CreateProcess will parse.
+    // Format: "C:/path/to/ninja.exe" -C ".." TargetName
+    // Wrapping the executable path in quotes handles spaces (e.g. Program Files).
+    // Wrapping relBuildDir in quotes handles paths with spaces as well.
+    std::string cmdLine = "\"" + makeCmd + "\" -C \"" + relBuildDir + "\" " + moduleName_;
+
+    // Open a handle to NUL so we can silence stdout and stderr.
+    // WHY CreateFileA instead of a pre-opened stream: STARTUPINFO needs a HANDLE.
+    // WHY SECURITY_ATTRIBUTES with bInheritHandle=TRUE: the handle must be inheritable
+    // so that the child process (ninja) can actually write to it. Without this,
+    // the child receives an invalid handle and its output goes nowhere (or errors).
+    SECURITY_ATTRIBUTES sa = {};
+    sa.nLength              = sizeof(sa);
+    sa.bInheritHandle       = TRUE;   // CRITICAL: child must inherit this handle
+    sa.lpSecurityDescriptor = nullptr;
+
+    HANDLE hNull = CreateFileA(
+        "NUL",
+        GENERIC_WRITE,
+        FILE_SHARE_WRITE | FILE_SHARE_READ,
+        &sa,               // inheritable security attributes — CRITICAL for child to use it
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
 
     STARTUPINFOA si = {};
     PROCESS_INFORMATION pi = {};
-    si.cb = sizeof(si);
-    // Inherit no console window — prevents any interactive dialog from
-    // blocking on a headless CI system.
+    si.cb       = sizeof(si);
+    si.dwFlags  = STARTF_USESTDHANDLES;   // tell CreateProcess to honour our handle fields
+    // Redirect stdout and stderr to NUL; if NUL open failed fall back to parent handles.
+    si.hStdOutput = (hNull != INVALID_HANDLE_VALUE) ? hNull : GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError  = (hNull != INVALID_HANDLE_VALUE) ? hNull : GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+
+    // CREATE_NO_WINDOW: prevents any console window from flashing on the desktop
+    // during the build, and avoids interactive prompts blocking on CI.
     DWORD creationFlags = CREATE_NO_WINDOW;
 
-    // CreateProcess requires a mutable buffer for lpCommandLine
-    std::vector<char> cmdBuf(fullCmd.begin(), fullCmd.end());
+    // CreateProcess requires a mutable (non-const) buffer for lpCommandLine.
+    std::vector<char> cmdBuf(cmdLine.begin(), cmdLine.end());
     cmdBuf.push_back('\0');
 
     BOOL created = CreateProcessA(
-        nullptr,          // lpApplicationName — embedded in command line
-        cmdBuf.data(),    // lpCommandLine
-        nullptr,          // process security attributes
-        nullptr,          // thread security attributes
-        FALSE,            // bInheritHandles — no need to inherit
+        nullptr,       // lpApplicationName — null: let lpCommandLine supply the exe path
+        cmdBuf.data(), // lpCommandLine — must be mutable; first token is the executable
+        nullptr,       // process security attributes
+        nullptr,       // thread security attributes
+        TRUE,          // bInheritHandles — TRUE so the NUL HANDLE flows to the child
         creationFlags,
-        nullptr,          // environment — inherit parent's
-        nullptr,          // current directory — inherit parent's
+        nullptr,       // environment — inherit parent's
+        nullptr,       // working directory — inherit parent's (build/tests/)
         &si,
         &pi
     );
 
+    // Close our copy of the NUL handle immediately after CreateProcess.
+    // WHY: The child already received an inherited copy. If we keep ours open
+    // until after WaitForSingleObject we delay final close by the timeout duration.
+    if (hNull != INVALID_HANDLE_VALUE) {
+        CloseHandle(hNull);
+    }
+
     if (!created) {
-        // CreateProcess failure is a hard error — report it and return false
-        // so compilationLoop counts it as a failure (not a crash).
+        // Hard failure — log and return false so compilationLoop counts it.
         DWORD err = GetLastError();
         std::cerr << "[AutoCompiler] CreateProcess failed (error " << err
-                  << ") for command: " << fullCmd << "\n";
+                  << ") for: " << cmdLine << "\n";
         return false;
     }
 
-    // Wait up to COMPILE_TIMEOUT_MS for the build to finish.
+    // Block until the build finishes or the timeout expires.
     DWORD waitResult = WaitForSingleObject(pi.hProcess, COMPILE_TIMEOUT_MS);
-
     bool success = false;
 
     if (waitResult == WAIT_TIMEOUT) {
-        // Build tool exceeded timeout — kill it to unblock the thread.
-        // WHY: A frozen ninja would otherwise hold the compilationThread
-        // until the OS kills the whole test process (at CTest timeout).
+        // Build tool is hung — kill it so the compilation thread can continue.
+        // WHY: A frozen ninja (e.g. waiting on a .ninja_deps lock) would otherwise
+        // hold this thread for the entire CTest timeout (often 300s).
         std::cerr << "[AutoCompiler] Build timed out after "
                   << (COMPILE_TIMEOUT_MS / 1000) << "s — killing process\n";
         TerminateProcess(pi.hProcess, 1);
         success = false;
     } else if (waitResult == WAIT_OBJECT_0) {
-        // Process exited — check its exit code.
+        // Process exited normally — inspect its exit code.
         DWORD exitCode = 1;
         GetExitCodeProcess(pi.hProcess, &exitCode);
         success = (exitCode == 0);
     } else {
-        // WAIT_FAILED or unexpected return — treat as failure.
+        // WAIT_FAILED or other unexpected result — treat as failure.
         std::cerr << "[AutoCompiler] WaitForSingleObject returned "
                   << waitResult << " (error " << GetLastError() << ")\n";
         success = false;
     }
 
-    // Always close handles to avoid handle leak.
+    // Always release handles — failure to do so leaks kernel objects.
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
