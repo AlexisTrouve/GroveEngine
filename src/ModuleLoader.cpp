@@ -1,11 +1,24 @@
 #include <grove/ModuleLoader.h>
 #include <grove/IModuleSystem.h>
 #include <grove/platform/FileSystem.h>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <thread>
 #include <logger/Logger.h>
+
+// Process-lifetime unique counter for temp file naming.
+//
+// WHY: Using only PID as a temp file suffix means every reload attempt reuses
+// the same candidate filename if the previous copy could not be deleted (e.g.
+// AV scanner still has the file open).  GetTempFileNameA() adds a 4-digit
+// hex discriminator, but under rapid reload cycles the OS reuses those slots.
+// An atomic counter that never wraps during a single process run guarantees
+// each reload gets a genuinely unique name, eliminating filename collision as
+// a cause of copyFile failures and the subsequent direct-load fallback that
+// leads to address-space exhaustion (SIGSEGV after ~23 cycles).
+static std::atomic<uint64_t> g_tempFileSeq{0};
 
 #ifdef _WIN32
 #include <windows.h>
@@ -289,10 +302,64 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
                     }
 
                     if (!copySucceeded) {
-                        // All retries exhausted — last resort: load the original DLL
-                        // directly.  This risks address-space reuse, but is better
-                        // than refusing to load at all.
-                        logger->warn("⚠️ Failed to copy library after 10 retries, loading directly");
+                        // All 10 PID-based retries exhausted.
+                        //
+                        // WHY ONE MORE ATTEMPT: GetTempFileNameA's 4-digit hex
+                        // discriminator has a limited namespace and can be reused
+                        // across rapid reload cycles, especially if old temp files
+                        // are still locked by AV software.  The global g_tempFileSeq
+                        // counter is guaranteed unique for the process lifetime, so
+                        // this attempt picks a filename that has never been used in
+                        // this process, bypassing any OS-level reuse.
+                        //
+                        // Only fall back to direct load if this final attempt also
+                        // fails — direct load causes address-space fragmentation and
+                        // SIGSEGV after ~23 cycles, so we must avoid it if at all
+                        // possible.
+                        uint64_t seqNum = g_tempFileSeq.fetch_add(1, std::memory_order_relaxed);
+
+                        // Build a unique path in the system temp dir.
+                        // Format: <tempDir>\grvU<pid>_<seq>.dll
+                        // Both PID and monotonic seq are embedded so it is unique
+                        // even if multiple ModuleLoader instances run in parallel.
+                        char finalTempPath[MAX_PATH];
+                        snprintf(finalTempPath, sizeof(finalTempPath),
+                                 "%sgrvU%lu_%llu.dll",
+                                 tempDir,
+                                 static_cast<unsigned long>(GetCurrentProcessId()),
+                                 static_cast<unsigned long long>(seqNum));
+
+                        logger->debug("🔄 Final unique-seq attempt: {}", finalTempPath);
+
+                        if (grove::fs::copyFile(path, finalTempPath)) {
+                            auto origSize   = grove::fs::fileSize(path);
+                            auto copiedSize = grove::fs::fileSize(finalTempPath);
+
+                            if (copiedSize == origSize && origSize > 0) {
+                                // Success — use this copy instead of falling back.
+                                actualPath   = finalTempPath;
+                                tempPath     = finalTempPath;
+                                usedTempCopy = true;
+                                copySucceeded = true;
+                                logger->debug("✅ Final unique-seq copy succeeded: {} ({} bytes)",
+                                              finalTempPath, copiedSize);
+                            } else {
+                                logger->debug("⚠️ Final unique-seq copy size mismatch: orig={} copied={}",
+                                              origSize, copiedSize);
+                                DeleteFileA(finalTempPath);
+                            }
+                        } else {
+                            logger->debug("⚠️ Final unique-seq copyFile failed");
+                            DeleteFileA(finalTempPath); // clean up any partial write
+                        }
+
+                        if (!copySucceeded) {
+                            // Truly last resort: load the original DLL directly.
+                            // This risks address-space reuse and SIGSEGV after
+                            // ~23 cycles, but is better than refusing to load at all.
+                            logger->warn("⚠️ Failed to copy library after 10 retries + seq attempt, "
+                                         "loading directly (SIGSEGV risk at sustained reload counts)");
+                        }
                     }
                 }
             }
@@ -489,10 +556,18 @@ void ModuleLoader::unload() {
         // and corrupt after ~100 repeated DLL load/unload cycles, producing
         // SIGSEGV inside the next LoadLibraryA or the new module's constructors.
         //
-        // 50ms ensures Windows has completed all post-FreeLibrary cleanup
+        // 150ms ensures Windows has completed all post-FreeLibrary cleanup
         // including AV scanner hooks and exception frame deregistration before
         // we proceed with the next LoadLibraryA call.
-        const int minWaitMs = 50;
+        //
+        // INCREASED FROM 50ms → 150ms:
+        // The chaos monkey test crashed at reload ~70 with SIGSEGV.  MinGW's
+        // DW2/SJLJ exception tables accumulate corruption when a new DLL is
+        // loaded before the previous one's deregistration callbacks finish.
+        // 50ms was insufficient under load (multiple modules reloading in
+        // parallel); 150ms gives AV scanners and the OS three times as long
+        // to complete teardown before the next LoadLibraryA runs.
+        const int minWaitMs = 150;
         std::this_thread::sleep_for(std::chrono::milliseconds(minWaitMs));
 
         if (!verifyPath.empty()) {
