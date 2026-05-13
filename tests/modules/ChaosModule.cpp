@@ -1,4 +1,4 @@
-#include "ChaosModule.h"
+﻿#include "ChaosModule.h"
 #include "grove/JsonDataNode.h"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -8,10 +8,13 @@ namespace grove {
 
 void ChaosModule::setConfiguration(const IDataNode& configNode, IIO* io, ITaskScheduler* scheduler) {
     // Logger
-    logger = spdlog::get("ChaosModule");
-    if (!logger) {
-        logger = spdlog::stdout_color_mt("ChaosModule");
-    }
+    // Always drop and recreate the logger on setConfiguration.
+    // spdlog::get() CAN return a non-null shared_ptr whose underlying sink was
+    // compiled into a *previous* DLL load — that sink's vtable is now dangling
+    // after dlclose(). Calling it causes SIGSEGV after many hot-reloads.
+    // drop() is always safe (no-op if not present). Recreating is the only safe path.
+    spdlog::drop("ChaosModule");
+    logger = spdlog::stdout_color_mt("ChaosModule");
     logger->set_level(spdlog::level::debug);
 
     // Clone config
@@ -151,12 +154,12 @@ void ChaosModule::setState(const IDataNode& state) {
 
     const auto& json = jsonNode->getJsonData();
 
-    // Ensure logger is initialized (needed after hot-reload)
+    // Ensure logger is initialized (needed after hot-reload).
+    // We never reuse a registry entry: it may point to a sink compiled into a
+    // now-unloaded DLL (dangling vtable). Always drop+recreate after reload.
     if (!logger) {
-        logger = spdlog::get("ChaosModule");
-        if (!logger) {
-            logger = spdlog::stdout_color_mt("ChaosModule");
-        }
+        spdlog::drop("ChaosModule");
+        logger = spdlog::stdout_color_mt("ChaosModule");
     }
 
     // Ensure config is initialized (needed after hot-reload)
