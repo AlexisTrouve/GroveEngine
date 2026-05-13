@@ -329,7 +329,9 @@ int main() {
     std::cout << "TEST: Multi-Version Module Coexistence\n";
     std::cout << "================================================================================\n\n";
 
-    TestReporter reporter("Multi-Version Module Coexistence");
+    // static: ensures reporter is alive during atexit handlers
+    // (atexit fires after main() returns, when locals are already destroyed)
+    static TestReporter reporter("Multi-Version Module Coexistence");
 
     // Register atexit handler so printFinalReport() is called even if an
     // ASSERT_* macro triggers std::exit(1) — which bypasses catch blocks.
@@ -537,7 +539,20 @@ int main() {
         reporter.addMetric("gc_time_ms", metrics["gc_time_ms"]);
         reporter.addMetric("multi_version_count", metrics["multi_version_count"]);
 
-        // Validate metrics
+        // Register assertions in reporter so printFinalReport() emits a verdict.
+        // These mirror the ASSERT_* checks below — both must stay in sync.
+        reporter.addAssertion("Version load time < 200ms",
+                              metrics["version_load_time_ms"] < 200.0);
+        reporter.addAssertion("State migration < 500ms",
+                              metrics["state_migration_time_ms"] < 500.0);
+        reporter.addAssertion("Rollback time < 300ms",
+                              metrics["rollback_time_ms"] < 300.0);
+        reporter.addAssertion("GC time < 100ms",
+                              metrics["gc_time_ms"] < 100.0);
+        reporter.addAssertion("3 versions coexisting",
+                              metrics["multi_version_count"] == 3.0);
+
+        // Hard assertions (exit on failure via ASSERT_* → std::exit)
         ASSERT_LT(metrics["version_load_time_ms"], 200.0,
                   "Version load time < 200ms");
         ASSERT_LT(metrics["state_migration_time_ms"], 500.0,
@@ -551,7 +566,11 @@ int main() {
 
         // ========================================
         std::cout << "\n=== Final Report ===\n";
+        // Nullify atexit pointer BEFORE printing — prevents double-print
+        // (atexit is only needed for the ASSERT_* early-exit path)
+        g_reporterForAtexit = nullptr;
         reporter.printFinalReport();
+        std::cout << std::flush;
 
         return reporter.getExitCode();
 
