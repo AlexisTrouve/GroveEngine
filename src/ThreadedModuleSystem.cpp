@@ -105,14 +105,19 @@ void ThreadedModuleSystem::registerModule(const std::string& name, std::unique_p
 
     // CRITICAL: Add worker to vector BEFORE spawning thread
     // This prevents race condition where thread tries to access workers[index] before it exists
-    size_t workerIndex = workers.size();
+    // FIX: [BUG A] -- Capture raw pointer instead of stale index.
+    // workerIndex becomes invalid after extractModule() calls workers.erase().
+    // Raw pointer stays valid because: (1) unique_ptr stays in vector until erase,
+    // (2) extractModule() joins the thread BEFORE erasing => no dangling pointer.
     workers.push_back(std::move(worker));
+    ModuleWorker* workerPtr = workers.back().get();  // raw ptr valid until join()
 
     // NOW spawn worker thread (safe - worker is in vector)
-    workers[workerIndex]->thread = std::thread(&ThreadedModuleSystem::workerThreadLoop, this, workerIndex);
+    // FIX: [BUG A] -- Pass workerPtr directly instead of workerIndex
+    workerPtr->thread = std::thread(&ThreadedModuleSystem::workerThreadLoop, this, workerPtr);
 
     // Get thread ID for logging
-    auto threadId = workers[workerIndex]->thread.get_id();
+    auto threadId = workerPtr->thread.get_id();  // FIX: [BUG A] -- use workerPtr
     std::hash<std::thread::id> hasher;
     size_t threadIdHash = hasher(threadId);
 
@@ -126,6 +131,14 @@ void ThreadedModuleSystem::registerModule(const std::string& name, std::unique_p
 }
 
 void ThreadedModuleSystem::processModules(float deltaTime) {
+    // STARVATION FIX: If extractModule() has signalled intent to extract, yield immediately
+    // before touching isProcessingFrame or the shared lock. Without this guard the tight
+    // call-loop (100+ frames) continuously re-acquires the shared_mutex as a reader, starving
+    // the exclusive writer (extractModule) indefinitely -- classic reader-writer starvation.
+    if (extractionRequested.load(std::memory_order_acquire)) {
+        return;  // Let extractModule() win the exclusive-lock race
+    }
+
     size_t frameCount = globalFrameCount.fetch_add(1);
 
     auto frameStartTime = std::chrono::high_resolution_clock::now();
@@ -157,8 +170,10 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
     // NEW: 0 lock operations in hot path
 
     // Store shared data (no locks needed - only main thread writes)
-    sharedDeltaTime = deltaTime;
-    sharedFrameCount = frameCount;
+    // FIX: [BUG F] -- Encode float as uint32_t bits for atomic store (avoids formal C++ UB).
+    // memory_order_relaxed OK: currentFrameGeneration release below provides the ordering barrier.
+    { uint32_t bits; std::memcpy(&bits, &deltaTime, sizeof(bits)); sharedDeltaTimeBits.store(bits, std::memory_order_relaxed); }
+    sharedFrameCount.store(frameCount, std::memory_order_relaxed);  // FIX: [BUG F] -- atomic store
 
     // Reset completion counter for this frame
     // Use release ordering so workers see this write when they acquire
@@ -168,8 +183,14 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
     // memory_order_release ensures sharedDeltaTime/sharedFrameCount are visible to workers
     size_t generation = currentFrameGeneration.fetch_add(1, std::memory_order_release) + 1;
 
-    // Wake up all workers (broadcast) - no locks needed!
+    // FIX: [BUG B] -- Acquire then release worker->mutex BEFORE notify_one to prevent missed wakeup.
+    // Pattern: lock => release => notify. This guarantees the worker is either:
+    //   (a) already in cv.wait() -> notify wakes it up, or
+    //   (b) not yet in cv.wait() -> when it enters wait, predicate is true -> no sleep needed.
     for (auto& worker : workers) {
+        // FIX: [BUG B] -- Lock, immediately release, then notify.
+        // The lock+release guarantees memory visibility before notify.
+        { std::lock_guard<std::mutex> notifyLock(worker->mutex); }
         worker->cv.notify_one();
     }
 
@@ -219,6 +240,13 @@ std::unique_ptr<IDataNode> ThreadedModuleSystem::queryModule(const std::string& 
     }
 
     // BYPASS thread: Call process() directly for synchronous query
+    // FIX: [BUG D] -- Detect potential data race: queryModule() calls process() from
+    // the caller's thread while the worker thread may simultaneously call process().
+    // Full fix requires routing through IIO instead of direct process() call.
+    // For now: log warning so the caller is aware of the race risk.
+    if (isProcessingFrame.load(std::memory_order_acquire)) {
+        logger->warn("queryModule('{}') called while a frame is being processed -- potential data race: worker thread may concurrently call process()", name);
+    }
     // This is a debug/testing feature, not part of normal execution
     logger->trace("📞 Calling module '{}' process() directly (bypassing thread)", name);
 
@@ -256,13 +284,27 @@ int ThreadedModuleSystem::getPendingTaskCount(const std::string& moduleName) con
 std::unique_ptr<IModule> ThreadedModuleSystem::extractModule(const std::string& name) {
     logger->info("🔓 Extracting module '{}' from system", name);
 
-    // CRITICAL: Wait for processModules() to finish (prevents deadlock)
-    // Spin-wait until isProcessingFrame becomes false
-    while (isProcessingFrame.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
-    }
+    // STARVATION FIX: Signal extraction intent BEFORE spinning on isProcessingFrame.
+    // processModules() checks this flag at entry and returns immediately, stopping
+    // new frames from being dispatched while we wait. Without this, the tight loop
+    // calling processModules() 100+x continuously re-acquires the shared_mutex as a
+    // reader, starving our exclusive-lock request indefinitely.
+    extractionRequested.store(true, std::memory_order_release);
 
-    logger->debug("✅ Frame processing idle, safe to extract module '{}'", name);
+    // Wait for any in-flight frame to finish (processModules will not start a new
+    // frame because extractionRequested is now set).
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (isProcessingFrame.load(std::memory_order_acquire)) {
+        if (std::chrono::steady_clock::now() > deadline) {
+            // Clear flag before throwing so processModules() can resume
+            extractionRequested.store(false, std::memory_order_release);
+            logger->error("extractModule: timeout waiting for frame processing to complete");
+            throw std::runtime_error("ThreadedModuleSystem::extractModule timeout: processing frame did not complete");
+        }
+        std::this_thread::yield();
+    }  // end while (isProcessingFrame)
+
+    logger->debug("Frame processing idle, safe to extract module '{}'", name);
 
     // Acquire exclusive lock (write operation)
     std::unique_lock<std::shared_mutex> lock(workersMutex);
@@ -302,6 +344,9 @@ std::unique_ptr<IModule> ThreadedModuleSystem::extractModule(const std::string& 
     workers.erase(workerIt);
 
     logger->info("✅ Module '{}' extracted successfully (remaining workers: {})", name, workers.size());
+
+    // STARVATION FIX: Clear extraction flag so processModules() can resume issuing frames
+    extractionRequested.store(false, std::memory_order_release);
 
     return extractedModule;
 }
@@ -411,41 +456,52 @@ void ThreadedModuleSystem::setLogLevel(spdlog::level::level_enum level) {
 
 // Private helper methods
 
-void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
-    // Access worker (safe - worker added to vector before thread spawn)
-    auto& worker = *workers[workerIndex];
+
+void ThreadedModuleSystem::workerThreadLoop(ModuleWorker* workerPtr) {
+    // FIX: [BUG A] -- Accept raw pointer instead of workerIndex.
+    // workerIndex would become stale after extractModule() calls workers.erase().
+    // This pointer is safe because: (1) the unique_ptr stays in the vector until erase,
+    // (2) extractModule() joins this thread BEFORE erasing the unique_ptr => no dangling ptr.
+    auto& worker = *workerPtr;
 
     // TRACE: Log startup (provides synchronization for first frame)
-    logger->trace("🧵 Worker '{}' started (lastProcessedGen={})", worker.name, worker.lastProcessedGeneration);
+    logger->trace("Worker '{}' started (lastProcessedGen={})", worker.name, worker.lastProcessedGeneration);
 
     while (true) {
         // Wait for signal (work OR shutdown)
         std::unique_lock<std::mutex> lock(worker.mutex);
 
         // ATOMIC BARRIER: Wait for new frame generation
-        // memory_order_acquire ensures we see sharedDeltaTime/sharedFrameCount writes
-        worker.cv.wait(lock, [this, &worker] {
+        // memory_order_acquire ensures we see sharedDeltaTimeBits/sharedFrameCount writes.
+        // FIX: [BUG B] -- Use wait_for with 500ms timeout instead of plain wait().
+        // Rationale: notify_one() is called without holding worker->mutex (race window exists
+        // between the predicate check and cv.wait entry). The timeout acts as a safety net:
+        // even if the notify is missed, the worker wakes up within 500ms and re-checks.
+        if (!worker.cv.wait_for(lock, std::chrono::milliseconds(500), [this, &worker] {
             size_t currentGen = currentFrameGeneration.load(std::memory_order_acquire);
             return (currentGen > worker.lastProcessedGeneration) || worker.shouldShutdown;
-        });
+        })) {
+            // Timeout — spurious wakeup protection triggered (missed notify safety net)
+            logger->warn("Worker '{}' timeout waiting for frame signal -- spurious wakeup protection triggered", worker.name);
+        }
 
         // Read current generation BEFORE checking shutdown (needed for completion signal)
         size_t generation = currentFrameGeneration.load(std::memory_order_acquire);
         bool wasWaitingForWork = (generation > worker.lastProcessedGeneration);
 
         if (worker.shouldShutdown) {
-            logger->debug("🛑 Worker thread '{}' received shutdown signal", worker.name);
+            logger->debug("Worker thread '{}' received shutdown signal", worker.name);
 
-            // CRITICAL: If we were woken up for work AND shutdown, signal completion
-            // This prevents deadlock when extractModule() is called during processModules()
+            // CRITICAL: If we were woken up for work AND shutdown, signal completion.
+            // This prevents deadlock when extractModule() is called during processModules().
             if (wasWaitingForWork) {
                 workersCompleted.fetch_add(1, std::memory_order_release);
-                logger->debug("🔓 Worker '{}' signaled completion before shutdown (prevents deadlock)", worker.name);
+                logger->debug("Worker '{}' signaled completion before shutdown (prevents deadlock)", worker.name);
             }
             break;
         }
 
-        // Read current generation and frame data BEFORE releasing lock
+        // Read current generation again BEFORE releasing lock (double-check after shutdown check)
         generation = currentFrameGeneration.load(std::memory_order_acquire);
 
         // Release lock BEFORE processing (no lock during module execution!)
@@ -457,9 +513,13 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
             continue;
         }
 
-        // Read shared frame data (safe - only main thread writes, we have memory_order_acquire)
-        float dt = sharedDeltaTime;
-        size_t frameCount = sharedFrameCount;
+        // FIX: [BUG F] -- Decode float from uint32_t bits for atomic load (avoids formal C++ UB).
+        // memory_order_relaxed OK: currentFrameGeneration acquire above provides the ordering barrier.
+        // Symmetric with the store in processModules() which uses sharedDeltaTimeBits.store(bits).
+        uint32_t dtBits = sharedDeltaTimeBits.load(std::memory_order_relaxed);
+        float dt;
+        std::memcpy(&dt, &dtBits, sizeof(dt));
+        size_t frameCount = sharedFrameCount.load(std::memory_order_relaxed);  // FIX: [BUG F] -- atomic load
 
         // Mark this generation as processed
         worker.lastProcessedGeneration = generation;
@@ -469,14 +529,10 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
 
         try {
             auto input = createInputDataNode(dt, frameCount, worker.name);
-            // PERFORMANCE: Removed logger->trace() from hot path (causes mutex contention)
-            // logger->trace("🎬 Worker '{}' processing frame {} (dt: {:.3f}ms)",
-            //              worker.name, frameCount, dt * 1000);
-
             worker.module->process(*input);
 
         } catch (const std::exception& e) {
-            logger->error("❌ Error processing module '{}': {}", worker.name, e.what());
+            logger->error("Error processing module '{}': {}", worker.name, e.what());
         }
 
         auto processEndTime = std::chrono::high_resolution_clock::now();
@@ -493,19 +549,12 @@ void ThreadedModuleSystem::workerThreadLoop(size_t workerIndex) {
 
         lock.unlock();
 
-        // PERFORMANCE: Removed logger->warn() from hot path (causes mutex contention)
-        // Warn if module processing slow
-        // if (processDuration > 16.67f) {
-        //     logger->warn("🐌 Module '{}' processing slow: {:.2f}ms (target: <16.67ms)",
-        //                 worker.name, processDuration);
-        // }
-
         // ATOMIC: Signal completion (no lock needed!)
-        // memory_order_release ensures metrics writes are visible to main thread
+        // memory_order_release ensures metrics writes are visible to main thread.
         workersCompleted.fetch_add(1, std::memory_order_release);
     }
 
-    logger->debug("🏁 Worker thread '{}' exiting", worker.name);
+    logger->debug("Worker thread '{}' exiting", worker.name);
 }
 
 std::unique_ptr<IDataNode> ThreadedModuleSystem::createInputDataNode(

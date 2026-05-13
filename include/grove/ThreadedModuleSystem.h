@@ -45,8 +45,8 @@ namespace grove {
  * - Per-worker synchronization: independent mutexes (no deadlock)
  *
  * Recommended usage:
- * - Module count ≤ CPU cores
- * - Target FPS ≤ 30 (for heavier processing per module)
+ * - Module count â‰¤ CPU cores
+ * - Target FPS â‰¤ 30 (for heavier processing per module)
  * - Example: BgfxRenderer + UIModule + InputModule + CustomLogic
  */
 class ThreadedModuleSystem : public IModuleSystem {
@@ -109,11 +109,14 @@ private:
     std::atomic<int> workersCompleted{0};         // Count of workers that finished processing
     std::atomic<size_t> currentFrameGeneration{0}; // Frame generation counter (increments each frame)
     std::atomic<bool> isProcessingFrame{false};   // True during processModules() (prevents extractModule deadlock)
+    std::atomic<bool> extractionRequested{false}; ///< Set by extractModule() BEFORE spinning, so processModules() yields early — breaks reader-writer starvation
 
-    // Shared per-frame data (written by main thread during barrier, read by workers)
-    // Thread-safe: Only main thread writes (during barrier), workers read (after barrier)
-    float sharedDeltaTime = 0.0f;
-    size_t sharedFrameCount = 0;
+    // FIX: [BUG F] -- sharedDeltaTime/sharedFrameCount replaced by atomics to avoid UB
+    // (data race between main thread writing and worker threads reading; even if x86 is
+    // safe in practice, this is formal C++ UB). float encoded as uint32_t bits via memcpy
+    // to guarantee consistency without precision loss.
+    std::atomic<uint32_t> sharedDeltaTimeBits{0};  // float deltaTime encoded as uint32_t bits
+    std::atomic<size_t> sharedFrameCount{0};        // frameCount (replaces plain size_t)
 
     // Global frame tracking
     std::atomic<size_t> globalFrameCount{0};
@@ -133,18 +136,19 @@ private:
 
     /**
      * @brief Worker thread main loop
-     * @param workerIndex Index into workers vector
+     * @param workerPtr Raw pointer to the WorkerData this thread owns.
      *
-     * Each worker thread runs this loop:
-     * 1. Wait for shouldProcess or shouldShutdown signal
-     * 2. If shutdown: break and exit thread
-     * 3. Process module with current deltaTime
-     * 4. Signal processingComplete
-     * 5. Loop
+     * FIX: [BUG A] -- Changed from size_t workerIndex to WorkerData* workerPtr.
+     * Rationale: workerIndex becomes stale after extractModule() calls workers.erase(),
+     * causing workers[workerIndex] to reference the wrong (or non-existent) element.
+     * A raw pointer captured at thread-creation time stays valid because:
+     *   1. The unique_ptr<ModuleWorker> remains in the vector until extractModule()
+     *   2. extractModule() joins the thread BEFORE erasing the unique_ptr
+     *   => no dangling pointer possible.
      *
-     * Thread-safe: Only accesses workers[workerIndex] (no cross-worker access)
+     * Thread-safe: Only accesses its own WorkerData (no cross-worker access)
      */
-    void workerThreadLoop(size_t workerIndex);
+    void workerThreadLoop(ModuleWorker* workerPtr);
 
     /**
      * @brief Create input DataNode for module processing
