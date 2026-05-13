@@ -311,12 +311,30 @@ private:
     std::shared_ptr<spdlog::logger> logger_;
 };
 
+// Global reporter pointer for atexit handler — needed because ASSERT_* macros
+// call std::exit(1) which bypasses normal control flow (try/catch/return).
+// atexit() IS called by std::exit(), so this guarantees the report is always printed.
+static TestReporter* g_reporterForAtexit = nullptr;
+
+static void atexitReportHandler() {
+    // Print final report if it hasn't been printed yet
+    // (i.e., when std::exit was triggered by a failing ASSERT_*)
+    if (g_reporterForAtexit) {
+        g_reporterForAtexit->printFinalReport();
+    }
+}
+
 int main() {
     std::cout << "================================================================================\n";
     std::cout << "TEST: Multi-Version Module Coexistence\n";
     std::cout << "================================================================================\n\n";
 
     TestReporter reporter("Multi-Version Module Coexistence");
+
+    // Register atexit handler so printFinalReport() is called even if an
+    // ASSERT_* macro triggers std::exit(1) — which bypasses catch blocks.
+    g_reporterForAtexit = &reporter;
+    std::atexit(atexitReportHandler);
 
     // Local metrics storage
     std::map<std::string, double> metrics;
