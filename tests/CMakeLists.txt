@@ -1,4 +1,4 @@
-﻿# Hot-reload test suite
+# Hot-reload test suite
 
 # ================================================================================
 # SDL2 Detection (used by visual tests, demos, and InputModule-dependent tests)
@@ -135,7 +135,7 @@ endmacro()
 
 
 
-# Helpers library (partagée par tous les tests)
+# Helpers library (partag�e par tous les tests)
 add_library(test_helpers STATIC
     helpers/TestMetrics.cpp
     helpers/TestReporter.cpp
@@ -155,7 +155,7 @@ target_link_libraries(test_helpers PUBLIC
 # Set PIC for static library
 set_target_properties(test_helpers PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# TankModule pour tests d'intégration
+# TankModule pour tests d'int�gration
 add_library(TankModule SHARED
     modules/TankModule.cpp
 )
@@ -281,7 +281,7 @@ add_dependencies(test_02_chaos_monkey ChaosModule)
 # CTest integration
 grove_add_test(ChaosMonkey test_02_chaos_monkey ${CMAKE_CURRENT_BINARY_DIR})
 
-# StressModule pour tests de stabilité long-terme
+# StressModule pour tests de stabilit� long-terme
 add_library(StressModule SHARED
     modules/StressModule.cpp
 )
@@ -323,7 +323,13 @@ target_link_libraries(test_04_race_condition PRIVATE
 add_dependencies(test_04_race_condition TestModule)
 
 # CTest integration
-grove_add_test(RaceConditionHunter test_04_race_condition ${CMAKE_CURRENT_BINARY_DIR})
+# WHY 180s timeout: The test runs 10 compilations at 2s intervals (~20s base),
+# but each ninja invocation can take 5-15s on Windows (MinGW + incremental build).
+# 10 compilations x 15s worst-case + 60s AutoCompiler per-build timeout guard
+# = ~210s absolute worst case. 180s is generous for normal CI machines while
+# still preventing indefinite hangs. The AutoCompiler itself enforces a 60s
+# per-build timeout via CreateProcess + WaitForSingleObject on Windows.
+grove_add_test(RaceConditionHunter test_04_race_condition ${CMAKE_CURRENT_BINARY_DIR} 180)
 
 # LeakTestModule pour memory leak detection
 add_library(LeakTestModule SHARED
