@@ -83,7 +83,13 @@ public:
                 delete handle.instance;
                 handle.instance = nullptr;
             }
-            // io unique_ptr will be auto-destroyed
+            // Destroy the module's IntraIO (and its subscriptions) BEFORE unloading the
+            // DLL. A module may have subscribed in setConfiguration() with a lambda whose
+            // code lives in its DLL; ~IntraIO destroys that std::function, and if the DLL
+            // was already dlclose'd the std::function's manager pointer dereferences
+            // unmapped code -> SIGSEGV at teardown. Resetting io here runs that destruction
+            // while the DLL is still mapped.
+            handle.io.reset();
             if (handle.dlHandle) {
                 grove_dlclose(handle.dlHandle);
                 handle.dlHandle = nullptr;
@@ -148,6 +154,9 @@ public:
             delete handle.instance;
             handle.instance = nullptr;
         }
+
+        // Destroy the IntraIO (subscriptions) before dlclose — see ~IOTestEngine.
+        handle.io.reset();
 
         if (handle.dlHandle) {
             grove_dlclose(handle.dlHandle);
