@@ -16,7 +16,7 @@
  * - Press ESC to exit
  */
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 #include <grove/ModuleLoader.h>
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>

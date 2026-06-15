@@ -9,8 +9,8 @@
  * - Disabled buttons
  */
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_syswm.h>
+#include <SDL.h>
+#include <SDL_syswm.h>
 
 #include <grove/ModuleLoader.h>
 #include <grove/IntraIOManager.h>
