@@ -1395,6 +1395,38 @@ if(GROVE_BUILD_BGFX_RENDERER)
     grove_add_test(PipelineHeadless test_pipeline_headless ${CMAKE_BINARY_DIR})
 
     grove_add_test(BgfxSpritesHeadless test_22_bgfx_sprites_headless ${CMAKE_CURRENT_BINARY_DIR})
+
+    # ========================================
+    # Renderer unit/integration tests (audit 2026-06): these existed under
+    # tests/unit and tests/integration but were never registered in ctest — so they
+    # contributed ZERO regression coverage. They use MockRHIDevice (no GPU/bgfx) and
+    # compile only the bgfx-free RHI/scene sources.
+    # ========================================
+    set(_GROVE_RHI_HEADLESS_SRCS
+        ../modules/BgfxRenderer/Scene/SceneCollector.cpp
+        ../modules/BgfxRenderer/Frame/FrameAllocator.cpp
+        ../modules/BgfxRenderer/RenderGraph/RenderGraph.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+        ../modules/BgfxRenderer/Shaders/ShaderManager.cpp
+    )
+    foreach(_grove_rtest test_shader_manager test_render_graph test_rhi_command_buffer test_frame_allocator)
+        add_executable(${_grove_rtest} unit/${_grove_rtest}.cpp ${_GROVE_RHI_HEADLESS_SRCS})
+        target_include_directories(${_grove_rtest} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+            ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(${_grove_rtest} PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    endforeach()
+    grove_add_test(ShaderManagerUnit  test_shader_manager     ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(RenderGraphUnit     test_render_graph       ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(RHICommandBufferUnit test_rhi_command_buffer ${CMAKE_CURRENT_BINARY_DIR})
+    grove_add_test(FrameAllocatorUnit  test_frame_allocator    ${CMAKE_CURRENT_BINARY_DIR})
+
+    add_executable(test_scene_collector integration/test_scene_collector.cpp ${_GROVE_RHI_HEADLESS_SRCS})
+    target_include_directories(test_scene_collector PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_scene_collector PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(SceneCollectorTest test_scene_collector ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

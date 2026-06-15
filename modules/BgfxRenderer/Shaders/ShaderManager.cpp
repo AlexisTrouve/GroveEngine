@@ -1,5 +1,6 @@
 #include "ShaderManager.h"
 #include "../RHI/RHIDevice.h"
+#include <unordered_set>
 
 // Embedded shader bytecode
 #include "vs_color.bin.h"
@@ -24,8 +25,14 @@ void ShaderManager::init(rhi::IRHIDevice& device, const std::string& rendererNam
 }
 
 void ShaderManager::shutdown(rhi::IRHIDevice& device) {
+    // Several program names intentionally ALIAS the same shader handle ("color" and
+    // "debug" share one program — see loadBuiltinShaders). Destroying the same handle
+    // more than once is a double-free of the underlying bgfx program (UB / debug
+    // assert), which fired on every renderer shutdown AND every hot-reload teardown.
+    // Destroy each UNIQUE handle exactly once.
+    std::unordered_set<uint16_t> destroyedIds;
     for (auto& [name, handle] : m_programs) {
-        if (handle.isValid()) {
+        if (handle.isValid() && destroyedIds.insert(handle.id).second) {
             device.destroy(handle);
         }
     }

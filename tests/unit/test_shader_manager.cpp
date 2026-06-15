@@ -78,12 +78,12 @@ TEST_CASE("ShaderManager - shutdown destroys all programs", "[shader_manager][un
 
     manager.shutdown(device);
 
-    // All shader handles should be destroyed
-    // Note: Some programs may share shader handles (e.g., "color" and "debug")
-    // The current implementation calls destroy() for each program entry,
-    // which may destroy the same handle multiple times (currently 3 programs, 2 unique handles)
-    // This is acceptable for mock testing, real bgfx handles ref-counting
-    REQUIRE(device.shaderDestroyCount == programCount); // destroyCount = number of programs
+    // Each UNIQUE shader handle must be destroyed EXACTLY ONCE. Several program
+    // names alias the same handle ("color" and "debug" share one program), so the
+    // number of destroy() calls must equal the number of shaders CREATED (one per
+    // unique handle) — NOT the number of program-name entries. Destroying the same
+    // bgfx handle twice is a double-free (UB on the GPU program resource).
+    REQUIRE(device.shaderDestroyCount == shadersCreated);
 }
 
 // ============================================================================
