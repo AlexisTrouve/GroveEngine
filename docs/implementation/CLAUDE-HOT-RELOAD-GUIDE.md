@@ -115,7 +115,7 @@ void setState(const json& state) override {
 ## 💡 Development Best Practices
 
 ### Module Design for Hot-Reload
-- **Lightweight**: 150-300 lines typical
+- **Subsystem-scoped**: one major subsystem per module (size by responsibility, not line count)
 - **State-aware**: All important state in JSON
 - **Self-contained**: Minimal external dependencies
 - **Error-resilient**: Graceful failure handling

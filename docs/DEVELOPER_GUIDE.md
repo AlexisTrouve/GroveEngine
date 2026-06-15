@@ -43,7 +43,7 @@
 ### What GroveEngine IS Good For
 ✅ **Rapid prototyping** - 0.4ms hot-reload for instant iteration
 ✅ **Learning modular architecture** - clean interface-based design
-✅ **AI-assisted development** - 200-300 line modules optimized for Claude Code
+✅ **AI-assisted development** - subsystem-granular modules optimized for Claude Code
 ✅ **Experimentation** - test game ideas quickly
 
 ### Production Roadmap

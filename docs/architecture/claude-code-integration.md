@@ -11,7 +11,7 @@ Cette architecture est spécifiquement conçue pour **maximiser l'efficacité de
 - **Jeu AAA typique** : 500K+ lignes de code interconnectées
 - **Résultat** : IA ne peut pas appréhender le système complet
 
-### Solution : Micro-Contexts Autonomes
+### Solution : Modules Autonomes par Sous-Système
 ```cpp
 // Au lieu de ça (impossible pour l'IA) :
 TankSystem.cpp (5000 lignes) +
@@ -125,8 +125,8 @@ You work EXCLUSIVELY on tank behavior. No networking, no threading.
 Input JSON: {"type": "move", "direction": "north", "speed": 0.8}
 Output JSON: {"position": [x, y], "facing": angle, "status": "moving"}
 
-## File Limits
-- TankModule.cpp: Max 250 lines
+## Scope
+- TankModule: one subsystem (tank behavior); size by responsibility, not line count
 - Pure logic only: No sockets, threads, engine dependencies
 - JSON in/out: All communication via JSON messages
 
@@ -165,7 +165,7 @@ NEVER reference networking, threading, or parent directories!
 1. **NEVER `cd ..`** ou référence parent
 2. **ALWAYS `cmake .`** (pas cmake ..)
 3. **ONLY JSON communication** avec autres modules
-4. **MAX 300 lignes** par fichier
+4. **UN module = UN sous-système** (granularité par responsabilité, pas par nombre de lignes ; découpe seulement quand deux sous-systèmes distincts se mêlent)
 5. **ZERO infrastructure code** dans le contexte
 
 ## 🔧 Build System Cognitif
@@ -305,7 +305,7 @@ echo '{"debug_mode": true, "isolated_module": "tank"}' > config/debug.json
 - **Parallel work** : Impossible (conflicts)
 
 ### Après : Architecture Modulaire
-- **Context size** : 200-300 lignes (parfait)
+- **Context size** : un seul sous-système isolé (parfait)
 - **Build time** : 5-10 secondes
 - **Iteration cycle** : Edit → Hot-reload → Test (30 sec)
 - **Bug localization** : Surgical precision

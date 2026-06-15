@@ -209,7 +209,7 @@ if (currentHash != lastKnownHash) {
 **DO:**
 - Read config via `getInt()`, `getString()`, `getBool()`, etc.
 - Publish save requests via IIO: `m_io->publish("save:module:state", data)`
-- Keep modules under 300 lines
+- Scope each module to one subsystem (size by responsibility, not line count)
 - Use IDataNode interface only, never concrete types
 
 **DON'T:**

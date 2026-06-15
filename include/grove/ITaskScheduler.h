@@ -14,7 +14,7 @@ namespace grove {
  * the implementation details (sequential, threaded, thread pool, cluster).
  *
  * CORE PURPOSE:
- * - Modules stay lightweight (200-300 lines) by delegating heavy work
+ * - Modules stay focused on their subsystem by delegating heavy work
  * - Execution strategy determined by IModuleSystem implementation
  * - Modules remain thread-agnostic and infrastructure-free
  *

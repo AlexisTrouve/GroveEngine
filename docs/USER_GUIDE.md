@@ -31,7 +31,7 @@ GroveEngine provides:
 
 ### Design Philosophy
 
-- Modules contain pure business logic (200-300 lines recommended)
+- A module is a major subsystem (e.g. an AI system, the RTS simulation, the colony system, a renderer); it can be large and contain many classes/files internally. Granularity is by subsystem / responsibility, not by line count.
 - No infrastructure code in modules (threading, networking, persistence)
 - All data via `IDataNode` abstraction (backend agnostic)
 - Pull-based message processing with callback dispatch (modules control WHEN to process, callbacks handle HOW)
@@ -762,7 +762,7 @@ cmake --build build --target modules
 
 ## Best Practices
 
-1. **Keep modules small**: 200-300 lines of pure business logic
+1. **One module = one subsystem**: pure business logic for a single subsystem; split only when it mixes two distinct subsystems, never by line count
 2. **No infrastructure code**: Let GroveEngine handle threading, persistence
 3. **Serialize all state**: Everything in `getState()` survives hot-reload
 4. **Use typed accessors**: `getInt()`, `getString()` with sensible defaults

@@ -17,8 +17,10 @@ namespace grove {
 /**
  * @brief Pure business logic interface - optimized for Claude Code development
  *
- * This interface defines the contract for all game modules. Each module contains
- * 200-300 lines of pure game logic with zero infrastructure code.
+ * This interface defines the contract for all game modules. Each module is a major
+ * SUBSYSTEM (e.g. an AI system, the RTS simulation, the colony system, a renderer)
+ * containing pure game logic with zero infrastructure code. A module can be LARGE and
+ * hold many classes/files internally — that is intended.
  *
  * Key design principles:
  * - PURE FUNCTION: process() method has minimal side effects
@@ -27,7 +29,10 @@ namespace grove {
  * - IIO FOR PERSISTENCE: Save requests via IIO publish (Engine handles persistence)
  * - NO INFRASTRUCTURE: No threading, networking, or framework dependencies
  * - HOT-RELOAD READY: State serialization for seamless module replacement
- * - CLAUDE OPTIMIZED: Micro-context size for AI development efficiency
+ * - ISOLATED & TESTABLE: a primary benefit — a module runs IN ISOLATION. Instantiate
+ *   it alone, feed it input topics via a test IIO, call process(), and assert the
+ *   topics it publishes (its IIO contract). No engine, no other modules needed.
+ * - CLAUDE OPTIMIZED: Subsystem granularity for AI development efficiency
  *
  * DATA FLOW:
  * - Configuration: Read-only via setConfiguration(const IDataNode&)
@@ -35,7 +40,9 @@ namespace grove {
  * - Save: Publish via IIO: m_io->publish("save:module:state", data)
  * - State: Serialized via getState() for hot-reload
  *
- * Module constraint: Maximum 300 lines per module (Exception: ProductionModule 500-800 lines)
+ * Module granularity: one major subsystem per module — by subsystem / responsibility,
+ * NOT by line count. Split a module only when it mixes TWO distinct subsystems, never
+ * because it exceeds N lines. Modules communicate only via IIO pub/sub.
  */
 class IModule {
 public:

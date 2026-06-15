@@ -21,7 +21,7 @@ GroveEngine is a modular game engine architecture designed for distributed syste
   - Claude Code optimization
 
 - **[Claude Code Integration](architecture/claude-code-integration.md)** - AI development workflow
-  - Micro-context development
+  - Subsystem-granular development
   - Hot-reload for rapid iteration
   - Module development best practices
 
@@ -101,7 +101,7 @@ if (tree->reloadIfChanged()) {
 ## Key Concepts
 
 ### Module System
-- **Modules**: 200-300 line business logic units
+- **Modules**: business logic units scoped to one major subsystem (granularity by responsibility, not line count)
 - **IModuleSystem**: Execution strategy (Sequential, Threaded, Distributed)
 - **Hot-reload**: Replace modules without restarting
 - **State preservation**: getState/setState for seamless updates

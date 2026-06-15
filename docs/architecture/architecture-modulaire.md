@@ -2,7 +2,7 @@
 
 ## Concept Révolutionnaire
 
-L'architecture modulaire Warfactory transforme le développement de jeux complexes en utilisant une approche **micro-modules** optimisée pour Claude Code. Chaque module est un micro-contexte de 200-300 lignes de logique métier pure.
+L'architecture modulaire Warfactory transforme le développement de jeux complexes en découpant le système par **sous-système**, une approche optimisée pour Claude Code. Un module = un SOUS-SYSTÈME important (ex. système d'IA, simulation RTS, système colonie, rendu) ; il peut être GROS et contenir plusieurs classes — c'est voulu. La granularité est par sous-système / responsabilité, PAS par nombre de lignes.
 
 ## Core Interface Architecture
 
@@ -74,7 +74,7 @@ public:
 ```
 
 **Contraintes strictes :**
-- **200-300 lignes maximum** par module
+- **Un module = un sous-système** (granularité par responsabilité, pas par nombre de lignes) ; on découpe seulement quand un module mêle DEUX sous-systèmes distincts
 - **Aucune dépendance infrastructure** (threading, network, etc.)
 - **JSON in/out uniquement** pour communication
 - **Logic métier pure** sans effets de bord
@@ -99,13 +99,15 @@ public:
 
 ## Modules Spécialisés
 
-### ProductionModule (Exception Critique)
+### ProductionModule (Un Seul Sous-Système)
 
-**Particularité** : Belt+Inserter+Factory DOIVENT cohabiter pour performance
+**Particularité** : Belt+Inserter+Factory forment UN sous-système de production unique — ils DOIVENT cohabiter dans le même module pour la coordination frame-perfect
 
 ```cpp
 class ProductionModule : public IModule {
-    // EXCEPTION: 500-800 lignes acceptées
+    // Un seul sous-système : Belt+Inserter+Factory restent ensemble
+    // (granularité par responsabilité, pas par lignes — on ne découpe pas
+    //  un sous-système cohérent)
     // Raison: ISocket overhead >1ms inacceptable pour 60 FPS
 
     Belt beltSystem;
@@ -374,13 +376,13 @@ HighPerfEngine + MultithreadedModuleSystem + LocalIO
 DataOrientedEngine + ClusterModuleSystem + NetworkIO
 → Distribution multi-serveurs
 → SIMD optimization automatique
-→ Claude Code développe toujours modules 200 lignes
+→ Claude Code développe toujours par sous-système (modules inchangés)
 ```
 
 ## Avantages Architecture
 
 ### Pour Claude Code
-- **Micro-contexts** : 200-300 lignes vs 50K+ lignes
+- **Contexte par sous-système** : un module isolé vs 50K+ lignes interconnectées
 - **Focus logique** : Zéro infrastructure, pure game logic
 - **Iteration speed** : 5 secondes vs 5-10 minutes
 - **Parallel development** : 3+ instances simultanées
@@ -420,4 +422,4 @@ DataOrientedEngine + ClusterModuleSystem + NetworkIO
 - Optimisation hot-reload
 - Métriques performance
 
-Cette architecture révolutionnaire permet de développer des jeux AAA complexes avec Claude Code en utilisant des micro-contextes de 200 lignes, tout en conservant la puissance architecturale nécessaire pour des systèmes distribués massifs.
+Cette architecture révolutionnaire permet de développer des jeux AAA complexes avec Claude Code en découpant le système par sous-système (chaque module = un sous-système, aussi gros que sa responsabilité l'exige), tout en conservant la puissance architecturale nécessaire pour des systèmes distribués massifs.

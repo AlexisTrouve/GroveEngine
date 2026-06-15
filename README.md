@@ -9,7 +9,7 @@ GroveEngine is a lightweight, modular engine architecture designed for blazing-f
 - 🔥 **Hot-Reload 0.4ms** - Validated blazing-fast module reloading
 - 🧩 **Modular Architecture** - Clean separation via interfaces (IEngine, IModule, IIO, IModuleSystem)
 - 🚀 **Development Velocity** - Edit → Build → Hot-reload < 1 second total
-- 🤖 **AI-Assisted Development** - 200-300 line modules optimized for Claude Code
+- 🤖 **AI-Assisted Development** - Subsystem-granular modules optimized for Claude Code
 - 📦 **Autonomous Builds** - Each module builds independently
 - ⚠️ **Experimental** - Non-deterministic, development-focused architecture
 
@@ -21,7 +21,7 @@ grove::IEngine (Orchestration)
 │   ├── SequentialModuleSystem (✅ Implemented - 1 module at a time)
 │   ├── ThreadedModuleSystem (🚧 TODO - Each module in thread)
 │   └── MultithreadedModuleSystem (🚧 TODO - Thread pool)
-├── grove::IModule (Business logic - 200-300 lines)
+├── grove::IModule (Business logic - one major subsystem)
 │   └── Your modules (.so/.dll hot-reloadable)
 └── grove::IIO (Communication)
     ├── IntraIO (✅ Implemented - Same process pub/sub)
@@ -147,7 +147,7 @@ make
 class MyModule : public grove::IModule {
 public:
     json process(const json& input) override {
-        // Your logic here (200-300 lines max)
+        // Your subsystem logic here (size by responsibility, not line count)
         return {"result": "processed"};
     }
 
@@ -180,8 +180,8 @@ public:
 
 ## Philosophy
 
-### Micro-Context Development
-- **Small modules** (200-300 lines) for AI-friendly development
+### Subsystem-Granular Development
+- **A module is a major subsystem** (e.g. an AI system, the RTS simulation, the colony system, a renderer). It can be large and contain many classes/files internally — that is intended. Granularity is by subsystem / responsibility, not by line count. Split a module only when it mixes two distinct subsystems, never because it exceeds N lines.
 - **Autonomous builds** - Zero parent dependencies
 - **Hot-swappable infrastructure** - Change performance without touching business logic
 
@@ -300,7 +300,7 @@ A: Email **alexistrouve.pro@gmail.com** with subject "GroveEngine Commercial Lic
 This engine uses an architecture optimized for Claude Code development. Each module is autonomous and can be developed independently.
 
 **Constraints:**
-- ✅ Modules 200-300 lines maximum
+- ✅ One module = one major subsystem (granularity by responsibility, not line count); split only when a module mixes two distinct subsystems
 - ✅ Autonomous build: `cmake .` from module directory
 - ✅ JSON-only communication between modules
 - ✅ Zero dependencies up (no `#include "../"`)
