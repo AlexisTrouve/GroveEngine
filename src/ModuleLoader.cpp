@@ -2,6 +2,7 @@
 #include <grove/IModuleSystem.h>
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
+#include <grove/JsonDataNode.h>
 #include <grove/platform/FileSystem.h>
 #include <atomic>
 #include <chrono>
@@ -745,6 +746,28 @@ std::unique_ptr<IModule> ModuleLoader::reload(std::unique_ptr<IModule> currentMo
     logger->debug("📦 Step 1/4: Extracting state from old module");
     auto state = currentModule->getState();
     logger->debug("✅ State extracted successfully");
+
+    // Step 1b: RE-HOME the state into a host-owned object BEFORE unloading the DLL.
+    // QUOI : recopier l'état dans un JsonDataNode fraîchement construit ICI (dans
+    //        grove_impl, lié dans l'exécutable hôte) au lieu de transporter l'objet
+    //        rendu par l'ancien module.
+    // POURQUOI : grove_impl est une lib STATIC, donc l'ancienne DLL du module embarque
+    //        SA PROPRE copie de la vtable/type_info de JsonDataNode. `state` a été
+    //        alloué par l'ancienne DLL → son pointeur de vtable pointe DANS cette DLL.
+    //        unload() (step 3) la FreeLibrary ; tout accès virtuel/RTTI ultérieur sur
+    //        *state (le dynamic_cast + getJsonData() de setState au step 5) lirait alors
+    //        une vtable démappée → SIGSEGV intermittent (la réutilisation d'adresses rend
+    //        le crash flaky, d'où l'impossibilité de le reproduire sous gdb).
+    // COMMENT : tant que l'ancienne DLL est encore mappée, on downcast vers le type
+    //        concret JsonDataNode (le dynamic_cast lit la vtable encore valide) et on
+    //        deep-copie son JSON dans un JsonDataNode construit ici. Cette construction
+    //        non-virtuelle utilise la copie de la vtable de l'image hôte (jamais
+    //        déchargée) → l'objet survit à l'unload. Si l'état n'est pas un JsonDataNode
+    //        (cas non rencontré dans ce codebase) on le laisse tel quel.
+    if (auto* jsonState = dynamic_cast<JsonDataNode*>(state.get())) {
+        state = std::make_unique<JsonDataNode>("state", jsonState->getJsonData());
+        logger->debug("✅ State re-homed into host-owned node (survives DLL unload)");
+    }
 
     // Step 2: Destroy old module before unloading library
     logger->debug("💀 Step 2/4: Destroying old module instance");
