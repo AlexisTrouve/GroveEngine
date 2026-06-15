@@ -539,13 +539,17 @@ void ModuleLoader::unload() {
     //        l'instance IntraIO dont l'id == moduleName (convention du codebase :
     //        un module ↔ une instance IIO homonyme) et on vide ses subscriptions.
     //        Détruire les std::function ici exécute leur manager-pointer alors qu'il
-    //        est encore valide. isDestroyed() protège le cas rare où unload() tourne
-    //        pendant la destruction statique (singleton déjà parti) ; getInstance()
-    //        nul (aucune instance homonyme) → rien à faire. Couvre aussi le reload :
+    //        est encore valide. On utilise tryGetLiveInstance() et NON getInstance() :
+    //        getInstance() est un singleton Meyers qui CRÉERAIT le manager (et son
+    //        thread) s'il n'existe pas — désastreux quand unload() tourne depuis
+    //        ~ModuleLoader à exit(). tryGetLiveInstance() renvoie nullptr si aucun
+    //        manager n'est vivant → on saute proprement. Couvre aussi le reload :
     //        reload() appelle unload() avant FreeLibrary de l'ancienne DLL.
-    if (!moduleName.empty() && !IntraIOManager::isDestroyed()) {
-        if (auto ioInstance = IntraIOManager::getInstance().getInstance(moduleName)) {
-            ioInstance->clearAllSubscriptions();
+    if (!moduleName.empty()) {
+        if (auto* manager = IntraIOManager::tryGetLiveInstance()) {
+            if (auto ioInstance = manager->getInstance(moduleName)) {
+                ioInstance->clearAllSubscriptions();
+            }
         }
     }
 

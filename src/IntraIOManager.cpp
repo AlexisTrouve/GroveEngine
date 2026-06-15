@@ -13,6 +13,11 @@ namespace grove {
 // ---------------------------------------------------------------------------
 std::atomic<bool> IntraIOManager::s_destroyed{false};
 
+// Live-instance pointer — see header. Null until a manager finishes constructing,
+// reset to null the instant its destructor starts. Lets teardown-path code probe
+// the singleton without resurrecting it via getInstance().
+std::atomic<IntraIOManager*> IntraIOManager::s_liveInstance{nullptr};
+
 IntraIOManager::IntraIOManager() {
     // Create logger with domain organization (file logging disabled for Windows compatibility)
     stillhammer::LoggerConfig config;
@@ -24,9 +29,20 @@ IntraIOManager::IntraIOManager() {
     batchThreadRunning = true;
     batchThread = std::thread(&IntraIOManager::batchFlushLoop, this);
     logger->info("✅ Batch flush thread started for push-based message delivery");
+
+    // Publish ourselves as the live instance ONLY now that construction is
+    // complete (logger + batch thread up). tryGetLiveInstance() callers will now
+    // see a fully-usable manager.
+    s_liveInstance.store(this, std::memory_order_release);
 }
 
 IntraIOManager::~IntraIOManager() {
+    // Clear the live-instance pointer FIRST: from this point on the manager is no
+    // longer safe to use, so tryGetLiveInstance() must return nullptr (a concurrent
+    // or teardown-path caller like ModuleLoader::unload() will then skip us instead
+    // of touching a half-destroyed object).
+    s_liveInstance.store(nullptr, std::memory_order_release);
+
     // Stop batch thread first
     batchThreadRunning = false;
     // FIX: [BUG E] -- Notify batchCV to wake the thread immediately instead of

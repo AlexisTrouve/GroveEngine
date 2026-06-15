@@ -106,6 +106,19 @@ private:
     // -------------------------------------------------------------------------
     static std::atomic<bool> s_destroyed;
 
+    // -------------------------------------------------------------------------
+    // Live-instance pointer -- non-null ONLY while a manager object is fully
+    // alive (set at the end of the constructor, cleared at the very start of the
+    // destructor). Purpose: let callers act on the singleton WITHOUT forcing it
+    // into existence. getInstance() is a Meyers singleton, so merely *checking*
+    // via getInstance() would CREATE the manager (and spin up its batch thread) —
+    // catastrophic if called during process teardown (e.g. ModuleLoader::unload()
+    // running from ~ModuleLoader at exit). tryGetLiveInstance() returns nullptr
+    // when no manager exists yet or one is being/has been destroyed, so such code
+    // can safely skip instead of resurrecting it.
+    // -------------------------------------------------------------------------
+    static std::atomic<IntraIOManager*> s_liveInstance;
+
 public:
     IntraIOManager();
     ~IntraIOManager();
@@ -137,6 +150,14 @@ public:
     // Use this guard in any code that might call getInstance() during
     // static teardown (e.g. IntraIO::~IntraIO), to avoid use-after-free.
     static bool isDestroyed() { return s_destroyed.load(std::memory_order_acquire); }
+
+    // Returns the live singleton pointer, or nullptr if no manager currently
+    // exists (never created, or already being/finished destroyed). Unlike
+    // getInstance(), this NEVER creates the singleton — safe to call from
+    // teardown paths (see s_liveInstance doc above).
+    static IntraIOManager* tryGetLiveInstance() {
+        return s_liveInstance.load(std::memory_order_acquire);
+    }
 };
 
 } // namespace grove
