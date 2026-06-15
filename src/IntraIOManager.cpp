@@ -286,13 +286,20 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
                 return ppos == pattern.size() && tpos == topic.size();
             };
 
-            for (const auto& pattern : instancePatterns[subscriberId]) {
-                auto it = subscriptionInfoMap.find(pattern);
-                if (it != subscriptionInfoMap.end() && patternMatches(pattern, topic)) {
-                    isLowFreq = it->second.isLowFreq;
-                    matchedPattern = pattern;
-                    logger->debug("  🔍 Pattern '{}' matched topic '{}' → isLowFreq={}", pattern, topic, isLowFreq);
-                    break;
+            // Use .find() (read-only) instead of operator[]: routeMessage is a hot read
+            // path, and operator[] would INSERT an empty vector for any subscriberId not
+            // already present (slow map growth + a mutation on what should be a read-only
+            // lookup). If the id has no patterns, skip — defaults (high-freq) apply.
+            auto patternsIt = instancePatterns.find(subscriberId);
+            if (patternsIt != instancePatterns.end()) {
+                for (const auto& pattern : patternsIt->second) {
+                    auto it = subscriptionInfoMap.find(pattern);
+                    if (it != subscriptionInfoMap.end() && patternMatches(pattern, topic)) {
+                        isLowFreq = it->second.isLowFreq;
+                        matchedPattern = pattern;
+                        logger->debug("  🔍 Pattern '{}' matched topic '{}' → isLowFreq={}", pattern, topic, isLowFreq);
+                        break;
+                    }
                 }
             }
 
