@@ -18,7 +18,12 @@ IntraIO::IntraIO(const std::string& id) : instanceId(id) {
 }
 
 IntraIO::~IntraIO() {
-    std::cout << "[IntraIO] Destroying instance: " << instanceId << std::endl;
+    // NOTE: deliberately NO std::cout / iostream here.
+    // ~IntraIO() can run during static destruction at exit() (the singleton
+    // IntraIOManager destroys its IntraIO instances from _execute_onexit_table).
+    // The std::cout global lives in another translation unit; cross-TU static
+    // destruction order is unspecified, so std::cout may already be destroyed
+    // here -> operator<< on a dead stream = SIGSEGV. Use no I/O in this path.
     // Unregister from manager to prevent dangling pointer access
     // Guard: if the IntraIOManager singleton has already been destroyed
     // (s_destroyed flag set in its destructor), skip removeInstance().
@@ -32,7 +37,7 @@ IntraIO::~IntraIO() {
             // Ignore errors during cleanup - manager might already be destroyed
         }
     }
-    std::cout << "[IntraIO] Destroyed instance: " << instanceId << std::endl;
+    // (see note at top of destructor: no std::cout during static teardown)
 }
 
 void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> message) {
