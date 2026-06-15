@@ -355,10 +355,17 @@ std::regex IntraIO::compileTopicPattern(const std::string& pattern) const {
     // 1. Simple wildcard: "*" → convert to ".*" regex
     // 2. Regex patterns: "player:.*", "test:.*" → use as-is
 
-    // If pattern contains ".*" already, assume it's a regex pattern
-    if (pattern.find(".*") != std::string::npos) {
-        // Already a regex pattern - use as-is
-        return std::regex(pattern);
+    // If the pattern contains ".*", align with how the manager's TopicTree matches it:
+    // ".*" is a TERMINAL multi-segment wildcard (it matches the REST of the topic and
+    // TopicTree drops anything written after it). The old code used the whole pattern
+    // as a raw regex, so a pattern like "a:.*:z" honored the ":z" suffix and
+    // regex_match() FAILED on "a:1:b" — even though TopicTree had ROUTED that topic to
+    // us. The message was then dequeued in pullAndDispatch() without firing any handler:
+    // silently SWALLOWED. Mirror TopicTree by keeping only the literal prefix up to
+    // ".*" and letting ".*" match the rest.
+    size_t multiPos = pattern.find(".*");
+    if (multiPos != std::string::npos) {
+        return std::regex(pattern.substr(0, multiPos) + ".*");
     }
 
     // Otherwise, convert simple wildcards to regex

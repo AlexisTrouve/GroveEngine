@@ -48,6 +48,29 @@ TEST_CASE("IntraIO enforces maxQueueSize on a stalled consumer (backpressure)", 
     mgr.removeInstance("backpressure_test");
 }
 
+TEST_CASE("matcher consistency: a topic routed by the manager is never swallowed", "[iio][routing]") {
+    // The manager's TopicTree treats ".*" as a TERMINAL wildcard (matches the rest of
+    // the topic; any suffix written after ".*" is dropped). So pattern "a:.*:z" routes
+    // ANY "a:..." topic. The IntraIO-side regex used to honor the ":z" suffix, so it
+    // under-matched in pullAndDispatch() and SWALLOWED the routed message (handler never
+    // fired). compileTopicPattern now mirrors TopicTree's terminal-".*". This locks it.
+    auto& mgr = IntraIOManager::getInstance();
+    auto pub = mgr.createInstance("swallow_pub");
+    auto sub = mgr.createInstance("swallow_sub");
+
+    int received = 0;
+    sub->subscribe("a:.*:z", [&](const Message&) { received++; });
+
+    auto d = std::make_unique<JsonDataNode>("d", nlohmann::json{{"v", 1}});
+    pub->publish("a:1:b", std::move(d));  // TopicTree routes this ("a:" + terminal ".*")
+    while (sub->hasMessages() > 0) sub->pullAndDispatch();
+
+    REQUIRE(received == 1);  // pre-fix: 0 — swallowed by the stricter IntraIO regex
+
+    mgr.removeInstance("swallow_pub");
+    mgr.removeInstance("swallow_sub");
+}
+
 TEST_CASE("reload hygiene: clearInstanceSubscriptions stops manager routing", "[iio][reload]") {
     // At hot-reload, ModuleLoader::unload() used to clear ONLY the IntraIO-side handler
     // vectors. The manager (TopicTree) still routed to the instance, so publishes landed
