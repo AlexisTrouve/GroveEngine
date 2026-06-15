@@ -48,4 +48,11 @@ tmpclaude-*
 
 # Local dependency cache (downloaded to avoid git clone freezes)
 deps/
+bimg/
+
+# Tool / agent workspaces
+.melodicode/
+
+# Chaos / stress test scratch outputs
+chaos_*.txt
 
