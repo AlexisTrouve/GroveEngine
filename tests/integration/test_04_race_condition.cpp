@@ -110,6 +110,18 @@ int main() {
                             auto module = moduleSystem->extractModule();
                             auto state = module->getState();
 
+                            // Re-home state into a host-owned JsonDataNode BEFORE the
+                            // old DLL is unloaded. `state` was allocated by the old
+                            // module DLL, so its vtable lives THERE; load(isReload=true)
+                            // below FreeLibrary's that DLL, after which setState()'s
+                            // virtual/RTTI access on *state would dereference an unmapped
+                            // vtable -> SIGSEGV (confirmed: faultPC inside TestModule::
+                            // setState reading state's vtable). Same hazard fixed in
+                            // ModuleLoader::reload(); this manual reload path needs it too.
+                            if (auto* js = dynamic_cast<JsonDataNode*>(state.get())) {
+                                state = std::make_unique<JsonDataNode>("state", js->getJsonData());
+                            }
+
                             // CRITICAL: Destroy old module BEFORE reloading
                             // The loader.load() will unload the old .so
                             module.reset();
