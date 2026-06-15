@@ -496,9 +496,7 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
     m_retainedSprites[renderId] = sprite;
-    spdlog::info("📥 [SceneCollector] Stored SPRITE renderId={}, pos=({:.1f},{:.1f}), scale={}x{}, textureId={}, layer={}, color=({:.2f},{:.2f},{:.2f},{:.2f})",
-        renderId, sprite.x, sprite.y, sprite.scaleX, sprite.scaleY, (int)sprite.textureId, (int)sprite.layer,
-        sprite.r, sprite.g, sprite.b, sprite.a);
+    // (no per-add log: render hot path — same reason as the routing callback.)
 }
 
 void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
@@ -522,11 +520,17 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
     sprite.textureId = static_cast<float>(data.getInt("textureId", static_cast<int>(sprite.textureId)));
     sprite.layer = static_cast<float>(data.getInt("layer", static_cast<int>(sprite.layer)));
 
-    uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
-    sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
-    sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
-    sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
-    sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
+    // Preserve the existing color when the update omits "color" — exactly like x/y/
+    // scale/layer above, which default to the sprite's current value. The old code
+    // defaulted to 0xFFFFFFFF, so a color-less update silently RESET the sprite to
+    // white (a retained-mode bug that no test exercised).
+    if (data.hasProperty("color")) {
+        uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+        sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+        sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+        sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+        sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
+    }
 }
 
 void SceneCollector::parseSpriteRemove(const IDataNode& data) {

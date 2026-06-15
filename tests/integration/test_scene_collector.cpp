@@ -35,6 +35,104 @@ inline std::string uniqueId(const std::string& prefix) {
 }
 
 // ============================================================================
+// Retained-mode sprites (render:sprite:add / :update / :remove) — the persistent,
+// renderId-keyed path. Previously had ZERO test coverage; this validates the contract.
+// ============================================================================
+
+namespace {
+// Minimal harness: a publisher + a collector wired through a real IntraIO instance.
+struct RetainedFixture {
+    std::shared_ptr<IntraIO> ioCollector;
+    std::shared_ptr<IntraIO> ioPublisher;
+    SceneCollector collector;
+    RetainedFixture() {
+        auto& mgr = IntraIOManager::getInstance();
+        ioCollector = mgr.createInstance(uniqueId("rcv"));
+        ioPublisher = mgr.createInstance(uniqueId("pub"));
+        collector.setup(ioCollector.get());
+    }
+    void pump() { collector.collect(ioCollector.get(), 0.016f); }
+};
+} // namespace
+
+TEST_CASE("SceneCollector - retained sprite: add then PERSISTS across frames", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 7);
+    add->setDouble("x", 10.0);
+    add->setDouble("y", 20.0);
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+
+    // Frame 1: sprite present.
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(10.0f, 0.01f));
+    }
+
+    // Frame boundary: ephemeral vectors are cleared, retained must survive.
+    fx.collector.clear();
+
+    // Frame 2: WITHOUT re-publishing, the retained sprite must STILL be there.
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);                       // persistence — the whole point
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(10.0f, 0.01f));
+    }
+}
+
+TEST_CASE("SceneCollector - retained sprite: update preserves unspecified fields", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Add a RED sprite (0xFF0000FF = r=1,g=0,b=0,a=1).
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 3);
+    add->setDouble("x", 10.0);
+    add->setInt("color", static_cast<int>(0xFF0000FF));
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+
+    // Update ONLY x — no color field. Color must be PRESERVED (red), like x/y/scale are.
+    auto upd = std::make_unique<JsonDataNode>("s");
+    upd->setInt("renderId", 3);
+    upd->setDouble("x", 20.0);
+    fx.ioPublisher->publish("render:sprite:update", std::move(upd));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    const auto& s = p.sprites[0];
+    REQUIRE_THAT(s.x, WithinAbs(20.0f, 0.01f));   // updated
+    REQUIRE_THAT(s.r, WithinAbs(1.0f, 0.01f));    // red preserved
+    REQUIRE_THAT(s.g, WithinAbs(0.0f, 0.01f));    // red preserved (bug reset this to white)
+    REQUIRE_THAT(s.b, WithinAbs(0.0f, 0.01f));    // red preserved
+}
+
+TEST_CASE("SceneCollector - retained sprite: remove deletes it", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 5);
+    add->setDouble("x", 10.0);
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).spriteCount == 1);
+
+    fx.collector.clear();
+    auto rem = std::make_unique<JsonDataNode>("s");
+    rem->setInt("renderId", 5);
+    fx.ioPublisher->publish("render:sprite:remove", std::move(rem));
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone
+}
+
+// ============================================================================
 // Sprite Parsing
 // ============================================================================
 
