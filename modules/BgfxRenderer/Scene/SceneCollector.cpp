@@ -12,20 +12,23 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
     io->subscribe("render:.*", [this](const Message& msg) {
         if (!msg.data) return;
 
-        // Route message based on topic
-        // Retained mode (new) - sprites
+        // Route message based on topic.
+        // NB: NO per-message logging here — this callback runs on the render hot path
+        // (once per command, per frame). The previous spdlog::info() calls flooded the
+        // log at 60fps×N sprites and cost formatting/mutex on every frame.
+        //
+        // Retained mode: sprites persist across frames, keyed by renderId
+        // (add/update/remove). For static / long-lived sprites.
         if (msg.topic == "render:sprite:add") {
-            spdlog::info("✅ RETAINED MODE: render:sprite:add received");
             parseSpriteAdd(*msg.data);
         }
         else if (msg.topic == "render:sprite:update") {
-            spdlog::info("✅ RETAINED MODE: render:sprite:update received");
             parseSpriteUpdate(*msg.data);
         }
         else if (msg.topic == "render:sprite:remove") {
             parseSpriteRemove(*msg.data);
         }
-        // Retained mode (new) - text
+        // Retained mode - text
         else if (msg.topic == "render:text:add") {
             parseTextAdd(*msg.data);
         }
@@ -35,9 +38,12 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:text:remove") {
             parseTextRemove(*msg.data);
         }
-        // Ephemeral mode (legacy)
+        // Ephemeral / immediate mode: the sprite is drawn for THIS frame only (the
+        // publisher re-sends it every frame; cleared in clear()). This is a LEGITIMATE,
+        // supported path for dynamic per-frame entities — NOT an error. The old
+        // "should not happen in retained mode" warning was wrong; both modes coexist
+        // and are merged in finalize().
         else if (msg.topic == "render:sprite") {
-            spdlog::info("⚠️ EPHEMERAL MODE: render:sprite received (should not happen in retained mode!)");
             parseSprite(*msg.data);
         }
         else if (msg.topic == "render:sprite:batch") {
