@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
         writeLog(log, "  -> IntraIOManager: OK");
 
         // Test pub/sub
-        testIO->subscribe("test:topic");
+        testIO->subscribe("test:topic", [](const grove::Message&) {});
         auto msg = std::make_unique<grove::JsonDataNode>("msg");
         msg->setString("data", "test");
         testIO->publish("test:topic", std::move(msg));

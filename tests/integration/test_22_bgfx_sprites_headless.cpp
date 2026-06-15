@@ -58,7 +58,7 @@ TEST_CASE("IIO sprite message routing between modules", "[bgfx][integration]") {
     bool firstMessageVerified = false;
 
     // Renderer subscribes to render topics with callback
-    rendererIO->subscribe("render:*", [&](const Message& msg) {
+    rendererIO->subscribe("render:*", [&](const grove::Message& msg) {
         messageCount++;
         if (messageCount == 1) {
             // Verify first message

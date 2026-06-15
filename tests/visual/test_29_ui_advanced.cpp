@@ -79,10 +79,17 @@ int main(int argc, char* argv[]) {
 
     std::cout << "IIO Manager setup complete\n";
 
-    // Subscribe to UI events
-    uiIO->subscribe("ui:click");
-    uiIO->subscribe("ui:hover");
-    uiIO->subscribe("ui:action");
+    // Subscribe to UI events (callback-based dispatch; pull model removed from IIO)
+    uiIO->subscribe("ui:click", [](const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
+    });
+    uiIO->subscribe("ui:hover", [](const grove::Message&) {});
+    uiIO->subscribe("ui:action", [](const grove::Message& msg) {
+        std::string action = msg.data->getString("action", "");
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::cout << "  [UI EVENT] Action: " << action << " (from " << widgetId << ")\n";
+    });
 
     // ========================================
     // Load BgfxRenderer module
@@ -231,19 +238,9 @@ int main(int argc, char* argv[]) {
             running = false;
         }
 
-        // Check for UI events
+        // Check for UI events (callbacks dispatch automatically)
         while (uiIO->hasMessages() > 0) {
-            auto msg = uiIO->pullMessage();
-
-            if (msg.topic == "ui:click") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
-            }
-            else if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::cout << "  [UI EVENT] Action: " << action << " (from " << widgetId << ")\n";
-            }
+            uiIO->pullAndDispatch();
         }
 
         // ========================================

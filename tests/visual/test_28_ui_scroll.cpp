@@ -80,9 +80,14 @@ int main(int argc, char* argv[]) {
 
     std::cout << "IIO Manager setup complete\n";
 
-    // Subscribe to UI events
-    uiIO->subscribe("ui:click");
-    uiIO->subscribe("ui:hover");
+    // Subscribe to UI events (callback-based dispatch; pull model removed from IIO).
+    // The click-logging logic that previously lived in the main-loop pull switch now
+    // lives directly in the ui:click callback so the observable std::cout output is preserved.
+    uiIO->subscribe("ui:click", [](const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
+    });
+    uiIO->subscribe("ui:hover", [](const grove::Message&) {});
 
     // ========================================
     // Load BgfxRenderer module
@@ -240,14 +245,9 @@ int main(int argc, char* argv[]) {
             running = false;
         }
 
-        // Check for UI events
+        // Check for UI events (callbacks dispatch automatically)
         while (uiIO->hasMessages() > 0) {
-            auto msg = uiIO->pullMessage();
-
-            if (msg.topic == "ui:click") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
-            }
+            uiIO->pullAndDispatch();
         }
 
         // ========================================

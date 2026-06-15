@@ -458,13 +458,16 @@ public:
             m_uiModule->setConfiguration(config, m_uiIO, nullptr);
         }
 
-        // Subscribe game to UI events
-        m_gameIO->subscribe("ui:action");
-        m_gameIO->subscribe("ui:click");
-        m_gameIO->subscribe("ui:value_changed");
-        m_gameIO->subscribe("ui:text_changed");
-        m_gameIO->subscribe("ui:text_submit");
-        m_gameIO->subscribe("ui:hover");
+        // Subscribe game to UI events (callback-based dispatch; pull model removed from IIO).
+        // Each branch of the former processUIEvents() switch becomes the callback for its
+        // topic. The shared "build logEntry then addLogEntry()" pattern is preserved inside
+        // each callback so the observable log output is identical to the pull version.
+        m_gameIO->subscribe("ui:action", [this](const grove::Message& msg) { onUiAction(msg); });
+        m_gameIO->subscribe("ui:click", [this](const grove::Message& msg) { onUiClick(msg); });
+        m_gameIO->subscribe("ui:value_changed", [this](const grove::Message& msg) { onUiValueChanged(msg); });
+        m_gameIO->subscribe("ui:text_changed", [](const grove::Message&) {});
+        m_gameIO->subscribe("ui:text_submit", [this](const grove::Message& msg) { onUiTextSubmit(msg); });
+        m_gameIO->subscribe("ui:hover", [this](const grove::Message& msg) { onUiHover(msg); });
 
         m_logger->info("Modules initialized");
         m_logger->info("Controls: Mouse to interact, ESC to exit");
@@ -571,97 +574,121 @@ public:
 
 private:
     void processUIEvents() {
+        // Callbacks registered in init() handle each topic; just drain the queue.
         while (m_gameIO->hasMessages() > 0) {
-            auto msg = m_gameIO->pullMessage();
+            m_gameIO->pullAndDispatch();
+        }
+    }
 
-            std::string logEntry;
+    // ---- UI event handlers (migrated from the former processUIEvents() pull switch) ----
+    // Each handler rebuilds the local logEntry exactly as the switch branch did and routes
+    // it through addLogEntry() when non-empty, preserving identical observable behaviour.
 
-            if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-                std::string widgetId = msg.data->getString("widgetId", "");
-                logEntry = "Action: " + action + " (" + widgetId + ")";
+    void onUiAction(const grove::Message& msg) {
+        std::string action = msg.data->getString("action", "");
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::string logEntry = "Action: " + action + " (" + widgetId + ")";
 
-                // Handle specific actions
-                if (action == "action_primary") {
-                    m_logger->info("Primary button clicked!");
-                }
-                else if (action == "action_danger") {
-                    m_logger->warn("Danger button clicked!");
-                }
-                else if (action == "sprite_car") {
-                    m_logger->info("🚗 Car sprite button clicked! (Texture ID: 1)");
-                }
-                else if (action == "sprite_eyes") {
-                    m_logger->info("👀 Eyes sprite button clicked! (Texture ID: 2)");
-                }
-                else if (action == "sprite_icon") {
-                    m_logger->info("🎨 Icon sprite button clicked! (Texture ID: 3)");
-                }
-            }
-            else if (msg.topic == "ui:click") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                double x = msg.data->getDouble("x", 0);
-                double y = msg.data->getDouble("y", 0);
-                logEntry = "Click: " + widgetId + " at (" +
-                           std::to_string(static_cast<int>(x)) + "," +
-                           std::to_string(static_cast<int>(y)) + ")";
-            }
-            else if (msg.topic == "ui:value_changed") {
-                // Timestamp on receive
-                auto now = std::chrono::high_resolution_clock::now();
-                auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+        // Handle specific actions
+        if (action == "action_primary") {
+            m_logger->info("Primary button clicked!");
+        }
+        else if (action == "action_danger") {
+            m_logger->warn("Danger button clicked!");
+        }
+        else if (action == "sprite_car") {
+            m_logger->info("🚗 Car sprite button clicked! (Texture ID: 1)");
+        }
+        else if (action == "sprite_eyes") {
+            m_logger->info("👀 Eyes sprite button clicked! (Texture ID: 2)");
+        }
+        else if (action == "sprite_icon") {
+            m_logger->info("🎨 Icon sprite button clicked! (Texture ID: 3)");
+        }
 
-                std::string widgetId = msg.data->getString("widgetId", "");
-                if (widgetId == "volume_slider") {
-                    double value = msg.data->getDouble("value", 0);
-                    logEntry = "Volume: " + std::to_string(static_cast<int>(value)) + "%";
+        if (!logEntry.empty()) {
+            addLogEntry(logEntry);
+        }
+    }
 
-                    // Extract original timestamp
-                    double t0 = msg.data->getDouble("_timestamp_publish", 0);
-                    if (t0 > 0) {
-                        double latency = (micros - t0) / 1000.0; // ms
-                        m_logger->info("⏱️ [T1] Game received ui:value_changed at {} µs (latency from T0: {:.2f} ms)", micros, latency);
-                    }
+    void onUiClick(const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        double x = msg.data->getDouble("x", 0);
+        double y = msg.data->getDouble("y", 0);
+        std::string logEntry = "Click: " + widgetId + " at (" +
+                   std::to_string(static_cast<int>(x)) + "," +
+                   std::to_string(static_cast<int>(y)) + ")";
 
-                    // Update the slider label text
-                    auto updateMsg = std::make_unique<JsonDataNode>("set_text");
-                    updateMsg->setString("id", "slider_label");
-                    updateMsg->setString("text", "Volume: " + std::to_string(static_cast<int>(value)) + "%");
+        if (!logEntry.empty()) {
+            addLogEntry(logEntry);
+        }
+    }
 
-                    // Forward original timestamp
-                    if (t0 > 0) {
-                        updateMsg->setDouble("_timestamp_publish", t0);
-                    }
+    void onUiValueChanged(const grove::Message& msg) {
+        // Timestamp on receive
+        auto now = std::chrono::high_resolution_clock::now();
+        auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
 
-                    // Timestamp before publish
-                    auto now2 = std::chrono::high_resolution_clock::now();
-                    auto micros2 = std::chrono::duration_cast<std::chrono::microseconds>(now2.time_since_epoch()).count();
-                    m_logger->info("⏱️ [T2] Game publishing ui:set_text at {} µs (processing time: {:.2f} ms)", micros2, (micros2 - micros) / 1000.0);
+        std::string logEntry;
+        std::string widgetId = msg.data->getString("widgetId", "");
+        if (widgetId == "volume_slider") {
+            double value = msg.data->getDouble("value", 0);
+            logEntry = "Volume: " + std::to_string(static_cast<int>(value)) + "%";
 
-                    m_gameIO->publish("ui:set_text", std::move(updateMsg));
-                }
-                else if (widgetId.find("chk_") == 0) {
-                    bool checked = msg.data->getBool("checked", false);
-                    logEntry = widgetId + " = " + (checked ? "ON" : "OFF");
-                }
-            }
-            else if (msg.topic == "ui:text_submit") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::string text = msg.data->getString("text", "");
-                logEntry = "Submit: " + widgetId + " = \"" + text + "\"";
-            }
-            else if (msg.topic == "ui:hover") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                bool enter = msg.data->getBool("enter", false);
-                if (enter && !widgetId.empty()) {
-                    logEntry = "Hover: " + widgetId;
-                }
+            // Extract original timestamp
+            double t0 = msg.data->getDouble("_timestamp_publish", 0);
+            if (t0 > 0) {
+                double latency = (micros - t0) / 1000.0; // ms
+                m_logger->info("⏱️ [T1] Game received ui:value_changed at {} µs (latency from T0: {:.2f} ms)", micros, latency);
             }
 
-            // Add to log if we have an entry
-            if (!logEntry.empty()) {
-                addLogEntry(logEntry);
+            // Update the slider label text
+            auto updateMsg = std::make_unique<JsonDataNode>("set_text");
+            updateMsg->setString("id", "slider_label");
+            updateMsg->setString("text", "Volume: " + std::to_string(static_cast<int>(value)) + "%");
+
+            // Forward original timestamp
+            if (t0 > 0) {
+                updateMsg->setDouble("_timestamp_publish", t0);
             }
+
+            // Timestamp before publish
+            auto now2 = std::chrono::high_resolution_clock::now();
+            auto micros2 = std::chrono::duration_cast<std::chrono::microseconds>(now2.time_since_epoch()).count();
+            m_logger->info("⏱️ [T2] Game publishing ui:set_text at {} µs (processing time: {:.2f} ms)", micros2, (micros2 - micros) / 1000.0);
+
+            m_gameIO->publish("ui:set_text", std::move(updateMsg));
+        }
+        else if (widgetId.find("chk_") == 0) {
+            bool checked = msg.data->getBool("checked", false);
+            logEntry = widgetId + " = " + (checked ? "ON" : "OFF");
+        }
+
+        if (!logEntry.empty()) {
+            addLogEntry(logEntry);
+        }
+    }
+
+    void onUiTextSubmit(const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::string text = msg.data->getString("text", "");
+        std::string logEntry = "Submit: " + widgetId + " = \"" + text + "\"";
+
+        if (!logEntry.empty()) {
+            addLogEntry(logEntry);
+        }
+    }
+
+    void onUiHover(const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        bool enter = msg.data->getBool("enter", false);
+        std::string logEntry;
+        if (enter && !widgetId.empty()) {
+            logEntry = "Hover: " + widgetId;
+        }
+
+        if (!logEntry.empty()) {
+            addLogEntry(logEntry);
         }
     }
 

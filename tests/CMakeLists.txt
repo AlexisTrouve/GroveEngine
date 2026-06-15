@@ -871,6 +871,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             target_link_libraries(test_21_bgfx_triangle PRIVATE
                 bgfx
                 bx
+                SDL2::SDL2main
                 SDL2::SDL2
             )
         else()
@@ -917,6 +918,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 GroveEngine::impl
                 bgfx
                 bx
+                SDL2::SDL2main
                 SDL2::SDL2
             )
         else()
@@ -945,6 +947,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
         if(SDL2_FOUND)
             target_link_libraries(test_23_bgfx_sprites_visual PRIVATE
                 GroveEngine::impl
+                SDL2::SDL2main
                 SDL2::SDL2
             )
         else()
@@ -972,6 +975,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_24_ui_basic PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -998,6 +1002,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_25_ui_layout PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -1024,6 +1029,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_26_ui_buttons PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -1050,6 +1056,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_28_ui_scroll PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -1076,6 +1083,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_29_ui_advanced PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -1108,6 +1116,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
             if(SDL2_FOUND)
                 target_link_libraries(test_30_input_module PRIVATE
                     GroveEngine::impl
+                    SDL2::SDL2main
                     SDL2::SDL2
                 )
             else()
@@ -1471,6 +1480,7 @@ if(GROVE_BUILD_UI_MODULE AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         target_link_libraries(demo_ui_showcase PRIVATE
             GroveEngine::core
             GroveEngine::impl
+            SDL2::SDL2main
             SDL2::SDL2
         )
     else()

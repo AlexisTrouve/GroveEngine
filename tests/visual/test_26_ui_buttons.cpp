@@ -81,11 +81,11 @@ int main(int argc, char* argv[]) {
     std::cout << "IIO Manager setup complete\n";
 
     // Subscribe to UI events to see button clicks with callbacks
-    uiIO->subscribe("ui:click", [](const Message& msg) {
+    uiIO->subscribe("ui:click", [](const grove::Message& msg) {
         std::string widgetId = msg.data->getString("widgetId", "");
         std::cout << "  [UI EVENT] Click: " << widgetId << "\n";
     });
-    uiIO->subscribe("ui:hover", [](const Message& msg) {
+    uiIO->subscribe("ui:hover", [](const grove::Message& msg) {
         std::string widgetId = msg.data->getString("widgetId", "");
         bool enter = msg.data->getBool("enter", false);
         if (enter && !widgetId.empty()) {
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
     });
     bool running = true;  // Will be captured by callback
 
-    uiIO->subscribe("ui:action", [&running](const Message& msg) {
+    uiIO->subscribe("ui:action", [&running](const grove::Message& msg) {
         std::string action = msg.data->getString("action", "");
         std::string widgetId = msg.data->getString("widgetId", "");
         std::cout << "  [UI EVENT] Action: " << action << " (from " << widgetId << ")\n";

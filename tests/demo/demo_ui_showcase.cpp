@@ -171,15 +171,73 @@ int main(int argc, char* argv[]) {
     uiModule->setConfiguration(uiConfig, uiIO.get(), nullptr);
     eventLog.add("UIModule configured");
 
-    // Subscribe to UI events
-    uiIO->subscribe("ui:click");
-    uiIO->subscribe("ui:action");
-    uiIO->subscribe("ui:value_changed");
-    uiIO->subscribe("ui:text_changed");
-    uiIO->subscribe("ui:text_submit");
-    uiIO->subscribe("ui:hover");
-    uiIO->subscribe("ui:focus_gained");
-    uiIO->subscribe("ui:focus_lost");
+    // Stats (declared before the subscriptions so the event callbacks can capture
+    // them by reference; the pull-model switch used to mutate these inline).
+    int clickCount = 0;
+    int actionCount = 0;
+    int valueChangeCount = 0;
+    int hoverCount = 0;
+
+    // Subscribe to UI events (callback-based dispatch; pull model removed from IIO).
+    // Each branch of the former main-loop pullMessage() switch is migrated into the
+    // callback for its topic, capturing the stats counters and eventLog by reference so
+    // the observable behaviour (console logs + final stats) is preserved exactly.
+    uiIO->subscribe("ui:click", [&](const grove::Message& msg) {
+        clickCount++;
+        std::string widgetId = msg.data->getString("widgetId", "");
+        eventLog.add("🖱️  Click: " + widgetId);
+    });
+    uiIO->subscribe("ui:action", [&](const grove::Message& msg) {
+        actionCount++;
+        std::string action = msg.data->getString("action", "");
+        std::string widgetId = msg.data->getString("widgetId", "");
+        eventLog.add("⚡ Action: " + action + " (" + widgetId + ")");
+
+        // Handle demo actions
+        if (action == "demo:clear_log") {
+            eventLog.clear();
+            eventLog.add("Log cleared");
+        }
+        else if (action == "demo:reset_stats") {
+            clickCount = 0;
+            actionCount = 0;
+            valueChangeCount = 0;
+            hoverCount = 0;
+            eventLog.add("Stats reset");
+        }
+    });
+    uiIO->subscribe("ui:value_changed", [&](const grove::Message& msg) {
+        valueChangeCount++;
+        std::string widgetId = msg.data->getString("widgetId", "");
+
+        if (msg.data->hasChild("value")) {
+            double value = msg.data->getDouble("value", 0.0);
+            eventLog.add("📊 Value: " + widgetId + " = " + std::to_string(static_cast<int>(value)));
+        }
+        else if (msg.data->hasChild("checked")) {
+            bool checked = msg.data->getBool("checked", false);
+            eventLog.add("☑️  Checkbox: " + widgetId + " = " + (checked ? "ON" : "OFF"));
+        }
+    });
+    uiIO->subscribe("ui:text_changed", [&](const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::string text = msg.data->getString("text", "");
+        eventLog.add("✏️  Text: " + widgetId + " = \"" + text + "\"");
+    });
+    uiIO->subscribe("ui:text_submit", [&](const grove::Message& msg) {
+        std::string widgetId = msg.data->getString("widgetId", "");
+        std::string text = msg.data->getString("text", "");
+        eventLog.add("✅ Submit: " + widgetId + " = \"" + text + "\"");
+    });
+    uiIO->subscribe("ui:hover", [&](const grove::Message& msg) {
+        bool enter = msg.data->getBool("enter", false);
+        if (enter) {
+            hoverCount++;
+            // Don't log hover to avoid spam
+        }
+    });
+    uiIO->subscribe("ui:focus_gained", [](const grove::Message&) {});
+    uiIO->subscribe("ui:focus_lost", [](const grove::Message&) {});
 
     eventLog.add("Ready! Interact with widgets below.");
 
@@ -195,12 +253,6 @@ int main(int argc, char* argv[]) {
         std::cout << "✅ Renderer healthy\n";
         eventLog.add("✅ Renderer active");
     }
-
-    // Stats
-    int clickCount = 0;
-    int actionCount = 0;
-    int valueChangeCount = 0;
-    int hoverCount = 0;
 
     // Main loop
     bool running = true;
@@ -261,64 +313,9 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Process UI events
+        // Process UI events (callbacks registered above dispatch automatically)
         while (uiIO->hasMessages() > 0) {
-            auto msg = uiIO->pullMessage();
-
-            if (msg.topic == "ui:click") {
-                clickCount++;
-                std::string widgetId = msg.data->getString("widgetId", "");
-                eventLog.add("🖱️  Click: " + widgetId);
-            }
-            else if (msg.topic == "ui:action") {
-                actionCount++;
-                std::string action = msg.data->getString("action", "");
-                std::string widgetId = msg.data->getString("widgetId", "");
-                eventLog.add("⚡ Action: " + action + " (" + widgetId + ")");
-
-                // Handle demo actions
-                if (action == "demo:clear_log") {
-                    eventLog.clear();
-                    eventLog.add("Log cleared");
-                }
-                else if (action == "demo:reset_stats") {
-                    clickCount = 0;
-                    actionCount = 0;
-                    valueChangeCount = 0;
-                    hoverCount = 0;
-                    eventLog.add("Stats reset");
-                }
-            }
-            else if (msg.topic == "ui:value_changed") {
-                valueChangeCount++;
-                std::string widgetId = msg.data->getString("widgetId", "");
-
-                if (msg.data->hasChild("value")) {
-                    double value = msg.data->getDouble("value", 0.0);
-                    eventLog.add("📊 Value: " + widgetId + " = " + std::to_string(static_cast<int>(value)));
-                }
-                else if (msg.data->hasChild("checked")) {
-                    bool checked = msg.data->getBool("checked", false);
-                    eventLog.add("☑️  Checkbox: " + widgetId + " = " + (checked ? "ON" : "OFF"));
-                }
-            }
-            else if (msg.topic == "ui:text_changed") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::string text = msg.data->getString("text", "");
-                eventLog.add("✏️  Text: " + widgetId + " = \"" + text + "\"");
-            }
-            else if (msg.topic == "ui:text_submit") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-                std::string text = msg.data->getString("text", "");
-                eventLog.add("✅ Submit: " + widgetId + " = \"" + text + "\"");
-            }
-            else if (msg.topic == "ui:hover") {
-                bool enter = msg.data->getBool("enter", false);
-                if (enter) {
-                    hoverCount++;
-                    // Don't log hover to avoid spam
-                }
-            }
+            uiIO->pullAndDispatch();
         }
 
         // Update modules

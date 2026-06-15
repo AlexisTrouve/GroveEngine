@@ -21,7 +21,7 @@
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 #include <grove/JsonDataNode.h>
-#include "modules/InputModule/InputModule.h"
+#include <InputModule/InputModule.h>
 
 #include <iostream>
 #include <iomanip>
@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
     int lastMouseX = -1;
     int lastMouseY = -1;
 
-    testIO->subscribe("input:mouse:move", [&](const Message& msg) {
+    testIO->subscribe("input:mouse:move", [&](const grove::Message& msg) {
         int x = msg.data->getInt("x", 0);
         int y = msg.data->getInt("y", 0);
 
@@ -148,7 +148,7 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    testIO->subscribe("input:mouse:button", [](const Message& msg) {
+    testIO->subscribe("input:mouse:button", [](const grove::Message& msg) {
         int button = msg.data->getInt("button", 0);
         bool pressed = msg.data->getBool("pressed", false);
         int x = msg.data->getInt("x", 0);
@@ -162,13 +162,13 @@ int main(int argc, char* argv[]) {
                   << " at (" << x << ", " << y << ")\n";
     });
 
-    testIO->subscribe("input:mouse:wheel", [](const Message& msg) {
+    testIO->subscribe("input:mouse:wheel", [](const grove::Message& msg) {
         double delta = msg.data->getDouble("delta", 0.0);
         std::cout << "[MOUSE WHEEL] delta=" << delta
                   << " (" << (delta > 0 ? "UP" : "DOWN") << ")\n";
     });
 
-    testIO->subscribe("input:keyboard:key", [](const Message& msg) {
+    testIO->subscribe("input:keyboard:key", [](const grove::Message& msg) {
         int scancode = msg.data->getInt("scancode", 0);
         bool pressed = msg.data->getBool("pressed", false);
         bool repeat = msg.data->getBool("repeat", false);
@@ -193,7 +193,7 @@ int main(int argc, char* argv[]) {
         std::cout << "\n";
     });
 
-    testIO->subscribe("input:keyboard:text", [](const Message& msg) {
+    testIO->subscribe("input:keyboard:text", [](const grove::Message& msg) {
         std::string text = msg.data->getString("text", "");
         std::cout << "[KEYBOARD TEXT] \"" << text << "\"\n";
     });

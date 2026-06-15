@@ -60,11 +60,40 @@ public:
     GameLogic(IIO* io) : m_io(io) {
         m_logger = spdlog::stdout_color_mt("GameLogic");
 
-        // Subscribe to UI events
-        m_io->subscribe("ui:click");
-        m_io->subscribe("ui:action");
-        m_io->subscribe("ui:value_changed");
-        m_io->subscribe("input:keyboard:key");
+        // Subscribe to UI events (callback-based dispatch; pull model removed from IIO).
+        // Each former branch of the update() pull switch is migrated into the callback for
+        // its topic, capturing 'this' so the game-state mutations and logs are preserved.
+        m_io->subscribe("ui:click", [](const grove::Message&) {});
+        m_io->subscribe("ui:action", [this](const grove::Message& msg) {
+            std::string action = msg.data->getString("action", "");
+            m_logger->info("UI Action: {}", action);
+
+            if (action == "spawn_sprite") {
+                spawnSprite();
+            } else if (action == "clear_sprites") {
+                m_sprites.clear();
+                m_logger->info("Cleared all sprites");
+            } else if (action == "toggle_background") {
+                m_darkBackground = !m_darkBackground;
+                m_logger->info("Background: {}", m_darkBackground ? "Dark" : "Light");
+            }
+        });
+        m_io->subscribe("ui:value_changed", [this](const grove::Message& msg) {
+            std::string widgetId = msg.data->getString("widgetId", "");
+
+            if (widgetId == "speed_slider") {
+                m_spawnSpeed = static_cast<float>(msg.data->getDouble("value", 100.0));
+                m_logger->info("Spawn speed: {}", m_spawnSpeed);
+            }
+        });
+        m_io->subscribe("input:keyboard:key", [this](const grove::Message& msg) {
+            int scancode = msg.data->getInt("scancode", 0);
+            bool pressed = msg.data->getBool("pressed", false);
+
+            if (pressed && scancode == SDL_SCANCODE_SPACE) {
+                spawnSprite();
+            }
+        });
     }
 
     void update(float deltaTime) {
@@ -78,40 +107,9 @@ public:
             if (sprite.y < 0 || sprite.y > 720) sprite.vy = -sprite.vy;
         }
 
-        // Process events
+        // Process events (callbacks registered in the constructor dispatch automatically)
         while (m_io->hasMessages() > 0) {
-            auto msg = m_io->pullMessage();
-
-            if (msg.topic == "ui:action") {
-                std::string action = msg.data->getString("action", "");
-                m_logger->info("UI Action: {}", action);
-
-                if (action == "spawn_sprite") {
-                    spawnSprite();
-                } else if (action == "clear_sprites") {
-                    m_sprites.clear();
-                    m_logger->info("Cleared all sprites");
-                } else if (action == "toggle_background") {
-                    m_darkBackground = !m_darkBackground;
-                    m_logger->info("Background: {}", m_darkBackground ? "Dark" : "Light");
-                }
-            }
-            else if (msg.topic == "ui:value_changed") {
-                std::string widgetId = msg.data->getString("widgetId", "");
-
-                if (widgetId == "speed_slider") {
-                    m_spawnSpeed = static_cast<float>(msg.data->getDouble("value", 100.0));
-                    m_logger->info("Spawn speed: {}", m_spawnSpeed);
-                }
-            }
-            else if (msg.topic == "input:keyboard:key") {
-                int scancode = msg.data->getInt("scancode", 0);
-                bool pressed = msg.data->getBool("pressed", false);
-
-                if (pressed && scancode == SDL_SCANCODE_SPACE) {
-                    spawnSprite();
-                }
-            }
+            m_io->pullAndDispatch();
         }
     }
 
