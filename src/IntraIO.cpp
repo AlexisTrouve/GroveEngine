@@ -327,6 +327,12 @@ void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode
     } else {
         messageQueue.push(std::move(msg));
     }
+
+    // BACKPRESSURE: cap the queue here, under operationMutex. Without this call the
+    // queues grew without bound whenever a consumer stalled (the advertised
+    // maxQueueSize / dropping / droppedMessageCount were dead). This is the single
+    // line whose absence made enforceQueueLimits() dead code.
+    enforceQueueLimits();
 }
 
 const std::string& IntraIO::getInstanceId() const {
@@ -408,10 +414,22 @@ void IntraIO::updateHealthMetrics() const {
 }
 
 void IntraIO::enforceQueueLimits() {
+    // Bound the TOTAL queued messages to maxQueueSize. Drop the OLDEST first
+    // (front of queue), draining the high-freq queue before the low-freq one, so a
+    // stalled consumer causes BOUNDED, COUNTED message loss (totalDropped) instead of
+    // unbounded memory growth → OOM. Caller holds operationMutex.
+    // (Previously this drained only messageQueue, leaving lowFreqMessageQueue
+    // unbounded; now both are capped.)
     size_t totalSize = messageQueue.size() + lowFreqMessageQueue.size();
 
-    while (totalSize > maxQueueSize && !messageQueue.empty()) {
-        messageQueue.pop();
+    while (totalSize > maxQueueSize) {
+        if (!messageQueue.empty()) {
+            messageQueue.pop();
+        } else if (!lowFreqMessageQueue.empty()) {
+            lowFreqMessageQueue.pop();
+        } else {
+            break;
+        }
         totalDropped++;
         totalSize--;
     }

@@ -437,9 +437,20 @@ target_link_libraries(test_12_datanode PRIVATE
     GroveEngine::impl
 )
 
+# Backpressure regression test (IIO queue bounding)
+add_executable(test_iio_backpressure
+    integration/test_iio_backpressure.cpp
+)
+target_link_libraries(test_iio_backpressure PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+
 # CTest integration
 grove_add_test(LimitsTest test_07_limits ${CMAKE_CURRENT_BINARY_DIR})
 grove_add_test(DataNodeTest test_12_datanode ${CMAKE_CURRENT_BINARY_DIR})
+grove_add_test(IIOBackpressure test_iio_backpressure ${CMAKE_CURRENT_BINARY_DIR})
 
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
