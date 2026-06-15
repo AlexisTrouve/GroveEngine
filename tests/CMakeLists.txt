@@ -1432,6 +1432,17 @@ if(GROVE_BUILD_BGFX_RENDERER)
     grove_add_test(RHICommandBufferUnit test_rhi_command_buffer ${CMAKE_CURRENT_BINARY_DIR})
     grove_add_test(FrameAllocatorUnit  test_frame_allocator    ${CMAKE_CURRENT_BINARY_DIR})
 
+    add_executable(test_debug_pass
+        unit/test_debug_pass.cpp
+        ../modules/BgfxRenderer/Passes/DebugPass.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+    )
+    target_include_directories(test_debug_pass PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_debug_pass PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(DebugPassUnit test_debug_pass ${CMAKE_CURRENT_BINARY_DIR})
+
     add_executable(test_scene_collector integration/test_scene_collector.cpp ${_GROVE_RHI_HEADLESS_SRCS})
     target_include_directories(test_scene_collector PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer

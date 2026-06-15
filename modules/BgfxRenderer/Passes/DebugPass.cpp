@@ -3,6 +3,7 @@
 #include "../Frame/FramePacket.h"
 #include <vector>
 #include <cstring>
+#include <algorithm>
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -71,12 +72,18 @@ void DebugPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
     // Build vertex data for all debug primitives
     std::vector<DebugVertex> vertices;
 
-    // Reserve space: lines (2 verts each) + rects (8 verts each for wireframe)
-    size_t totalVertices = frame.debugLineCount * 2 + frame.debugRectCount * 8;
-    vertices.reserve(totalVertices);
+    // OVERFLOW GUARD: m_lineVB holds at most MAX_DEBUG_LINES*2 vertices (sized in
+    // setup() assuming all primitives are lines). A rect costs 8 vertices, so a scene
+    // with many rects (collision boxes, HUD bars, shipyard grid) can request far more
+    // than the buffer holds. Without clamping, updateBuffer() below uploads past the
+    // buffer capacity → OOB write / GPU corruption. We stop emitting once the capacity
+    // is reached and warn (no SILENT truncation).
+    const size_t maxVertices = static_cast<size_t>(MAX_DEBUG_LINES) * 2;
+    const size_t requestedVertices = frame.debugLineCount * 2 + frame.debugRectCount * 8;
+    vertices.reserve(std::min(requestedVertices, maxVertices));
 
-    // Add line vertices
-    for (size_t i = 0; i < frame.debugLineCount; ++i) {
+    // Add line vertices (stop before exceeding buffer capacity)
+    for (size_t i = 0; i < frame.debugLineCount && vertices.size() + 2 <= maxVertices; ++i) {
         const DebugLine& line = frame.debugLines[i];
         float r, g, b, a;
         unpackColor(line.color, r, g, b, a);
@@ -87,8 +94,8 @@ void DebugPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         vertices.push_back({line.x2, line.y2, 0.0f, r, g, b, a});
     }
 
-    // Add rect vertices as 4 lines (wireframe)
-    for (size_t i = 0; i < frame.debugRectCount; ++i) {
+    // Add rect vertices as 4 lines (wireframe) (stop before exceeding buffer capacity)
+    for (size_t i = 0; i < frame.debugRectCount && vertices.size() + 8 <= maxVertices; ++i) {
         const DebugRect& rect = frame.debugRects[i];
         float r, g, b, a;
         unpackColor(rect.color, r, g, b, a);
@@ -110,6 +117,12 @@ void DebugPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         // Line 4: left
         vertices.push_back({x1, y2, 0.0f, r, g, b, a});
         vertices.push_back({x1, y1, 0.0f, r, g, b, a});
+    }
+
+    if (requestedVertices > maxVertices) {
+        spdlog::warn("[DebugPass] debug primitives exceed buffer capacity ({} > {} verts) "
+                     "— truncated. Raise MAX_DEBUG_LINES if this is intentional.",
+                     requestedVertices, maxVertices);
     }
 
     if (vertices.empty()) {

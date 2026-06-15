@@ -40,6 +40,11 @@ public:
     std::atomic<int> updateBufferCount{0};
     std::atomic<int> updateTextureCount{0};
 
+    // Largest byte size ever passed to updateBuffer — lets tests assert a pass never
+    // uploads more than the buffer's capacity (overflow detection).
+    std::atomic<uint32_t> lastUpdateBufferSize{0};
+    std::atomic<uint32_t> maxUpdateBufferSize{0};
+
     std::atomic<int> setViewClearCount{0};
     std::atomic<int> setViewRectCount{0};
     std::atomic<int> setViewTransformCount{0};
@@ -134,8 +139,11 @@ public:
         uniformDestroyCount++;
     }
 
-    void updateBuffer(rhi::BufferHandle /*handle*/, const void* /*data*/, uint32_t /*size*/) override {
+    void updateBuffer(rhi::BufferHandle /*handle*/, const void* /*data*/, uint32_t size) override {
         updateBufferCount++;
+        lastUpdateBufferSize.store(size);
+        uint32_t prev = maxUpdateBufferSize.load();
+        while (size > prev && !maxUpdateBufferSize.compare_exchange_weak(prev, size)) {}
     }
 
     void updateTexture(rhi::TextureHandle /*handle*/, const void* /*data*/, uint32_t /*size*/) override {
@@ -187,6 +195,8 @@ public:
         uniformDestroyCount = 0;
         updateBufferCount = 0;
         updateTextureCount = 0;
+        lastUpdateBufferSize = 0;
+        maxUpdateBufferSize = 0;
         setViewClearCount = 0;
         setViewRectCount = 0;
         setViewTransformCount = 0;
