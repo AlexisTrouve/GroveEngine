@@ -26,6 +26,7 @@
 #include <vector>
 #include <random>
 
+#include "../helpers/WindowIcon.h"
 #include "BgfxRendererModule.h"
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
@@ -616,6 +617,9 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         return 1;
     }
+
+    // Default GroveEngine window icon (cross-platform; falls back to SDL's default).
+    grove::test::setWindowIconGrove(window);
 
     RendererShowcase showcase;
     if (!showcase.init(window)) {

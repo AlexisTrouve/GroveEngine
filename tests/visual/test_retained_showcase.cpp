@@ -23,6 +23,7 @@
 #include <cmath>
 #include <memory>
 
+#include "../helpers/WindowIcon.h"
 #include "BgfxRendererModule.h"
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
@@ -177,6 +178,11 @@ int main(int, char**) {
         SDL_Quit();
         return 1;
     }
+
+    // Default GroveEngine window icon (cross-platform; falls back to SDL's default).
+    std::cout << (grove::test::setWindowIconGrove(window)
+                  ? "GroveEngine window icon applied" : "GroveEngine icon not found (default kept)")
+              << std::endl;
 
     RetainedDemo demo;
     if (!demo.init(window)) {
