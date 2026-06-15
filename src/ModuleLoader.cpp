@@ -551,6 +551,12 @@ void ModuleLoader::unload() {
             if (auto ioInstance = manager->getInstance(moduleName)) {
                 ioInstance->clearAllSubscriptions();
             }
+            // Also drop the manager-side routing (TopicTree / instancePatterns) for
+            // this module. clearAllSubscriptions() above only clears the IntraIO-side
+            // handler vectors; without this the manager kept routing to a queue that
+            // the unloaded module no longer drains (lost messages + stale-entry leak
+            // across reloads).
+            manager->clearInstanceSubscriptions(moduleName);
         }
     }
 

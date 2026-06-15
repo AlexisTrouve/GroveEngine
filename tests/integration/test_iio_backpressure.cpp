@@ -48,6 +48,46 @@ TEST_CASE("IntraIO enforces maxQueueSize on a stalled consumer (backpressure)", 
     mgr.removeInstance("backpressure_test");
 }
 
+TEST_CASE("reload hygiene: clearInstanceSubscriptions stops manager routing", "[iio][reload]") {
+    // At hot-reload, ModuleLoader::unload() used to clear ONLY the IntraIO-side handler
+    // vectors. The manager (TopicTree) still routed to the instance, so publishes landed
+    // in a queue nobody drains — phantom delivery + a slow stale-entry leak. The fix adds
+    // IntraIOManager::clearInstanceSubscriptions() to wipe the manager-side routing while
+    // keeping the instance alive for re-subscription. This locks that behavior.
+    auto& mgr = IntraIOManager::getInstance();
+    auto pub = mgr.createInstance("route_pub");
+    auto sub = mgr.createInstance("route_sub");
+
+    int received = 0;
+    sub->subscribe("route:test", [&](const Message&) { received++; });
+
+    auto publishOne = [&](int v) {
+        auto d = std::make_unique<JsonDataNode>("d", nlohmann::json{{"x", v}});
+        pub->publish("route:test", std::move(d));
+    };
+
+    // Baseline: routing works.
+    publishOne(1);
+    while (sub->hasMessages() > 0) sub->pullAndDispatch();
+    REQUIRE(received == 1);
+
+    // Clearing only the IntraIO-side handlers (the old unload behavior) leaves the
+    // manager routing intact → the message is still delivered into sub's queue.
+    sub->clearAllSubscriptions();
+    publishOne(2);
+    INFO("phantom-queued after handler-only clear: " << sub->hasMessages());
+    REQUIRE(sub->hasMessages() > 0);  // demonstrates the phantom routing
+
+    // The fix: also clear manager-side routing. Now publishes do NOT reach the instance.
+    sub->clearAllMessages();
+    mgr.clearInstanceSubscriptions("route_sub");
+    publishOne(3);
+    REQUIRE(sub->hasMessages() == 0);  // no routing after full clear
+
+    mgr.removeInstance("route_pub");
+    mgr.removeInstance("route_sub");
+}
+
 TEST_CASE("IntraIO bounds the low-frequency queue too", "[iio][backpressure]") {
     auto& mgr = IntraIOManager::getInstance();
     auto io = mgr.createInstance("backpressure_lowfreq_test");

@@ -127,6 +127,12 @@ public:
     std::shared_ptr<IntraIO> createInstance(const std::string& instanceId);
     void registerInstance(const std::string& instanceId, std::shared_ptr<IIntraIODelivery> instance);
     void removeInstance(const std::string& instanceId);
+
+    // Drop all routing (TopicTree + per-instance patterns) for an instance WITHOUT
+    // removing the instance itself. Used at hot-reload so a reloaded module's stale
+    // routing is wiped while the instance is kept alive for re-subscription.
+    void clearInstanceSubscriptions(const std::string& instanceId);
+
     std::shared_ptr<IntraIO> getInstance(const std::string& instanceId) const;
 
     // Routing (called by IntraIO instances)

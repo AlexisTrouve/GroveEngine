@@ -2,6 +2,7 @@
 #include <grove/IntraIO.h>
 #include <grove/JsonDataNode.h>
 #include <stdexcept>
+#include <algorithm>
 #include <logger/Logger.h>
 
 namespace grove {
@@ -164,6 +165,52 @@ void IntraIOManager::removeInstance(const std::string& instanceId) {
 
     logger->info("🗑️ Removed IntraIO instance: '{}'", instanceId);
     logger->debug("📊 Remaining instances: {}", instances.size());
+}
+
+void IntraIOManager::clearInstanceSubscriptions(const std::string& instanceId) {
+    // Drop all ROUTING state for an instance WITHOUT removing the instance itself.
+    //
+    // WHY: at hot-reload, ModuleLoader::unload() clears the IntraIO-side subscription
+    // vectors (so dangling std::function handlers don't outlive the DLL), but the
+    // manager-side routing (TopicTree + instancePatterns) still listed the instance.
+    // routeMessage() then kept delivering to a queue nobody drains (the module is
+    // being unloaded) → silently lost messages + a slow leak of stale routing entries
+    // that persisted until process exit. The reloaded module re-subscribes fresh, so
+    // we must wipe the old routing here.
+    //
+    // We KEEP the entry in `instances` (the reloaded module reuses the same IntraIO
+    // instance via setConfiguration; removing it from `instances` would make
+    // routeMessage's instances.find() miss and break delivery after re-subscribe).
+    std::scoped_lock lock(managerMutex, batchMutex);
+
+    topicTree.unregisterSubscriberAll(instanceId);
+
+    auto it = instancePatterns.find(instanceId);
+    if (it != instancePatterns.end()) {
+        // Erase pattern-keyed metadata for this instance's patterns, but only if no
+        // OTHER instance still subscribes the same pattern (subscriptionInfoMap and
+        // batchBuffers are keyed by pattern — see HAZARD-8). Conservative: leave the
+        // pattern entry if it is shared.
+        for (const auto& pattern : it->second) {
+            bool sharedWithOther = false;
+            for (const auto& [otherId, pats] : instancePatterns) {
+                if (otherId == instanceId) continue;
+                if (std::find(pats.begin(), pats.end(), pattern) != pats.end()) {
+                    sharedWithOther = true;
+                    break;
+                }
+            }
+            if (!sharedWithOther) {
+                subscriptionInfoMap.erase(pattern);
+                batchBuffers.erase(pattern);
+            }
+        }
+        instancePatterns.erase(it);
+    }
+
+    if (logger) {
+        logger->debug("🧹 Cleared routing for instance '{}' (instance kept for re-subscribe)", instanceId);
+    }
 }
 
 std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instanceId) const {
