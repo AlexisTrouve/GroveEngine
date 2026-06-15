@@ -48,9 +48,14 @@ TEST_CASE("IT_014: UIModule Full Integration", "[integration][ui][phase7]") {
         std::string gamePath = "./libTestControllerModule.so";
 
 #ifdef _WIN32
-        rendererPath = "../modules/BgfxRenderer.dll";
-        uiPath = "../modules/UIModule.dll";
-        gamePath = "./TestControllerModule.dll";
+        // MinGW prefixes shared libraries with "lib" (libBgfxRenderer.dll), exactly
+        // like the .so names above and like IT_015. The previous non-prefixed names
+        // (BgfxRenderer.dll, …) did not exist on disk, so ModuleLoader fell back to a
+        // direct LoadLibrary of a missing file -> "LoadLibrary error 126" (file not
+        // found, NOT a missing dependency). Keep the "lib" prefix to match the build.
+        rendererPath = "../modules/libBgfxRenderer.dll";
+        uiPath = "../modules/libUIModule.dll";
+        gamePath = "./libTestControllerModule.dll";
 #endif
 
         SECTION("Load BgfxRenderer") {
