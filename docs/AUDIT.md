@@ -16,11 +16,11 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 | — | 🟠 HIGH | 2D | **FrameAllocator** : alignait l'offset, pas l'adresse absolue → `allocate(_,32/64)` rendait du 16-aligné (crash SIMD) | ✅ `fcfcd56` — adresse absolue, locké par `FrameAllocatorUnit` |
 | — | — | Tous | 6 tests (unit RHI + scene_collector) **écrits mais jamais enregistrés** dans ctest → 0 couverture | ✅ `fcfcd56`/`49b1175` — enregistrés (dont `SceneCollectorTest` couvre `debug:rect`/`text`) |
 | 4 | 🟠 HIGH | 2D | Layer/depth pas honoré au submit (depth=0 partout) : ordre = ordre CPU intra-pass, pas le champ `layer` | 🔧 ouvert |
-| 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"` → ne matche pas | 🔧 ouvert |
+| 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"` → ne matche pas | 🔧 ouvert → **regroupé avec le harness E2E UI (Tier 3)** : fix trivial mais non prouvable sans test d'interaction (doctrine : pas de fix UI à l'aveugle) |
 | 6 | 🟠 HIGH | UI | Clics ratés en layout : `absX/absY` (hit-test) pas recalculés après `UILayout` | 🔧 ouvert (candidat rewrite) |
-| 7 | 🟠 HIGH | IIO | 3 matchers de patterns incohérents (regex IntraIO ≠ lambda manager ≠ TopicTree) → mis-routing | 🔧 ouvert |
-| 8 | 🟡 MED | IIO | `unload()` purge les subs côté IntraIO seulement — TopicTree/`instancePatterns` du manager gardent l'instance → routage fantôme + fuite lente au reload | 🔧 ouvert |
-| 9 | 🟡 MED | IIO | `routeMessage` prend `managerMutex` exclusif (defeat shared_mutex) + `instancePatterns[]` insère sur le chemin chaud | 🔧 ouvert |
+| 7 | 🟠 HIGH | IIO | 3 matchers de patterns incohérents (regex IntraIO ≠ lambda manager ≠ TopicTree) → mis-routing / swallow | 🟡 **partiel** `c15d812` — swallow (`.*` terminal) corrigé+locké ; unification complète (single-`*` cross-segment, lambda freq) restante |
+| 8 | 🟡 MED | IIO | `unload()` purge les subs côté IntraIO seulement — routage fantôme + fuite lente au reload | ✅ `f10f050` — `clearInstanceSubscriptions`, locké |
+| 9 | 🟡 MED | IIO | `routeMessage` `managerMutex` exclusif + `instancePatterns[]` insère sur le chemin chaud | 🟡 **partiel** `f205e4c` — `operator[]`→`.find` ; passage `shared_lock` (perf) différé (à valider TSAN) |
 | 10 | 🟠 HIGH | Threaded | BUG D réel : `queryModule` appelle `process()` depuis le thread appelant pendant le worker → data race, juste loggée | 🔧 ouvert (ThreadedModuleSystem à considérer "expérimental/non-safe", pas "Phase 2 Complete") |
 
 ## Verdicts par sous-système
@@ -32,9 +32,9 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 
 ## Roadmap restante
 
-**Tier 2 (correctness)** : #5 topic clavier UI · #7 unifier les matchers (source unique de vérité) · #8 `unload` purge aussi le manager · #9 `routeMessage` en `shared_lock` + `.find`.
+**Tier 2 (correctness)** — ✅ livré : #8 (`unload` purge le manager), #9-partiel (`.find`), #7-partiel (swallow `.*` terminal). Restes : #7 unification complète des matchers (source unique de vérité — single-`*` + lambda freq), #9 `shared_lock` (perf, à valider TSAN). #5 déplacé en Tier 3 (cf. ci-dessous).
 
-**Tier 3 (gros/stratégique)** : harness E2E UI + rework ScrollPanel/layout (#6) · #4 mapper `layer` → clé de tri submit · #10 router `queryModule` via IIO + corriger le statut doc du ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff.
+**Tier 3 (gros/stratégique)** : **harness E2E UI** (débloque #5 clavier + prouve les widgets) + rework ScrollPanel/layout #6 · #4 mapper `layer` → clé de tri submit · #10 router `queryModule` via IIO + corriger le statut doc du ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff · #7 unification matchers + #9 shared_lock (TSAN).
 
 ## Note testabilité (doctrine)
 "Une UI sans test E2E qui clique réellement = non vérifiée." L'UIModule n'a toujours aucun test
