@@ -1616,6 +1616,23 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         spdlog::spdlog
     )
     message(STATUS "BgfxRenderer showcase 'test_renderer_showcase' enabled")
+
+    # Retained-mode demo (render:sprite:add/:update/:remove + render:text:add)
+    add_executable(test_retained_showcase WIN32
+        visual/test_retained_showcase.cpp
+    )
+    target_include_directories(test_retained_showcase PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_retained_showcase PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    message(STATUS "Retained-mode demo 'test_retained_showcase' enabled")
 endif()
 
 # UIModule Complete Showcase - all UI widgets
