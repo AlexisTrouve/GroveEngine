@@ -83,6 +83,14 @@ void reloadSchedulerThread(ModuleLoader& loader, SequentialModuleSystem* moduleS
             // Extract current module and save state
             auto module = moduleSystem->extractModule();
             auto state = module->getState();
+            // Re-home state into a host-owned JsonDataNode BEFORE load() unloads the old
+            // DLL. `state` was allocated by the old module DLL (its vtable lives there);
+            // load(isReload=true) below FreeLibrary's that DLL, after which setState()'s
+            // virtual/RTTI access on *state dereferences an unmapped vtable -> SIGSEGV.
+            // (config just below was already deep-copied this way; state was the straggler.)
+            if (auto* js = dynamic_cast<JsonDataNode*>(state.get())) {
+                state = std::make_unique<JsonDataNode>("state", js->getJsonData());
+            }
             auto config = std::make_unique<JsonDataNode>("config",
                 dynamic_cast<const JsonDataNode&>(module->getConfiguration()).getJsonData());
 

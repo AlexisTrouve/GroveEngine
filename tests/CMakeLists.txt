@@ -355,7 +355,11 @@ target_link_libraries(test_05_memory_leak PRIVATE
 add_dependencies(test_05_memory_leak LeakTestModule)
 
 # CTest integration
-grove_add_test(MemoryLeakHunter test_05_memory_leak ${CMAKE_CURRENT_BINARY_DIR})
+# 240s timeout: the test runs TOTAL_RELOADS=200 cycles at RELOAD_INTERVAL_MS=500
+# (≈100s minimum by design, self-capped at MAX_TEST_TIME_SECONDS=180). The previous
+# default of 90s was always too short — it only "passed" because the test crashed
+# before reaching it; with the dangling-state SIGSEGV fixed the full run surfaces.
+grove_add_test(MemoryLeakHunter test_05_memory_leak ${CMAKE_CURRENT_BINARY_DIR} 240)
 
 # Memory leak profiler (detailed analysis)
 # TODO: Implement profile_memory_leak.cpp
