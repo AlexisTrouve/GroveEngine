@@ -1,5 +1,7 @@
 #include <grove/ModuleLoader.h>
 #include <grove/IModuleSystem.h>
+#include <grove/IntraIOManager.h>
+#include <grove/IntraIO.h>
 #include <grove/platform/FileSystem.h>
 #include <atomic>
 #include <chrono>
@@ -517,6 +519,35 @@ void ModuleLoader::unload() {
     }
 
     logUnloadStart();
+
+    // --- Phase 0.5: tear down IIO callbacks that live in THIS module's DLL ------
+    // QUOI : purger les abonnements (Subscription::handler) de l'instance IntraIO
+    //        qui porte le nom de ce module, AVANT de démapper sa DLL.
+    //
+    // POURQUOI : un module enregistre ses abonnements via une lambda compilée DANS
+    //        sa propre DLL ; le std::function qui l'enveloppe garde un pointeur
+    //        interne (manager/invoker) vers du code de cette DLL. Le singleton
+    //        IntraIOManager garde l'instance IntraIO du module vivante jusqu'à la
+    //        destruction statique (exit()). Si on FreeLibrary/dlclose plus bas SANS
+    //        détruire ces std::function d'abord, c'est ~IntraIOManager → ~IntraIO
+    //        qui les détruit à exit() — DLL déjà démappée → l'invoker saute dans du
+    //        code libéré → SIGSEGV. Prouvé au gdb sur IT_015 :
+    //        "#0 ?? () ← ~IntraIO ← ~IntraIOManager", adresse #0 dans une DLL
+    //        absente de la liste des modules chargés.
+    //
+    // COMMENT : tant que la DLL est encore mappée (avant FreeLibrary), on récupère
+    //        l'instance IntraIO dont l'id == moduleName (convention du codebase :
+    //        un module ↔ une instance IIO homonyme) et on vide ses subscriptions.
+    //        Détruire les std::function ici exécute leur manager-pointer alors qu'il
+    //        est encore valide. isDestroyed() protège le cas rare où unload() tourne
+    //        pendant la destruction statique (singleton déjà parti) ; getInstance()
+    //        nul (aucune instance homonyme) → rien à faire. Couvre aussi le reload :
+    //        reload() appelle unload() avant FreeLibrary de l'ancienne DLL.
+    if (!moduleName.empty() && !IntraIOManager::isDestroyed()) {
+        if (auto ioInstance = IntraIOManager::getInstance().getInstance(moduleName)) {
+            ioInstance->clearAllSubscriptions();
+        }
+    }
 
     // --- Phase 1: release the library handle -----------------------------------
 #ifdef _WIN32
