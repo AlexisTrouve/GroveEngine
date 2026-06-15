@@ -132,6 +132,57 @@ TEST_CASE("SceneCollector - retained sprite: remove deletes it", "[scene_collect
     REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone
 }
 
+TEST_CASE("SceneCollector - retained text: add + persist + update + remove", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Add: id=1, "Hello", red.
+    auto add = std::make_unique<JsonDataNode>("t");
+    add->setInt("renderId", 1);
+    add->setDouble("x", 5.0);
+    add->setString("text", "Hello");
+    add->setInt("color", static_cast<int>(0xFF0000FFu));
+    fx.ioPublisher->publish("render:text:add", std::move(add));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(p.texts[0].text != nullptr);
+        REQUIRE(std::string(p.texts[0].text) == "Hello");
+        REQUIRE_THAT(p.texts[0].x, WithinAbs(5.0f, 0.01f));
+    }
+
+    // Persist across a frame boundary (string must stay valid + correct).
+    fx.collector.clear();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(std::string(p.texts[0].text) == "Hello");
+    }
+
+    // Update x only — text content and color must be preserved.
+    auto upd = std::make_unique<JsonDataNode>("t");
+    upd->setInt("renderId", 1);
+    upd->setDouble("x", 50.0);
+    fx.ioPublisher->publish("render:text:update", std::move(upd));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE_THAT(p.texts[0].x, WithinAbs(50.0f, 0.01f));         // updated
+        REQUIRE(std::string(p.texts[0].text) == "Hello");           // text preserved
+        REQUIRE(p.texts[0].color == 0xFF0000FFu);                   // color preserved
+    }
+
+    // Remove.
+    fx.collector.clear();
+    auto rem = std::make_unique<JsonDataNode>("t");
+    rem->setInt("renderId", 1);
+    fx.ioPublisher->publish("render:text:remove", std::move(rem));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).textCount == 0);
+}
+
 // ============================================================================
 // Sprite Parsing
 // ============================================================================
