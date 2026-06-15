@@ -75,7 +75,12 @@ size_t TestMetrics::getMemoryFinal() const {
 
 size_t TestMetrics::getMemoryGrowth() const {
     if (memoryValues.empty()) return 0;
-    return memoryValues.back() - initialMemory;
+    // Guard against unsigned underflow: process memory legitimately SHRINKS between
+    // samples (the OS reclaims pages, the reload frees the old DLL). If final memory
+    // is below the initial sample, growth is 0 — not a ~2^64 wraparound that would
+    // spuriously fail "memory growth < 5MB" (observed: 1.7e13 MB on a shrink).
+    const size_t finalMemory = memoryValues.back();
+    return finalMemory > initialMemory ? finalMemory - initialMemory : 0;
 }
 
 size_t TestMetrics::getMemoryPeak() const {

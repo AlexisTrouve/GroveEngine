@@ -102,6 +102,12 @@ int main() {
     // Ré-enregistrer le module temporairement
     moduleSystem->registerModule("TankModule", std::move(tankModule));
 
+    // DIAG/FIX: libérer le state pré-reload AVANT de décharger sa DLL d'origine.
+    // preReloadState est un JsonDataNode créé par le module INITIAL ; le reload ci-
+    // dessous décharge cette DLL. Le garder vivant jusqu'à la fin de main ferait
+    // tourner ~JsonDataNode sur une vtable potentiellement démappée.
+    preReloadState.reset();
+
     // === HOT-RELOAD ===
     std::cout << "Triggering hot-reload...\n";
 
@@ -113,9 +119,16 @@ int main() {
     std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     input.close();
 
-    size_t pos = content.find("std::string moduleVersion = \"v1.0\";");
+    // POURQUOI une variable + .length() au lieu du nombre magique 39 :
+    // l'ancien code faisait replace(pos, 39, …) alors que la chaîne cherchée fait
+    // 35 caractères. Les 4 caractères en trop étaient mangés APRÈS le ';' (le '\n'
+    // + le début de la ligne suivante " // Module logging"), fusionnant les lignes
+    // 35-36 → 'logger not declared' → "Compilation failed". En réutilisant
+    // oldVersion.length() la longueur remplacée est toujours exacte.
+    const std::string oldVersion = "std::string moduleVersion = \"v1.0\";";
+    size_t pos = content.find(oldVersion);
     if (pos != std::string::npos) {
-        content.replace(pos, 39, "std::string moduleVersion = \"v2.0 HOT-RELOADED\";");
+        content.replace(pos, oldVersion.length(), "std::string moduleVersion = \"v2.0 HOT-RELOADED\";");
     }
 
     std::ofstream output("../../tests/modules/TankModule.h");
@@ -266,9 +279,12 @@ int main() {
     std::string contentRestore((std::istreambuf_iterator<char>(inputRestore)), std::istreambuf_iterator<char>());
     inputRestore.close();
 
-    pos = contentRestore.find("std::string moduleVersion = \"v2.0 HOT-RELOADED\";");
+    // Même correctif qu'à l'aller : la chaîne v2.0 fait 48 caractères, l'ancien
+    // replace(pos, 50, …) en mangeait 2 de trop. On réutilise hotVersion.length().
+    const std::string hotVersion = "std::string moduleVersion = \"v2.0 HOT-RELOADED\";";
+    pos = contentRestore.find(hotVersion);
     if (pos != std::string::npos) {
-        contentRestore.replace(pos, 50, "std::string moduleVersion = \"v1.0\";");
+        contentRestore.replace(pos, hotVersion.length(), "std::string moduleVersion = \"v1.0\";");
     }
 
     std::ofstream outputRestore("../../tests/modules/TankModule.h");
