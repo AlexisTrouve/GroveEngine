@@ -18,6 +18,7 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 | 4 | 🟠 HIGH | 2D | Layer/depth pas honoré au submit (depth=0 partout) : ordre = ordre CPU intra-pass, pas le champ `layer` | 🔧 ouvert |
 | 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"`/`:text` → ne matche pas | 🟡 **partiel** `2f5234d` — chemin **texte** corrigé (subscribe `input:keyboard:text`) + locké par E2E `UIClickAssert` ; touches spéciales (mapping scancode→keycode) + UTF-8 (C2) restants |
 | 6 | 🟠 HIGH | UI | Clics ratés en layout : `absX/absY` (hit-test) pas recalculés après `UILayout` | 🔧 ouvert (candidat rewrite) |
+| H2 | 🟠 HIGH | UI | Slider : `ui:value_changed` émis seulement aux fronts press/release → aucun feedback live pendant le drag ; pire, release hors `containsPoint` (bord droit) → valeur finale perdue | ✅ `<pending>` — émission centralisée post-`update()` (par id, NaN-grab), locké par `UIWidgetsE2E` |
 | 7 | 🟠 HIGH | IIO | 3 matchers de patterns incohérents (regex IntraIO ≠ lambda manager ≠ TopicTree) → mis-routing / swallow | 🟡 **partiel** `c15d812` — swallow (`.*` terminal) corrigé+locké ; unification complète (single-`*` cross-segment, lambda freq) restante |
 | 8 | 🟡 MED | IIO | `unload()` purge les subs côté IntraIO seulement — routage fantôme + fuite lente au reload | ✅ `f10f050` — `clearInstanceSubscriptions`, locké |
 | 9 | 🟡 MED | IIO | `routeMessage` `managerMutex` exclusif + `instancePatterns[]` insère sur le chemin chaud | 🟡 **partiel** `f205e4c` — `operator[]`→`.find` ; passage `shared_lock` (perf) différé (à valider TSAN) |
@@ -27,18 +28,19 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 
 - **Eventbus (IIO)** : 🟡 pub/sub/fan-out/patterns OK et testés ; **backpressure réparée** (#2) ; restent matchers incohérents (#7), routage fantôme au reload (#8), lock exclusif (#9).
 - **2D renderer** : 🟡 double-free (#1) + overflow (#3) + alignement réparés et **lockés par tests headless** ; reste l'ordre layer/depth (#4). `executeCommandBuffer` (couche bgfx réelle) et la correction **pixel** restent non testés (pas de screenshot-diff).
-- **UI (UIModule)** : 🔴 toujours "n'existe pas" — clavier cassé (#5), hit-test cassé en layout (#6), ScrollPanel cassé, **zéro E2E**. Harness E2E faisable (input via IIO, events observables) ; ScrollPanel + couplage layout/absX = **rewrite**, pas retrofit.
+- **UI (UIModule)** : 🟡 sort du "n'existe pas" — **E2E réels** désormais : bouton (clic + miss), textinput (saisie), **checkbox** (toggle + sens), **slider** (clic + drag live). #5-texte corrigé, **H2 corrigé** (drag émet en live). Restent : hit-test cassé en layout (#6, candidat rewrite), ScrollPanel, touches spéciales (mapping scancode), rendu **pixel** non asserté.
 - **Reload ceiling (~70-100 reloads/process)** : **architectural** (tables d'exception DW2/SJLJ + fragmentation adressage ; les orphan DLLs, eux, sont bien gérés). Non réparable chirurgicalement — nécessite host out-of-process ou stratégie no-unload.
 
 ## Roadmap restante
 
 **Tier 2 (correctness)** — ✅ livré : #8 (`unload` purge le manager), #9-partiel (`.find`), #7-partiel (swallow `.*` terminal). Restes : #7 unification complète des matchers (source unique de vérité — single-`*` + lambda freq), #9 `shared_lock` (perf, à valider TSAN). #5 déplacé en Tier 3 (cf. ci-dessous).
 
-**Tier 3 (gros/stratégique)** : ✅ **harness E2E UI amorcé** (`IT_016/UIClickAssert` — clic bouton + saisie textinput prouvés ; #5-texte corrigé). Restes : autres widgets (checkbox toggle, slider — cf. audit H2 drag cassé), rework ScrollPanel/layout #6 + mapping scancode des touches spéciales (#5 suite) · #4 `layer`→clé de tri submit · #10 `queryModule` via IIO + statut doc ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff · #7 unification matchers + #9 shared_lock (TSAN).
+**Tier 3 (gros/stratégique)** : ✅ **harness E2E UI étendu** (`IT_016/UIClickAssert` : clic bouton + saisie textinput ; `IT_017/UIWidgetsE2E` : checkbox toggle + slider clic + **slider drag live**, qui a verrouillé **H2**). #5-texte + H2 corrigés. Restes : rework ScrollPanel/layout #6 + mapping scancode des touches spéciales (#5 suite) · #4 `layer`→clé de tri submit · #10 `queryModule` via IIO + statut doc ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff · #7 unification matchers + #9 shared_lock (TSAN).
 
 ## Note testabilité (doctrine)
-**Harness E2E UI établi** (`IT_016`) : inject input via IIO → assert events `ui:*`, headless,
-sans fenêtre. Couvre désormais : clic bouton (`ui:click`/`ui:action`) + saisie textinput
-(`ui:text_changed`). Restent non prouvés : checkbox/slider/scroll, touches spéciales, et le
-**rendu pixel** (le renderer n'asserte aucun pixel — seuls les commandes/packets le sont, y
-compris `debug:rect`/`text`).
+**Harness E2E UI établi** (`IT_016` + `IT_017`) : inject input via IIO → assert events `ui:*`,
+headless, sans fenêtre. Couvre désormais : clic bouton (`ui:click`/`ui:action`), saisie textinput
+(`ui:text_changed`), checkbox toggle (`ui:value_changed{checked}`, sens vérifié), slider clic +
+**drag live** (`ui:value_changed{value}` à chaque frame du drag). Restent non prouvés : scroll,
+touches spéciales, et le **rendu pixel** (le renderer n'asserte aucun pixel — seuls les
+commandes/packets le sont, y compris `debug:rect`/`text`).
