@@ -1518,6 +1518,18 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIClickAssert IT_016_ui_click_assert ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_017: checkbox toggle + slider click/drag E2E (extends the IT_016 harness).
+    add_executable(IT_017_ui_widgets_e2e
+        integration/IT_017_ui_widgets_e2e.cpp
+    )
+    target_link_libraries(IT_017_ui_widgets_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIWidgetsE2E IT_017_ui_widgets_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)

@@ -1,0 +1,24 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "slider",
+      "id": "sld_volume",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 30,
+      "min": 0,
+      "max": 100,
+      "value": 0,
+      "horizontal": true,
+      "style": { "handleSize": 16 }
+    }
+  ]
+}

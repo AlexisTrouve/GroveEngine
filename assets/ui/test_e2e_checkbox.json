@@ -1,0 +1,23 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "checkbox",
+      "id": "cb_agree",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 40,
+      "text": "I agree",
+      "checked": false,
+      "onChange": "test:agree",
+      "style": { "boxSize": 24, "fontSize": 16 }
+    }
+  ]
+}

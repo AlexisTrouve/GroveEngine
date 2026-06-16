@@ -16,6 +16,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <chrono>
 #include <fstream>
+#include <limits>
 #include <nlohmann/json.hpp>
 
 // Forward declarations for hit testing functions in UIContext.cpp
@@ -309,29 +310,19 @@ void UIModule::updateUI(float deltaTime) {
                 }
             }
             else if (widgetType == "slider") {
-                // Publish value_changed event for slider
-                UISlider* slider = static_cast<UISlider*>(clickedWidget);
-                auto valueEvent = std::make_unique<JsonDataNode>("value");
-                valueEvent->setString("widgetId", slider->id);
-                valueEvent->setDouble("value", slider->getValue());
-                valueEvent->setDouble("min", slider->minValue);
-                valueEvent->setDouble("max", slider->maxValue);
-
-                // Add timestamp for latency measurement
-                auto now = std::chrono::high_resolution_clock::now();
-                auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-                valueEvent->setDouble("_timestamp_publish", static_cast<double>(micros));
-
-                m_logger->info("⏱️ [T0] UIModule publishing ui:value_changed at {} µs", micros);
-                m_io->publish("ui:value_changed", std::move(valueEvent));
-
-                // Publish onChange action if specified
-                if (!slider->onChange.empty()) {
-                    auto actionEvent = std::make_unique<JsonDataNode>("action");
-                    actionEvent->setString("action", slider->onChange);
-                    actionEvent->setString("widgetId", slider->id);
-                    actionEvent->setDouble("value", slider->getValue());
-                    m_io->publish("ui:action", std::move(actionEvent));
+                // QUOI : on n'émet PAS ui:value_changed ici — on marque seulement le
+                //   début du drag sur le front "press".
+                // POURQUOI : émettre uniquement dans cette branche (fronts press/release)
+                //   ratait toutes les valeurs intermédiaires du drag, et même la valeur
+                //   finale quand le release tombait hors containsPoint (audit H2).
+                //   L'émission est désormais centralisée après le pass update() (voir
+                //   plus bas), donc elle couvre aussi chaque frame de drag-move.
+                // COMMENT : on retient l'id ; m_lastDragValue = NaN force l'émission de
+                //   la valeur initiale au premier passage post-update.
+                if (m_context->mousePressed) {
+                    UISlider* slider = static_cast<UISlider*>(clickedWidget);
+                    m_draggingSliderId = slider->id;
+                    m_lastDragValue = std::numeric_limits<float>::quiet_NaN();
                 }
             }
             else if (widgetType == "checkbox") {
@@ -402,6 +393,50 @@ void UIModule::updateUI(float deltaTime) {
 
     // Update all widgets
     m_root->update(*m_context, deltaTime);
+
+    // --- Live slider value emission (audit H2) ---
+    // QUOI : si un slider est en cours de drag, émettre ui:value_changed (+ l'action
+    //   onChange éventuelle) à chaque frame où sa valeur a changé.
+    // POURQUOI : la valeur est modifiée dans UISlider::update() (drag-move), hors de la
+    //   branche dispatch souris qui ne tourne qu'aux fronts press/release. Sans ce bloc,
+    //   un drag ne produit aucun event entre le grab et le release → pas de feedback live.
+    // COMMENT : on relit le slider par id (robuste à un reload de layout) ; on compare à
+    //   la dernière valeur publiée (NaN au grab ⇒ 1re émission garantie, NaN != tout) ;
+    //   on publie, puis on libère le drag dès que la souris n'est plus enfoncée.
+    if (!m_draggingSliderId.empty() && m_io) {
+        UIWidget* w = m_root->findById(m_draggingSliderId);
+        if (w && w->getType() == "slider") {
+            UISlider* slider = static_cast<UISlider*>(w);
+            float v = slider->getValue();
+            // NaN-safe : au grab m_lastDragValue vaut NaN, donc (v == NaN) est faux et
+            // on émet la valeur initiale ; ensuite on n'émet que sur changement réel.
+            if (!(v == m_lastDragValue)) {
+                auto valueEvent = std::make_unique<JsonDataNode>("value");
+                valueEvent->setString("widgetId", slider->id);
+                valueEvent->setDouble("value", v);
+                valueEvent->setDouble("min", slider->minValue);
+                valueEvent->setDouble("max", slider->maxValue);
+                m_io->publish("ui:value_changed", std::move(valueEvent));
+
+                // Action sémantique optionnelle (onChange) — suit la valeur en live.
+                if (!slider->onChange.empty()) {
+                    auto actionEvent = std::make_unique<JsonDataNode>("action");
+                    actionEvent->setString("action", slider->onChange);
+                    actionEvent->setString("widgetId", slider->id);
+                    actionEvent->setDouble("value", v);
+                    m_io->publish("ui:action", std::move(actionEvent));
+                }
+                m_lastDragValue = v;
+            }
+        } else {
+            // Le slider a disparu (reload / changement de layout) → on arrête le suivi.
+            m_draggingSliderId.clear();
+        }
+        // Fin du drag : la souris a été relâchée (mouseDown repasse à false au release).
+        if (!m_context->mouseDown) {
+            m_draggingSliderId.clear();
+        }
+    }
 
     // Update tooltips
     if (m_tooltipManager) {

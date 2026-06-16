@@ -56,6 +56,21 @@ private:
     // Stats
     uint64_t m_frameCount = 0;
 
+    // --- Live slider drag tracking (audit H2) ---
+    // QUOI : id du slider actuellement "saisi" (drag en cours) + dernière valeur
+    //   qu'on a publiée pour lui.
+    // POURQUOI : avant, ui:value_changed n'était émis que dans la branche dispatch
+    //   souris (fronts press/release). Pendant un drag (souris tenue + déplacée, sans
+    //   front bouton), UISlider::update() modifie la valeur SANS qu'aucun event ne
+    //   parte → aucun feedback live (volume, luminosité…). Cf. audit H2. Pire : le
+    //   release tombait souvent hors containsPoint (bord droit, strict <) → même la
+    //   valeur finale était perdue.
+    // COMMENT : on retient l'id (pas un pointeur brut — survit à un reload de layout) ;
+    //   au grab on met m_lastDragValue = NaN pour forcer l'émission de la valeur
+    //   initiale ; chaque frame, après update(), on republie si la valeur a changé.
+    std::string m_draggingSliderId;
+    float m_lastDragValue = 0.0f;
+
     // Load layout from file path
     bool loadLayout(const std::string& layoutPath);
 
