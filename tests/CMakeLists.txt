@@ -1481,6 +1481,25 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_camera PRIVATE Catch2::Catch2WithMain)
     grove_add_test(CameraUnit test_camera ${CMAKE_CURRENT_BINARY_DIR})
+
+    # HUD overlay view routing: SpritePass/TextPass must submit HUD buckets to bgfx view 1,
+    # world buckets to view 0. No GPU (MockRHIDevice), but SpritePass references
+    # ResourceCache::getTextureById -> link ResourceCache + TextureLoader (stb_image header).
+    add_executable(test_hud_view
+        unit/test_hud_view.cpp
+        ../modules/BgfxRenderer/Passes/SpritePass.cpp
+        ../modules/BgfxRenderer/Passes/TextPass.cpp
+        ../modules/BgfxRenderer/Text/BitmapFont.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+        ../modules/BgfxRenderer/Resources/ResourceCache.cpp
+        ../modules/BgfxRenderer/Resources/TextureLoader.cpp
+    )
+    target_include_directories(test_hud_view PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${bgfx_SOURCE_DIR}/bimg/3rdparty)   # stb_image.h for TextureLoader
+    target_link_libraries(test_hud_view PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(HudViewUnit test_hud_view ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

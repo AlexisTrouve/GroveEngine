@@ -8,6 +8,39 @@
 
 namespace grove {
 
+// QUOI : construit une vue orthographique screen-space (1px = 1 unité monde, origine
+//   haut-gauche), zoom 1, sans translation.
+// POURQUOI : c'est la vue du HUD (et la vue monde par défaut avant toute caméra). Le HUD
+//   doit rester fixe quand le monde zoome → sa projection ne dépend QUE du viewport, jamais
+//   du zoom/pan de render:camera. Même matrice que initDefaultView, factorisée pour servir
+//   m_mainView (défaut) ET m_hudView.
+// COMMENT : view = identité ; proj ortho mappant (0,0)-(w,h) vers (-1,-1)-(1,1) avec Y-flip.
+static void buildScreenSpaceView(ViewInfo& v, uint16_t width, uint16_t height) {
+    v.positionX = 0.0f;
+    v.positionY = 0.0f;
+    v.zoom = 1.0f;
+    v.viewportX = 0;
+    v.viewportY = 0;
+    v.viewportW = width;
+    v.viewportH = height;
+
+    for (int i = 0; i < 16; ++i) v.viewMatrix[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+
+    std::memset(v.projMatrix, 0, sizeof(v.projMatrix));
+    v.projMatrix[0] = 2.0f / width;
+    v.projMatrix[5] = -2.0f / height;  // Y-flip for top-left origin
+    v.projMatrix[10] = 1.0f;
+    v.projMatrix[12] = -1.0f;
+    v.projMatrix[13] = 1.0f;
+    v.projMatrix[15] = 1.0f;
+}
+
+// Un render:* est-il destiné au HUD (espace écran, fixe) plutôt qu'au monde (zoomable) ?
+// Opt-in explicite via le champ "space":"screen" ; tout le reste reste monde par défaut.
+static bool isScreenSpace(const IDataNode& data) {
+    return data.getString("space", "") == "screen";
+}
+
 void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
     // Subscribe to all render topics with callback handler
     io->subscribe("render:.*", [this](const Message& msg) {
@@ -249,6 +282,50 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.debugRectCount = 0;
     }
 
+    // HUD sprites (screen-space). Ephemeral only (no retained HUD bucket). Same per-layer
+    // stable_sort as the world bucket so HUD z-order is deterministic too.
+    if (!m_hudSprites.empty()) {
+        SpriteInstance* hud = allocator.allocateArray<SpriteInstance>(m_hudSprites.size());
+        if (hud) {
+            std::memcpy(hud, m_hudSprites.data(), m_hudSprites.size() * sizeof(SpriteInstance));
+            std::stable_sort(hud, hud + m_hudSprites.size(),
+                [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
+            packet.hudSprites = hud;
+            packet.hudSpriteCount = m_hudSprites.size();
+        }
+    } else {
+        packet.hudSprites = nullptr;
+        packet.hudSpriteCount = 0;
+    }
+
+    // HUD texts (screen-space). Pair each command with its string by index (same as the
+    // ephemeral world-text path), then stable_sort by layer.
+    if (!m_hudTexts.empty()) {
+        TextCommand* hud = allocator.allocateArray<TextCommand>(m_hudTexts.size());
+        if (hud) {
+            for (size_t i = 0; i < m_hudTexts.size(); ++i) {
+                hud[i] = m_hudTexts[i];
+                if (i < m_hudTextStrings.size() && !m_hudTextStrings[i].empty()) {
+                    const std::string& str = m_hudTextStrings[i];
+                    char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
+                    if (textCopy) {
+                        std::memcpy(textCopy, str.c_str(), str.size() + 1);
+                        hud[i].text = textCopy;
+                    }
+                }
+            }
+            std::stable_sort(hud, hud + m_hudTexts.size(),
+                [](const TextCommand& a, const TextCommand& b) { return a.layer < b.layer; });
+            packet.hudTexts = hud;
+            packet.hudTextCount = m_hudTexts.size();
+        }
+    } else {
+        packet.hudTexts = nullptr;
+        packet.hudTextCount = 0;
+    }
+
+    packet.hudView = m_hudView;
+
     return packet;
 }
 
@@ -261,6 +338,9 @@ void SceneCollector::clear() {
     m_particles.clear();
     m_debugLines.clear();
     m_debugRects.clear();
+    m_hudSprites.clear();
+    m_hudTexts.clear();
+    m_hudTextStrings.clear();
 }
 
 // ============================================================================
@@ -297,7 +377,8 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
     sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
-    m_sprites.push_back(sprite);
+    // Route to the HUD bucket if screen-space, else the world bucket (default).
+    (isScreenSpace(data) ? m_hudSprites : m_sprites).push_back(sprite);
 }
 
 void SceneCollector::parseRect(const IDataNode& data) {
@@ -334,7 +415,8 @@ void SceneCollector::parseRect(const IDataNode& data) {
     sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
     sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
-    m_sprites.push_back(sprite);
+    // HUD rect (space:"screen") → fixed overlay bucket; else world (zoomable). Cf. vue HUD.
+    (isScreenSpace(data) ? m_hudSprites : m_sprites).push_back(sprite);
 }
 
 void SceneCollector::parseSpriteBatch(const IDataNode& data) {
@@ -412,10 +494,17 @@ void SceneCollector::parseText(const IDataNode& data) {
 
     // Store text string - pointer will be fixed up in finalize()
     std::string textStr = data.getString("text", "");
-    m_textStrings.push_back(std::move(textStr));
     text.text = nullptr;  // Will be set in finalize()
 
-    m_texts.push_back(text);
+    // HUD text (space:"screen") goes to the fixed overlay bucket; the string and the command
+    // must stay index-aligned in their respective vectors (finalize pairs them by index).
+    if (isScreenSpace(data)) {
+        m_hudTextStrings.push_back(std::move(textStr));
+        m_hudTexts.push_back(text);
+    } else {
+        m_textStrings.push_back(std::move(textStr));
+        m_texts.push_back(text);
+    }
 }
 
 void SceneCollector::parseParticle(const IDataNode& data) {
@@ -461,6 +550,10 @@ void SceneCollector::parseCamera(const IDataNode& data) {
     m_mainView.projMatrix[12] = -1.0f;
     m_mainView.projMatrix[13] = 1.0f;
     m_mainView.projMatrix[15] = 1.0f;
+
+    // Keep the HUD overlay spanning the live viewport, but NEVER inherit the camera's zoom or
+    // pan — that invariance is the whole point of the screen-space view.
+    buildScreenSpaceView(m_hudView, m_mainView.viewportW, m_mainView.viewportH);
 }
 
 void SceneCollector::parseClear(const IDataNode& data) {
@@ -496,28 +589,11 @@ void SceneCollector::parseDebugRect(const IDataNode& data) {
 }
 
 void SceneCollector::initDefaultView(uint16_t width, uint16_t height) {
-    m_mainView.positionX = 0.0f;
-    m_mainView.positionY = 0.0f;
-    m_mainView.zoom = 1.0f;
-    m_mainView.viewportX = 0;
-    m_mainView.viewportY = 0;
-    m_mainView.viewportW = width;
-    m_mainView.viewportH = height;
-
-    // Identity view matrix
-    for (int i = 0; i < 16; ++i) {
-        m_mainView.viewMatrix[i] = (i % 5 == 0) ? 1.0f : 0.0f;
-    }
-
-    // Orthographic projection matrix (2D)
-    // Maps (0,0)-(width,height) to (-1,-1)-(1,1)
-    std::memset(m_mainView.projMatrix, 0, sizeof(m_mainView.projMatrix));
-    m_mainView.projMatrix[0] = 2.0f / width;
-    m_mainView.projMatrix[5] = -2.0f / height; // Y-flip for top-left origin
-    m_mainView.projMatrix[10] = 1.0f;
-    m_mainView.projMatrix[12] = -1.0f;
-    m_mainView.projMatrix[13] = 1.0f;
-    m_mainView.projMatrix[15] = 1.0f;
+    // World view defaults to screen-space (identity camera) until a render:camera arrives.
+    buildScreenSpaceView(m_mainView, width, height);
+    // HUD view is ALWAYS screen-space — initialized here and only ever updated to track the
+    // viewport size (never the camera's zoom/pan), see parseCamera.
+    buildScreenSpaceView(m_hudView, width, height);
 }
 
 // ============================================================================

@@ -130,8 +130,21 @@ struct FramePacket {
     const DebugRect* debugRects = nullptr;
     size_t debugRectCount = 0;
 
+    // HUD / screen-space buckets — sprites & texts published with space:"screen". Drawn on
+    // hudView (a fixed screen-space transform), AFTER the world, so the HUD does NOT zoom or
+    // pan with the world camera. Reuse the same SpriteInstance/TextCommand layout as world.
+    const SpriteInstance* hudSprites = nullptr;
+    size_t hudSpriteCount = 0;
+
+    const TextCommand* hudTexts = nullptr;
+    size_t hudTextCount = 0;
+
     // Main view (initialized to identity transforms)
     ViewInfo mainView = {};
+
+    // HUD overlay view: screen-space ortho (1px = 1 unit, top-left origin), zoom always 1,
+    // no pan. Independent of render:camera — it only tracks the viewport size.
+    ViewInfo hudView = {};
 
     // Clear color (default dark gray)
     uint32_t clearColor = 0x303030FF;

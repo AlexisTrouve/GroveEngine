@@ -382,6 +382,80 @@ TEST_CASE("SceneCollector - zoom scales the projection and matches grove::camera
     REQUIRE_THAT(s2y, WithinAbs(2.0f * s1y, 0.05f));
 }
 
+// This locks the HUD overlay contract (engine help: screen-space view so the HUD does NOT
+// zoom/pan with the world). Two guarantees:
+//   1. render:rect / render:text carrying space:"screen" are bucketed into the HUD arrays,
+//      NOT the world arrays.
+//   2. the HUD view is a fixed screen-space transform (zoom 1, no translation) — INVARIANT
+//      under a zoomed/panned render:camera. That invariance IS the feature: a HUD drawn on
+//      this view stays put while the world zooms.
+TEST_CASE("SceneCollector - screen-space (HUD) commands bucket apart and ignore the camera", "[scene_collector][integration][hud]") {
+    auto& ioManager = IntraIOManager::getInstance();
+    auto ioCollector = ioManager.createInstance(uniqueId("hud_recv"));
+    auto ioPublisher = ioManager.createInstance(uniqueId("hud_pub"));
+    SceneCollector collector;
+    FrameAllocator allocator;
+    collector.setup(ioCollector.get());
+
+    // A hard zoom + pan on the WORLD camera.
+    {
+        auto cam = std::make_unique<JsonDataNode>("camera");
+        cam->setDouble("x", 100.0); cam->setDouble("y", 200.0); cam->setDouble("zoom", 5.0);
+        cam->setInt("viewportW", 1280); cam->setInt("viewportH", 720);
+        ioPublisher->publish("render:camera", std::move(cam));
+    }
+    // World rect (default space) — should land in the world bucket.
+    {
+        auto r = std::make_unique<JsonDataNode>("rect");
+        r->setDouble("x", 10.0); r->setDouble("y", 10.0); r->setDouble("w", 50.0); r->setDouble("h", 20.0);
+        r->setInt("color", 0xFF0000FF);
+        ioPublisher->publish("render:rect", std::move(r));
+    }
+    // HUD rect (space:"screen") — should land in the HUD bucket.
+    {
+        auto r = std::make_unique<JsonDataNode>("rect");
+        r->setDouble("x", 10.0); r->setDouble("y", 10.0); r->setDouble("w", 50.0); r->setDouble("h", 20.0);
+        r->setInt("color", 0x00FF00FF);
+        r->setString("space", "screen");
+        ioPublisher->publish("render:rect", std::move(r));
+    }
+    // HUD text (space:"screen").
+    {
+        auto t = std::make_unique<JsonDataNode>("text");
+        t->setDouble("x", 5.0); t->setDouble("y", 5.0); t->setString("text", "HP");
+        t->setString("space", "screen");
+        ioPublisher->publish("render:text", std::move(t));
+    }
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    // (1) Bucketing: world rect in world bucket; HUD rect + HUD text in HUD buckets.
+    REQUIRE(packet.spriteCount == 1);
+    REQUIRE(packet.hudSpriteCount == 1);
+    REQUIRE(packet.hudTextCount == 1);
+    REQUIRE(packet.textCount == 0);
+
+    // (2) HUD view is screen-space and INVARIANT under the zoom=5 / pan camera.
+    REQUIRE_THAT(packet.hudView.zoom, WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(packet.hudView.viewMatrix[12], WithinAbs(0.0f, 0.001f));  // no translation
+    REQUIRE_THAT(packet.hudView.viewMatrix[13], WithinAbs(0.0f, 0.001f));
+    REQUIRE(packet.hudView.viewportW == 1280);                            // spans the live viewport
+    REQUIRE(packet.hudView.viewportH == 720);
+
+    // The world view DID take the zoom (sanity: the two views diverge as intended).
+    REQUIRE_THAT(packet.mainView.zoom, WithinAbs(5.0f, 0.001f));
+
+    // Concretely: on the HUD view, screen == world (1:1), regardless of the world camera.
+    camera::CameraView hud{packet.hudView.positionX, packet.hudView.positionY, packet.hudView.zoom,
+                           static_cast<float>(packet.hudView.viewportW),
+                           static_cast<float>(packet.hudView.viewportH)};
+    float sx = 0.0f, sy = 0.0f;
+    camera::worldToScreen(hud, 5.0f, 5.0f, sx, sy);
+    REQUIRE_THAT(sx, WithinAbs(5.0f, 0.001f));
+    REQUIRE_THAT(sy, WithinAbs(5.0f, 0.001f));
+}
+
 // ============================================================================
 // Tilemap Parsing
 // ============================================================================

@@ -96,7 +96,16 @@ void SpritePass::flushBatch(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
 }
 
 void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
-    if (frame.spriteCount == 0) return;
+    // World sprites on view 0 (zoomable world camera), then HUD sprites on view 1 (fixed
+    // screen-space overlay configured by the renderer module from FramePacket::hudView).
+    // Order matters: view 1 draws after view 0, so the HUD sits on top.
+    renderSpriteSet(device, cmd, frame.sprites, frame.spriteCount, 0);
+    renderSpriteSet(device, cmd, frame.hudSprites, frame.hudSpriteCount, 1);
+}
+
+void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
+                                 const SpriteInstance* sprites, size_t count, rhi::ViewId viewId) {
+    if (count == 0) return;
 
     // Prepare render state (will be set before each batch)
     rhi::RenderState state;
@@ -107,22 +116,22 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
 
     // Sort sprites by layer first (for correct draw order), then by texture (for batching)
     m_sortedIndices.clear();
-    m_sortedIndices.reserve(frame.spriteCount);
-    for (size_t i = 0; i < frame.spriteCount; ++i) {
+    m_sortedIndices.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
         m_sortedIndices.push_back(static_cast<uint32_t>(i));
     }
     std::sort(m_sortedIndices.begin(), m_sortedIndices.end(),
-        [&frame](uint32_t a, uint32_t b) {
+        [sprites](uint32_t a, uint32_t b) {
             // Sort by layer first, then by textureId for batching
-            if (frame.sprites[a].layer != frame.sprites[b].layer) {
-                return frame.sprites[a].layer < frame.sprites[b].layer;
+            if (sprites[a].layer != sprites[b].layer) {
+                return sprites[a].layer < sprites[b].layer;
             }
-            return frame.sprites[a].textureId < frame.sprites[b].textureId;
+            return sprites[a].textureId < sprites[b].textureId;
         });
 
     // Batch sprites by texture
     std::vector<SpriteInstance> batchSprites;
-    batchSprites.reserve(frame.spriteCount);
+    batchSprites.reserve(count);
 
     uint16_t currentTextureId = 0;
     bool firstBatch = true;
@@ -130,7 +139,7 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
     static int spriteLogCount = 0;
     for (size_t i = 0; i < m_sortedIndices.size(); ++i) {
         uint32_t idx = m_sortedIndices[i];
-        const SpriteInstance& sprite = frame.sprites[idx];
+        const SpriteInstance& sprite = sprites[idx];
         uint16_t spriteTexId = static_cast<uint16_t>(sprite.textureId);
 
         // Log first few textured sprites
@@ -169,7 +178,7 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
                 cmd.setTransientInstanceBuffer(transientBuffer, 0, batchSize);
                 cmd.setTexture(0, texHandle, m_textureSampler);
                 cmd.drawInstanced(6, batchSize);
-                cmd.submit(0, m_shader, 0);
+                cmd.submit(viewId, m_shader, 0);
             } else {
                 // Fallback to dynamic buffer (single batch limitation - data will be overwritten!)
                 device.updateBuffer(m_instanceBuffer, batchSprites.data(), batchSize * sizeof(SpriteInstance));
@@ -179,7 +188,7 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
                 cmd.setInstanceBuffer(m_instanceBuffer, 0, batchSize);
                 cmd.setTexture(0, texHandle, m_textureSampler);
                 cmd.drawInstanced(6, batchSize);
-                cmd.submit(0, m_shader, 0);
+                cmd.submit(viewId, m_shader, 0);
             }
 
             // Start new batch
@@ -227,7 +236,7 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
             cmd.setTransientInstanceBuffer(transientBuffer, 0, batchSize);
             cmd.setTexture(0, texHandle, m_textureSampler);
             cmd.drawInstanced(6, batchSize);
-            cmd.submit(0, m_shader, 0);
+            cmd.submit(viewId, m_shader, 0);
         } else {
             // Fallback to dynamic buffer (single batch limitation - data will be overwritten!)
             device.updateBuffer(m_instanceBuffer, batchSprites.data(), batchSize * sizeof(SpriteInstance));
@@ -237,7 +246,7 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
             cmd.setInstanceBuffer(m_instanceBuffer, 0, batchSize);
             cmd.setTexture(0, texHandle, m_textureSampler);
             cmd.drawInstanced(6, batchSize);
-            cmd.submit(0, m_shader, 0);
+            cmd.submit(viewId, m_shader, 0);
         }
     }
 }

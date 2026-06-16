@@ -48,6 +48,12 @@ private:
     void flushBatch(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
                     rhi::TextureHandle texture, uint32_t count);
 
+    // Render one sprite set (sort by layer/texture, batch, submit) to a specific bgfx view.
+    // Called once for world sprites (view 0) and once for HUD sprites (view 1) so the HUD
+    // can ride a fixed screen-space transform while the world view zooms.
+    void renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
+                         const SpriteInstance* sprites, size_t count, rhi::ViewId viewId);
+
     rhi::ShaderHandle m_shader;
     rhi::BufferHandle m_quadVB;
     rhi::BufferHandle m_quadIB;

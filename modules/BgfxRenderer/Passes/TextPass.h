@@ -33,6 +33,11 @@ public:
     const BitmapFont& getFont() const { return m_font; }
 
 private:
+    // Render one text set (build glyph instances, batch, submit) to a specific bgfx view.
+    // Called for world text (view 0) and HUD text (view 1) so HUD labels stay screen-fixed.
+    void renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
+                       const TextCommand* texts, size_t count, rhi::ViewId viewId);
+
     rhi::ShaderHandle m_shader;
     rhi::BufferHandle m_quadVB;
     rhi::BufferHandle m_quadIB;

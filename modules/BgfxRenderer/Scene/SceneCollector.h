@@ -49,8 +49,15 @@ private:
     std::vector<DebugLine> m_debugLines;
     std::vector<DebugRect> m_debugRects;
 
+    // HUD / screen-space staging (filled when a command carries space:"screen"). Ephemeral
+    // only — drawn on m_hudView so the HUD ignores the world camera's zoom/pan.
+    std::vector<SpriteInstance> m_hudSprites;
+    std::vector<TextCommand> m_hudTexts;
+    std::vector<std::string> m_hudTextStrings;  // Owns HUD text data until finalize
+
     // View state
     ViewInfo m_mainView;
+    ViewInfo m_hudView;  // Fixed screen-space view for the HUD bucket (see FramePacket::hudView)
     uint32_t m_clearColor = 0x303030FF;
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;

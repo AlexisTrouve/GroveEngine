@@ -212,6 +212,14 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                packet.mainView.viewportW, packet.mainView.viewportH);
         m_device->setViewTransform(0, packet.mainView.viewMatrix, packet.mainView.projMatrix);
 
+        // HUD overlay (view 1): a FIXED screen-space transform so sprites/text published with
+        // space:"screen" do NOT zoom/pan with the world. No setViewClear here on purpose —
+        // view 1 must overlay view 0 on the same backbuffer. bgfx submits views in ascending
+        // id order, so view 1 renders after (on top of) view 0.
+        m_device->setViewRect(1, packet.hudView.viewportX, packet.hudView.viewportY,
+                               packet.hudView.viewportW, packet.hudView.viewportH);
+        m_device->setViewTransform(1, packet.hudView.viewMatrix, packet.hudView.projMatrix);
+
         // Execute render graph with collected scene data
         m_renderGraph->execute(packet, *m_device);
 

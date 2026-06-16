@@ -69,7 +69,18 @@ void TextPass::shutdown(rhi::IRHIDevice& device) {
 }
 
 void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
-    if (frame.textCount == 0 || !m_font.isValid()) {
+    if (!m_font.isValid()) {
+        return;
+    }
+
+    // World text on view 0 (world camera), HUD text on view 1 (fixed screen-space overlay).
+    renderTextSet(device, cmd, frame.texts, frame.textCount, 0);
+    renderTextSet(device, cmd, frame.hudTexts, frame.hudTextCount, 1);
+}
+
+void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
+                             const TextCommand* texts, size_t count, rhi::ViewId viewId) {
+    if (count == 0) {
         return;
     }
 
@@ -84,8 +95,8 @@ void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::R
     m_glyphInstances.clear();
 
     // Convert each TextCommand into glyph instances
-    for (size_t i = 0; i < frame.textCount; ++i) {
-        const TextCommand& textCmd = frame.texts[i];
+    for (size_t i = 0; i < count; ++i) {
+        const TextCommand& textCmd = texts[i];
 
         if (!textCmd.text) continue;
 
@@ -172,7 +183,7 @@ void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::R
                 cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_glyphInstances.size()));
                 cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
                 cmd.drawInstanced(6, static_cast<uint32_t>(m_glyphInstances.size()));
-                cmd.submit(0, m_shader, 0);
+                cmd.submit(viewId, m_shader, 0);
 
                 m_glyphInstances.clear();
             }
@@ -189,7 +200,7 @@ void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::R
         cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_glyphInstances.size()));
         cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
         cmd.drawInstanced(6, static_cast<uint32_t>(m_glyphInstances.size()));
-        cmd.submit(0, m_shader, 0);
+        cmd.submit(viewId, m_shader, 0);
     }
 }
 
