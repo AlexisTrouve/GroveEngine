@@ -464,6 +464,15 @@ grove_add_test(LimitsTest test_07_limits ${CMAKE_CURRENT_BINARY_DIR})
 grove_add_test(DataNodeTest test_12_datanode ${CMAKE_CURRENT_BINARY_DIR})
 grove_add_test(IIOBackpressure test_iio_backpressure ${CMAKE_CURRENT_BINARY_DIR})
 
+# ActionMap helper (grove::input): semantic input bindings, scancode-based (layout-proof).
+# Header-only, std-only — no SDL, no bgfx, no IIO. Just the header + Catch2.
+add_executable(test_action_map unit/test_action_map.cpp)
+target_include_directories(test_action_map PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/InputModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_action_map PRIVATE Catch2::Catch2WithMain)
+grove_add_test(ActionMapUnit test_action_map ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
