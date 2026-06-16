@@ -1,6 +1,7 @@
 #include "TextPass.h"
 #include "../RHI/RHIDevice.h"
 #include "../Frame/FramePacket.h"
+#include "../Text/Utf8.h"
 
 namespace grove {
 
@@ -103,16 +104,18 @@ void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::R
 
         const char* ptr = textCmd.text;
         while (*ptr) {
-            char ch = *ptr++;
+            // Decode a full UTF-8 codepoint so accents (é, ç…) map to one glyph (#A1),
+            // instead of reading each byte of a multi-byte char as a separate glyph.
+            uint32_t cp = decodeUtf8(ptr);
 
             // Handle newline
-            if (ch == '\n') {
+            if (cp == '\n') {
                 cursorX = textCmd.x;
                 cursorY += m_font.getLineHeight() * scale;
                 continue;
             }
 
-            const GlyphInfo& glyph = m_font.getGlyph(static_cast<uint8_t>(ch));
+            const GlyphInfo& glyph = m_font.getGlyph(cp);
 
             // Create sprite instance for this glyph
             SpriteInstance inst;

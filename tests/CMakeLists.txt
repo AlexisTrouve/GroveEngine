@@ -1455,6 +1455,17 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_debug_pass PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(DebugPassUnit test_debug_pass ${CMAKE_CURRENT_BINARY_DIR})
 
+    # BitmapFont: UTF-8 decode + French accent coverage (engine help A1). No bgfx — MockRHIDevice.
+    add_executable(test_bitmap_font
+        unit/test_bitmap_font.cpp
+        ../modules/BgfxRenderer/Text/BitmapFont.cpp
+    )
+    target_include_directories(test_bitmap_font PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_bitmap_font PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(BitmapFontUnit test_bitmap_font ${CMAKE_CURRENT_BINARY_DIR})
+
     add_executable(test_scene_collector integration/test_scene_collector.cpp ${_GROVE_RHI_HEADLESS_SRCS})
     target_include_directories(test_scene_collector PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer

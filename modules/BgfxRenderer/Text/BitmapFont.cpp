@@ -1,4 +1,5 @@
 #include "BitmapFont.h"
+#include "Utf8.h"
 #include "../RHI/RHIDevice.h"
 #include <cstring>
 #include <vector>
@@ -210,6 +211,68 @@ static constexpr int FONT_FIRST_CHAR = 32;  // Space
 static constexpr int FONT_CHAR_COUNT = 95;  // 32-126
 static constexpr int FONT_GLYPH_SIZE = 8;   // 8x8 pixels
 
+// ============================================================================
+// Extended glyphs — French Latin-1 accents (engine help A1, for i18n games).
+// QUOI : glyphes accentués minuscules + guillemets/°, posés dans les cellules LIBRES
+//   de l'atlas (95+ ; l'atlas 128x64 a 128 cellules, seules 95 servaient).
+// POURQUOI : la police ne couvrait que l'ASCII 32-126 → un jeu FR ne pouvait pas
+//   afficher é/è/à/ç… Les minuscules ont leurs 2 rangées du HAUT vides → on y compose
+//   l'accent (acute 0x0C/0x18, grave 0x30/0x18, circonflexe 0x18/0x3C, tréma 0x6C/0x00).
+//   La cédille de 'ç' loge dans la rangée du BAS. Bitmaps dérivées des lettres de base.
+// COMMENT : {codepoint Unicode, 8 octets 1bpp}. Voir g_glyphAliases pour les MAJUSCULES
+//   accentuées (pas de place pour un accent au-dessus d'une capitale pleine en 8x8 →
+//   repli sur la lettre de base, lisible, documenté).
+// ============================================================================
+struct ExtGlyph { uint32_t codepoint; uint8_t bits[8]; };
+static const ExtGlyph g_extGlyphs[] = {
+    {0xE9, {0x0C,0x18,0x7C,0xC6,0xFE,0xC0,0x7C,0x00}}, // é  (e + acute)
+    {0xE8, {0x30,0x18,0x7C,0xC6,0xFE,0xC0,0x7C,0x00}}, // è  (e + grave)
+    {0xEA, {0x18,0x3C,0x7C,0xC6,0xFE,0xC0,0x7C,0x00}}, // ê  (e + circumflex)
+    {0xEB, {0x6C,0x00,0x7C,0xC6,0xFE,0xC0,0x7C,0x00}}, // ë  (e + tréma)
+    {0xE0, {0x30,0x18,0x7C,0x06,0x7E,0xC6,0x7E,0x00}}, // à  (a + grave)
+    {0xE2, {0x18,0x3C,0x7C,0x06,0x7E,0xC6,0x7E,0x00}}, // â  (a + circumflex)
+    {0xE4, {0x6C,0x00,0x7C,0x06,0x7E,0xC6,0x7E,0x00}}, // ä  (a + tréma)
+    {0xE7, {0x00,0x00,0x7C,0xC6,0xC0,0xC6,0x7C,0x18}}, // ç  (c + cédille)
+    {0xEE, {0x18,0x3C,0x38,0x18,0x18,0x18,0x3C,0x00}}, // î  (i + circumflex)
+    {0xEF, {0x6C,0x00,0x38,0x18,0x18,0x18,0x3C,0x00}}, // ï  (i + tréma)
+    {0xF4, {0x18,0x3C,0x7C,0xC6,0xC6,0xC6,0x7C,0x00}}, // ô  (o + circumflex)
+    {0xF6, {0x6C,0x00,0x7C,0xC6,0xC6,0xC6,0x7C,0x00}}, // ö  (o + tréma)
+    {0xF9, {0x30,0x18,0xC6,0xC6,0xC6,0xC6,0x7E,0x00}}, // ù  (u + grave)
+    {0xFB, {0x18,0x3C,0xC6,0xC6,0xC6,0xC6,0x7E,0x00}}, // û  (u + circumflex)
+    {0xFC, {0x6C,0x00,0xC6,0xC6,0xC6,0xC6,0x7E,0x00}}, // ü  (u + tréma)
+    {0xAB, {0x00,0x36,0x6C,0xD8,0x6C,0x36,0x00,0x00}}, // «
+    {0xBB, {0x00,0xD8,0x6C,0x36,0x6C,0xD8,0x00,0x00}}, // »
+    {0xB0, {0x38,0x6C,0x6C,0x38,0x00,0x00,0x00,0x00}}, // °
+};
+static constexpr int FONT_EXT_COUNT = sizeof(g_extGlyphs) / sizeof(g_extGlyphs[0]);
+
+// MAJUSCULES accentuées : alias vers la lettre de base (8x8 sans place pour l'accent).
+struct GlyphAlias { uint32_t codepoint; uint32_t base; };
+static const GlyphAlias g_glyphAliases[] = {
+    {0xC0,'A'},{0xC2,'A'},{0xC4,'A'},               // À Â Ä
+    {0xC7,'C'},                                     // Ç
+    {0xC8,'E'},{0xC9,'E'},{0xCA,'E'},{0xCB,'E'},    // È É Ê Ë
+    {0xCE,'I'},{0xCF,'I'},                          // Î Ï
+    {0xD4,'O'},{0xD6,'O'},{0x152u,'O'},             // Ô Ö Œ
+    {0xD9,'U'},{0xDB,'U'},{0xDC,'U'},               // Ù Û Ü
+};
+static constexpr int FONT_ALIAS_COUNT = sizeof(g_glyphAliases) / sizeof(g_glyphAliases[0]);
+
+// Blit one 8x8 1bpp glyph into the RGBA atlas at the given cell (16 cells/row).
+static void blitGlyphCell(uint32_t* atlas, int atlasW, int cell, const uint8_t bits[8]) {
+    const int col = cell % 16;
+    const int row = cell / 16;
+    const int baseX = col * FONT_GLYPH_SIZE;
+    const int baseY = row * FONT_GLYPH_SIZE;
+    for (int y = 0; y < 8; ++y) {
+        const uint8_t rowBits = bits[y];
+        for (int x = 0; x < 8; ++x) {
+            const bool pixel = (rowBits & (0x80 >> x)) != 0;  // MSB = leftmost
+            atlas[(baseY + y) * atlasW + (baseX + x)] = pixel ? 0xFFFFFFFFu : 0x00000000u;
+        }
+    }
+}
+
 bool BitmapFont::initDefault(rhi::IRHIDevice& device) {
     // Create 128x64 atlas (16 chars per row, 8 rows = 128 chars max)
     // We only use 95 chars (ASCII 32-126)
@@ -220,27 +283,13 @@ bool BitmapFont::initDefault(rhi::IRHIDevice& device) {
     const int atlasPixels = m_atlasWidth * m_atlasHeight;
     std::vector<uint32_t> atlasData(atlasPixels, 0);
 
-    // Render each character into the atlas
+    // Render ASCII 32-126 into cells 0..94.
     for (int charIdx = 0; charIdx < FONT_CHAR_COUNT; ++charIdx) {
-        int col = charIdx % 16;
-        int row = charIdx / 16;
-        int baseX = col * FONT_GLYPH_SIZE;
-        int baseY = row * FONT_GLYPH_SIZE;
-
-        const uint8_t* glyphData = &g_fontData8x8[charIdx * 8];
-
-        for (int y = 0; y < 8; ++y) {
-            uint8_t rowBits = glyphData[y];
-            for (int x = 0; x < 8; ++x) {
-                // MSB first: bit 7 is leftmost pixel
-                bool pixel = (rowBits & (0x80 >> x)) != 0;
-                int atlasX = baseX + x;
-                int atlasY = baseY + y;
-                int idx = atlasY * m_atlasWidth + atlasX;
-                // White pixel with alpha = 255 if set, 0 if not
-                atlasData[idx] = pixel ? 0xFFFFFFFF : 0x00000000;
-            }
-        }
+        blitGlyphCell(atlasData.data(), m_atlasWidth, charIdx, &g_fontData8x8[charIdx * 8]);
+    }
+    // Render the extended (French accent) glyphs into the free cells 95+.
+    for (int e = 0; e < FONT_EXT_COUNT; ++e) {
+        blitGlyphCell(atlasData.data(), m_atlasWidth, FONT_CHAR_COUNT + e, g_extGlyphs[e].bits);
     }
 
     // Create GPU texture
@@ -266,15 +315,13 @@ bool BitmapFont::initDefault(rhi::IRHIDevice& device) {
 }
 
 void BitmapFont::generateDefaultGlyphs() {
-    float invW = 1.0f / m_atlasWidth;
-    float invH = 1.0f / m_atlasHeight;
+    const float invW = 1.0f / m_atlasWidth;
+    const float invH = 1.0f / m_atlasHeight;
 
-    for (int charIdx = 0; charIdx < FONT_CHAR_COUNT; ++charIdx) {
-        uint32_t codepoint = FONT_FIRST_CHAR + charIdx;
-
-        int col = charIdx % 16;
-        int row = charIdx / 16;
-
+    // Build a GlyphInfo for a given atlas cell (monospace, fixed 8x8 advance).
+    auto glyphForCell = [&](int cell) {
+        const int col = cell % 16;
+        const int row = cell / 16;
         GlyphInfo glyph;
         glyph.u0 = col * FONT_GLYPH_SIZE * invW;
         glyph.v0 = row * FONT_GLYPH_SIZE * invH;
@@ -285,8 +332,24 @@ void BitmapFont::generateDefaultGlyphs() {
         glyph.offsetX = 0.0f;
         glyph.offsetY = 0.0f;
         glyph.advance = FONT_GLYPH_SIZE;  // Monospace: fixed advance
+        return glyph;
+    };
 
-        m_glyphs[codepoint] = glyph;
+    // ASCII 32-126 in cells 0..94.
+    for (int charIdx = 0; charIdx < FONT_CHAR_COUNT; ++charIdx) {
+        m_glyphs[FONT_FIRST_CHAR + charIdx] = glyphForCell(charIdx);
+    }
+    // Extended French accents in cells 95+.
+    for (int e = 0; e < FONT_EXT_COUNT; ++e) {
+        m_glyphs[g_extGlyphs[e].codepoint] = glyphForCell(FONT_CHAR_COUNT + e);
+    }
+    // Uppercase-accented codepoints → alias to their base letter's glyph (8x8 fallback).
+    // Done AFTER base glyphs exist so the lookup resolves.
+    for (int a = 0; a < FONT_ALIAS_COUNT; ++a) {
+        auto it = m_glyphs.find(g_glyphAliases[a].base);
+        if (it != m_glyphs.end()) {
+            m_glyphs[g_glyphAliases[a].codepoint] = it->second;
+        }
     }
 
     // Default glyph for unknown characters (use '?' which is ASCII 63)
@@ -319,10 +382,11 @@ float BitmapFont::measureWidth(const char* text) const {
     if (!text) return 0.0f;
 
     float width = 0.0f;
-    while (*text) {
-        const GlyphInfo& glyph = getGlyph(static_cast<uint8_t>(*text));
-        width += glyph.advance;
-        ++text;
+    const char* p = text;
+    while (*p) {
+        // Decode a full UTF-8 codepoint (so "é" counts once, not per byte).
+        const uint32_t cp = decodeUtf8(p);
+        width += getGlyph(cp).advance;
     }
     return width;
 }
