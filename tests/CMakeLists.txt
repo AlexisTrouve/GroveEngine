@@ -1530,6 +1530,18 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIWidgetsE2E IT_017_ui_widgets_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_018: layout hit-test E2E — clicks land on layout-positioned widgets (audit #6).
+    add_executable(IT_018_ui_layout_hittest_e2e
+        integration/IT_018_ui_layout_hittest_e2e.cpp
+    )
+    target_link_libraries(IT_018_ui_layout_hittest_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UILayoutHitTestE2E IT_018_ui_layout_hittest_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)

@@ -1,0 +1,27 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "vertical", "paddingTop": 20, "paddingLeft": 20, "spacing": 10, "align": "start" },
+  "children": [
+    {
+      "type": "button",
+      "id": "btn_a",
+      "width": 200,
+      "height": 50,
+      "text": "A",
+      "onClick": "test:a"
+    },
+    {
+      "type": "button",
+      "id": "btn_b",
+      "width": 200,
+      "height": 50,
+      "text": "B",
+      "onClick": "test:b"
+    }
+  ]
+}

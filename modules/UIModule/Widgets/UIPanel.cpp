@@ -9,9 +9,20 @@ namespace grove {
 void UIPanel::update(UIContext& ctx, float deltaTime) {
     // Apply layout if this panel has a non-absolute layout mode
     if (layoutProps.mode != LayoutMode::Absolute) {
-        // Measure and layout children
+        // Measure and layout children — this rewrites each child's RELATIVE x/y.
         UILayout::measure(this);
         UILayout::layout(this, width, height);
+
+        // FIX #6 : re-dériver les positions absolues du sous-arbre après le layout.
+        // POURQUOI : UILayout ne fixe que les x/y RELATIFS ; absX/absY (utilisés par le
+        //   rendu ET le hit-test) ne sont sinon calculés qu'une fois au load — avant que
+        //   le layout ne tourne — donc clics et dessin tombaient sur des coordonnées
+        //   pré-layout (périmées). C'est exactement pourquoi toutes les fixtures E2E
+        //   devaient être en "absolute".
+        // COMMENT : notre propre absX est déjà correct ici (posé par la passe d'un
+        //   ancêtre ou au load — update() est top-down), donc recomputer depuis `this`
+        //   corrige nos enfants ; un panel imbriqué refera sa propre passe à son update.
+        computeAbsolutePosition();
     }
 
     // Update children
