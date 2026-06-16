@@ -113,7 +113,7 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 - **RHI Layer**: Abstracts bgfx calls (`RHIDevice.h`, `BgfxDevice.cpp`)
 - **RenderGraph**: Topological sort with Kahn's algorithm for pass ordering
 - **CommandBuffer**: Records commands, executed by device at frame end
-- **IIO Topics**: `render:sprite`, `render:text`, `render:tilemap`, `render:particle`, `render:camera`, `render:clear`, `render:debug/*`
+- **IIO Topics**: `render:sprite`, `render:rect` (filled colored quad, layered — for HUD), `render:text` (UTF-8 + French accents), `render:tilemap`, `render:particle`, `render:camera`, `render:clear`, `render:debug/*`
 
 ### UIModule
 - **UIRenderer**: Publishes render commands to BgfxRenderer via IIO (layer 1000+)

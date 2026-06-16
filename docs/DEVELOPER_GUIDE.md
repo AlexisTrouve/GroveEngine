@@ -37,7 +37,7 @@
 
 ### Module Limitations
 - **InputModule**: Mouse and keyboard only (gamepad Phase 2 not implemented)
-- **BgfxRenderer**: Basic text rendering only (8x8 bitmap font for debug)
+- **BgfxRenderer**: 8x8 bitmap font (UTF-8 decoded; ASCII + French Latin-1 accents é è à ç ô…; uppercase accents alias to the base letter — no room in 8x8; œ/æ ligatures + crisp TTF atlas not yet)
 - **UIModule**: Functional but no advanced layout constraints
 
 ### What GroveEngine IS Good For
