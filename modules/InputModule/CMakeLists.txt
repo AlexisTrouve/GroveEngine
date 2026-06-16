@@ -73,3 +73,39 @@ set_target_properties(InputModule PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/modules"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/modules"
 )
+
+# ============================================================================
+# Static variant — for hosts that link modules into the executable (no .dll).
+# Mirrors BgfxRenderer_static: GROVE_MODULE_STATIC skips the extern "C" exports
+# (no multiple-definition when several static modules are linked). The host
+# instantiates InputModule directly and drives feedEvent()/process() per frame.
+# Used by games like Drifterra that static-link the whole engine.
+# ============================================================================
+add_library(InputModule_static STATIC
+    InputModule.cpp
+    Core/InputState.cpp
+    Core/InputConverter.cpp
+    Backends/SDLBackend.cpp
+)
+target_include_directories(InputModule_static PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/include
+)
+target_compile_features(InputModule_static PRIVATE cxx_std_17)
+target_compile_definitions(InputModule_static PRIVATE GROVE_MODULE_STATIC)
+if(SDL2_FOUND)
+    target_link_libraries(InputModule_static PUBLIC
+        GroveEngine::impl
+        SDL2::SDL2
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+    )
+else()
+    target_include_directories(InputModule_static PUBLIC /usr/include/SDL2)
+    target_link_libraries(InputModule_static PUBLIC
+        GroveEngine::impl
+        SDL2
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+    )
+endif()

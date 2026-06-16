@@ -161,6 +161,36 @@ while (running) {
 }
 ```
 
+### Static-link host (jeu, sans DLL) — cible `InputModule_static`
+
+Pour un jeu qui **static-linke** le moteur (pas de hot-reload `.dll`, ex. Drifterra),
+lier la cible **`InputModule_static`** (variante STATIC, exports `extern "C"` désactivés
+via `GROVE_MODULE_STATIC`). Le host instancie le module directement et appelle
+`feedEvent()`/`process()` — aucun `createModule()`/trampoline opaque.
+
+```cmake
+target_link_libraries(mon_jeu PRIVATE InputModule_static)  # tire SDL2 + IIO en PUBLIC
+```
+
+```cpp
+grove::InputModule input;                       // instanciation directe (pas de DLL)
+input.setConfiguration(cfg, inputIO, nullptr);  // subscribe/state ici (R3)
+
+// Boucle host : le HOST poll SDL, le module ne le fait jamais lui-même.
+while (running) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) input.feedEvent(&e);   // nourrit le buffer (thread-safe)
+    input.process(frameInput);                        // draine → publie input:*
+    ui.process(frameInput);                           // consomme input:* → ui:*/render:*
+    renderer.process(frameInput);                     // consomme render:*
+}
+```
+
+Les topics publiés (`input:mouse:move`/`:button`, `input:keyboard:key`/`:text`) sont
+exactement ceux que l'UIModule consomme. Chemin verrouillé headless par
+`tests/unit/test_input_module.cpp` (cible ctest `InputModuleStatic`) — events SDL
+construits comme structs, sans fenêtre.
+
 ## Hot-Reload Support
 
 L'InputModule supporte le hot-reload avec préservation de l'état :

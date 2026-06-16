@@ -173,8 +173,13 @@ void InputModule::feedEvent(const void* nativeEvent) {
 } // namespace grove
 
 // ============================================================================
-// C Export (required for dlopen/LoadLibrary)
+// C Export (required for dlopen/LoadLibrary in the .dll/hot-reload path)
 // ============================================================================
+// Skipped in the STATIC build (GROVE_MODULE_STATIC): a host that static-links several
+// modules would otherwise get multiple definitions of createModule/destroyModule. The
+// static host instantiates InputModule directly and calls feedEvent()/process() on it
+// (no opaque IModule* trampoline needed). Mirrors BgfxRenderer_static.
+#ifndef GROVE_MODULE_STATIC
 
 #ifdef _WIN32
 #define GROVE_MODULE_EXPORT __declspec(dllexport)
@@ -200,3 +205,5 @@ GROVE_MODULE_EXPORT void feedEventToInputModule(grove::IModule* module, const vo
 }
 
 }
+
+#endif // GROVE_MODULE_STATIC

@@ -1943,3 +1943,19 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     )
     message(STATUS "Direct sprite texture test 'test_direct_sprite_texture' enabled")
 endif()
+
+# InputModule static-host path — headless E2E (engine help B1). feedEvent -> input:*.
+# Gated on GROVE_BUILD_INPUT_MODULE (which implies SDL2 was found; InputModule_static
+# only exists then). No window/SDL_Init needed — SDL events are constructed as structs.
+if(GROVE_BUILD_INPUT_MODULE)
+    add_executable(test_input_module unit/test_input_module.cpp)
+    target_include_directories(test_input_module PRIVATE ${CMAKE_SOURCE_DIR}/modules)
+    target_link_libraries(test_input_module PRIVATE
+        GroveEngine::core
+        GroveEngine::impl
+        InputModule_static
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(InputModuleStatic test_input_module ${CMAKE_CURRENT_BINARY_DIR})
+    message(STATUS "Headless test 'test_input_module' enabled (InputModule_static, B1)")
+endif()
