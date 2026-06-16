@@ -140,11 +140,11 @@ public:
                 case SDLK_PLUS:
                 case SDLK_EQUALS:
                 case SDLK_KP_PLUS:
-                    m_cameraZoom = std::min(4.0f, m_cameraZoom * 1.1f);
+                    setZoomTarget(m_targetZoom * 1.2f, 512.0f, 384.0f);  // zoom toward center
                     break;
                 case SDLK_MINUS:
                 case SDLK_KP_MINUS:
-                    m_cameraZoom = std::max(0.25f, m_cameraZoom / 1.1f);
+                    setZoomTarget(m_targetZoom / 1.2f, 512.0f, 384.0f);
                     break;
                 case SDLK_SPACE:
                     spawnExplosion(512.0f + m_cameraX, 400.0f + m_cameraY);
@@ -166,29 +166,47 @@ public:
                     break;
             }
         }
-        // Mouse wheel: zoom TOWARD the cursor — layout-proof (no key binding) and a live demo
-        // of grove::camera::zoomAt (keeps the world point under the cursor pinned).
+        // Mouse wheel: smooth zoom toward the SCREEN CENTER. (Zooming toward the cursor made
+        // the scene travel when the cursor was off-center, which reads as "zoom + dezoom" —
+        // center zoom keeps the motion purely a scale.) Robust to inverted-scroll devices and
+        // zero-delta precise-scroll events. One notch = a firm 1.25x; update() damps toward it.
         else if (e.type == SDL_MOUSEWHEEL) {
-            int mx = 0, my = 0;
-            SDL_GetMouseState(&mx, &my);
-            camera::CameraView view{m_cameraX, m_cameraY, m_cameraZoom, 1024.0f, 768.0f};
-            const float factor = (e.wheel.y > 0) ? 1.1f : (1.0f / 1.1f);
-            const float newZoom = camera::clampZoom(m_cameraZoom * factor, 0.25f, 4.0f);
-            const camera::CameraView z = camera::zoomAt(view, newZoom,
-                                                        static_cast<float>(mx), static_cast<float>(my));
-            m_cameraX = z.x;
-            m_cameraY = z.y;
-            m_cameraZoom = z.zoom;
+            float wy = static_cast<float>(e.wheel.y);
+            if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) wy = -wy;
+            if (wy != 0.0f) {
+                const float factor = (wy > 0.0f) ? 1.25f : (1.0f / 1.25f);
+                setZoomTarget(m_targetZoom * factor, 512.0f, 384.0f);  // 1024x768 center
+            }
         }
+    }
+
+    // Set a smooth zoom target anchored at a screen point. Remembers the WORLD point currently
+    // under that screen point so update() can keep it pinned as the zoom glides in/out.
+    void setZoomTarget(float newZoom, float screenX, float screenY) {
+        m_targetZoom = camera::clampZoom(newZoom, 0.2f, 6.0f);
+        camera::CameraView view{m_cameraX, m_cameraY, m_cameraZoom, 1024.0f, 768.0f};
+        camera::screenToWorld(view, screenX, screenY, m_zoomFocusWorldX, m_zoomFocusWorldY);
+        m_zoomFocusScreenX = screenX;
+        m_zoomFocusScreenY = screenY;
     }
 
     void update(float dt) {
         m_time += dt;
         m_frameCount++;
 
-        // Update camera position
-        m_cameraX += m_cameraVX * dt;
-        m_cameraY += m_cameraVY * dt;
+        // Smooth zoom: glide toward the target (framerate-independent camera::damp), re-framing
+        // so the focus world point stays pinned under its screen anchor — buttery wheel/key
+        // zoom instead of per-notch jumps. Pan (arrow velocity) applies when not mid-zoom.
+        if (std::fabs(m_cameraZoom - m_targetZoom) > 0.0005f) {
+            m_cameraZoom = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
+            camera::CameraView v = camera::focusOn(m_zoomFocusWorldX, m_zoomFocusWorldY, m_cameraZoom,
+                                                   1024.0f, 768.0f, m_zoomFocusScreenX, m_zoomFocusScreenY);
+            m_cameraX = v.x;
+            m_cameraY = v.y;
+        } else {
+            m_cameraX += m_cameraVX * dt;
+            m_cameraY += m_cameraVY * dt;
+        }
 
         // Update particles
         updateParticles(dt);
@@ -661,6 +679,11 @@ private:
     float m_cameraVX = 0.0f;
     float m_cameraVY = 0.0f;
     float m_cameraZoom = 1.0f;
+
+    // Smooth-zoom state: glide m_cameraZoom toward m_targetZoom while pinning the focus point.
+    float m_targetZoom = 1.0f;
+    float m_zoomFocusWorldX = 0.0f, m_zoomFocusWorldY = 0.0f;
+    float m_zoomFocusScreenX = 512.0f, m_zoomFocusScreenY = 384.0f;
 
     // Clear color
     int m_clearColorIndex = 0;
