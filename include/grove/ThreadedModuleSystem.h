@@ -68,6 +68,17 @@ private:
         // Synchronization for barrier pattern
         mutable std::mutex mutex;  // mutable: can be locked in const methods
         std::condition_variable cv;
+
+        // FIX #10 (BUG D) : sérialise les appels à module->process() pour CE module.
+        // POURQUOI : queryModule() appelle process() depuis le thread appelant pendant
+        //   que le thread worker peut appeler process() sur le MÊME module (frame en cours)
+        //   → data race sur l'état interne du module. Ce mutex, pris autour des DEUX appels
+        //   (worker loop + queryModule), garantit l'exclusion mutuelle.
+        // COMMENT : un mutex PAR worker → aucune contention inter-modules (le worker de X
+        //   et celui de Y prennent des mutex différents), donc le parallélisme entre modules
+        //   est préservé ; seul query(X) ↔ worker(X) est sérialisé. Distinct du `mutex`
+        //   barrière (cv) pour ne pas interférer avec l'attente de génération.
+        std::mutex processMutex;
         // REMOVED: bool shouldProcess (replaced with atomic shouldProcessAll)
         // REMOVED: bool processingComplete (replaced with atomic workersCompleted counter)
         // REMOVED: float deltaTime (replaced with shared sharedDeltaTime)

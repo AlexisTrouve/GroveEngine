@@ -213,6 +213,18 @@ target_link_libraries(test_threaded_stress PRIVATE
 # CTest integration
 grove_add_test(ThreadedStress test_threaded_stress ${CMAKE_CURRENT_BINARY_DIR} 180)
 
+# IT_020: queryModule vs worker process() data race (audit #10) — in-process, no DLLs.
+add_executable(IT_020_threaded_query_race
+    integration/IT_020_threaded_query_race.cpp
+)
+target_link_libraries(IT_020_threaded_query_race PRIVATE
+    test_helpers
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(ThreadedQueryRace IT_020_threaded_query_race ${CMAKE_CURRENT_BINARY_DIR} 60)
+
 # ThreadedModuleSystem Real Module Integration Test
 add_executable(test_threaded_real_modules
     integration/test_threaded_real_modules.cpp

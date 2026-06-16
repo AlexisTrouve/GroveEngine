@@ -239,21 +239,23 @@ std::unique_ptr<IDataNode> ThreadedModuleSystem::queryModule(const std::string& 
         throw std::invalid_argument("Module '" + name + "' not found");
     }
 
-    // BYPASS thread: Call process() directly for synchronous query
-    // FIX: [BUG D] -- Detect potential data race: queryModule() calls process() from
-    // the caller's thread while the worker thread may simultaneously call process().
-    // Full fix requires routing through IIO instead of direct process() call.
-    // For now: log warning so the caller is aware of the race risk.
+    // BYPASS thread: Call process() directly for synchronous query.
+    // FIX #10 [BUG D] : ce process() tourne sur le thread appelant, alors que le thread
+    // worker du module peut appeler process() sur la MÊME instance (frame en cours). On
+    // sérialise via le processMutex DU worker : query et worker ne peuvent plus être dans
+    // process() en même temps (plus de data race). Si une frame est en cours, ce lock
+    // BLOQUE jusqu'à la fin du process() du worker (acceptable : queryModule est un
+    // mécanisme de debug/test, pas le chemin chaud).
     if (isProcessingFrame.load(std::memory_order_acquire)) {
-        logger->warn("queryModule('{}') called while a frame is being processed -- potential data race: worker thread may concurrently call process()", name);
+        logger->trace("queryModule('{}') pendant une frame — sérialisé via processMutex (pas de race)", name);
     }
-    // This is a debug/testing feature, not part of normal execution
-    logger->trace("📞 Calling module '{}' process() directly (bypassing thread)", name);
 
-    // Create temporary output capture
-    // Note: Module's process() typically doesn't return data, it uses IIO pub/sub
-    // This is a best-effort query mechanism
-    (*workerIt)->module->process(input);
+    // Note: Module's process() typically doesn't return data, it uses IIO pub/sub.
+    // This is a best-effort query mechanism.
+    {
+        std::lock_guard<std::mutex> processGuard((*workerIt)->processMutex);
+        (*workerIt)->module->process(input);
+    }
 
     // Return empty result (modules communicate via IIO, not return values)
     return std::make_unique<JsonDataNode>("query_result", json{{"status", "processed"}});
@@ -529,7 +531,11 @@ void ThreadedModuleSystem::workerThreadLoop(ModuleWorker* workerPtr) {
 
         try {
             auto input = createInputDataNode(dt, frameCount, worker.name);
-            worker.module->process(*input);
+            // FIX #10 : exclusion mutuelle avec un queryModule() concurrent sur ce module.
+            {
+                std::lock_guard<std::mutex> processGuard(worker.processMutex);
+                worker.module->process(*input);
+            }
 
         } catch (const std::exception& e) {
             logger->error("Error processing module '{}': {}", worker.name, e.what());
