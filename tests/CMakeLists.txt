@@ -1472,6 +1472,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_scene_collector PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(SceneCollectorTest test_scene_collector ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Camera helper (grove::camera): pure 2D camera math exposed to consuming games
+    # (seamless zoom/pan). Header-only — no bgfx, no GPU. Just the header + Catch2.
+    add_executable(test_camera unit/test_camera.cpp)
+    target_include_directories(test_camera PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_camera PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(CameraUnit test_camera ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

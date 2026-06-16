@@ -14,6 +14,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "../../modules/BgfxRenderer/Scene/SceneCollector.h"
+#include "../../modules/BgfxRenderer/Scene/Camera.h"
 #include "../../modules/BgfxRenderer/Frame/FrameAllocator.h"
 #include "grove/IntraIO.h"
 #include "grove/IntraIOManager.h"
@@ -302,6 +303,83 @@ TEST_CASE("SceneCollector - parse camera with matrices", "[scene_collector][inte
     // Check projection matrix is not zero (ortho projection)
     REQUIRE(packet.mainView.projMatrix[0] != 0.0f);
     REQUIRE(packet.mainView.projMatrix[5] != 0.0f);
+}
+
+// ----------------------------------------------------------------------------
+// Multiply a column-major 4x4 matrix (element [col*4+row], translation in 12/13/14
+// — the bgfx storage SceneCollector::parseCamera writes) by a column vector.
+// ----------------------------------------------------------------------------
+static inline void mat4MulVec4(const float* m, float x, float y, float z, float w, float out[4]) {
+    for (int r = 0; r < 4; ++r)
+        out[r] = m[0 * 4 + r] * x + m[1 * 4 + r] * y + m[2 * 4 + r] * z + m[3 * 4 + r] * w;
+}
+
+// This is the lock that PROVES the renderer actually scales by zoom (the previous test
+// only checked the zoom value was stored + projMatrix non-zero — it never exercised the
+// projection). It does two things:
+//   1. Runs world points through the REAL view*proj matrices SceneCollector produced and
+//      confirms the resulting screen position equals grove::camera::worldToScreen — i.e.
+//      the helper tells the truth about what the engine renders (the contract Drifterra
+//      builds its seamless zoom on).
+//   2. Confirms doubling zoom doubles on-screen separation (zoom genuinely magnifies).
+TEST_CASE("SceneCollector - zoom scales the projection and matches grove::camera", "[scene_collector][integration][camera]") {
+    auto& ioManager = IntraIOManager::getInstance();
+
+    // Build the FramePacket view a real camera message produces, return a value copy of
+    // the view (ViewInfo is plain floats — safe once the collector/allocator are gone).
+    auto viewFor = [&](float camX, float camY, float zoom) -> ViewInfo {
+        auto ioCollector = ioManager.createInstance(uniqueId("cam_recv"));
+        auto ioPublisher = ioManager.createInstance(uniqueId("cam_pub"));
+        SceneCollector collector;
+        FrameAllocator allocator;
+        collector.setup(ioCollector.get());
+
+        auto cam = std::make_unique<JsonDataNode>("camera");
+        cam->setDouble("x", camX);
+        cam->setDouble("y", camY);
+        cam->setDouble("zoom", zoom);
+        cam->setInt("viewportW", 1280);
+        cam->setInt("viewportH", 720);
+        ioPublisher->publish("render:camera", std::move(cam));
+
+        collector.collect(ioCollector.get(), 0.016f);
+        return collector.finalize(allocator).mainView;
+    };
+
+    // Project a world point through the engine's matrices into screen pixels (top-left
+    // origin, y-down) — the same space grove::camera::worldToScreen targets.
+    auto engineProject = [](const ViewInfo& v, float wx, float wy, float& sx, float& sy) {
+        float eye[4], clip[4];
+        mat4MulVec4(v.viewMatrix, wx, wy, 0.0f, 1.0f, eye);
+        mat4MulVec4(v.projMatrix, eye[0], eye[1], eye[2], eye[3], clip);
+        const float ndcX = clip[0] / clip[3];
+        const float ndcY = clip[1] / clip[3];
+        sx = (ndcX * 0.5f + 0.5f) * v.viewportW;
+        sy = (0.5f - ndcY * 0.5f) * v.viewportH;  // NDC y-up -> screen y-down
+    };
+
+    // (1) Engine matrices == helper, for a non-trivial camera (offset + zoom 2).
+    ViewInfo v = viewFor(100.0f, 200.0f, 2.0f);
+    camera::CameraView c{100.0f, 200.0f, 2.0f, 1280.0f, 720.0f};
+    const float pts[][2] = {{100.0f, 200.0f}, {420.0f, 380.0f}, {740.0f, 560.0f}, {-30.0f, 50.0f}};
+    for (auto& p : pts) {
+        float es_x, es_y, hs_x, hs_y;
+        engineProject(v, p[0], p[1], es_x, es_y);
+        camera::worldToScreen(c, p[0], p[1], hs_x, hs_y);
+        REQUIRE_THAT(es_x, WithinAbs(hs_x, 0.05f));
+        REQUIRE_THAT(es_y, WithinAbs(hs_y, 0.05f));
+    }
+
+    // (2) Doubling zoom doubles on-screen distance from the camera origin.
+    ViewInfo v1 = viewFor(0.0f, 0.0f, 1.0f);
+    ViewInfo v2 = viewFor(0.0f, 0.0f, 2.0f);
+    float s1x, s1y, s2x, s2y;
+    engineProject(v1, 100.0f, 50.0f, s1x, s1y);
+    engineProject(v2, 100.0f, 50.0f, s2x, s2y);
+    REQUIRE_THAT(s1x, WithinAbs(100.0f, 0.05f));
+    REQUIRE_THAT(s1y, WithinAbs(50.0f, 0.05f));
+    REQUIRE_THAT(s2x, WithinAbs(2.0f * s1x, 0.05f));
+    REQUIRE_THAT(s2y, WithinAbs(2.0f * s1y, 0.05f));
 }
 
 // ============================================================================
