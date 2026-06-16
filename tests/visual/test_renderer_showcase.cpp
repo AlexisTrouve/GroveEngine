@@ -28,7 +28,8 @@
 
 #include "../helpers/WindowIcon.h"
 #include "BgfxRendererModule.h"
-#include "Scene/Camera.h"          // grove::camera helpers (zoomAt = zoom toward cursor)
+#include "Scene/Camera.h"               // grove::camera helpers (damp/focusOn)
+#include "InputModule/ActionMap.h"      // grove::input::ActionMap (scancode bindings, AZERTY-proof)
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
@@ -80,7 +81,35 @@ public:
         : m_rng(std::random_device{}())
     {
         m_particles.reserve(500);
+        bindDefaultActions();
     }
+
+    // Default key map, bound by SCANCODE (SDL_SCANCODE_* = physical position) so it works the
+    // same on QWERTY and AZERTY — no character-keycode surprises. Multiple bindings per action
+    // (main-row AND numpad for zoom). Remappable at runtime via m_actions.clearAction/bind*.
+    void bindDefaultActions() {
+        m_actions.bindKey("pan_left",  SDL_SCANCODE_LEFT);
+        m_actions.bindKey("pan_right", SDL_SCANCODE_RIGHT);
+        m_actions.bindKey("pan_up",    SDL_SCANCODE_UP);
+        m_actions.bindKey("pan_down",  SDL_SCANCODE_DOWN);
+        // Zoom defaults: PgUp/PgDn — same label on every layout, reachable on a laptop with no
+        // numpad. We ALSO bind '='/'-' and numpad, but beware: SDL_SCANCODE_MINUS is the US
+        // physical position (right of '0'), which on AZERTY is the ')°' key, NOT where '-' is
+        // printed — exactly why a "minus" default felt broken. Sensible default keys matter;
+        // anything else is the game's remap (ActionMap::clearAction + bind*).
+        m_actions.bindKey("zoom_in",   SDL_SCANCODE_PAGEUP);
+        m_actions.bindKey("zoom_in",   SDL_SCANCODE_EQUALS);
+        m_actions.bindKey("zoom_in",   SDL_SCANCODE_KP_PLUS);
+        m_actions.bindKey("zoom_out",  SDL_SCANCODE_PAGEDOWN);
+        m_actions.bindKey("zoom_out",  SDL_SCANCODE_MINUS);
+        m_actions.bindKey("zoom_out",  SDL_SCANCODE_KP_MINUS);
+        m_actions.bindKey("spawn",     SDL_SCANCODE_SPACE);
+        m_actions.bindKey("cycle_color", SDL_SCANCODE_C);
+    }
+
+    // Clear per-frame action edges (justPressed/justReleased). Call once per frame BEFORE
+    // feeding that frame's events.
+    void beginFrame() { m_actions.beginFrame(); }
 
     bool init(SDL_Window* window) {
         // Get native window handle
@@ -129,42 +158,11 @@ public:
     }
 
     void handleInput(SDL_Event& e) {
-        if (e.type == SDL_KEYDOWN) {
-            switch (e.key.keysym.sym) {
-                case SDLK_LEFT:  m_cameraVX = -200.0f; break;
-                case SDLK_RIGHT: m_cameraVX = 200.0f; break;
-                case SDLK_UP:    m_cameraVY = -200.0f; break;
-                case SDLK_DOWN:  m_cameraVY = 200.0f; break;
-                // Multiple keycodes: '+'/'=' main row AND numpad — SDLK_MINUS on a non-US
-                // layout (AZERTY) is not where you'd expect, hence the dezoom "not working".
-                case SDLK_PLUS:
-                case SDLK_EQUALS:
-                case SDLK_KP_PLUS:
-                    setZoomTarget(m_targetZoom * 1.2f, 512.0f, 384.0f);  // zoom toward center
-                    break;
-                case SDLK_MINUS:
-                case SDLK_KP_MINUS:
-                    setZoomTarget(m_targetZoom / 1.2f, 512.0f, 384.0f);
-                    break;
-                case SDLK_SPACE:
-                    spawnExplosion(512.0f + m_cameraX, 400.0f + m_cameraY);
-                    break;
-                case SDLK_c:
-                    m_clearColorIndex = (m_clearColorIndex + 1) % numClearColors;
-                    break;
-            }
-        }
-        else if (e.type == SDL_KEYUP) {
-            switch (e.key.keysym.sym) {
-                case SDLK_LEFT:
-                case SDLK_RIGHT:
-                    m_cameraVX = 0.0f;
-                    break;
-                case SDLK_UP:
-                case SDLK_DOWN:
-                    m_cameraVY = 0.0f;
-                    break;
-            }
+        // Feed raw keyboard events to the ActionMap by SCANCODE (physical position). All
+        // gameplay then reads semantic actions in update() — never a raw keycode. This is why
+        // the controls behave identically on AZERTY and QWERTY (the old SDLK_MINUS bug).
+        if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
+            m_actions.onKey(e.key.keysym.scancode, e.type == SDL_KEYDOWN);
         }
         // Mouse wheel: smooth zoom toward the SCREEN CENTER. (Zooming toward the cursor made
         // the scene travel when the cursor was off-center, which reads as "zoom + dezoom" —
@@ -193,6 +191,17 @@ public:
     void update(float dt) {
         m_time += dt;
         m_frameCount++;
+
+        // --- Consume semantic actions (fed this frame by handleInput, via scancode) ---
+        // Pan: held actions set the camera velocity.
+        m_cameraVX = (m_actions.isActive("pan_right") ? 200.0f : 0.0f) - (m_actions.isActive("pan_left") ? 200.0f : 0.0f);
+        m_cameraVY = (m_actions.isActive("pan_down")  ? 200.0f : 0.0f) - (m_actions.isActive("pan_up")   ? 200.0f : 0.0f);
+        // Zoom: continuous while held — ramps the smooth target (the wheel feeds it too).
+        if (m_actions.isActive("zoom_in"))  setZoomTarget(m_targetZoom * (1.0f + 2.0f * dt), 512.0f, 384.0f);
+        if (m_actions.isActive("zoom_out")) setZoomTarget(m_targetZoom / (1.0f + 2.0f * dt), 512.0f, 384.0f);
+        // Discrete: fire once on the press edge (key-repeat is idempotent in ActionMap).
+        if (m_actions.justPressed("spawn"))       spawnExplosion(512.0f + m_cameraX, 400.0f + m_cameraY);
+        if (m_actions.justPressed("cycle_color")) m_clearColorIndex = (m_clearColorIndex + 1) % numClearColors;
 
         // Smooth zoom: glide toward the target (framerate-independent camera::damp), re-framing
         // so the focus world point stays pinned under its screen anchor — buttery wheel/key
@@ -453,7 +462,7 @@ private:
             auto text = std::make_unique<JsonDataNode>("text");
             text->setDouble("x", 750);
             text->setDouble("y", 730);
-            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/+/-: Zoom");
+            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/PgUp-PgDn: Zoom");
             text->setInt("fontSize", 14);
             text->setInt("color", 0x888888FF);
             text->setInt("layer", 100);
@@ -688,6 +697,11 @@ private:
     // Clear color
     int m_clearColorIndex = 0;
 
+    // Input: semantic actions bound by SCANCODE (physical key) — layout-proof. The whole
+    // event loop talks in actions ("zoom_in"), never raw keycodes, so AZERTY/QWERTY behave
+    // identically. This is the live dogfood of grove::input::ActionMap.
+    grove::input::ActionMap m_actions;
+
     // Particles
     std::vector<Particle> m_particles;
     std::mt19937 m_rng;
@@ -726,6 +740,7 @@ int main(int argc, char* argv[]) {
     Uint64 lastTime = SDL_GetPerformanceCounter();
 
     while (running) {
+        showcase.beginFrame();   // clear per-frame action edges before feeding this frame's events
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT ||
