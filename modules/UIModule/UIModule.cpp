@@ -95,10 +95,38 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             m_context->mouseWheelDelta = static_cast<float>(msg.data->getDouble("delta", 0.0));
         });
 
+        // Legacy single-topic keyboard path (kept for the visual showcases, which still
+        // publish "input:keyboard" {keyCode, char}).
         m_io->subscribe("input:keyboard", [this](const Message& msg) {
             m_context->keyPressed = true;
             m_context->keyCode = msg.data->getInt("keyCode", 0);
             m_context->keyChar = static_cast<char>(msg.data->getInt("char", 0));
+        });
+
+        // FIX #5: the real InputModule publishes input:keyboard:text {text} (typed
+        // characters) and input:keyboard:key {scancode, pressed, ...} (special keys) —
+        // NOT "input:keyboard". UIModule subscribed only the legacy topic, so keyboard
+        // input from the real pipeline never reached the UI. Subscribe the real topics.
+        m_io->subscribe("input:keyboard:text", [this](const Message& msg) {
+            std::string text = msg.data->getString("text", "");
+            if (!text.empty()) {
+                m_context->keyPressed = true;
+                m_context->keyCode = 0;
+                // NB: only the first byte is forwarded (keyChar is a single char). Full
+                // UTF-8 / multi-char paste is a follow-up (see audit C2).
+                m_context->keyChar = static_cast<char>(static_cast<unsigned char>(text[0]));
+            }
+        });
+        m_io->subscribe("input:keyboard:key", [this](const Message& msg) {
+            if (msg.data->getBool("pressed", true)) {
+                m_context->keyPressed = true;
+                // NB: scancode is an SDL scancode; UITextInput::onKeyInput expects
+                // JS-style key codes (Backspace=8, Enter=13, Left=37…). A proper
+                // scancode->keycode mapping is a follow-up; text typing works via
+                // input:keyboard:text above.
+                m_context->keyCode = msg.data->getInt("scancode", 0);
+                m_context->keyChar = 0;
+            }
         });
 
         m_io->subscribe("ui:load", [this](const Message& msg) {

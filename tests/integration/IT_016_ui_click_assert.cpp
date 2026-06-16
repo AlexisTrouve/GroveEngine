@@ -134,3 +134,74 @@ TEST_CASE("IT_016: clicking OUTSIDE the button emits nothing (discrimination)", 
 
     uiModule->shutdown();
 }
+
+TEST_CASE("IT_016: typing into a focused textinput emits ui:text_changed", "[integration][ui][e2e]") {
+    // Drives the REAL keyboard path: focus a textinput by clicking it, then type via the
+    // topic the InputModule actually publishes (input:keyboard:text), and assert the
+    // textinput received the character. This is the E2E that locks fix #5 (UIModule used
+    // to subscribe only the legacy "input:keyboard", so real keyboard input was dead).
+    auto& mgr = IntraIOManager::getInstance();
+    auto inputPub = mgr.createInstance("input_publisher_kb");
+    auto uiIO     = mgr.createInstance("ui_module_kb");
+    auto observer = mgr.createInstance("test_observer_kb");
+
+    ModuleLoader uiLoader;
+    std::string uiPath = "../modules/libUIModule.so";
+#ifdef _WIN32
+    uiPath = "../modules/libUIModule.dll";
+#endif
+    std::unique_ptr<IModule> uiModule;
+    REQUIRE_NOTHROW(uiModule = uiLoader.load(uiPath, "ui_module_kb"));
+
+    JsonDataNode cfg("config");
+    cfg.setInt("windowWidth", 800);
+    cfg.setInt("windowHeight", 600);
+    cfg.setString("layoutFile", "../../assets/ui/test_e2e_textinput.json");
+    cfg.setInt("baseLayer", 1000);
+    REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
+
+    int textChanges = 0;
+    std::string lastText;
+    observer->subscribe("ui:text_changed", [&](const Message& m) {
+        textChanges++;
+        lastText = m.data->getString("text", "");
+    });
+
+    auto pump = [&] {
+        JsonDataNode input("input");
+        input.setDouble("deltaTime", 0.016);
+        uiModule->process(input);
+        while (observer->hasMessages() > 0) observer->pullAndDispatch();
+    };
+    auto sendButton = [&](bool pressed, double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setInt("button", 0); d->setBool("pressed", pressed);
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:button", std::move(d));
+    };
+    auto sendMove = [&](double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:move", std::move(d));
+    };
+
+    // Textinput is at (100,100) size 300x40 -> center (250,120). Move there first
+    // (the button handler uses the current mouse position), then click to focus it.
+    sendMove(250.0, 120.0);          pump();
+    sendButton(true,  250.0, 120.0); pump();
+    sendButton(false, 250.0, 120.0); pump();
+
+    // Type 'A' via the topic the real InputModule publishes.
+    {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setString("text", "A");
+        inputPub->publish("input:keyboard:text", std::move(d));
+    }
+    pump();
+
+    INFO("textChanges=" << textChanges << " lastText='" << lastText << "'");
+    REQUIRE(textChanges >= 1);     // the keystroke reached the focused textinput
+    REQUIRE(lastText == "A");      // ...and produced the right text
+
+    uiModule->shutdown();
+}
