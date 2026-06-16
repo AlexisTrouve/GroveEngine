@@ -205,3 +205,93 @@ TEST_CASE("IT_016: typing into a focused textinput emits ui:text_changed", "[int
 
     uiModule->shutdown();
 }
+
+TEST_CASE("IT_016: special keys (backspace, enter) reach a focused textinput", "[integration][ui][e2e]") {
+    // Locks fix #5-suite: InputModule publishes input:keyboard:key with the raw SDL
+    // scancode, but UITextInput::onKeyInput speaks JS-style codes (Backspace=8,
+    // Enter=13…). Without the scancode->editkey mapping in UIModule, backspace/enter
+    // were inert (only printable text via input:keyboard:text worked). Drive a real
+    // edit: type "AB", backspace -> "A", then Enter -> submit (onSubmit="test:submit").
+    auto& mgr = IntraIOManager::getInstance();
+    auto inputPub = mgr.createInstance("input_publisher_sk");
+    auto uiIO     = mgr.createInstance("ui_module_sk");
+    auto observer = mgr.createInstance("test_observer_sk");
+
+    ModuleLoader uiLoader;
+    std::string uiPath = "../modules/libUIModule.so";
+#ifdef _WIN32
+    uiPath = "../modules/libUIModule.dll";
+#endif
+    std::unique_ptr<IModule> uiModule;
+    REQUIRE_NOTHROW(uiModule = uiLoader.load(uiPath, "ui_module_sk"));
+
+    JsonDataNode cfg("config");
+    cfg.setInt("windowWidth", 800);
+    cfg.setInt("windowHeight", 600);
+    cfg.setString("layoutFile", "../../assets/ui/test_e2e_textinput.json");
+    cfg.setInt("baseLayer", 1000);
+    REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
+
+    std::string lastText;
+    int submits = 0;
+    std::string submitAction;
+    observer->subscribe("ui:text_changed", [&](const Message& m) {
+        lastText = m.data->getString("text", "");
+    });
+    observer->subscribe("ui:text_submit", [&](const Message&) { submits++; });
+    observer->subscribe("ui:action", [&](const Message& m) {
+        submitAction = m.data->getString("action", "");
+    });
+
+    auto pump = [&] {
+        JsonDataNode input("input");
+        input.setDouble("deltaTime", 0.016);
+        uiModule->process(input);
+        while (observer->hasMessages() > 0) observer->pullAndDispatch();
+    };
+    auto sendButton = [&](bool pressed, double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setInt("button", 0); d->setBool("pressed", pressed);
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:button", std::move(d));
+    };
+    auto sendMove = [&](double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:move", std::move(d));
+    };
+    auto sendText = [&](const std::string& t) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setString("text", t);
+        inputPub->publish("input:keyboard:text", std::move(d));
+    };
+    auto sendKey = [&](int scancode) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setInt("scancode", scancode);
+        d->setBool("pressed", true);
+        inputPub->publish("input:keyboard:key", std::move(d));
+    };
+
+    // Focus the textinput (center 250,120; move first so the click lands on it).
+    sendMove(250.0, 120.0);          pump();
+    sendButton(true,  250.0, 120.0); pump();
+    sendButton(false, 250.0, 120.0); pump();
+
+    // Type "AB".
+    sendText("A"); pump();
+    sendText("B"); pump();
+    REQUIRE(lastText == "AB");
+
+    // Backspace (SDL_SCANCODE_BACKSPACE = 42) -> "A".
+    sendKey(42); pump();
+    INFO("after backspace lastText='" << lastText << "'");
+    REQUIRE(lastText == "A");
+
+    // Enter (SDL_SCANCODE_RETURN = 40) -> submit with onSubmit action.
+    sendKey(40); pump();
+    INFO("submits=" << submits << " action='" << submitAction << "'");
+    REQUIRE(submits >= 1);
+    REQUIRE(submitAction == "test:submit");
+
+    uiModule->shutdown();
+}

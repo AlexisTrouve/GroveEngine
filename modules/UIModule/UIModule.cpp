@@ -28,6 +28,34 @@ namespace grove {
 
 namespace grove {
 
+namespace {
+// QUOI : traduit un SDL_Scancode (valeur brute publiée par InputModule sur
+//   input:keyboard:key) vers le code d'édition attendu par UITextInput::onKeyInput
+//   (dialecte "JS-like" : Backspace=8, Delete=127, Enter=13, Left=37, Right=39,
+//   Home=36, End=35).
+// POURQUOI : InputModule est volontairement découplé de l'UI — il publie le scancode
+//   SDL tel quel ; UITextInput parle un autre dialecte. Sans cette table, les touches
+//   d'édition étaient inertes (#5-suite) : seul le texte imprimable, via le topic
+//   input:keyboard:text, fonctionnait.
+// COMMENT : table figée des SDL_Scancode (cf. SDL_scancode.h — l'UIModule n'inclut pas
+//   les en-têtes SDL, d'où les littéraux commentés). Renvoie 0 si la touche n'a pas de
+//   sémantique d'édition : l'appelant n'émet alors aucun keyPressed et laisse le chemin
+//   texte gérer les caractères imprimables.
+int sdlScancodeToEditKey(int scancode) {
+    switch (scancode) {
+        case 42: return 8;    // SDL_SCANCODE_BACKSPACE -> Backspace
+        case 76: return 127;  // SDL_SCANCODE_DELETE    -> Delete
+        case 40: return 13;   // SDL_SCANCODE_RETURN    -> Enter
+        case 88: return 13;   // SDL_SCANCODE_KP_ENTER  -> Enter (pavé num.)
+        case 80: return 37;   // SDL_SCANCODE_LEFT       -> flèche gauche
+        case 79: return 39;   // SDL_SCANCODE_RIGHT      -> flèche droite
+        case 74: return 36;   // SDL_SCANCODE_HOME      -> Home
+        case 77: return 35;   // SDL_SCANCODE_END       -> End
+        default: return 0;    // pas une touche d'édition
+    }
+}
+} // namespace
+
 UIModule::UIModule() = default;
 UIModule::~UIModule() = default;
 
@@ -120,13 +148,18 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         });
         m_io->subscribe("input:keyboard:key", [this](const Message& msg) {
             if (msg.data->getBool("pressed", true)) {
-                m_context->keyPressed = true;
-                // NB: scancode is an SDL scancode; UITextInput::onKeyInput expects
-                // JS-style key codes (Backspace=8, Enter=13, Left=37…). A proper
-                // scancode->keycode mapping is a follow-up; text typing works via
-                // input:keyboard:text above.
-                m_context->keyCode = msg.data->getInt("scancode", 0);
-                m_context->keyChar = 0;
+                // FIX #5-suite : on ne traite ici que les touches d'ÉDITION (backspace,
+                // entrée, suppr, flèches, home/end), traduites du scancode SDL vers le
+                // dialecte UITextInput. Les caractères imprimables arrivent par
+                // input:keyboard:text (ci-dessus) — on NE lève PAS keyPressed pour eux,
+                // sinon le scancode brut écraserait keyChar (déjà posé par :text) avec
+                // un no-op et le caractère serait perdu.
+                int editKey = sdlScancodeToEditKey(msg.data->getInt("scancode", 0));
+                if (editKey != 0) {
+                    m_context->keyPressed = true;
+                    m_context->keyCode = editKey;
+                    m_context->keyChar = 0;
+                }
             }
         });
 
