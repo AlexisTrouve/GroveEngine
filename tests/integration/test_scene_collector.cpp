@@ -714,6 +714,92 @@ TEST_CASE("SceneCollector - multiple frame cycles", "[scene_collector][integrati
 }
 
 // ============================================================================
+// Layer / z-order (audit #4)
+// ============================================================================
+// The submit order = the order items appear in the FramePacket. finalize() merged
+// retained (unordered_map hash order!) then ephemeral, with NO sort by layer — so
+// z-order was non-deterministic / wrong. These lock the fix: the packet is sorted by
+// layer ascending (lower layer drawn first / behind), stably (equal layers keep order).
+
+TEST_CASE("SceneCollector - sprites emitted sorted by layer ascending (#4)", "[scene_collector][integration][layer]") {
+    auto& ioManager = IntraIOManager::getInstance();
+    auto ioCollector = ioManager.createInstance(uniqueId("receiver"));
+    auto ioPublisher = ioManager.createInstance(uniqueId("publisher"));
+    SceneCollector collector;
+    FrameAllocator allocator;
+
+    collector.setup(ioCollector.get());
+
+    // One retained sprite (layer 2). Retained are merged first in hash order.
+    auto retained = std::make_unique<JsonDataNode>("s");
+    retained->setInt("renderId", 99);
+    retained->setDouble("x", 20.0);
+    retained->setInt("layer", 2);
+    ioPublisher->publish("render:sprite:add", std::move(retained));
+
+    // Ephemeral sprites published in DESCENDING layer order (5, 1, 3) — so the raw
+    // (unsorted) packet order [retained 2, 5, 1, 3] is NOT layer-sorted.
+    const int layers[] = {5, 1, 3};
+    const double xs[]   = {50.0, 10.0, 30.0};
+    for (int i = 0; i < 3; ++i) {
+        auto s = std::make_unique<JsonDataNode>("sprite");
+        s->setDouble("x", xs[i]);
+        s->setInt("layer", layers[i]);
+        ioPublisher->publish("render:sprite", std::move(s));
+    }
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.spriteCount == 4);
+
+    // Layers must be non-decreasing (correct back-to-front z-order).
+    for (size_t i = 1; i < packet.spriteCount; ++i) {
+        INFO("layer[" << (i - 1) << "]=" << packet.sprites[i - 1].layer
+             << " layer[" << i << "]=" << packet.sprites[i].layer);
+        REQUIRE(packet.sprites[i - 1].layer <= packet.sprites[i].layer);
+    }
+
+    // Concretely: sorted layers 1,2,3,5 -> x 10,20,30,50.
+    REQUIRE_THAT(packet.sprites[0].x, WithinAbs(10.0f, 0.01f));
+    REQUIRE_THAT(packet.sprites[1].x, WithinAbs(20.0f, 0.01f));
+    REQUIRE_THAT(packet.sprites[2].x, WithinAbs(30.0f, 0.01f));
+    REQUIRE_THAT(packet.sprites[3].x, WithinAbs(50.0f, 0.01f));
+}
+
+TEST_CASE("SceneCollector - texts emitted sorted by layer ascending (#4)", "[scene_collector][integration][layer]") {
+    auto& ioManager = IntraIOManager::getInstance();
+    auto ioCollector = ioManager.createInstance(uniqueId("receiver"));
+    auto ioPublisher = ioManager.createInstance(uniqueId("publisher"));
+    SceneCollector collector;
+    FrameAllocator allocator;
+
+    collector.setup(ioCollector.get());
+
+    // Ephemeral texts in DESCENDING layer order.
+    const int layers[] = {7, 2, 4};
+    const char* names[] = {"seven", "two", "four"};
+    for (int i = 0; i < 3; ++i) {
+        auto t = std::make_unique<JsonDataNode>("text");
+        t->setString("text", names[i]);
+        t->setInt("layer", layers[i]);
+        ioPublisher->publish("render:text", std::move(t));
+    }
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.textCount == 3);
+    for (size_t i = 1; i < packet.textCount; ++i) {
+        REQUIRE(packet.texts[i - 1].layer <= packet.texts[i].layer);
+    }
+    // Sorted layers 2,4,7 -> "two","four","seven".
+    REQUIRE(std::string(packet.texts[0].text) == "two");
+    REQUIRE(std::string(packet.texts[1].text) == "four");
+    REQUIRE(std::string(packet.texts[2].text) == "seven");
+}
+
+// ============================================================================
 // Mixed Message Types
 // ============================================================================
 

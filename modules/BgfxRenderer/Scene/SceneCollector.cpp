@@ -2,6 +2,7 @@
 #include "grove/IIO.h"
 #include "grove/IDataNode.h"
 #include "../Frame/FrameAllocator.h"
+#include <algorithm>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -109,6 +110,15 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
             if (!m_sprites.empty()) {
                 std::memcpy(&sprites[idx], m_sprites.data(), m_sprites.size() * sizeof(SpriteInstance));
             }
+            // FIX #4 : trier par layer croissant → ordre de dessin = z-order.
+            // POURQUOI : les sprites étaient émis "retained (ordre de hash unordered_map)
+            //   puis ephemeral", sans tri ; comme la passe submit dans l'ordre du paquet,
+            //   le z-order était non déterministe (un fond pouvait passer devant son texte).
+            // COMMENT : stable_sort pour que, à layer ÉGAL, l'ordre d'insertion (retained
+            //   avant ephemeral) soit préservé — pas de scintillement entre éléments du
+            //   même plan.
+            std::stable_sort(sprites, sprites + totalSprites,
+                [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
             packet.sprites = sprites;
             packet.spriteCount = totalSprites;
         }
@@ -182,6 +192,10 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
                 idx++;
             }
 
+            // FIX #4 : même tri stable par layer que les sprites (z-order déterministe).
+            // Le texte des labels UI doit passer DEVANT les fonds (layer supérieur).
+            std::stable_sort(texts, texts + totalTexts,
+                [](const TextCommand& a, const TextCommand& b) { return a.layer < b.layer; });
             packet.texts = texts;
             packet.textCount = totalTexts;
         }
