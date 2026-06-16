@@ -57,6 +57,7 @@ private:
 
     // Message parsing helpers (ephemeral mode - legacy)
     void parseSprite(const IDataNode& data);
+    void parseRect(const IDataNode& data);  // filled colored quad via the layered sprite path (A2)
     void parseSpriteBatch(const IDataNode& data);
     void parseTilemap(const IDataNode& data);
     void parseText(const IDataNode& data);

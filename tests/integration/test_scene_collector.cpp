@@ -800,6 +800,47 @@ TEST_CASE("SceneCollector - texts emitted sorted by layer ascending (#4)", "[sce
 }
 
 // ============================================================================
+// render:rect — layered filled quad (engine help A2, for HUD-heavy games)
+// ============================================================================
+// debug:rect draws in the LAST pass (over text) and has no layer. render:rect instead
+// goes through the sprite path: a textureId=0 (white) tinted quad, which is sorted by
+// layer and drawn BEFORE text — so a HUD panel can sit UNDER its label. Coords are
+// top-left (x,y,w,h) like debug:rect; the collector centers them for the sprite.
+
+TEST_CASE("SceneCollector - render:rect becomes a layered filled sprite quad (A2)", "[scene_collector][integration][rect]") {
+    auto& ioManager = IntraIOManager::getInstance();
+    auto ioCollector = ioManager.createInstance(uniqueId("receiver"));
+    auto ioPublisher = ioManager.createInstance(uniqueId("publisher"));
+    SceneCollector collector;
+    FrameAllocator allocator;
+
+    collector.setup(ioCollector.get());
+
+    auto rect = std::make_unique<JsonDataNode>("rect");
+    rect->setDouble("x", 100.0);   // top-left
+    rect->setDouble("y", 50.0);
+    rect->setDouble("w", 200.0);
+    rect->setDouble("h", 30.0);
+    rect->setInt("color", static_cast<int>(0x804020FFu));
+    rect->setInt("layer", 5);
+    ioPublisher->publish("render:rect", std::move(rect));
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.spriteCount == 1);
+    const auto& s = packet.sprites[0];
+    REQUIRE_THAT(s.x, WithinAbs(200.0f, 0.01f));       // center = x + w/2
+    REQUIRE_THAT(s.y, WithinAbs(65.0f, 0.01f));        // center = y + h/2
+    REQUIRE_THAT(s.scaleX, WithinAbs(200.0f, 0.01f));  // full width
+    REQUIRE_THAT(s.scaleY, WithinAbs(30.0f, 0.01f));   // full height
+    REQUIRE_THAT(s.textureId, WithinAbs(0.0f, 0.01f)); // white texture -> solid color
+    REQUIRE_THAT(s.layer, WithinAbs(5.0f, 0.01f));     // honored z-order
+    REQUIRE_THAT(s.r, WithinAbs(0x80 / 255.0f, 0.01f));
+    REQUIRE_THAT(s.a, WithinAbs(1.0f, 0.01f));
+}
+
+// ============================================================================
 // Mixed Message Types
 // ============================================================================
 

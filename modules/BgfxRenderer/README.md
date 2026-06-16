@@ -180,7 +180,8 @@ io->publish("render:debug:rect", std::move(rect));
 
 | Topic | Description |
 |-------|-------------|
-| `render:sprite` | Un sprite |
+| `render:sprite` | Un sprite (`x,y` = centre) |
+| `render:rect` | Rectangle plein coloré `{x,y,w,h,color,layer}` (coin haut-gauche) — quad **layeré** (sprite-pass, avant le texte), pour fonds de HUD. ≠ `render:debug:rect` (toujours au-dessus, sans layer) |
 | `render:sprite:batch` | Batch de sprites |
 | `render:tilemap` | Chunk de tilemap |
 | `render:text` | Texte à afficher |

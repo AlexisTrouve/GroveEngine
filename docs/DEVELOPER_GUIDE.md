@@ -468,7 +468,8 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer}` | Render single sprite (ephemeral) |
+| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer}` | Render single sprite (ephemeral). `x,y` = CENTER |
+| `render:rect` | `{x, y, w, h, color, layer}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay) |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
 
 #### Text

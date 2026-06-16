@@ -71,6 +71,12 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:debug:rect") {
             parseDebugRect(*msg.data);
         }
+        // Filled rect via the LAYERED sprite path (engine help A2): unlike debug:rect
+        // (always-on-top, no layer), render:rect honors `layer` and draws before text —
+        // so HUD backgrounds sit under their labels.
+        else if (msg.topic == "render:rect") {
+            parseRect(*msg.data);
+        }
     });
 
     // Initialize default view with provided dimensions (will be overridden by camera messages)
@@ -286,6 +292,43 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.reserved[3] = 0.0f;
     // i_data4 (color as floats)
     uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+    sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
+
+    m_sprites.push_back(sprite);
+}
+
+void SceneCollector::parseRect(const IDataNode& data) {
+    // QUOI : un rectangle plein coloré, posé comme un sprite teinté (texture 0 = blanc).
+    // POURQUOI : donne aux jeux HUD-lourds (Drifterra) un rect qui RESPECTE le `layer`
+    //   et passe par le SpritePass (avant le texte) — contrairement à render:debug:rect
+    //   (dernière passe, toujours au-dessus, sans layer). Cf. aide moteur A2.
+    // COMMENT : coords coin haut-gauche (x,y,w,h) comme debug:rect ; on les centre pour
+    //   le sprite (x+w/2, y+h/2), scale = (w,h), textureId=0, UV plein quad, couleur teintée.
+    SpriteInstance sprite;
+    const float x = static_cast<float>(data.getDouble("x", 0.0));
+    const float y = static_cast<float>(data.getDouble("y", 0.0));
+    const float w = static_cast<float>(data.getDouble("w", 0.0));
+    const float h = static_cast<float>(data.getDouble("h", 0.0));
+
+    sprite.x = x + w * 0.5f;   // top-left -> center (same convention as render:sprite)
+    sprite.y = y + h * 0.5f;
+    sprite.scaleX = w;
+    sprite.scaleY = h;
+
+    sprite.rotation = 0.0f;
+    sprite.u0 = 0.0f; sprite.v0 = 0.0f; sprite.u1 = 1.0f; sprite.v1 = 1.0f;  // full white texel
+    sprite.textureId = 0.0f;  // 0 => default white texture in SpritePass => solid color
+    sprite.layer = static_cast<float>(data.getInt("layer", 0));
+    sprite.padding0 = 0.0f;
+    sprite.reserved[0] = 0.0f;
+    sprite.reserved[1] = 0.0f;
+    sprite.reserved[2] = 0.0f;
+    sprite.reserved[3] = 0.0f;
+
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
     sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
     sprite.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
     sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
