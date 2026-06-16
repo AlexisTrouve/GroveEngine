@@ -18,22 +18,29 @@ void UIScrollPanel::update(UIContext& ctx, float deltaTime) {
     // Clamp scroll offset
     clampScrollOffset();
 
-    // Update children with scroll offset applied
+    // QUOI : appliquer le scroll aux positions ABSOLUES des enfants, de façon
+    //   PERSISTANTE (l'offset reste dans absX/absY après cette passe).
+    // POURQUOI : l'ancien code décalait child->x temporairement (sans effet sur absX,
+    //   utilisé par le hit-test et le hover), et render() posait/​restaurait child->absX
+    //   → le rendu était scrollé mais le hit-test voyait la position non-scrollée, donc
+    //   cliquer un enfant scrollé ratait. En posant absX scrollé ici et en le laissant,
+    //   rendu + hit-test (frame suivante) + hover coïncident.
+    // COMMENT : absX scrollé = (notre absX) + (x relatif intact) - offset. On propage aux
+    //   petits-enfants via leur computeAbsolutePosition() (qui dérive du child->absX
+    //   désormais scrollé). On ne modifie PAS child->x (computeContentSize en dépend).
+    // LIMITE connue : un enfant qui est lui-même un panel en layout non-absolute rappelle
+    //   computeAbsolutePosition() dans son update() et se "dé-scrolle" → cas rare, à
+    //   traiter dans le rework scissor/clipping (le scrollpanel reste candidat rewrite).
     for (auto& child : children) {
-        if (child->visible) {
-            // Temporarily adjust child position for scrolling
-            float origX = child->x;
-            float origY = child->y;
+        if (!child->visible) continue;
 
-            child->x = origX - scrollOffsetX;
-            child->y = origY - scrollOffsetY;
-
-            child->update(ctx, deltaTime);
-
-            // Restore original position
-            child->x = origX;
-            child->y = origY;
+        child->absX = absX + child->x - scrollOffsetX;
+        child->absY = absY + child->y - scrollOffsetY;
+        for (auto& grandChild : child->children) {
+            grandChild->computeAbsolutePosition();
         }
+
+        child->update(ctx, deltaTime);
     }
 }
 
@@ -98,35 +105,24 @@ void UIScrollPanel::render(UIRenderer& renderer) {
         renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
     }
 
-    // Render children with scroll offset and clipping
-    // Note: Proper clipping would require scissor test in renderer
-    // For now, we render all children but offset them
+    // Render children. Leur absX/absY reflètent DÉJÀ le scroll (posé dans update()),
+    // donc rendu et hit-test partagent les mêmes coordonnées — on ne décale/restaure
+    // plus rien ici.
+    // Note : pas encore de scissor/clipping ; on cull les enfants entièrement hors du
+    // rect visible, mais un enfant partiellement visible n'est pas découpé.
     for (auto& child : children) {
-        if (child->visible) {
-            // Save original absolute position
-            float origAbsX = child->absX;
-            float origAbsY = child->absY;
+        if (!child->visible) continue;
 
-            // Apply scroll offset
-            child->absX = absX + child->x - scrollOffsetX;
-            child->absY = absY + child->y - scrollOffsetY;
+        float visX, visY, visW, visH;
+        getVisibleRect(visX, visY, visW, visH);
 
-            // Simple visibility culling - only render if in bounds
-            float visX, visY, visW, visH;
-            getVisibleRect(visX, visY, visW, visH);
+        bool inBounds = (child->absX + child->width >= visX &&
+                       child->absX <= visX + visW &&
+                       child->absY + child->height >= visY &&
+                       child->absY <= visY + visH);
 
-            bool inBounds = (child->absX + child->width >= visX &&
-                           child->absX <= visX + visW &&
-                           child->absY + child->height >= visY &&
-                           child->absY <= visY + visH);
-
-            if (inBounds) {
-                child->render(renderer);
-            }
-
-            // Restore original absolute position
-            child->absX = origAbsX;
-            child->absY = origAbsY;
+        if (inBounds) {
+            child->render(renderer);
         }
     }
 

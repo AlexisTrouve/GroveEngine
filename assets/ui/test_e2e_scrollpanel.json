@@ -1,0 +1,45 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "scrollpanel",
+      "id": "sp",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 200,
+      "scrollVertical": true,
+      "scrollHorizontal": false,
+      "showScrollbar": false,
+      "dragToScroll": false,
+      "children": [
+        {
+          "type": "button",
+          "id": "btn_top",
+          "x": 0,
+          "y": 0,
+          "width": 200,
+          "height": 50,
+          "text": "TOP",
+          "onClick": "scroll:top"
+        },
+        {
+          "type": "button",
+          "id": "btn_bottom",
+          "x": 0,
+          "y": 400,
+          "width": 200,
+          "height": 50,
+          "text": "BOTTOM",
+          "onClick": "scroll:bottom"
+        }
+      ]
+    }
+  ]
+}

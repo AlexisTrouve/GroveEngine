@@ -1542,6 +1542,18 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UILayoutHitTestE2E IT_018_ui_layout_hittest_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_019: ScrollPanel E2E — scroll, then click a scrolled-into-view child (audit ScrollPanel).
+    add_executable(IT_019_ui_scrollpanel_e2e
+        integration/IT_019_ui_scrollpanel_e2e.cpp
+    )
+    target_link_libraries(IT_019_ui_scrollpanel_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIScrollPanelE2E IT_019_ui_scrollpanel_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)
