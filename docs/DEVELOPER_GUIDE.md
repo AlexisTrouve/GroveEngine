@@ -512,8 +512,8 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer}` | Render single sprite (ephemeral). `x,y` = CENTER |
-| `render:rect` | `{x, y, w, h, color, layer}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay) |
+| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?}` | Render single sprite (ephemeral). `x,y` = CENTER. `space:"screen"` → HUD overlay (see below) |
+| `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
 
 #### Text
@@ -530,9 +530,34 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:text` | `{x, y, text, fontSize, color, layer}` | Render text (ephemeral) |
+| `render:text` | `{x, y, text, fontSize, color, layer, space?}` | Render text (ephemeral). `space:"screen"` → HUD overlay |
 
 **Note:** See [UI Rendering Documentation](UI_RENDERING.md) for details on retained mode rendering.
+
+#### HUD / screen-space overlay (`space:"screen"`)
+
+By default every render command lives in **world space** — it zooms and pans with
+`render:camera`. For a HUD that stays fixed in pixels while the world zooms (minimap frame,
+resource bar, tactical labels), publish `render:rect` / `render:sprite` / `render:text` with
+**`space: "screen"`**:
+
+```cpp
+auto bar = std::make_unique<JsonDataNode>("rect");
+bar->setDouble("x", 0); bar->setDouble("y", 0);
+bar->setDouble("w", 1280); bar->setDouble("h", 32);
+bar->setInt("color", 0x101820C0);
+bar->setInt("layer", 0);
+bar->setString("space", "screen");      // <-- fixed; ignores camera zoom/pan
+io->publish("render:rect", std::move(bar));
+```
+
+- Screen-space commands draw on a **second view (view 1)** with a fixed screen-space ortho
+  (1px = 1 unit, top-left origin), composited **on top of** the world. Coordinates are
+  literal pixels — no need to undo the camera.
+- The world camera (`render:camera`) can zoom/pan freely; the HUD never moves. This is what
+  makes a continuous system↔tactical zoom keep a stable HUD.
+- Scope: **ephemeral** topics only (`render:rect`/`:sprite`/`:text`). Retained-mode
+  (`render:*:add`) screen-space is not yet supported. `render:debug:*` is always world-space.
 
 #### Tilemap
 
