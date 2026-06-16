@@ -16,7 +16,7 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 | — | 🟠 HIGH | 2D | **FrameAllocator** : alignait l'offset, pas l'adresse absolue → `allocate(_,32/64)` rendait du 16-aligné (crash SIMD) | ✅ `fcfcd56` — adresse absolue, locké par `FrameAllocatorUnit` |
 | — | — | Tous | 6 tests (unit RHI + scene_collector) **écrits mais jamais enregistrés** dans ctest → 0 couverture | ✅ `fcfcd56`/`49b1175` — enregistrés (dont `SceneCollectorTest` couvre `debug:rect`/`text`) |
 | 4 | 🟠 HIGH | 2D | Layer/depth pas honoré au submit (depth=0 partout) : ordre = ordre CPU intra-pass (retained en ordre de hash !), pas le champ `layer` | ✅ `a95e479` — `finalize()` fait un `stable_sort` par `layer` (sprites + textes) → ordre du paquet = z-order ; locké par `SceneCollectorTest`. NB : couche bgfx réelle / pixel non assertés |
-| 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"`/`:text` → ne matche pas | 🟡 **quasi** `2f5234d`+`6ca07a8` — **texte** (subscribe `input:keyboard:text`) + **touches d'édition** (table scancode SDL→keycode dans `input:keyboard:key` : backspace/entrée/suppr/flèches/home/end) corrigés, lockés par `UIClickAssert` ; reste UTF-8/multi-char (C2) |
+| 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"`/`:text` → ne matche pas | ✅ `2f5234d`+`6ca07a8`+`ccc8c39` — **texte** (`input:keyboard:text`), **touches d'édition** (table scancode SDL→keycode), **multi-char/UTF-8** (insertion de la chaîne entière, C2) corrigés, lockés par `UIClickAssert` (5 cas). Résiduel mineur : filtrage/curseur par codepoint Unicode = approximatif (par octet) |
 | 6 | 🟠 HIGH | UI | Clics ratés en layout : `absX/absY` (hit-test ET rendu) pas recalculés après `UILayout` (calculés une fois au load, avant la 1re passe layout) | ✅ `5ddf9b7` — `computeAbsolutePosition()` rappelé après `UILayout::layout()` dans `UIPanel::update` (fix chirurgical, pas de rewrite), locké par `UILayoutHitTestE2E` |
 | H2 | 🟠 HIGH | UI | Slider : `ui:value_changed` émis seulement aux fronts press/release → aucun feedback live pendant le drag ; pire, release hors `containsPoint` (bord droit) → valeur finale perdue | ✅ `6590427` — émission centralisée post-`update()` (par id, NaN-grab), locké par `UIWidgetsE2E` |
 | SP | 🟠 HIGH | UI | ScrollPanel : `render()` posait child->absX scrollé puis le RESTAURAIT non-scrollé → rendu scrollé mais hit-test non-scrollé → clic sur enfant scrollé raté | 🟡 **hit-test corrigé** `b3a0c72` — scroll persistant dans `absX` (posé dans `update()`), locké par `UIScrollPanelE2E` ; reste le **scissor/clipping** (enfant partiel non découpé) |
@@ -29,7 +29,7 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 
 - **Eventbus (IIO)** : 🟢 pub/sub/fan-out/patterns OK et testés ; **backpressure réparée** (#2), **routage wildcard cohérent et locké E2E** (#7 : `*`=1 segment, `.*`=terminal), **routage fantôme au reload corrigé** (#8). Reste le lock exclusif `routeMessage` (#9, perf — `shared_lock` à valider TSAN).
 - **2D renderer** : 🟡 double-free (#1) + overflow (#3) + alignement + **z-order layer (#4)** réparés et **lockés par tests headless**. `executeCommandBuffer` (couche bgfx réelle) et la correction **pixel** restent non testés (pas de screenshot-diff).
-- **UI (UIModule)** : 🟡 sort du "n'existe pas" — **E2E réels** désormais : bouton (clic + miss), textinput (saisie + touches d'édition), **checkbox** (toggle + sens), **slider** (clic + drag live), **hit-test en layout vertical**, **ScrollPanel** (clic sur enfant scrollé). **#5** / **H2** / **#6** / **ScrollPanel (hit-test)** corrigés. Restent : ScrollPanel **scissor/clipping**, UTF-8/multi-char clavier (C2), rendu **pixel** non asserté.
+- **UI (UIModule)** : 🟡 sort du "n'existe pas" — **E2E réels** désormais : bouton (clic + miss), textinput (saisie + touches d'édition), **checkbox** (toggle + sens), **slider** (clic + drag live), **hit-test en layout vertical**, **ScrollPanel** (clic sur enfant scrollé). **#5** (texte + touches d'édition + multi-char) / **H2** / **#6** / **ScrollPanel (hit-test)** corrigés. Restent : ScrollPanel **scissor/clipping**, filtrage clavier par codepoint Unicode (résiduel mineur), rendu **pixel** non asserté.
 - **Reload ceiling (~70-100 reloads/process)** : **architectural** (tables d'exception DW2/SJLJ + fragmentation adressage ; les orphan DLLs, eux, sont bien gérés). Non réparable chirurgicalement — nécessite host out-of-process ou stratégie no-unload.
 
 ## Roadmap restante
@@ -44,7 +44,7 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 textinput (`ui:text_changed`), checkbox toggle (`ui:value_changed{checked}`, sens vérifié), slider
 clic + **drag live** (`ui:value_changed{value}` à chaque frame du drag), **hit-test sur widget
 positionné par layout vertical** (`ui:action` du bon enfant), **touches d'édition** (backspace
-→ texte raccourci, Enter → `ui:text_submit`/action), et **ScrollPanel** (molette → clic sur enfant
-scrollé). Restent non prouvés : UTF-8/multi-char, le **scissor/clipping** ScrollPanel,
-et le **rendu pixel** (le renderer n'asserte aucun pixel — seuls les commandes/packets le sont, y
-compris `debug:rect`/`text`).
+→ texte raccourci, Enter → `ui:text_submit`/action), **saisie multi-caractères** (un seul
+`input:keyboard:text` "Hello" → texte complet), et **ScrollPanel** (molette → clic sur enfant
+scrollé). Restent non prouvés : le **scissor/clipping** ScrollPanel et le **rendu pixel** (le
+renderer n'asserte aucun pixel — seuls les commandes/packets le sont, y compris `debug:rect`/`text`).
