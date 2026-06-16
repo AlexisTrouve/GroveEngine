@@ -1506,6 +1506,18 @@ if(GROVE_BUILD_UI_MODULE)
     grove_add_test(InputUIIntegration IT_015_input_ui_integration ${CMAKE_CURRENT_BINARY_DIR})
 
     message(STATUS "Integration test 'IT_015_input_ui_integration' enabled (simplified, no SDL2)")
+
+    # IT_016: first UI interaction E2E — inject a real click, assert ui:click + ui:action.
+    add_executable(IT_016_ui_click_assert
+        integration/IT_016_ui_click_assert.cpp
+    )
+    target_link_libraries(IT_016_ui_click_assert PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIClickAssert IT_016_ui_click_assert ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)

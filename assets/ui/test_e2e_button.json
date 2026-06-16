@@ -1,0 +1,26 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "button",
+      "id": "btn_ok",
+      "text": "OK",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 60,
+      "onClick": "test:ok",
+      "style": {
+        "fontSize": 18,
+        "normal": { "bgColor": "0x27ae60FF", "textColor": "0xFFFFFFFF" },
+        "hover":  { "bgColor": "0x2ecc71FF", "textColor": "0xFFFFFFFF" }
+      }
+    }
+  ]
+}
