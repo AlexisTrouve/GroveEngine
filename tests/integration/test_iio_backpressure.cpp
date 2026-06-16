@@ -71,6 +71,43 @@ TEST_CASE("matcher consistency: a topic routed by the manager is never swallowed
     mgr.removeInstance("swallow_sub");
 }
 
+TEST_CASE("matcher consistency: single-* matches one segment, .* matches the rest (end-to-end)", "[iio][routing]") {
+    // Locks the wildcard ROUTING contract through the real manager + IntraIO path
+    // (audit #7). Two matchers actually decide delivery and must agree:
+    //   - TopicTree (routing gatekeeper): '*' = exactly one segment, '.*' = terminal (rest).
+    //   - the manager's patternMatches lambda (freq lookup): same semantics.
+    // The per-instance IntraIO regex is only a post-routing filter; it can drop but never
+    // add deliveries, so it can't widen '*' beyond what TopicTree routed. This test pins
+    // the observable end-to-end behavior so a future change to any matcher is caught.
+    auto& mgr = IntraIOManager::getInstance();
+    auto pub        = mgr.createInstance("wild_pub");
+    auto subSingle  = mgr.createInstance("wild_single");
+    auto subMulti   = mgr.createInstance("wild_multi");
+
+    int single = 0, multi = 0;
+    subSingle->subscribe("a:*:c", [&](const Message&) { single++; });  // one segment between a and c
+    subMulti->subscribe("a:.*",   [&](const Message&) { multi++; });   // rest of the topic
+
+    auto pubTopic = [&](const std::string& topic) {
+        auto d = std::make_unique<JsonDataNode>("d", nlohmann::json{{"v", 1}});
+        pub->publish(topic, std::move(d));
+        while (subSingle->hasMessages() > 0) subSingle->pullAndDispatch();
+        while (subMulti->hasMessages()  > 0) subMulti->pullAndDispatch();
+    };
+
+    pubTopic("a:1:c");    // single middle segment -> single-* matches; .* matches
+    pubTopic("a:1:2:c");  // TWO middle segments   -> single-* must NOT match; .* matches
+    pubTopic("a:9");      // no :c                 -> single-* must NOT match; .* matches
+
+    INFO("single=" << single << " multi=" << multi);
+    REQUIRE(single == 1);  // 'a:*:c' is one segment only — never crosses ':'
+    REQUIRE(multi  == 3);  // 'a:.*' is terminal — matches every 'a:...' topic
+
+    mgr.removeInstance("wild_pub");
+    mgr.removeInstance("wild_single");
+    mgr.removeInstance("wild_multi");
+}
+
 TEST_CASE("reload hygiene: clearInstanceSubscriptions stops manager routing", "[iio][reload]") {
     // At hot-reload, ModuleLoader::unload() used to clear ONLY the IntraIO-side handler
     // vectors. The manager (TopicTree) still routed to the instance, so publishes landed
