@@ -380,6 +380,14 @@ TEST_CASE("SceneCollector - zoom scales the projection and matches grove::camera
     REQUIRE_THAT(s1y, WithinAbs(50.0f, 0.05f));
     REQUIRE_THAT(s2x, WithinAbs(2.0f * s1x, 0.05f));
     REQUIRE_THAT(s2y, WithinAbs(2.0f * s1y, 0.05f));
+
+    // Zoom OUT (zoom < 1) must scale too — half zoom => half on-screen distance. Locks that
+    // "dezoom" is correct at the engine level (a showcase key quirk is not an engine bug).
+    ViewInfo vHalf = viewFor(0.0f, 0.0f, 0.5f);
+    float shx = 0.0f, shy = 0.0f;
+    engineProject(vHalf, 100.0f, 50.0f, shx, shy);
+    REQUIRE_THAT(shx, WithinAbs(50.0f, 0.05f));   // 0.5 * 100
+    REQUIRE_THAT(shy, WithinAbs(25.0f, 0.05f));   // 0.5 * 50
 }
 
 // This locks the HUD overlay contract (engine help: screen-space view so the HUD does NOT

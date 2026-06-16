@@ -28,6 +28,7 @@
 
 #include "../helpers/WindowIcon.h"
 #include "BgfxRendererModule.h"
+#include "Scene/Camera.h"          // grove::camera helpers (zoomAt = zoom toward cursor)
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
@@ -134,11 +135,15 @@ public:
                 case SDLK_RIGHT: m_cameraVX = 200.0f; break;
                 case SDLK_UP:    m_cameraVY = -200.0f; break;
                 case SDLK_DOWN:  m_cameraVY = 200.0f; break;
+                // Multiple keycodes: '+'/'=' main row AND numpad — SDLK_MINUS on a non-US
+                // layout (AZERTY) is not where you'd expect, hence the dezoom "not working".
                 case SDLK_PLUS:
                 case SDLK_EQUALS:
+                case SDLK_KP_PLUS:
                     m_cameraZoom = std::min(4.0f, m_cameraZoom * 1.1f);
                     break;
                 case SDLK_MINUS:
+                case SDLK_KP_MINUS:
                     m_cameraZoom = std::max(0.25f, m_cameraZoom / 1.1f);
                     break;
                 case SDLK_SPACE:
@@ -160,6 +165,20 @@ public:
                     m_cameraVY = 0.0f;
                     break;
             }
+        }
+        // Mouse wheel: zoom TOWARD the cursor — layout-proof (no key binding) and a live demo
+        // of grove::camera::zoomAt (keeps the world point under the cursor pinned).
+        else if (e.type == SDL_MOUSEWHEEL) {
+            int mx = 0, my = 0;
+            SDL_GetMouseState(&mx, &my);
+            camera::CameraView view{m_cameraX, m_cameraY, m_cameraZoom, 1024.0f, 768.0f};
+            const float factor = (e.wheel.y > 0) ? 1.1f : (1.0f / 1.1f);
+            const float newZoom = camera::clampZoom(m_cameraZoom * factor, 0.25f, 4.0f);
+            const camera::CameraView z = camera::zoomAt(view, newZoom,
+                                                        static_cast<float>(mx), static_cast<float>(my));
+            m_cameraX = z.x;
+            m_cameraY = z.y;
+            m_cameraZoom = z.zoom;
         }
     }
 
@@ -196,6 +215,10 @@ public:
 
         // 7. Render debug primitives
         sendDebugPrimitives();
+
+        // 8. Render the screen-space HUD overlay (space:"screen") — stays FIXED while the
+        //    world (sprites/tilemap/world-text) zooms & pans. Visual proof of the HUD view.
+        sendHud();
 
         // Process frame
         JsonDataNode input("input");
@@ -412,7 +435,7 @@ private:
             auto text = std::make_unique<JsonDataNode>("text");
             text->setDouble("x", 750);
             text->setDouble("y", 730);
-            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | +/-: Zoom");
+            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/+/-: Zoom");
             text->setInt("fontSize", 14);
             text->setInt("color", 0x888888FF);
             text->setInt("layer", 100);
@@ -428,6 +451,54 @@ private:
             text->setInt("fontSize", 20);
             text->setInt("color", 0x00FF88FF);
             text->setInt("layer", 100);
+            m_gameIO->publish("render:text", std::move(text));
+        }
+    }
+
+    // Screen-space HUD overlay (engine help: space:"screen" → fixed bgfx view 1). Everything
+    // here is in literal pixel coordinates and is INVARIANT under the world camera — pan/zoom
+    // the world with arrows/+- and this bar + label + corner panel do not budge.
+    void sendHud() {
+        // Top bar background (full width, semi-opaque dark).
+        {
+            auto bar = std::make_unique<JsonDataNode>("rect");
+            bar->setDouble("x", 0); bar->setDouble("y", 0);
+            bar->setDouble("w", 1024); bar->setDouble("h", 30);
+            bar->setInt("color", 0x101822E0);
+            bar->setInt("layer", 0);
+            bar->setString("space", "screen");     // <-- fixed overlay
+            m_gameIO->publish("render:rect", std::move(bar));
+        }
+        // Label on the bar (above the bar's layer).
+        {
+            auto text = std::make_unique<JsonDataNode>("text");
+            text->setDouble("x", 8); text->setDouble("y", 6);
+            char buf[128];
+            snprintf(buf, sizeof(buf), "HUD screen-space (FIXE) | world zoom %.2fx -- pan/zoom: le HUD ne bouge pas", m_cameraZoom);
+            text->setString("text", buf);
+            text->setInt("fontSize", 16);
+            text->setInt("color", 0x33FFAAFF);
+            text->setInt("layer", 1);
+            text->setString("space", "screen");
+            m_gameIO->publish("render:text", std::move(text));
+        }
+        // Bottom-right corner panel + label (proves corner anchoring stays put).
+        {
+            auto panel = std::make_unique<JsonDataNode>("rect");
+            panel->setDouble("x", 824); panel->setDouble("y", 688);
+            panel->setDouble("w", 192); panel->setDouble("h", 72);
+            panel->setInt("color", 0x202838C0);
+            panel->setInt("layer", 0);
+            panel->setString("space", "screen");
+            m_gameIO->publish("render:rect", std::move(panel));
+
+            auto text = std::make_unique<JsonDataNode>("text");
+            text->setDouble("x", 834); text->setDouble("y", 700);
+            text->setString("text", "HUD panel\n(coin fixe)");
+            text->setInt("fontSize", 16);
+            text->setInt("color", 0xFFFFFFFF);
+            text->setInt("layer", 1);
+            text->setString("space", "screen");
             m_gameIO->publish("render:text", std::move(text));
         }
     }
