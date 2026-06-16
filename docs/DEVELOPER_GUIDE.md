@@ -216,15 +216,59 @@ io->publish("render:text", std::move(text));
 
 ```cpp
 auto camera = std::make_unique<JsonDataNode>("camera");
-camera->setDouble("x", playerX);           // Center camera on player
-camera->setDouble("y", playerY);
-camera->setDouble("zoom", 1.0);
+camera->setDouble("x", worldLeft);          // world coord at the viewport TOP-LEFT corner
+camera->setDouble("y", worldTop);           // (NOT the center — see convention below)
+camera->setDouble("zoom", 1.0);             // >1 zoom-in, <1 zoom-out
 camera->setInt("viewportX", 0);
 camera->setInt("viewportY", 0);
 camera->setInt("viewportW", 1920);
 camera->setInt("viewportH", 1080);
 io->publish("render:camera", std::move(camera));
 ```
+
+**Convention (important):** the camera `(x,y)` is the world coordinate at the viewport's
+**top-left corner** — *not* the center (unlike `render:sprite`, whose `x,y` is the sprite
+center). The projection collapses to:
+
+```
+screen = zoom · (world − cameraTopLeft)        world = cameraTopLeft + screen / zoom
+```
+
+So zooming is anchored at the top-left. To center on a point, or zoom toward the cursor,
+don't compute the corner by hand — use the camera helper.
+
+#### Camera Helper — `grove::camera` (seamless zoom/pan)
+
+Header-only math the engine ships so you don't re-derive the projection. Available to any
+host that links `BgfxRenderer_static` (its source dir is a PUBLIC include):
+
+```cpp
+#include "Scene/Camera.h"
+using namespace grove::camera;
+
+CameraView view{0, 0, 1.0f, 1920, 1080};     // x, y, zoom, viewportW, viewportH
+
+// Picking / "what's under the cursor":
+float wx, wy;  screenToWorld(view, mouseX, mouseY, wx, wy);
+
+// Frame a target:
+view = centerOn(planetX, planetY, zoom, 1920, 1080);          // focal point at screen center
+view = focusOn(x, y, zoom, 1920, 1080, anchorX, anchorY);     // focal point under a screen anchor
+
+// Seamless zoom toward the cursor (keeps the world point under the cursor fixed):
+view = zoomAt(view, newZoom, mouseX, mouseY);
+
+// Smooth it (framerate-independent — "zoom fluide / momentum"):
+view.zoom = damp(view.zoom, targetZoom, 8.0f, deltaTime);
+
+// Then publish view.x / view.y / view.zoom on render:camera as above.
+```
+
+`zoomAt` is the primitive behind a continuous system↔tactical zoom: ramp `newZoom` per
+frame (via `damp`) and the focal point stays pinned. The renderer has **no level-load
+barrier** — every frame draws whatever you submit — so a "seamless" transition is just the
+game swapping what it submits while the zoom ramps. Locked by `CameraUnit` +
+`SceneCollectorTest` (the latter proves the engine's matrices match these helpers).
 
 **Full Topic Reference:** See [IIO Topics - Rendering](#rendering-topics)
 
@@ -506,7 +550,7 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:camera` | `{x, y, zoom, viewportX, viewportY, viewportW, viewportH}` | Set camera transform |
+| `render:camera` | `{x, y, zoom, viewportX, viewportY, viewportW, viewportH}` | Set camera transform. `x,y` = world coord at the viewport **top-left** (not center); `screen = zoom·(world−cam)`. See the [camera helper](#camera-helper--grovecamera-seamless-zoompan) (`Scene/Camera.h`) for centerOn/zoomAt/screenToWorld |
 
 #### Clear
 
