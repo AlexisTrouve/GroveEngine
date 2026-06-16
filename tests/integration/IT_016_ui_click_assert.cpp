@@ -295,3 +295,68 @@ TEST_CASE("IT_016: special keys (backspace, enter) reach a focused textinput", "
 
     uiModule->shutdown();
 }
+
+TEST_CASE("IT_016: typing a multi-character string inserts all of it (C2)", "[integration][ui][e2e]") {
+    // Locks fix #5/C2: a single input:keyboard:text can carry MORE than one character
+    // (IME commit, paste, a multi-byte UTF-8 codepoint). The old code forwarded only the
+    // first byte (keyChar is one char), so "Hello" became "H". Now the whole string is
+    // inserted via the focused textinput.
+    auto& mgr = IntraIOManager::getInstance();
+    auto inputPub = mgr.createInstance("input_publisher_mc");
+    auto uiIO     = mgr.createInstance("ui_module_mc");
+    auto observer = mgr.createInstance("test_observer_mc");
+
+    ModuleLoader uiLoader;
+    std::string uiPath = "../modules/libUIModule.so";
+#ifdef _WIN32
+    uiPath = "../modules/libUIModule.dll";
+#endif
+    std::unique_ptr<IModule> uiModule;
+    REQUIRE_NOTHROW(uiModule = uiLoader.load(uiPath, "ui_module_mc"));
+
+    JsonDataNode cfg("config");
+    cfg.setInt("windowWidth", 800);
+    cfg.setInt("windowHeight", 600);
+    cfg.setString("layoutFile", "../../assets/ui/test_e2e_textinput.json");
+    cfg.setInt("baseLayer", 1000);
+    REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
+
+    std::string lastText;
+    observer->subscribe("ui:text_changed", [&](const Message& m) {
+        lastText = m.data->getString("text", "");
+    });
+
+    auto pump = [&] {
+        JsonDataNode input("input");
+        input.setDouble("deltaTime", 0.016);
+        uiModule->process(input);
+        while (observer->hasMessages() > 0) observer->pullAndDispatch();
+    };
+    auto sendButton = [&](bool pressed, double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setInt("button", 0); d->setBool("pressed", pressed);
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:button", std::move(d));
+    };
+    auto sendMove = [&](double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setDouble("x", x); d->setDouble("y", y);
+        inputPub->publish("input:mouse:move", std::move(d));
+    };
+    auto sendText = [&](const std::string& t) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setString("text", t);
+        inputPub->publish("input:keyboard:text", std::move(d));
+    };
+
+    // Focus the textinput, then commit a whole word in one text event.
+    sendMove(250.0, 120.0);          pump();
+    sendButton(true,  250.0, 120.0); pump();
+    sendButton(false, 250.0, 120.0); pump();
+
+    sendText("Hello"); pump();
+    INFO("lastText='" << lastText << "'");
+    REQUIRE(lastText == "Hello");   // pre-fix: "H" (only the first byte)
+
+    uiModule->shutdown();
+}

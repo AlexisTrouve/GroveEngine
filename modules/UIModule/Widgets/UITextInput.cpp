@@ -229,6 +229,37 @@ void UITextInput::insertText(const std::string& str) {
     updateScrollOffset();
 }
 
+bool UITextInput::insertFilteredText(const std::string& str) {
+    // QUOI : insère une chaîne entière (commit IME / coller / UTF-8 multi-octets).
+    // POURQUOI : le chemin input:keyboard:text peut porter plusieurs caractères ; l'ancien
+    //   code n'en prenait qu'un (cf. #5/C2). insertText() gère déjà maxLength + curseur +
+    //   scroll, on le réutilise.
+    // COMMENT : filtre None → on insère tout d'un bloc ; filtre restrictif → on ne garde
+    //   que les caractères imprimables qui passent (ASCII ; le filtrage par codepoint
+    //   Unicode reste un follow-up). NB : on n'insère QUE si tout (ou le sous-ensemble
+    //   gardé) tient sous maxLength — insertText est tout-ou-rien pour le lot.
+    if (str.empty()) return false;
+
+    if (filter == TextInputFilter::None) {
+        size_t before = text.length();
+        insertText(str);
+        return text.length() != before;
+    }
+
+    std::string kept;
+    for (char c : str) {
+        uint32_t ch = static_cast<unsigned char>(c);
+        if (ch >= 32 && passesFilter(ch)) {
+            kept += c;
+        }
+    }
+    if (kept.empty()) return false;
+
+    size_t before = text.length();
+    insertText(kept);
+    return text.length() != before;
+}
+
 void UITextInput::deleteCharBefore() {
     if (cursorPosition > 0) {
         text.erase(cursorPosition - 1, 1);

@@ -103,6 +103,16 @@ public:
     void insertText(const std::string& str);
 
     /**
+     * @brief Insert a (possibly multi-character) committed string, honoring the field's
+     *        filter and maxLength. Returns true if anything was inserted.
+     *
+     * Used for the input:keyboard:text path (IME commit / paste / multi-byte UTF-8) where
+     * a single event carries more than one character. With filter None the whole string
+     * is inserted; with a restrictive filter only the passing (ASCII) characters are kept.
+     */
+    bool insertFilteredText(const std::string& str);
+
+    /**
      * @brief Delete character before cursor (backspace)
      */
     void deleteCharBefore();

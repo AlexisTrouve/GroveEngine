@@ -141,8 +141,10 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (!text.empty()) {
                 m_context->keyPressed = true;
                 m_context->keyCode = 0;
-                // NB: only the first byte is forwarded (keyChar is a single char). Full
-                // UTF-8 / multi-char paste is a follow-up (see audit C2).
+                // FIX #5/C2 : on transmet la chaîne ENTIÈRE (commit IME / coller / UTF-8
+                // multi-octets), pas seulement le 1er octet. keyChar garde le 1er octet
+                // pour la compat (reset du blink, chemin legacy).
+                m_context->keyText = text;
                 m_context->keyChar = static_cast<char>(static_cast<unsigned char>(text[0]));
             }
         });
@@ -388,11 +390,17 @@ void UIModule::updateUI(float deltaTime) {
             if (focusedWidget->getType() == "textinput") {
                 UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
 
-                // Get character and ctrl state from context
-                uint32_t character = static_cast<uint32_t>(m_context->keyChar);
-                bool ctrl = false;  // TODO: Add ctrl modifier to UIContext
-
-                bool handled = textInput->onKeyInput(m_context->keyCode, character, ctrl);
+                bool handled = false;
+                if (!m_context->keyText.empty()) {
+                    // FIX #5/C2 : chemin saisie texte (commit IME / coller / UTF-8) — on
+                    // insère la chaîne ENTIÈRE, pas un seul caractère.
+                    handled = textInput->insertFilteredText(m_context->keyText);
+                } else {
+                    // Chemin touches d'édition / legacy mono-caractère.
+                    uint32_t character = static_cast<uint32_t>(m_context->keyChar);
+                    bool ctrl = false;  // TODO: Add ctrl modifier to UIContext
+                    handled = textInput->onKeyInput(m_context->keyCode, character, ctrl);
+                }
 
                 if (handled) {
                     // Publish text_changed event

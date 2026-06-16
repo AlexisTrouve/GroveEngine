@@ -24,6 +24,11 @@ public:
     bool keyPressed = false;
     int keyCode = 0;
     char keyChar = 0;
+    // Texte saisi cette frame (commit IME / coller / codepoint UTF-8 multi-octets).
+    // Distinct de keyChar (1 octet) : un input:keyboard:text peut porter PLUSIEURS
+    // caractères ; on insère la chaîne entière (cf. #5/C2). Vide si la frame n'a pas
+    // de saisie texte (les touches d'édition passent par keyCode).
+    std::string keyText;
 
     // Mouse wheel state
     float mouseWheelDelta = 0.0f;
@@ -47,6 +52,7 @@ public:
         keyPressed = false;
         keyCode = 0;
         keyChar = 0;
+        keyText.clear();
         mouseWheelDelta = 0.0f;
         // Note: hoveredWidgetId is NOT cleared here - it persists
         // and is updated by hit testing during updateUI()
