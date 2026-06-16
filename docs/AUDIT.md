@@ -19,6 +19,7 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 | 5 | 🔴 CRIT | UI | Clavier mort : UIModule subscribe `"input:keyboard"`, InputModule publie `"input:keyboard:key"`/`:text` → ne matche pas | 🟡 **quasi** `2f5234d`+`6ca07a8` — **texte** (subscribe `input:keyboard:text`) + **touches d'édition** (table scancode SDL→keycode dans `input:keyboard:key` : backspace/entrée/suppr/flèches/home/end) corrigés, lockés par `UIClickAssert` ; reste UTF-8/multi-char (C2) |
 | 6 | 🟠 HIGH | UI | Clics ratés en layout : `absX/absY` (hit-test ET rendu) pas recalculés après `UILayout` (calculés une fois au load, avant la 1re passe layout) | ✅ `5ddf9b7` — `computeAbsolutePosition()` rappelé après `UILayout::layout()` dans `UIPanel::update` (fix chirurgical, pas de rewrite), locké par `UILayoutHitTestE2E` |
 | H2 | 🟠 HIGH | UI | Slider : `ui:value_changed` émis seulement aux fronts press/release → aucun feedback live pendant le drag ; pire, release hors `containsPoint` (bord droit) → valeur finale perdue | ✅ `6590427` — émission centralisée post-`update()` (par id, NaN-grab), locké par `UIWidgetsE2E` |
+| SP | 🟠 HIGH | UI | ScrollPanel : `render()` posait child->absX scrollé puis le RESTAURAIT non-scrollé → rendu scrollé mais hit-test non-scrollé → clic sur enfant scrollé raté | 🟡 **hit-test corrigé** `b3a0c72` — scroll persistant dans `absX` (posé dans `update()`), locké par `UIScrollPanelE2E` ; reste le **scissor/clipping** (enfant partiel non découpé) |
 | 7 | 🟠 HIGH | IIO | 3 matchers de patterns incohérents (regex IntraIO ≠ lambda manager ≠ TopicTree) → mis-routing / swallow | 🟡 **partiel** `c15d812` — swallow (`.*` terminal) corrigé+locké ; unification complète (single-`*` cross-segment, lambda freq) restante |
 | 8 | 🟡 MED | IIO | `unload()` purge les subs côté IntraIO seulement — routage fantôme + fuite lente au reload | ✅ `f10f050` — `clearInstanceSubscriptions`, locké |
 | 9 | 🟡 MED | IIO | `routeMessage` `managerMutex` exclusif + `instancePatterns[]` insère sur le chemin chaud | 🟡 **partiel** `f205e4c` — `operator[]`→`.find` ; passage `shared_lock` (perf) différé (à valider TSAN) |
@@ -28,21 +29,22 @@ Légende statut : ✅ corrigé (commit) · 🔧 ouvert (roadmap) · ✅(test) ve
 
 - **Eventbus (IIO)** : 🟡 pub/sub/fan-out/patterns OK et testés ; **backpressure réparée** (#2) ; restent matchers incohérents (#7), routage fantôme au reload (#8), lock exclusif (#9).
 - **2D renderer** : 🟡 double-free (#1) + overflow (#3) + alignement réparés et **lockés par tests headless** ; reste l'ordre layer/depth (#4). `executeCommandBuffer` (couche bgfx réelle) et la correction **pixel** restent non testés (pas de screenshot-diff).
-- **UI (UIModule)** : 🟡 sort du "n'existe pas" — **E2E réels** désormais : bouton (clic + miss), textinput (saisie), **checkbox** (toggle + sens), **slider** (clic + drag live), **hit-test en layout vertical**. **#5** (texte + touches d'édition) / **H2** / **#6** corrigés (les layouts non-`absolute` sont enfin cliquables — fix sans rewrite). Restent : ScrollPanel, UTF-8/multi-char clavier (C2), rendu **pixel** non asserté.
+- **UI (UIModule)** : 🟡 sort du "n'existe pas" — **E2E réels** désormais : bouton (clic + miss), textinput (saisie + touches d'édition), **checkbox** (toggle + sens), **slider** (clic + drag live), **hit-test en layout vertical**, **ScrollPanel** (clic sur enfant scrollé). **#5** / **H2** / **#6** / **ScrollPanel (hit-test)** corrigés. Restent : ScrollPanel **scissor/clipping**, UTF-8/multi-char clavier (C2), rendu **pixel** non asserté.
 - **Reload ceiling (~70-100 reloads/process)** : **architectural** (tables d'exception DW2/SJLJ + fragmentation adressage ; les orphan DLLs, eux, sont bien gérés). Non réparable chirurgicalement — nécessite host out-of-process ou stratégie no-unload.
 
 ## Roadmap restante
 
 **Tier 2 (correctness)** — ✅ livré : #8 (`unload` purge le manager), #9-partiel (`.find`), #7-partiel (swallow `.*` terminal). Restes : #7 unification complète des matchers (source unique de vérité — single-`*` + lambda freq), #9 `shared_lock` (perf, à valider TSAN). #5 déplacé en Tier 3 (cf. ci-dessous).
 
-**Tier 3 (gros/stratégique)** : ✅ **harness E2E UI étendu** (`IT_016/UIClickAssert` : clic bouton + saisie textinput ; `IT_017/UIWidgetsE2E` : checkbox toggle + slider clic + **slider drag live** → **H2** ; `IT_018/UILayoutHitTestE2E` : clic sur widget positionné par layout vertical → **#6** ; `IT_016` étendu : touches d'édition → **#5-suite**). #5 (texte + touches d'édition) + H2 + #6 corrigés. Restes : ScrollPanel (rework), UTF-8/multi-char clavier (#5/C2) · #4 `layer`→clé de tri submit · #10 `queryModule` via IIO + statut doc ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff · #7 unification matchers + #9 shared_lock (TSAN).
+**Tier 3 (gros/stratégique)** : ✅ **harness E2E UI étendu** (`IT_016/UIClickAssert` : clic bouton + saisie textinput ; `IT_017/UIWidgetsE2E` : checkbox toggle + slider clic + **slider drag live** → **H2** ; `IT_018/UILayoutHitTestE2E` : clic sur widget positionné par layout vertical → **#6** ; `IT_016` étendu : touches d'édition → **#5-suite**). `IT_019/UIScrollPanelE2E` : clic sur enfant scrollé → **ScrollPanel hit-test**). #5 + H2 + #6 + ScrollPanel(hit-test) corrigés. Restes : ScrollPanel **scissor/clipping**, UTF-8/multi-char clavier (#5/C2) · #4 `layer`→clé de tri submit · #10 `queryModule` via IIO + statut doc ThreadedModuleSystem · plafond reload (host out-of-process) · E2E pixel screenshot-diff · #7 unification matchers + #9 shared_lock (TSAN).
 
 ## Note testabilité (doctrine)
-**Harness E2E UI établi** (`IT_016` + `IT_017` + `IT_018`) : inject input via IIO → assert events
+**Harness E2E UI établi** (`IT_016`→`IT_019`) : inject input via IIO → assert events
 `ui:*`, headless, sans fenêtre. Couvre désormais : clic bouton (`ui:click`/`ui:action`), saisie
 textinput (`ui:text_changed`), checkbox toggle (`ui:value_changed{checked}`, sens vérifié), slider
 clic + **drag live** (`ui:value_changed{value}` à chaque frame du drag), **hit-test sur widget
-positionné par layout vertical** (`ui:action` du bon enfant), et **touches d'édition** (backspace
-→ texte raccourci, Enter → `ui:text_submit`/action). Restent non prouvés : scroll, UTF-8/multi-char,
+positionné par layout vertical** (`ui:action` du bon enfant), **touches d'édition** (backspace
+→ texte raccourci, Enter → `ui:text_submit`/action), et **ScrollPanel** (molette → clic sur enfant
+scrollé). Restent non prouvés : UTF-8/multi-char, le **scissor/clipping** ScrollPanel,
 et le **rendu pixel** (le renderer n'asserte aucun pixel — seuls les commandes/packets le sont, y
 compris `debug:rect`/`text`).
