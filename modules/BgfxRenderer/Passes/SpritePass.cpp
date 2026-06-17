@@ -2,7 +2,9 @@
 #include "../RHI/RHIDevice.h"
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
+#include "../Scene/Camera.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -99,12 +101,19 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
     // World sprites on view 0 (zoomable world camera), then HUD sprites on view 1 (fixed
     // screen-space overlay configured by the renderer module from FramePacket::hudView).
     // Order matters: view 1 draws after view 0, so the HUD sits on top.
-    renderSpriteSet(device, cmd, frame.sprites, frame.spriteCount, 0);
-    renderSpriteSet(device, cmd, frame.hudSprites, frame.hudSpriteCount, 1);
+    // World sprites are culled against the camera view; HUD is screen-space -> never culled.
+    const camera::CameraView view{frame.mainView.positionX, frame.mainView.positionY,
+                                  frame.mainView.zoom,
+                                  static_cast<float>(frame.mainView.viewportW),
+                                  static_cast<float>(frame.mainView.viewportH)};
+    const camera::WorldBounds worldBounds = camera::visibleWorldBounds(view);
+    renderSpriteSet(device, cmd, frame.sprites, frame.spriteCount, 0, &worldBounds);
+    renderSpriteSet(device, cmd, frame.hudSprites, frame.hudSpriteCount, 1, nullptr);
 }
 
 void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
-                                 const SpriteInstance* sprites, size_t count, rhi::ViewId viewId) {
+                                 const SpriteInstance* sprites, size_t count, rhi::ViewId viewId,
+                                 const camera::WorldBounds* cull) {
     if (count == 0) return;
 
     // Prepare render state (will be set before each batch)
@@ -140,6 +149,17 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
     for (size_t i = 0; i < m_sortedIndices.size(); ++i) {
         uint32_t idx = m_sortedIndices[i];
         const SpriteInstance& sprite = sprites[idx];
+
+        // View culling: skip sprites whose bounds fall outside the camera. Use a rotation-safe
+        // circumscribed box (radius = half the diagonal) so a rotated sprite is never wrongly
+        // culled. HUD passes cull=nullptr (screen-space, always drawn).
+        if (cull) {
+            const float r = 0.5f * std::sqrt(sprite.scaleX * sprite.scaleX + sprite.scaleY * sprite.scaleY);
+            if (!camera::isVisible(*cull, sprite.x - r, sprite.y - r, 2.0f * r, 2.0f * r)) {
+                continue;
+            }
+        }
+
         uint16_t spriteTexId = static_cast<uint16_t>(sprite.textureId);
 
         // Log first few textured sprites

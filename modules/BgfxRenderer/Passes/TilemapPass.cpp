@@ -2,6 +2,7 @@
 #include "../RHI/RHIDevice.h"
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
+#include "../Scene/Camera.h"
 
 namespace grove {
 
@@ -85,6 +86,13 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
     state.depthWrite = false;
     cmd.setState(state);
 
+    // Visible world bounds for per-tile culling (big maps: only a screenful of tiles is built).
+    const camera::CameraView view{frame.mainView.positionX, frame.mainView.positionY,
+                                  frame.mainView.zoom,
+                                  static_cast<float>(frame.mainView.viewportW),
+                                  static_cast<float>(frame.mainView.viewportH)};
+    const camera::WorldBounds bounds = camera::visibleWorldBounds(view);
+
     // Process each tilemap chunk
     for (size_t i = 0; i < frame.tilemapCount; ++i) {
         const TilemapChunk& chunk = frame.tilemaps[i];
@@ -124,6 +132,14 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             // Calculate world position (add 0.5 tile offset because sprite shader centers quads)
             float worldX = chunk.x + (tileX + 0.5f) * chunk.tileWidth;
             float worldY = chunk.y + (tileY + 0.5f) * chunk.tileHeight;
+
+            // Cull tiles outside the camera: skip generating + uploading them entirely (the
+            // tilemap-perf win — per-frame work drops to a screenful regardless of map size).
+            if (!camera::isVisible(bounds,
+                                   worldX - chunk.tileWidth * 0.5f, worldY - chunk.tileHeight * 0.5f,
+                                   static_cast<float>(chunk.tileWidth), static_cast<float>(chunk.tileHeight))) {
+                continue;
+            }
 
             // Calculate UV coords from tile index
             // tileIndex-1 because 0 is empty, actual tiles start at 1

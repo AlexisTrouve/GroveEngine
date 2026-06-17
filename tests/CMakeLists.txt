@@ -1589,6 +1589,22 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${bgfx_SOURCE_DIR}/bimg/3rdparty)   # stb_image.h for TextureLoader
     target_link_libraries(test_hud_view PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(HudViewUnit test_hud_view ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Render-side view culling in SpritePass + TilemapPass (MockRHIDevice, no GPU).
+    add_executable(test_pass_culling
+        unit/test_pass_culling.cpp
+        ../modules/BgfxRenderer/Passes/SpritePass.cpp
+        ../modules/BgfxRenderer/Passes/TilemapPass.cpp
+        ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
+        ../modules/BgfxRenderer/Resources/ResourceCache.cpp
+        ../modules/BgfxRenderer/Resources/TextureLoader.cpp
+    )
+    target_include_directories(test_pass_culling PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${bgfx_SOURCE_DIR}/bimg/3rdparty)
+    target_link_libraries(test_pass_culling PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(PassCullingUnit test_pass_culling ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

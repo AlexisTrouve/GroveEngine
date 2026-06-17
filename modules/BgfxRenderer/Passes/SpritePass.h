@@ -7,6 +7,7 @@
 namespace grove {
 
 class ResourceCache;
+namespace camera { struct WorldBounds; }  // fwd-decl; the .cpp includes Scene/Camera.h
 
 // ============================================================================
 // Sprite Pass - Renders 2D sprites with batching by texture
@@ -51,8 +52,11 @@ private:
     // Render one sprite set (sort by layer/texture, batch, submit) to a specific bgfx view.
     // Called once for world sprites (view 0) and once for HUD sprites (view 1) so the HUD
     // can ride a fixed screen-space transform while the world view zooms.
+    // `cull` (optional) = visible world bounds; sprites whose AABB is outside are skipped. Pass
+    // nullptr to disable culling (HUD is screen-space → never culled).
     void renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd,
-                         const SpriteInstance* sprites, size_t count, rhi::ViewId viewId);
+                         const SpriteInstance* sprites, size_t count, rhi::ViewId viewId,
+                         const camera::WorldBounds* cull);
 
     rhi::ShaderHandle m_shader;
     rhi::BufferHandle m_quadVB;

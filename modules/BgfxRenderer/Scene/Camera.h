@@ -157,11 +157,16 @@ inline WorldBounds visibleWorldBounds(const CameraView& c) {
     return b;
 }
 
-// Is the world-space AABB [x, x+w] × [y, y+h] (partly) within the view, widened by `margin`?
-inline bool isVisible(const CameraView& c, float x, float y, float w, float h, float margin = 0.0f) {
-    const WorldBounds b = visibleWorldBounds(c);
+// AABB [x, x+w] × [y, y+h] (partly) inside the bounds, widened by `margin`? Overload taking
+// precomputed bounds — used by render passes that cull many instances against one view.
+inline bool isVisible(const WorldBounds& b, float x, float y, float w, float h, float margin = 0.0f) {
     return (x + w >= b.minX - margin) && (x <= b.maxX + margin) &&
            (y + h >= b.minY - margin) && (y <= b.maxY + margin);
+}
+
+// Is the world-space AABB (partly) within the view, widened by `margin`?
+inline bool isVisible(const CameraView& c, float x, float y, float w, float h, float margin = 0.0f) {
+    return isVisible(visibleWorldBounds(c), x, y, w, h, margin);
 }
 
 } // namespace camera
