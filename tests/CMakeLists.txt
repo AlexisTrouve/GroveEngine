@@ -498,6 +498,14 @@ target_include_directories(test_clip PRIVATE
 target_link_libraries(test_clip PRIVATE Catch2::Catch2WithMain)
 grove_add_test(ClipUnit test_clip ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system slice 3: AnimationPlayer (grove::anim). Header-only, std-only.
+add_executable(test_animation_player unit/test_animation_player.cpp)
+target_include_directories(test_animation_player PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_animation_player PRIVATE Catch2::Catch2WithMain)
+grove_add_test(AnimationPlayerUnit test_animation_player ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
