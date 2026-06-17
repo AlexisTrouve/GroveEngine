@@ -514,6 +514,14 @@ target_include_directories(test_sprite_sheet PRIVATE
 target_link_libraries(test_sprite_sheet PRIVATE Catch2::Catch2WithMain)
 grove_add_test(SpriteSheetUnit test_sprite_sheet ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system flipbook slice F-b: Flipbook frame timing (grove::anim). Header-only, std-only.
+add_executable(test_flipbook unit/test_flipbook.cpp)
+target_include_directories(test_flipbook PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_flipbook PRIVATE Catch2::Catch2WithMain)
+grove_add_test(FlipbookUnit test_flipbook ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
