@@ -490,6 +490,14 @@ target_include_directories(test_easing PRIVATE
 target_link_libraries(test_easing PRIVATE Catch2::Catch2WithMain)
 grove_add_test(EasingUnit test_easing ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system slice 2b: Keyframe/Track/Clip sampling (grove::anim). Header-only, std-only.
+add_executable(test_clip unit/test_clip.cpp)
+target_include_directories(test_clip PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_clip PRIVATE Catch2::Catch2WithMain)
+grove_add_test(ClipUnit test_clip ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
