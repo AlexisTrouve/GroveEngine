@@ -85,13 +85,24 @@ int SDLMixerBackend::loadMusic(const std::string& path) {
     return id;
 }
 
-void SDLMixerBackend::playSound(int soundId, float volume, float pan) {
-    if (!m_open || soundId < 0 || soundId >= static_cast<int>(m_sounds.size())) return;
-    Mix_Chunk* chunk = m_sounds[static_cast<size_t>(soundId)];
-    if (!chunk) return;
+void SDLMixerBackend::unloadSound(const std::string& path) {
+    auto it = m_soundIds.find(path);
+    if (it == m_soundIds.end()) return;
+    const int id = it->second;
+    if (id >= 0 && id < static_cast<int>(m_sounds.size()) && m_sounds[static_cast<size_t>(id)]) {
+        Mix_FreeChunk(m_sounds[static_cast<size_t>(id)]);
+        m_sounds[static_cast<size_t>(id)] = nullptr;  // leave a hole; ids stay stable
+    }
+    m_soundIds.erase(it);  // a future load of this path gets a fresh id
+}
 
-    const int channel = Mix_PlayChannel(-1, chunk, 0);  // first free channel, no loop
-    if (channel < 0) return;                            // all channels busy
+int SDLMixerBackend::playSound(int soundId, float volume, float pan, bool loop) {
+    if (!m_open || soundId < 0 || soundId >= static_cast<int>(m_sounds.size())) return -1;
+    Mix_Chunk* chunk = m_sounds[static_cast<size_t>(soundId)];
+    if (!chunk) return -1;
+
+    const int channel = Mix_PlayChannel(-1, chunk, loop ? -1 : 0);  // -1 loops forever
+    if (channel < 0) return -1;                                     // all channels busy
 
     Mix_Volume(channel, toMixVolume(volume));
 
@@ -101,6 +112,19 @@ void SDLMixerBackend::playSound(int soundId, float volume, float pan) {
     const Uint8 left  = (pan <= 0.0f) ? 255 : static_cast<Uint8>((1.0f - pan) * 255.0f);
     const Uint8 right = (pan >= 0.0f) ? 255 : static_cast<Uint8>((1.0f + pan) * 255.0f);
     Mix_SetPanning(channel, left, right);
+    return channel;  // the handle the module tracks for sound:sfx:stop
+}
+
+void SDLMixerBackend::stopSound(int handle, int fadeMs) {
+    if (!m_open || handle < 0) return;
+    if (fadeMs > 0) Mix_FadeOutChannel(handle, fadeMs);
+    else            Mix_HaltChannel(handle);
+}
+
+void SDLMixerBackend::stopAllSounds(int fadeMs) {
+    if (!m_open) return;
+    if (fadeMs > 0) Mix_FadeOutChannel(-1, fadeMs);  // -1 = all channels
+    else            Mix_HaltChannel(-1);
 }
 
 void SDLMixerBackend::playMusic(int musicId, bool loop, int fadeMs, float volume) {

@@ -108,6 +108,15 @@ int main() {
       pubIO->publish("sound:volume", std::move(v)); JsonDataNode in("input"); module->process(in); }
     sfx(0.0f, "center @ 25% sfx bus (quieter)");
 
+    // Channel control: a LOOPING SFX (id=loop) that we let repeat, then fade-stop by id.
+    std::cout << "  looping beep (id=loop) ~1.2s, then fade-stop over 400ms\n";
+    { auto n = std::make_unique<JsonDataNode>("sfx"); n->setString("path", beep); n->setBool("loop", true); n->setString("id", "loop");
+      pubIO->publish("sound:sfx", std::move(n)); JsonDataNode in("input"); module->process(in); }
+    SDL_Delay(1200);
+    { auto n = std::make_unique<JsonDataNode>("stop"); n->setString("id", "loop"); n->setInt("fadeMs", 400);
+      pubIO->publish("sound:sfx:stop", std::move(n)); JsonDataNode in("input"); module->process(in); }
+    SDL_Delay(700);
+
     module->shutdown();
     mgr.removeInstance("sound_module");
     mgr.removeInstance("sound_pub");

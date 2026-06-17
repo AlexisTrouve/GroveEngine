@@ -39,7 +39,10 @@ public:
 
     int loadSound(const std::string& path) override;
     int loadMusic(const std::string& path) override;
-    void playSound(int soundId, float volume, float pan) override;
+    void unloadSound(const std::string& path) override;
+    int playSound(int soundId, float volume, float pan, bool loop) override;
+    void stopSound(int handle, int fadeMs) override;
+    void stopAllSounds(int fadeMs) override;
     void playMusic(int musicId, bool loop, int fadeMs, float volume) override;
     void stopMusic(int fadeMs) override;
     void setMusicVolume(float volume) override;

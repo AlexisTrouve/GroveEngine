@@ -29,11 +29,23 @@ struct ISoundBackend {
     virtual void shutdown() = 0;
 
     // Load + cache by path; stable handle (>=0) or -1 on failure. Idempotent per path.
+    // (sound:preload uses loadSound to warm the cache without playing.)
     virtual int loadSound(const std::string& path) = 0;
     virtual int loadMusic(const std::string& path) = 0;
 
-    // One-shot SFX at an EFFECTIVE volume [0,1] and pan [-1,1].
-    virtual void playSound(int soundId, float volume, float pan) = 0;
+    // Free a cached SFX by path (sound:unload). No-op if not loaded.
+    virtual void unloadSound(const std::string& path) = 0;
+
+    // Play an SFX at an EFFECTIVE volume [0,1] and pan [-1,1], optionally looping. Returns a
+    // playback HANDLE (>=0) the caller can later stop, or -1 if it couldn't start. The module
+    // maps a game-supplied id to this handle so a looping SFX can be controlled.
+    virtual int playSound(int soundId, float volume, float pan, bool loop) = 0;
+
+    // Stop a specific SFX playback (by the handle playSound returned), optionally fading out.
+    virtual void stopSound(int handle, int fadeMs) = 0;
+
+    // Stop ALL SFX playbacks, optionally fading out.
+    virtual void stopAllSounds(int fadeMs) = 0;
 
     // Start music (replaces the current track): loop, fade-in ms, EFFECTIVE volume [0,1].
     virtual void playMusic(int musicId, bool loop, int fadeMs, float volume) = 0;

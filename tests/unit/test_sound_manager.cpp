@@ -157,3 +157,73 @@ TEST_CASE("SoundManager - repeated SFX of the same path reuse one loaded handle"
     REQUIRE(h.mock->playSoundCalls[0].soundId == h.mock->playSoundCalls[1].soundId);  // same cached id
     REQUIRE(h.mock->distinctLoads() == 1);                                  // loaded once
 }
+
+// ============================================================================
+// Slice 3: resource management (preload/unload) + channel control (loop/stop/stopAll)
+// ============================================================================
+
+TEST_CASE("SoundManager - sound:preload loads a sound without playing it", "[sound][unit]") {
+    Harness h;
+    auto n = std::make_unique<JsonDataNode>("preload"); n->setString("path", "amb.wav");
+    h.publish("sound:preload", std::move(n));
+    h.pump();
+
+    REQUIRE(h.mock->distinctLoads() == 1);          // cached...
+    REQUIRE(h.mock->playSoundCalls.empty());        // ...but nothing played
+}
+
+TEST_CASE("SoundManager - sound:unload frees a cached sound", "[sound][unit]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("preload"); n->setString("path", "x.wav"); h.publish("sound:preload", std::move(n)); }
+    h.pump();
+    { auto n = std::make_unique<JsonDataNode>("unload"); n->setString("path", "x.wav"); h.publish("sound:unload", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->unloadCalls.size() == 1);
+    REQUIRE(h.mock->unloadCalls[0] == "x.wav");
+}
+
+TEST_CASE("SoundManager - looping SFX with an id can be stopped by that id", "[sound][unit]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("sfx"); n->setString("path", "engine.wav"); n->setBool("loop", true); n->setString("id", "engine"); h.publish("sound:sfx", std::move(n)); }
+    h.pump();
+    REQUIRE(h.mock->playSoundCalls.size() == 1);
+    REQUIRE(h.mock->playSoundCalls[0].loop == true);
+    const int handle = h.mock->playSoundCalls[0].handle;
+
+    { auto n = std::make_unique<JsonDataNode>("stop"); n->setString("id", "engine"); n->setInt("fadeMs", 200); h.publish("sound:sfx:stop", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->stopSoundCalls.size() == 1);
+    REQUIRE(h.mock->stopSoundCalls[0].handle == handle);
+    REQUIRE(h.mock->stopSoundCalls[0].fadeMs == 200);
+}
+
+TEST_CASE("SoundManager - sound:sfx:stopAll stops every SFX", "[sound][unit]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("sfx"); n->setString("path", "a.wav"); h.publish("sound:sfx", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("sfx"); n->setString("path", "b.wav"); h.publish("sound:sfx", std::move(n)); }
+    h.pump();
+    { auto n = std::make_unique<JsonDataNode>("stopall"); n->setInt("fadeMs", 100); h.publish("sound:sfx:stopAll", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->stopAllCalls.size() == 1);
+    REQUIRE(h.mock->stopAllCalls[0] == 100);
+}
+
+TEST_CASE("SoundManager - stopping an unknown id is harmless", "[sound][unit]") {
+    Harness h;
+    auto n = std::make_unique<JsonDataNode>("stop"); n->setString("id", "nope");
+    h.publish("sound:sfx:stop", std::move(n));
+    h.pump();
+
+    REQUIRE(h.mock->stopSoundCalls.empty());        // no handle mapped -> no backend call
+}
+
+TEST_CASE("SoundManager - a one-shot SFX (no id) needs no handle tracking", "[sound][unit]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("sfx"); n->setString("path", "boom.wav"); h.publish("sound:sfx", std::move(n)); }
+    h.pump();
+    REQUIRE(h.mock->playSoundCalls.size() == 1);
+    REQUIRE(h.mock->playSoundCalls[0].loop == false);   // default
+}

@@ -45,10 +45,37 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         if (path.empty()) return;
         const float vol = clamp01(static_cast<float>(d.getDouble("volume", 1.0)));
         const float pan = static_cast<float>(d.getDouble("pan", 0.0));
-        const int id = m_backend->loadSound(path);
-        if (id < 0) return;
-        m_backend->playSound(id, clamp01(m_master * m_sfx * vol), pan);
+        const bool loop = d.getBool("loop", false);
+        const std::string id = d.getString("id", "");  // optional: makes the SFX controllable
+        const int soundId = m_backend->loadSound(path);
+        if (soundId < 0) return;
+        const int handle = m_backend->playSound(soundId, clamp01(m_master * m_sfx * vol), pan, loop);
+        if (!id.empty() && handle >= 0) {
+            m_sfxHandles[id] = handle;  // track so sound:sfx:stop {id} can reach this channel
+        }
         ++m_sfxCount;
+    }
+    else if (msg.topic == "sound:sfx:stop") {
+        const std::string id = d.getString("id", "");
+        const int fadeMs = static_cast<int>(d.getInt("fadeMs", 0));
+        auto it = m_sfxHandles.find(id);
+        if (it != m_sfxHandles.end()) {
+            m_backend->stopSound(it->second, fadeMs);
+            m_sfxHandles.erase(it);
+        }
+    }
+    else if (msg.topic == "sound:sfx:stopAll") {
+        const int fadeMs = static_cast<int>(d.getInt("fadeMs", 0));
+        m_backend->stopAllSounds(fadeMs);
+        m_sfxHandles.clear();
+    }
+    else if (msg.topic == "sound:preload") {
+        const std::string path = d.getString("path", "");
+        if (!path.empty()) m_backend->loadSound(path);  // warm the cache, don't play
+    }
+    else if (msg.topic == "sound:unload") {
+        const std::string path = d.getString("path", "");
+        if (!path.empty()) m_backend->unloadSound(path);
     }
     else if (msg.topic == "sound:music") {
         const std::string path = d.getString("path", "");

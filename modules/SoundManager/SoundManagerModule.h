@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 namespace grove {
 
@@ -62,6 +63,10 @@ private:
     float m_sfx = 1.0f;
     float m_musicBaseVolume = 1.0f;  // last per-call music volume (for live bus re-apply)
     bool m_musicPlaying = false;
+
+    // Game-supplied id -> backend playback handle, for controllable (e.g. looping) SFX so
+    // sound:sfx:stop can target the right channel. One-shot SFX (no id) are not tracked.
+    std::unordered_map<std::string, int> m_sfxHandles;
 
     uint64_t m_sfxCount = 0;
     uint64_t m_musicCount = 0;
