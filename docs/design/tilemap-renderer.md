@@ -30,11 +30,20 @@ pixel = `length(fwidth(tileCoord))`:
 **LOD band (zoomed out) — color, because indices can't be mipped.**
 - Game-provided **palette `tileIndex → color`** (art-directable: terrain/faction tint). Engine
   bakes `LOD[texel] = palette[index]`, RGBA8 ~1.9 MB + **CPU box-filter mips**. GPU trilinear =
-  automatic LOD; crossfade (above) blends it with the detail band → seamless, no pop.
+  automatic LOD; blends with the detail band → seamless.
+- Detail (index→atlas) and LOD (color) are two genuinely-distinct representations (the index path
+  can't be the mipped color path). But the TRANSITION — smoothstep crossfade vs a hard threshold
+  switch — is a **tuning detail, not a dogma**; no production source confirms a band crossfade
+  (Factorio's mip selection is hardware-continuous within one atlas). Don't over-engineer it; tune
+  at implementation. **Point/NEAREST sampling does NOT substitute for the mipped color band** —
+  it kills interpolation bleed at one mip but does nothing for minification aliasing at zoom-out,
+  so the separate mipped color representation is mandatory, not optional.
 
-**Fog / per-tile state = mipped `R8`**, sampled in BOTH detail and LOD (visibility averages fine
-under mipping, unlike indices) → fog dims correctly at every zoom; `updateTexture` a few texels on
-reveal.
+**Fog / per-tile state = mipped `R8`**, sampled in BOTH detail and LOD. **Encode it as a SCALAR
+visibility (0..1), NOT discrete enum states** — mip box-filtering a scalar is meaningful (gives
+partial-reveal edges when zoomed out), whereas averaging discrete state *indices* is nonsense (same
+trap as the tile indices). So fog dims correctly at every zoom; `updateTexture` a few texels on
+reveal. *(Refinement from the SOTA research — see below.)*
 
 **Layers** (terrain / decals / objects) = N index textures, N blended draws (each ~0 CPU).
 **Animated tiles** (water/lava) = a per-tile-type table (`animated?`, frames, fps) in a tiny 1D
@@ -59,6 +68,46 @@ doesn't surface it yet. Real, bounded engine work.
   index grid (`render:tilemap:add/update/remove`) + atlas-array + texelFetch. Kills the CPU cost.
 - **B — LOD:** palette → mipped color + derivative crossfade.
 - **Then as needed:** mipped R8 fog/state, multi-layer, animated tiles.
+
+## Validated against the state of the art (deep-research, 2026-06-17)
+A multi-source, adversarially-verified survey confirmed this design matches current best practice
+on **every major axis**:
+- **Index-texture + texelFetch, 1 draw/chunk** — multiply attested (Tristeon, paavo.me,
+  WebGLFundamentals; + Phaser/Godot/PixiJS). Draw/vertex cost is world-size-independent.
+- **Index can't be mipped → separate mippable COLOR for LOD** — exactly what **Factorio** does
+  (mips its color/sprite atlas, streams the mip per zoom — FFF-264/227). Our palette→mipped RGBA8
+  is the small-engine analogue.
+- **Derivative-driven LOD** (`length(fwidth)` → mip = log2(ρ)) — canonical, OpenGL spec §8.14.
+- **`textureGrad` with explicit gradients** — the right call *because* tilemap UVs jump at tile
+  boundaries where implicit ddx/ddy misbehave (0fps.net, Ben Golus). array **+** textureGrad =
+  correct.
+- **`texture2DArray` atlas** — the recommended bleeding fix (never samples across layers; Khronos,
+  0fps.net). Packed-atlas bleeding under minification is real & unavoidable (0fps.net, Halladay,
+  Polycount, US patent US10839590B2).
+- **Chunk/stream beyond ~16384²** = SVT / tiled-resources (Sean Barrett, id Tech 5); our
+  chunk-per-quad already aligns. **Not needed at our scale** (one index texture ≈ 268M tiles).
+
+**Honest caveats from the research:**
+- DON'T cite the "1M tiles in 0.05 ms / O(1)" benchmark (Tristeon) — refuted; the qualitative
+  scaling holds, the number doesn't.
+- The exact **R16UI + texelFetch path is attested by indie/web blogs + educational refs**, not a
+  AAA primary source. AAA (Factorio) is **sprite/RTT-based**, not index-texture. Our path is the
+  well-known indie/web approach — a legitimate choice, just not the AAA one.
+- **Animated tiles & multi-layer compositing** on the index path are reasonable design items but
+  **not literature-validated** here — treat as unproven until a running visual test exists.
+
+## Known scaling lever (deferred unless measured)
+**Factorio's persistent terrain buffer + scroll-reuse** (FFF-333): render terrain to a buffer kept
+across frames; on camera move, adjust the buffer offset and only re-render newly-exposed edge
+strips → re-render cost ∝ scroll distance, not screen area. **Only pays off if per-pixel
+composition is expensive** (complex tile-transition/blend rules). Our texelFetch + 1-quad path has
+near-free composition, so this is optional — a known lever IF we later add costly terrain
+transitions. Backlog.
+
+## Status
+**This is the next major project.** Design is pinned + SOTA-validated. Implementation = an RHI
+capability bump (R16UI / array textures / POINT-CLAMP samplers / `*_tilemap` shader / CPU mip
+upload), sliced A (detail) → B (LOD) → fog/multi-layer/animated as needed. Not a weekend.
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is

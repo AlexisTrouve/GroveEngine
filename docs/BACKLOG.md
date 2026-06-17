@@ -19,10 +19,13 @@ tests; this file is only what's **not** done yet.
   Small pure helper in `grove::camera` if wanted.
 
 ## Rendering
-- **Tilemap high-perf** — current tilemap regenerates ALL tile instances + re-uploads every frame
-  from a CSV string, no culling. Wins: retained tilemap (`render:tilemap:add/update/remove` by
-  chunkId, upload once, dirty regions only), build chunk geometry once, **cull chunks/tiles**
-  off-camera (use `visibleWorldBounds`). Do when the map screen exists + scale is measurable.
+- **Tilemap high-perf — NEXT MAJOR PROJECT.** Full design pinned + SOTA-validated in
+  [docs/design/tilemap-renderer.md](design/tilemap-renderer.md): GPU index-texture (R16UI +
+  texelFetch, 1 draw/chunk), `texture2DArray` atlas, derivative LOD + palette-driven mipped color
+  band, mipped scalar fog. Needed because Drifterra will have **tens of thousands of tiles** with
+  seamless zoom — the current per-frame CSV re-parse + per-tile work is O(map). Implementation = an
+  RHI capability bump (integer/array textures, point-clamp samplers, a `*_tilemap` shader),
+  sliced A (detail) → B (LOD). Per-frame visible-window culling is already done (TilemapPass).
 - **Render-side culling in passes** — SpritePass/TilemapPass skip instances outside the camera
   bounds before draw (same `visibleWorldBounds`). Couple with tilemap high-perf; measure first.
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and
