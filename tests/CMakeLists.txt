@@ -506,6 +506,14 @@ target_include_directories(test_animation_player PRIVATE
 target_link_libraries(test_animation_player PRIVATE Catch2::Catch2WithMain)
 grove_add_test(AnimationPlayerUnit test_animation_player ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system flipbook slice F-a: SpriteSheet UV grid (grove::anim). Header-only, std-only.
+add_executable(test_sprite_sheet unit/test_sprite_sheet.cpp)
+target_include_directories(test_sprite_sheet PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_sprite_sheet PRIVATE Catch2::Catch2WithMain)
+grove_add_test(SpriteSheetUnit test_sprite_sheet ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
