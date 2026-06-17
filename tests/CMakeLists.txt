@@ -4,6 +4,7 @@
 # SDL2 Detection (used by visual tests, demos, and InputModule-dependent tests)
 # ================================================================================
 find_package(SDL2 QUIET)
+find_package(SDL2_mixer QUIET)   # audio backend for the sound manager (slice 2)
 
 # Determine if SDL2 is available (either via find_package or system install on Linux)
 set(SDL2_AVAILABLE FALSE)
@@ -532,6 +533,25 @@ target_include_directories(test_sound_manager PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_sound_manager PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
 grove_add_test(SoundManagerUnit test_sound_manager ${CMAKE_CURRENT_BINARY_DIR})
+
+# Sound system slice 2: real SDLMixerBackend + manual audio demo (verified by ear). Gated on
+# SDL2 + SDL2_mixer being available. Not a ctest (no headless audio assertion).
+if(SDL2_FOUND AND SDL2_mixer_FOUND)
+    add_executable(test_sound_demo
+        visual/test_sound_demo.cpp
+        ../modules/SoundManager/SoundManagerModule.cpp
+        ../modules/SoundManager/SDLMixerBackend.cpp)
+    target_include_directories(test_sound_demo PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_sound_demo PRIVATE
+        GroveEngine::impl
+        SDL2::SDL2
+        SDL2_mixer::SDL2_mixer)
+    message(STATUS "Sound demo 'test_sound_demo' enabled (SDL2_mixer found)")
+else()
+    message(STATUS "Sound demo skipped (SDL2_mixer not found)")
+endif()
 
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED

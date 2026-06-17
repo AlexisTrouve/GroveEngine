@@ -1,0 +1,58 @@
+#pragma once
+
+/**
+ * grove::sound::SDLMixerBackend — real ISoundBackend over SDL2_mixer (sound system, slice 2).
+ *
+ * WHAT  : Implements ISoundBackend with SDL_mixer: opens the audio device, loads/caches SFX
+ *         (Mix_Chunk) and music (Mix_Music) by path, and plays them with volume/pan/fade/loop.
+ *
+ * WHY   : Keeps SDL_mixer entirely behind the interface — SoundManagerModule never includes it,
+ *         so the module's topic/bus logic stays SDL-free and headless-testable (slice 1). The
+ *         host wires this backend in (module.setBackend(make_unique<SDLMixerBackend>())), the
+ *         same injection model as InputModule_static.
+ *
+ * HOW   : Effective volumes arrive in [0,1] (the module applied the buses) and map to
+ *         MIX_MAX_VOLUME. Pan [-1,1] maps to Mix_SetPanning left/right. Only the .cpp pulls in
+ *         SDL_mixer.h, so this header is safe to include from build-system glue.
+ */
+
+#include "ISoundBackend.h"
+
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Opaque forward declares so this header does not require SDL_mixer (only the .cpp does).
+struct Mix_Chunk;
+typedef struct _Mix_Music Mix_Music;
+
+namespace grove {
+namespace sound {
+
+class SDLMixerBackend : public ISoundBackend {
+public:
+    SDLMixerBackend() = default;
+    ~SDLMixerBackend() override;
+
+    bool init() override;
+    void shutdown() override;
+
+    int loadSound(const std::string& path) override;
+    int loadMusic(const std::string& path) override;
+    void playSound(int soundId, float volume, float pan) override;
+    void playMusic(int musicId, bool loop, int fadeMs, float volume) override;
+    void stopMusic(int fadeMs) override;
+    void setMusicVolume(float volume) override;
+
+private:
+    bool m_open = false;
+
+    // Caches: path -> index into the vectors (stable ids handed back to the module).
+    std::unordered_map<std::string, int> m_soundIds;
+    std::vector<Mix_Chunk*> m_sounds;
+    std::unordered_map<std::string, int> m_musicIds;
+    std::vector<Mix_Music*> m_musics;
+};
+
+} // namespace sound
+} // namespace grove
