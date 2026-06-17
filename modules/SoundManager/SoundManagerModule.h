@@ -1,0 +1,70 @@
+#pragma once
+
+/**
+ * SoundManagerModule — music + SFX via IIO topics (sound system, slice 1).
+ *
+ * WHAT  : An IModule that consumes sound:* topics and drives an ISoundBackend, applying the
+ *         master/music/sfx volume buses. Backend-agnostic: SDL_mixer is injected (slice 2) or a
+ *         mock in tests, so all of this logic is headless-testable.
+ *
+ * TOPICS (consumed):
+ *   sound:sfx          { path, volume?=1, pan?=0 }              one-shot SFX
+ *   sound:music        { path, loop?=true, fadeMs?=0, volume?=1 } play/replace music
+ *   sound:music:stop   { fadeMs?=0 }                            stop music (with fade)
+ *   sound:volume       { bus: "master"|"music"|"sfx", value }   set a bus volume [0,1]
+ *
+ * Effective volume sent to the backend = clamp01(per-call volume * bus * master).
+ */
+
+#include <grove/IModule.h>
+#include <grove/IIO.h>
+#include <grove/ITaskScheduler.h>
+#include "ISoundBackend.h"
+
+#include <cstdint>
+#include <memory>
+#include <string>
+
+namespace grove {
+
+class SoundManagerModule : public IModule {
+public:
+    SoundManagerModule();
+    ~SoundManagerModule() override;
+
+    // Inject the audio backend (a test mock, or the real SDLMixerBackend in slice 2). Must be
+    // set before setConfiguration. (Slice 2 will create a default SDLMixerBackend if none set.)
+    void setBackend(std::unique_ptr<sound::ISoundBackend> backend);
+
+    // IModule interface
+    void setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) override;
+    void process(const IDataNode& input) override;
+    void shutdown() override;
+    std::unique_ptr<IDataNode> getState() override;
+    void setState(const IDataNode& state) override;
+    const IDataNode& getConfiguration() override;
+    std::unique_ptr<IDataNode> getHealthStatus() override;
+    std::string getType() const override { return "sound_manager"; }
+    bool isIdle() const override { return true; }
+
+private:
+    void handleMessage(const Message& msg);
+    void applyMusicVolume();                 // push effective music volume to the backend
+    static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
+    IIO* m_io = nullptr;
+    std::unique_ptr<sound::ISoundBackend> m_backend;
+    std::unique_ptr<IDataNode> m_config;
+
+    // Volume buses, each in [0,1].
+    float m_master = 1.0f;
+    float m_music = 1.0f;
+    float m_sfx = 1.0f;
+    float m_musicBaseVolume = 1.0f;  // last per-call music volume (for live bus re-apply)
+    bool m_musicPlaying = false;
+
+    uint64_t m_sfxCount = 0;
+    uint64_t m_musicCount = 0;
+};
+
+} // namespace grove

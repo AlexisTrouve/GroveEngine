@@ -522,6 +522,17 @@ target_include_directories(test_flipbook PRIVATE
 target_link_libraries(test_flipbook PRIVATE Catch2::Catch2WithMain)
 grove_add_test(FlipbookUnit test_flipbook ${CMAKE_CURRENT_BINARY_DIR})
 
+# Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
+# the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
+add_executable(test_sound_manager
+    unit/test_sound_manager.cpp
+    ../modules/SoundManager/SoundManagerModule.cpp)
+target_include_directories(test_sound_manager PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_sound_manager PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+grove_add_test(SoundManagerUnit test_sound_manager ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
