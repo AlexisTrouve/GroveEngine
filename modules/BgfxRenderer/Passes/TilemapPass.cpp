@@ -3,6 +3,7 @@
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
 #include "../Scene/Camera.h"
+#include <cmath>
 
 namespace grove {
 
@@ -116,30 +117,31 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
 
         m_tileInstances.clear();
 
-        // Generate sprite instances for each tile
-        for (size_t t = 0; t < chunk.tileCount; ++t) {
+        // Iterate ONLY the visible tile window. The chunk is a regular grid, so the on-screen
+        // tile indices follow directly from the camera bounds — this is O(visible tiles), NOT
+        // O(map). Critical at tens of thousands of tiles: a per-tile cull loop would still visit
+        // every tile every frame; computing the index window skips that entirely.
+        const float tw = static_cast<float>(chunk.tileWidth);
+        const float th = static_cast<float>(chunk.tileHeight);
+        int minTX = static_cast<int>(std::floor((bounds.minX - chunk.x) / tw));
+        int maxTX = static_cast<int>(std::floor((bounds.maxX - chunk.x) / tw));
+        int minTY = static_cast<int>(std::floor((bounds.minY - chunk.y) / th));
+        int maxTY = static_cast<int>(std::floor((bounds.maxY - chunk.y) / th));
+        if (minTX < 0) minTX = 0;
+        if (minTY < 0) minTY = 0;
+        if (maxTX > static_cast<int>(chunk.width) - 1)  maxTX = static_cast<int>(chunk.width) - 1;
+        if (maxTY > static_cast<int>(chunk.height) - 1) maxTY = static_cast<int>(chunk.height) - 1;
+
+        // Generate sprite instances for each VISIBLE tile.
+        for (int tileY = minTY; tileY <= maxTY; ++tileY) {
+        for (int tileX = minTX; tileX <= maxTX; ++tileX) {
+            const size_t t = static_cast<size_t>(tileY) * chunk.width + static_cast<size_t>(tileX);
+            if (t >= chunk.tileCount) continue;
             uint16_t tileIndex = chunk.tiles[t];
+            if (tileIndex == 0) continue;   // empty tile
 
-            // Skip empty tiles (index 0 is typically empty)
-            if (tileIndex == 0) {
-                continue;
-            }
-
-            // Calculate tile position in grid
-            size_t tileX = t % chunk.width;
-            size_t tileY = t / chunk.width;
-
-            // Calculate world position (add 0.5 tile offset because sprite shader centers quads)
-            float worldX = chunk.x + (tileX + 0.5f) * chunk.tileWidth;
-            float worldY = chunk.y + (tileY + 0.5f) * chunk.tileHeight;
-
-            // Cull tiles outside the camera: skip generating + uploading them entirely (the
-            // tilemap-perf win — per-frame work drops to a screenful regardless of map size).
-            if (!camera::isVisible(bounds,
-                                   worldX - chunk.tileWidth * 0.5f, worldY - chunk.tileHeight * 0.5f,
-                                   static_cast<float>(chunk.tileWidth), static_cast<float>(chunk.tileHeight))) {
-                continue;
-            }
+            const float worldX = chunk.x + (static_cast<float>(tileX) + 0.5f) * tw;
+            const float worldY = chunk.y + (static_cast<float>(tileY) + 0.5f) * th;
 
             // Calculate UV coords from tile index
             // tileIndex-1 because 0 is empty, actual tiles start at 1
@@ -191,6 +193,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
 
                 m_tileInstances.clear();
             }
+        }
         }
 
         // Flush remaining tiles for this chunk

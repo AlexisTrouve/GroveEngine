@@ -107,3 +107,35 @@ TEST_CASE("TilemapPass culls tiles outside the camera view", "[culling][unit]") 
     REQUIRE(drawn <= 44);
     pass.shutdown(device);
 }
+
+TEST_CASE("TilemapPass on a huge map draws only the visible window (O(visible), not O(map))", "[culling][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    TilemapPass pass(shader);
+    pass.setup(device);
+
+    // 600x600 = 360,000 tiles, all non-empty. Default viewport 1280x720 @ 32px tiles -> only a
+    // ~41x23 window (~940 tiles) is visible. The pass must touch only the window, never 360k.
+    const int W = 600, H = 600;
+    std::vector<uint16_t> tiles(static_cast<size_t>(W) * H, static_cast<uint16_t>(1));
+    TilemapChunk chunk{};
+    chunk.x = 0.0f; chunk.y = 0.0f;
+    chunk.width = static_cast<uint16_t>(W); chunk.height = static_cast<uint16_t>(H);
+    chunk.tileWidth = 32; chunk.tileHeight = 32;
+    chunk.textureId = 0;
+    chunk.tiles = tiles.data();
+    chunk.tileCount = tiles.size();
+
+    FramePacket frame;
+    frame.tilemaps = &chunk;
+    frame.tilemapCount = 1;
+
+    rhi::RHICommandBuffer cmd;
+    pass.execute(frame, device, cmd);
+
+    const uint32_t drawn = drawnInstances(cmd);
+    REQUIRE(drawn >= 850);     // ~941 visible tiles drawn (a screenful)
+    REQUIRE(drawn <= 1050);
+    REQUIRE(drawn < 5000);     // emphatically NOT the 360k map
+    pass.shutdown(device);
+}
