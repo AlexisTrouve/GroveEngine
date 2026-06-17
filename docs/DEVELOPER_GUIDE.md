@@ -540,6 +540,51 @@ Locked headless by `Transform2DUnit`, `EasingUnit`, `ClipUnit`, `AnimationPlayer
 
 ---
 
+## Sound (SoundManager)
+
+Music + SFX module. `SoundManagerModule` (an `IModule`) consumes `sound:*` topics and drives an
+`ISoundBackend`; the real backend is `SDLMixerBackend` (SDL2_mixer). The backend is behind the
+interface, so the module's topic/bus logic is SDL-free and headless-testable.
+
+**Topics consumed:**
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `sound:sfx` | `{path, volume?=1, pan?=0, loop?=false, id?}` | Play an SFX. A game-supplied `id` makes it controllable (track it to stop later) |
+| `sound:sfx:stop` | `{id, fadeMs?=0}` | Stop the SFX previously started with that `id` |
+| `sound:sfx:stopAll` | `{fadeMs?=0}` | Stop all SFX (e.g. scene change) |
+| `sound:music` | `{path, loop?=true, fadeMs?=0, volume?=1}` | Play/replace the music track |
+| `sound:music:stop` | `{fadeMs?=0}` | Stop the music |
+| `sound:volume` | `{bus: "master"\|"music"\|"sfx", value}` | Set a bus volume `[0,1]` |
+| `sound:preload` | `{path}` | Load an SFX into cache (avoid first-play hitch) |
+| `sound:unload` | `{path}` | Free a cached SFX |
+
+Effective volume sent to the device = `clamp01(per-call volume × bus × master)`. Changing the
+`master`/`music` bus re-applies live to the playing track.
+
+**Wiring (static-link host, e.g. Drifterra):** link `SoundManager_static`, instantiate the
+module, inject the backend, drive `process()` each frame:
+
+```cpp
+#include "SoundManagerModule.h"
+#include "SDLMixerBackend.h"
+using namespace grove;
+
+auto sound = std::make_unique<SoundManagerModule>();
+sound->setBackend(std::make_unique<sound::SDLMixerBackend>());  // SDL_mixer behind ISoundBackend
+JsonDataNode cfg("config");
+sound->setConfiguration(cfg, soundIO, nullptr);     // subscribes sound:*, opens the device
+
+// per frame: publish sound:* on a peer IIO, then
+sound->process(frameInput);                          // drains the queue -> backend
+```
+
+Build with `-DGROVE_BUILD_SOUND_MODULE=ON` (needs SDL2 + SDL2_mixer). Topic/bus logic locked by
+`SoundManagerUnit` (MockSoundBackend, headless); real audio verified manually via
+`tests/visual/test_sound_demo.cpp`.
+
+---
+
 ## IIO Topics Reference
 
 ### Input Events

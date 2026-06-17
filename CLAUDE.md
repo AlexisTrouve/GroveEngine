@@ -135,6 +135,11 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 - **Flipbook**: `SpriteSheet` (grid→UV) + `Flipbook` (frames + per-frame durations / `setFps`, `uvAt`).
 - Integration pattern + usage in [DEVELOPER_GUIDE](docs/DEVELOPER_GUIDE.md#animation-grove_anim); live ref in `tests/visual/test_renderer_showcase.cpp`. Locked by `Transform2DUnit`/`EasingUnit`/`ClipUnit`/`AnimationPlayerUnit`/`SpriteSheetUnit`/`FlipbookUnit`
 
+### SoundManager (`modules/SoundManager/`, `-DGROVE_BUILD_SOUND_MODULE=ON`)
+- `SoundManagerModule` (IModule) consumes `sound:*` → drives `ISoundBackend`. Real backend `SDLMixerBackend` (SDL2_mixer) is **behind the interface** → module is SDL-free + headless-testable (MockSoundBackend).
+- **Topics**: `sound:sfx {path,volume?,pan?,loop?,id?}`, `sound:sfx:stop {id,fadeMs?}`, `sound:sfx:stopAll`, `sound:music {path,loop?,fadeMs?,volume?}`, `sound:music:stop`, `sound:volume {bus,value}`, `sound:preload`/`sound:unload {path}`. Buses master/music/sfx; eff = clamp01(call·bus·master).
+- Static-link host (Drifterra): link **`SoundManager_static`**, `module.setBackend(make_unique<sound::SDLMixerBackend>())`. Locked by `SoundManagerUnit`; real audio via `tests/visual/test_sound_demo.cpp`. **SDL2_mixer** required (devel package on the toolchain).
+
 ## Debugging Tools
 ```bash
 # ThreadSanitizer (detects data races, deadlocks)

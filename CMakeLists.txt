@@ -203,6 +203,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_INPUT_MODULE)
         add_subdirectory(modules/InputModule)
     endif()
+
+    # SoundManager (music + SFX via SDL_mixer)
+    option(GROVE_BUILD_SOUND_MODULE "Build SoundManager module" OFF)
+    if(GROVE_BUILD_SOUND_MODULE)
+        add_subdirectory(modules/SoundManager)
+    endif()
 endif()
 
 # Testing
