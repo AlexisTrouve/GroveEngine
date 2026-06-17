@@ -456,6 +456,90 @@ while (gameIO->hasMessages() > 0) {
 
 ---
 
+## Animation (`grove::anim`)
+
+Pure, **header-only** 2D animation helpers in `include/grove/anim/` — no renderer, no IIO, no
+SDL dependency. They **compute** transforms and UVs; they never draw. A static-link host just
+`#include` and uses them (zero CMake/link). Two complementary families:
+
+### 1. Procedural / cutout — `Hierarchy` + `Clip` + `AnimationPlayer`
+
+"Linked objects": child sprites that move with a parent (a hull with a turret, a body with
+limbs). A `Hierarchy` of `Transform2D` nodes; `update()` composes each node's WORLD transform
+from its LOCAL transform and its parent. Keyframed motion comes from a `Clip` (tracks of
+`Keyframe`s with `Easing` curves) played over time by an `AnimationPlayer`.
+
+```cpp
+#include "grove/anim/AnimationPlayer.h"
+using namespace grove::anim;
+
+Hierarchy rig;
+int hull   = rig.addNode(-1, Transform2D{x, y});         // root
+int turret = rig.addNode(hull, Transform2D{80.0f, 0.0f}); // child offset (local space)
+
+Clip clip; clip.duration = 6.0f;
+Track t; t.nodeId = turret; t.property = Property::Rotation;
+t.keys = { {0.0f, 0.0f, Easing::Linear}, {6.0f, 6.2831853f, Easing::OutCubic} };
+clip.tracks.push_back(t);
+
+AnimationPlayer player;
+player.play(&clip, /*loop*/ true);   // NOTE: player keeps a const Clip* — clip must outlive it
+
+// each frame:
+player.update(dt, rig);   // writes node LOCAL transforms from the clip
+rig.update();             // composes every node's WORLD transform (one pass)
+```
+
+- `Property`: `TranslationX/Y`, `Rotation`, `ScaleX/Y`. `Easing`: `Step, Linear, In/Out/InOut
+  Quad, In/Out/InOut Cubic` (a key's curve governs its outgoing segment).
+- **Perf:** the player holds a `const Clip*` (shared, never copied) — thousands of instances
+  reuse one clip's keyframes with tiny per-instance state; one `rig.update()` composes a whole
+  rig. For purely code-driven motion you can skip Clip/Player and set node locals directly.
+
+### 2. Frame-by-frame / flipbook — `SpriteSheet` + `Flipbook`
+
+Cycling which atlas cell is shown (explosions, walk cycles, effects). `SpriteSheet` maps a
+grid cell index to a UV rectangle; `Flipbook` plays a sequence of cells with per-frame
+durations (or a uniform `setFps`).
+
+```cpp
+#include "grove/anim/Flipbook.h"
+using namespace grove::anim;
+
+SpriteSheet sheet; sheet.columns = 4; sheet.rows = 4;   // 16-cell atlas
+Flipbook fb; fb.frames = {0,1,2,3,4,5}; fb.setFps(12.0f); fb.loop = true;
+// (or per-frame timing: fb.durations = {0.3f, 0.1f, 0.1f, ...};)
+
+float u0, v0, u1, v1;
+fb.uvAt(time, sheet, u0, v0, u1, v1);   // UVs to put on a render:sprite
+```
+
+### Rendering it — the integration glue (game side)
+
+`grove::anim` stays render-agnostic, so the game writes the small loop that turns world
+transforms / flipbook UVs into `render:sprite` messages. This is intentional: the
+node → `{textureId, layer, pixel size, renderId}` mapping is game-specific. Pattern (≈8 lines,
+see `tests/visual/test_renderer_showcase.cpp` for a live reference):
+
+```cpp
+// procedural rig node -> sprite (render:sprite x,y = CENTER; rotation in radians)
+const Transform2D& w = rig.world(node);
+auto s = std::make_unique<JsonDataNode>("sprite");
+s->setDouble("x", w.x); s->setDouble("y", w.y);
+s->setDouble("rotation", w.rotation);
+s->setDouble("scaleX", pixelSize * w.scaleX);
+s->setDouble("scaleY", pixelSize * w.scaleY);
+s->setInt("textureId", texId); s->setInt("layer", layer);
+io->publish("render:sprite", std::move(s));
+
+// flipbook -> set u0,v0,u1,v1 on the sprite from fb.uvAt(time, sheet, ...)
+```
+
+Locked headless by `Transform2DUnit`, `EasingUnit`, `ClipUnit`, `AnimationPlayerUnit`,
+`SpriteSheetUnit`, `FlipbookUnit`.
+
+---
+
 ## IIO Topics Reference
 
 ### Input Events

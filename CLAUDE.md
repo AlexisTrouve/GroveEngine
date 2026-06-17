@@ -127,6 +127,13 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 - **Backends**: SDLBackend (mouse, keyboard, gamepad Phase 2)
 - **Thread-safe**: Event buffering with lock-free design
 - **IIO Topics**: `input:mouse:*`, `input:keyboard:*`, `input:gamepad:*`
+- **ActionMap helper**: `modules/InputModule/ActionMap.h` (`grove::input`, header-only) — semantic bindings by **scancode** (layout-proof, AZERTY-safe), multi-bind, remap. Locked by `ActionMapUnit`
+
+### Animation (`grove::anim`, header-only, `include/grove/anim/`)
+- Pure 2D animation math — **no renderer/IIO/SDL coupling** (computes transforms/UVs, never draws). Static-link → `#include` and go.
+- **Procedural/cutout**: `Transform2D` + `Hierarchy` (compose parent∘local) + `Clip`/`Track`/`Keyframe` + `Easing` (8 curves) + `AnimationPlayer` (holds `const Clip*` shared; loop/speed/dt). The game publishes sprites from `rig.world(node)`.
+- **Flipbook**: `SpriteSheet` (grid→UV) + `Flipbook` (frames + per-frame durations / `setFps`, `uvAt`).
+- Integration pattern + usage in [DEVELOPER_GUIDE](docs/DEVELOPER_GUIDE.md#animation-grove_anim); live ref in `tests/visual/test_renderer_showcase.cpp`. Locked by `Transform2DUnit`/`EasingUnit`/`ClipUnit`/`AnimationPlayerUnit`/`SpriteSheetUnit`/`FlipbookUnit`
 
 ## Debugging Tools
 ```bash
