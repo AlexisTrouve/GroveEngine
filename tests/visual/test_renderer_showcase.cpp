@@ -30,6 +30,8 @@
 #include "BgfxRendererModule.h"
 #include "Scene/Camera.h"               // grove::camera helpers (damp/focusOn)
 #include "InputModule/ActionMap.h"      // grove::input::ActionMap (scancode bindings, AZERTY-proof)
+#include "grove/anim/AnimationPlayer.h" // grove::anim: Hierarchy + Clip + player (procedural)
+#include "grove/anim/Flipbook.h"        // grove::anim: SpriteSheet + Flipbook (frame-by-frame)
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
@@ -82,6 +84,37 @@ public:
     {
         m_particles.reserve(500);
         bindDefaultActions();
+        buildAnimation();
+    }
+
+    // Build the animation demo: a 2-node rig (hull + turret) + a looping keyframe clip, and a
+    // flipbook over a 2x2 view of a texture. No device needed (pure grove::anim data).
+    void buildAnimation() {
+        using namespace grove::anim;
+
+        // Hull (root) at a visible spot; turret child offset 80px along the hull's local +X.
+        m_hull   = m_rig.addNode(-1,     Transform2D{520.0f, 600.0f, 0.0f, 1.0f, 1.0f});
+        m_turret = m_rig.addNode(m_hull, Transform2D{80.0f,  0.0f,   0.0f, 1.0f, 1.0f});
+
+        // One 6s looping clip: hull does 1 turn, turret does 4 turns. The turret ORBITS with
+        // the hull (its offset is rotated by the hull) AND spins on itself -> hierarchy + clip.
+        const float TWO_PI = 6.28318530718f;
+        m_rigClip.duration = 6.0f;
+        Track hullRot;
+        hullRot.nodeId = m_hull; hullRot.property = Property::Rotation;
+        hullRot.keys = { {0.0f, 0.0f, Easing::Linear}, {6.0f, TWO_PI, Easing::Linear} };
+        Track turRot;
+        turRot.nodeId = m_turret; turRot.property = Property::Rotation;
+        turRot.keys = { {0.0f, 0.0f, Easing::Linear}, {6.0f, TWO_PI * 4.0f, Easing::Linear} };
+        m_rigClip.tracks.push_back(hullRot);
+        m_rigClip.tracks.push_back(turRot);
+        m_rigPlayer.play(&m_rigClip, /*loop*/ true);
+
+        // Flipbook: treat texture 2 as a 2x2 sheet and cycle its 4 quadrants at 4 fps.
+        m_flipSheet.columns = 2; m_flipSheet.rows = 2;
+        m_flip.frames = { 0, 1, 2, 3 };
+        m_flip.setFps(4.0f);
+        m_flip.loop = true;
     }
 
     // Default key map, bound by SCANCODE (SDL_SCANCODE_* = physical position) so it works the
@@ -217,6 +250,11 @@ public:
             m_cameraY += m_cameraVY * dt;
         }
 
+        // Advance the animation rig: the player writes node locals, then one update() composes
+        // all world transforms (the high-perf shape — one compose for the whole rig).
+        m_rigPlayer.update(dt, m_rig);
+        m_rig.update();
+
         // Update particles
         updateParticles(dt);
     }
@@ -243,7 +281,10 @@ public:
         // 7. Render debug primitives
         sendDebugPrimitives();
 
-        // 8. Render the screen-space HUD overlay (space:"screen") — stays FIXED while the
+        // 8. Render the animation demo (linked-object rig + flipbook) from grove::anim.
+        sendAnimation();
+
+        // 9. Render the screen-space HUD overlay (space:"screen") — stays FIXED while the
         //    world (sprites/tilemap/world-text) zooms & pans. Visual proof of the HUD view.
         sendHud();
 
@@ -482,6 +523,53 @@ private:
         }
     }
 
+    // Publish one rig node as a textured sprite from its WORLD transform (render:sprite x,y =
+    // CENTER; rotation in radians; the node's world scale multiplies the base pixel size).
+    void publishNodeSprite(int node, int textureId, float pixelSize, int layer) {
+        const grove::anim::Transform2D& w = m_rig.world(node);
+        auto s = std::make_unique<JsonDataNode>("sprite");
+        s->setDouble("x", w.x);
+        s->setDouble("y", w.y);
+        s->setDouble("scaleX", pixelSize * w.scaleX);
+        s->setDouble("scaleY", pixelSize * w.scaleY);
+        s->setDouble("rotation", w.rotation);
+        s->setInt("color", 0xFFFFFFFF);
+        s->setInt("layer", layer);
+        s->setInt("textureId", textureId);
+        m_gameIO->publish("render:sprite", std::move(s));
+    }
+
+    // Animation demo: the linked-object rig (procedural keyframe) + a flipbook (frame-by-frame).
+    void sendAnimation() {
+        // Hull + turret from their composed world transforms: the turret orbits the hull AND
+        // spins. Hull = image (texture 2, 110px), turret = eye (texture 1, 56px).
+        publishNodeSprite(m_hull,   2, 110.0f, 30);
+        publishNodeSprite(m_turret, 1, 56.0f, 31);
+
+        // Flipbook: a sprite whose UV cycles the 2x2 quadrants of texture 2 (proves
+        // SpriteSheet+Flipbook -> UV -> render:sprite on the GPU).
+        float u0, v0, u1, v1;
+        m_flip.uvAt(m_time, m_flipSheet, u0, v0, u1, v1);
+        auto fb = std::make_unique<JsonDataNode>("sprite");
+        fb->setDouble("x", 770.0); fb->setDouble("y", 600.0);
+        fb->setDouble("scaleX", 96.0); fb->setDouble("scaleY", 96.0);
+        fb->setDouble("u0", u0); fb->setDouble("v0", v0);
+        fb->setDouble("u1", u1); fb->setDouble("v1", v1);
+        fb->setInt("color", 0xFFFFFFFF); fb->setInt("layer", 30); fb->setInt("textureId", 2);
+        m_gameIO->publish("render:sprite", std::move(fb));
+
+        // World-space labels so it's clear what each demo is.
+        auto label = [this](double x, double y, const char* txt) {
+            auto t = std::make_unique<JsonDataNode>("text");
+            t->setDouble("x", x); t->setDouble("y", y);
+            t->setString("text", txt);
+            t->setInt("fontSize", 14); t->setInt("color", 0x66CCFFFF); t->setInt("layer", 90);
+            m_gameIO->publish("render:text", std::move(t));
+        };
+        label(440.0, 670.0, "anim: hull + turret (cutout)");
+        label(720.0, 670.0, "anim: flipbook (UV cycle)");
+    }
+
     // Screen-space HUD overlay (engine help: space:"screen" → fixed bgfx view 1). Everything
     // here is in literal pixel coordinates and is INVARIANT under the world camera — pan/zoom
     // the world with arrows/+- and this bar + label + corner panel do not budge.
@@ -701,6 +789,16 @@ private:
     // event loop talks in actions ("zoom_in"), never raw keycodes, so AZERTY/QWERTY behave
     // identically. This is the live dogfood of grove::input::ActionMap.
     grove::input::ActionMap m_actions;
+
+    // Animation demo (grove::anim): a linked-object rig (hull + turret) driven by a keyframe
+    // clip, and a flipbook cycling a texture's cells. Proves the animation system on GPU.
+    grove::anim::Hierarchy m_rig;
+    grove::anim::Clip m_rigClip;
+    grove::anim::AnimationPlayer m_rigPlayer;
+    int m_hull = -1;
+    int m_turret = -1;
+    grove::anim::SpriteSheet m_flipSheet;
+    grove::anim::Flipbook m_flip;
 
     // Particles
     std::vector<Particle> m_particles;
