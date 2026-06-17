@@ -482,6 +482,14 @@ target_include_directories(test_transform2d PRIVATE
 target_link_libraries(test_transform2d PRIVATE Catch2::Catch2WithMain)
 grove_add_test(Transform2DUnit test_transform2d ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system slice 2a: Easing curves (grove::anim). Header-only, std-only, reusable.
+add_executable(test_easing unit/test_easing.cpp)
+target_include_directories(test_easing PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_easing PRIVATE Catch2::Catch2WithMain)
+grove_add_test(EasingUnit test_easing ${CMAKE_CURRENT_BINARY_DIR})
+
 # ConfigWatcherModule for cross-system integration tests
 add_library(ConfigWatcherModule SHARED
     modules/ConfigWatcherModule.cpp
