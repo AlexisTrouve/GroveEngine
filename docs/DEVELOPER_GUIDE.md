@@ -261,6 +261,11 @@ view = zoomAt(view, newZoom, mouseX, mouseY);
 // Smooth it (framerate-independent — "zoom fluide / momentum"):
 view.zoom = damp(view.zoom, targetZoom, 8.0f, deltaTime);
 
+// Cull off-screen work: skip submitting AND computing (rotation/anim) what isn't visible.
+if (isVisible(view, obj.x, obj.y, obj.w, obj.h, /*margin*/64.0f)) {
+    // update its transform/anim + publish its sprite
+}   // off-screen: skip the presentation work (the sim keeps running elsewhere)
+
 // Then publish view.x / view.y / view.zoom on render:camera as above.
 ```
 

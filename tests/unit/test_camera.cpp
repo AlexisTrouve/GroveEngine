@@ -155,3 +155,39 @@ TEST_CASE("Camera - clampZoom bounds the zoom range", "[camera][unit]") {
     REQUIRE_THAT(camera::clampZoom(999.0f, 0.05f, 50.0f),  WithinAbs(50.0f, 1e-6f));
     REQUIRE_THAT(camera::clampZoom(1.0f, 0.05f, 50.0f),    WithinAbs(1.0f, 1e-6f));
 }
+
+// ============================================================================
+// Culling: visibleWorldBounds + isVisible — the test the game uses to skip submitting AND
+// computing (rotation/anim) off-screen things; the renderer can reuse it to cull draws.
+// ============================================================================
+
+TEST_CASE("Camera - visibleWorldBounds is the world rect the viewport covers", "[camera][unit]") {
+    camera::CameraView c{100.0f, 200.0f, 1.0f, 1280.0f, 720.0f};
+    camera::WorldBounds b = camera::visibleWorldBounds(c);
+    REQUIRE_THAT(b.minX, WithinAbs(100.0f, 0.01f));
+    REQUIRE_THAT(b.minY, WithinAbs(200.0f, 0.01f));
+    REQUIRE_THAT(b.maxX, WithinAbs(1380.0f, 0.01f));   // 100 + 1280/1
+    REQUIRE_THAT(b.maxY, WithinAbs(920.0f, 0.01f));    // 200 + 720/1
+
+    // Zoom in -> less world visible (top-left pinned).
+    c.zoom = 2.0f;
+    b = camera::visibleWorldBounds(c);
+    REQUIRE_THAT(b.maxX, WithinAbs(740.0f, 0.01f));    // 100 + 1280/2
+    REQUIRE_THAT(b.maxY, WithinAbs(560.0f, 0.01f));    // 200 + 720/2
+}
+
+TEST_CASE("Camera - isVisible is an AABB overlap against the view", "[camera][unit]") {
+    camera::CameraView c{0.0f, 0.0f, 1.0f, 1280.0f, 720.0f};
+    REQUIRE(camera::isVisible(c, 100.0f, 100.0f, 50.0f, 50.0f));    // fully inside
+    REQUIRE_FALSE(camera::isVisible(c, -200.0f, 0.0f, 50.0f, 50.0f)); // fully left
+    REQUIRE_FALSE(camera::isVisible(c, 2000.0f, 0.0f, 50.0f, 50.0f)); // fully right
+    REQUIRE_FALSE(camera::isVisible(c, 0.0f, -300.0f, 50.0f, 50.0f)); // fully above
+    REQUIRE(camera::isVisible(c, -10.0f, 100.0f, 50.0f, 50.0f));    // straddles left edge
+}
+
+TEST_CASE("Camera - isVisible margin pulls in near-edge objects (pop-in guard)", "[camera][unit]") {
+    camera::CameraView c{0.0f, 0.0f, 1.0f, 1280.0f, 720.0f};
+    // Box just left of the view: x in [-100,-50], outside by 50.
+    REQUIRE_FALSE(camera::isVisible(c, -100.0f, 100.0f, 50.0f, 50.0f));
+    REQUIRE(camera::isVisible(c, -100.0f, 100.0f, 50.0f, 50.0f, 60.0f));  // margin 60 -> visible
+}

@@ -113,7 +113,7 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 - **RHI Layer**: Abstracts bgfx calls (`RHIDevice.h`, `BgfxDevice.cpp`)
 - **RenderGraph**: Topological sort with Kahn's algorithm for pass ordering
 - **CommandBuffer**: Records commands, executed by device at frame end
-- **Camera helper**: `Scene/Camera.h` (`grove::camera`, header-only) — screen↔world, centerOn/focusOn, `zoomAt` (seamless zoom toward cursor), `damp`. Camera `(x,y)` = world coord at viewport **top-left**; `screen = zoom·(world−cam)`. Locked by `CameraUnit` + `SceneCollectorTest` (matrices match the helper)
+- **Camera helper**: `Scene/Camera.h` (`grove::camera`, header-only) — screen↔world, centerOn/focusOn, `zoomAt` (seamless zoom toward cursor), `damp`, **`isVisible`/`visibleWorldBounds` (cull off-screen: game skips submit + rotation/anim compute; renderer can cull draws)**. Camera `(x,y)` = world coord at viewport **top-left**; `screen = zoom·(world−cam)`. Locked by `CameraUnit` + `SceneCollectorTest` (matrices match the helper)
 - **HUD overlay**: `render:rect`/`render:sprite`/`render:text` accept `space:"screen"` → drawn on a fixed screen-space view (bgfx view 1, overlay, no zoom/pan) so the HUD doesn't move with the world camera. Ephemeral only. Locked by `HudViewUnit` + `SceneCollectorTest`
 - **IIO Topics**: `render:sprite`, `render:rect` (filled colored quad, layered — for HUD), `render:text` (UTF-8 + French accents), `render:tilemap`, `render:particle`, `render:camera`, `render:clear`, `render:debug/*`
 

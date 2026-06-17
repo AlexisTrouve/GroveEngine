@@ -133,5 +133,36 @@ inline float clampZoom(float zoom, float minZoom, float maxZoom) {
     return zoom < minZoom ? minZoom : (zoom > maxZoom ? maxZoom : zoom);
 }
 
+// ----------------------------------------------------------------------------
+// Culling — the world-space rectangle the viewport currently covers, and an AABB visibility
+// test against it.
+// WHY: lets the GAME skip both SUBMITTING and COMPUTING (rotation/hierarchy/anim) for off-screen
+//      objects — the expensive presentation work — without freezing its simulation (that keeps
+//      ticking elsewhere). The renderer can reuse the same bounds to cull draws.
+// HOW: from screen = zoom·(world − cam), the visible world span is [cam, cam + viewport/zoom].
+//      isVisible is a standard AABB overlap, widened by `margin` (world units) to avoid pop-in
+//      at the edges when culling slightly before something is strictly on-screen.
+// ----------------------------------------------------------------------------
+struct WorldBounds {
+    float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+};
+
+inline WorldBounds visibleWorldBounds(const CameraView& c) {
+    const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
+    WorldBounds b;
+    b.minX = c.x;
+    b.minY = c.y;
+    b.maxX = c.x + c.viewportW / z;
+    b.maxY = c.y + c.viewportH / z;
+    return b;
+}
+
+// Is the world-space AABB [x, x+w] × [y, y+h] (partly) within the view, widened by `margin`?
+inline bool isVisible(const CameraView& c, float x, float y, float w, float h, float margin = 0.0f) {
+    const WorldBounds b = visibleWorldBounds(c);
+    return (x + w >= b.minX - margin) && (x <= b.maxX + margin) &&
+           (y + h >= b.minY - margin) && (y <= b.maxY + margin);
+}
+
 } // namespace camera
 } // namespace grove
