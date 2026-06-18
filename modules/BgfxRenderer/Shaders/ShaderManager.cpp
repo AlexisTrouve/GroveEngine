@@ -7,6 +7,8 @@
 #include "fs_color.bin.h"
 #include "vs_sprite.bin.h"
 #include "fs_sprite.bin.h"
+#include "vs_tilemap.bin.h"
+#include "fs_tilemap.bin.h"
 
 namespace grove {
 
@@ -108,6 +110,9 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     // Load sprite instancing shader
     loadSpriteShader(device, rendererName);
+
+    // Load GPU tilemap shader (index-texture path)
+    loadTilemapShader(device, rendererName);
 }
 
 void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
@@ -154,6 +159,38 @@ void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string&
 
     if (spriteProgram.isValid()) {
         m_programs["sprite"] = spriteProgram;
+    }
+}
+
+void ShaderManager::loadTilemapShader(rhi::IRHIDevice& device, const std::string& rendererName) {
+    // Select the bytecode variant for the active renderer. Same mapping as the sprite shader.
+    // NOTE: the Metal variant is a placeholder on this toolchain (no Metal backend in shaderc here);
+    // the local runtime forces Direct3D11, so dx11 is the path that actually executes.
+    const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
+    const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_tilemap_glsl; vsSize = sizeof(vs_tilemap_glsl);
+        fsData = fs_tilemap_glsl; fsSize = sizeof(fs_tilemap_glsl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_tilemap_dx11; vsSize = sizeof(vs_tilemap_dx11);
+        fsData = fs_tilemap_dx11; fsSize = sizeof(fs_tilemap_dx11);
+    } else if (rendererName == "Metal") {
+        vsData = vs_tilemap_mtl; vsSize = sizeof(vs_tilemap_mtl);
+        fsData = fs_tilemap_mtl; fsSize = sizeof(fs_tilemap_mtl);
+    } else {
+        // Vulkan + fallback (SPIR-V).
+        vsData = vs_tilemap_spv; vsSize = sizeof(vs_tilemap_spv);
+        fsData = fs_tilemap_spv; fsSize = sizeof(fs_tilemap_spv);
+    }
+
+    rhi::ShaderDesc shaderDesc;
+    shaderDesc.vsData = vsData; shaderDesc.vsSize = vsSize;
+    shaderDesc.fsData = fsData; shaderDesc.fsSize = fsSize;
+
+    rhi::ShaderHandle tilemapProgram = device.createShader(shaderDesc);
+    if (tilemapProgram.isValid()) {
+        m_programs["tilemap"] = tilemapProgram;
     }
 }
 
