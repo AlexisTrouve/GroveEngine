@@ -280,7 +280,21 @@ public:
         if (!handle.isValid()) return;
 
         bgfx::TextureHandle h = { handle.id };
+        // FLAG (pre-existing bug, not fixed here — out of A1 scope): this uses m_width/m_height,
+        // the DEVICE/backbuffer size, not the texture's own size. It is only correct for a
+        // full-screen-sized texture. The tilemap deliberately uses the region overload below
+        // (explicit w/h), which sidesteps this. A real fix means TextureDesc dims stored per handle.
         bgfx::updateTexture2D(h, 0, 0, 0, 0, m_width, m_height, bgfx::copy(data, size));
+    }
+
+    void updateTexture(TextureHandle handle, const void* data, uint32_t size,
+                       uint16_t x, uint16_t y, uint16_t w, uint16_t h) override {
+        if (!handle.isValid()) return;
+
+        bgfx::TextureHandle th = { handle.id };
+        // Patch exactly the [x,y, x+w,y+h] rectangle of mip 0. w/h are explicit (no m_width/m_height
+        // dependency) so this is correct for any texture size — the retained index grid included.
+        bgfx::updateTexture2D(th, 0, 0, x, y, w, h, bgfx::copy(data, size));
     }
 
     // ========================================

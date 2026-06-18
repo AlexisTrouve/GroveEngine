@@ -53,6 +53,11 @@ public:
     // Dynamic updates
     virtual void updateBuffer(BufferHandle handle, const void* data, uint32_t size) = 0;
     virtual void updateTexture(TextureHandle handle, const void* data, uint32_t size) = 0;
+    // Region update (Slice A1): patch a sub-rectangle [x,y, x+w,y+h] of the texture instead of
+    // re-uploading the whole image. The GPU tilemap uses it to flip a few tile ids / fog texels
+    // in the retained index grid without re-sending the full grid every change.
+    virtual void updateTexture(TextureHandle handle, const void* data, uint32_t size,
+                               uint16_t x, uint16_t y, uint16_t w, uint16_t h) = 0;
 
     // Transient instance buffers (frame-local, for multi-batch rendering)
     // These are automatically freed at end of frame - no manual cleanup needed

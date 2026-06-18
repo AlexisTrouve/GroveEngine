@@ -59,6 +59,41 @@ TEST_CASE("TextureDesc can describe an R16UI POINT/CLAMP index texture", "[rhi][
     REQUIRE(got.height == 16);
 }
 
+TEST_CASE("updateTexture can patch a sub-region without a full re-upload (Slice A1)", "[rhi][tilemap][unit]") {
+    // The retained index grid must be patched a few texels at a time (a tile flips, fog reveals)
+    // instead of re-uploading the whole 720 KB grid. The region overload carries x/y/w/h.
+    test::MockRHIDevice device;
+
+    rhi::TextureDesc desc;
+    desc.width  = 64;
+    desc.height = 64;
+    desc.format = rhi::TextureDesc::R16UI;
+    rhi::TextureHandle tex = device.createTexture(desc);
+
+    const uint16_t patch[4] = {1, 2, 3, 4};  // a 2x2 block of tile ids
+    device.updateTexture(tex, patch, sizeof(patch), /*x*/10, /*y*/20, /*w*/2, /*h*/2);
+
+    REQUIRE(device.textureRegionUpdates.size() == 1);
+    const auto& u = device.textureRegionUpdates.back();
+    REQUIRE(u.x == 10);
+    REQUIRE(u.y == 20);
+    REQUIRE(u.w == 2);
+    REQUIRE(u.h == 2);
+    REQUIRE(u.size == sizeof(patch));
+}
+
+TEST_CASE("Full-texture updateTexture still exists alongside the region overload", "[rhi][tilemap][unit]") {
+    // The legacy 3-arg overload (full image) must remain callable — sprites/atlas use it.
+    test::MockRHIDevice device;
+    rhi::TextureDesc desc; desc.width = 8; desc.height = 8;
+    rhi::TextureHandle tex = device.createTexture(desc);
+
+    const uint8_t pixels[8 * 8 * 4] = {};
+    device.updateTexture(tex, pixels, sizeof(pixels));   // resolves to the full overload
+    REQUIRE(device.updateTextureCount == 1);
+    REQUIRE(device.textureRegionUpdates.empty());        // not counted as a region update
+}
+
 TEST_CASE("Adding R16UI did not renumber the existing formats", "[rhi][tilemap][unit]") {
     // R16UI was appended to the enum; the pre-existing formats must keep their ordinals so
     // any serialized/compared value (and BgfxDevice's switch) stays correct.

@@ -56,6 +56,12 @@ public:
     // ========================================
     std::vector<rhi::TextureHandle> textures;
     std::vector<rhi::TextureDesc> textureDescs;  // every desc handed to createTexture, in order
+
+    // Region updates (Slice A1): each sub-rectangle patch handed to the updateTexture overload,
+    // so tests can assert the renderer patches a window instead of re-uploading the whole image.
+    struct TextureRegionUpdate { uint16_t x, y, w, h; uint32_t size; };
+    std::vector<TextureRegionUpdate> textureRegionUpdates;
+
     std::vector<rhi::BufferHandle> buffers;
     std::vector<rhi::ShaderHandle> shaders;
     std::vector<rhi::UniformHandle> uniforms;
@@ -152,6 +158,11 @@ public:
         updateTextureCount++;
     }
 
+    void updateTexture(rhi::TextureHandle /*handle*/, const void* /*data*/, uint32_t size,
+                       uint16_t x, uint16_t y, uint16_t w, uint16_t h) override {
+        textureRegionUpdates.push_back(TextureRegionUpdate{x, y, w, h, size});
+    }
+
     rhi::TransientInstanceBuffer allocTransientInstanceBuffer(uint32_t count) override {
         rhi::TransientInstanceBuffer buffer{};
         buffer.data = nullptr;
@@ -206,6 +217,7 @@ public:
 
         textures.clear();
         textureDescs.clear();
+        textureRegionUpdates.clear();
         buffers.clear();
         shaders.clear();
         uniforms.clear();
