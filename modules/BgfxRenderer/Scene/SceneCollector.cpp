@@ -86,6 +86,15 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:tilemap") {
             parseTilemap(*msg.data);
         }
+        else if (msg.topic == "render:tilemap:add") {
+            parseTilemapAdd(*msg.data);
+        }
+        else if (msg.topic == "render:tilemap:update") {
+            parseTilemapUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:tilemap:remove") {
+            parseTilemapRemove(*msg.data);
+        }
         else if (msg.topic == "render:text") {
             parseText(*msg.data);
         }
@@ -166,32 +175,56 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.spriteCount = 0;
     }
 
-    // Copy tilemaps (with tile data)
-    if (!m_tilemaps.empty()) {
-        TilemapChunk* tilemaps = allocator.allocateArray<TilemapChunk>(m_tilemaps.size());
-        if (tilemaps) {
-            std::memcpy(tilemaps, m_tilemaps.data(), m_tilemaps.size() * sizeof(TilemapChunk));
+    // Copy tilemaps (retained + ephemeral) into the frame allocator. Retained chunks come first;
+    // each carries its `dirty` flag so the pass uploads only changed grids. After a retained chunk
+    // is copied into a frame, its store dirty is cleared — it stays false until the next update,
+    // which is what makes a static retained chunk upload exactly once.
+    {
+        const size_t totalTilemaps = m_retainedTilemaps.size() + m_tilemaps.size();
+        if (totalTilemaps > 0) {
+            TilemapChunk* tilemaps = allocator.allocateArray<TilemapChunk>(totalTilemaps);
+            if (tilemaps) {
+                size_t idx = 0;
 
-            // Copy tile data to frame allocator and fix up pointers
-            for (size_t i = 0; i < m_tilemaps.size() && i < m_tilemapTiles.size(); ++i) {
-                const std::vector<uint16_t>& tiles = m_tilemapTiles[i];
-                if (!tiles.empty()) {
-                    uint16_t* tilesCopy = static_cast<uint16_t*>(
-                        allocator.allocate(tiles.size() * sizeof(uint16_t), alignof(uint16_t)));
-                    if (tilesCopy) {
-                        std::memcpy(tilesCopy, tiles.data(), tiles.size() * sizeof(uint16_t));
-                        tilemaps[i].tiles = tilesCopy;
-                        tilemaps[i].tileCount = tiles.size();
+                // Retained chunks (by id).
+                for (auto& [id, rt] : m_retainedTilemaps) {
+                    TilemapChunk chunk = rt.chunk;  // meta (incl. id + dirty)
+                    if (!rt.tiles.empty()) {
+                        uint16_t* tilesCopy = static_cast<uint16_t*>(
+                            allocator.allocate(rt.tiles.size() * sizeof(uint16_t), alignof(uint16_t)));
+                        if (tilesCopy) {
+                            std::memcpy(tilesCopy, rt.tiles.data(), rt.tiles.size() * sizeof(uint16_t));
+                            chunk.tiles = tilesCopy;
+                            chunk.tileCount = rt.tiles.size();
+                        }
                     }
+                    tilemaps[idx++] = chunk;
+                    rt.chunk.dirty = false;  // consumed this frame -> no re-upload until next update
                 }
-            }
 
-            packet.tilemaps = tilemaps;
-            packet.tilemapCount = m_tilemaps.size();
+                // Ephemeral chunks (re-sent every frame).
+                for (size_t i = 0; i < m_tilemaps.size(); ++i) {
+                    TilemapChunk chunk = m_tilemaps[i];
+                    if (i < m_tilemapTiles.size() && !m_tilemapTiles[i].empty()) {
+                        const std::vector<uint16_t>& tiles = m_tilemapTiles[i];
+                        uint16_t* tilesCopy = static_cast<uint16_t*>(
+                            allocator.allocate(tiles.size() * sizeof(uint16_t), alignof(uint16_t)));
+                        if (tilesCopy) {
+                            std::memcpy(tilesCopy, tiles.data(), tiles.size() * sizeof(uint16_t));
+                            chunk.tiles = tilesCopy;
+                            chunk.tileCount = tiles.size();
+                        }
+                    }
+                    tilemaps[idx++] = chunk;
+                }
+
+                packet.tilemaps = tilemaps;
+                packet.tilemapCount = idx;
+            }
+        } else {
+            packet.tilemaps = nullptr;
+            packet.tilemapCount = 0;
         }
-    } else {
-        packet.tilemaps = nullptr;
-        packet.tilemapCount = 0;
     }
 
     // Copy texts (with string data) - merge retained + ephemeral
@@ -434,8 +467,8 @@ void SceneCollector::parseSpriteBatch(const IDataNode& data) {
     }
 }
 
-void SceneCollector::parseTilemap(const IDataNode& data) {
-    TilemapChunk chunk;
+// Read chunk metadata (position, dims, tileset) from a data node. Tiles are handled separately.
+static void readTilemapMeta(const IDataNode& data, TilemapChunk& chunk) {
     chunk.x = static_cast<float>(data.getDouble("x", 0.0));
     chunk.y = static_cast<float>(data.getDouble("y", 0.0));
     chunk.width = static_cast<uint16_t>(data.getInt("width", 0));
@@ -443,44 +476,85 @@ void SceneCollector::parseTilemap(const IDataNode& data) {
     chunk.tileWidth = static_cast<uint16_t>(data.getInt("tileW", 16));
     chunk.tileHeight = static_cast<uint16_t>(data.getInt("tileH", 16));
     chunk.textureId = static_cast<uint16_t>(data.getInt("textureId", 0));
+}
 
-    // Parse tile array from "tiles" child node
+// Shared tile-array parser: "tiles" child node (each child has int "v") OR a comma-separated
+// "tileData" string. Used by both the ephemeral and retained tilemap paths.
+std::vector<uint16_t> SceneCollector::parseTileArray(const IDataNode& data) {
     std::vector<uint16_t> tiles;
+
     IDataNode* tilesNode = const_cast<IDataNode&>(data).getChildReadOnly("tiles");
     if (tilesNode) {
-        // Each child is a tile index
         for (const auto& name : tilesNode->getChildNames()) {
             IDataNode* tileNode = tilesNode->getChildReadOnly(name);
             if (tileNode) {
-                // Try to get as int (direct value)
                 tiles.push_back(static_cast<uint16_t>(tileNode->getInt("v", 0)));
             }
         }
     }
 
-    // Alternative: parse from comma-separated string "tileData"
     if (tiles.empty()) {
         std::string tileData = data.getString("tileData", "");
-        if (!tileData.empty()) {
-            size_t pos = 0;
-            while (pos < tileData.size()) {
-                size_t end = tileData.find(',', pos);
-                if (end == std::string::npos) end = tileData.size();
-                std::string numStr = tileData.substr(pos, end - pos);
-                if (!numStr.empty()) {
-                    tiles.push_back(static_cast<uint16_t>(std::stoi(numStr)));
-                }
-                pos = end + 1;
+        size_t pos = 0;
+        while (pos < tileData.size()) {
+            size_t end = tileData.find(',', pos);
+            if (end == std::string::npos) end = tileData.size();
+            std::string numStr = tileData.substr(pos, end - pos);
+            if (!numStr.empty()) {
+                tiles.push_back(static_cast<uint16_t>(std::stoi(numStr)));
             }
+            pos = end + 1;
         }
     }
 
+    return tiles;
+}
+
+void SceneCollector::parseTilemap(const IDataNode& data) {
+    TilemapChunk chunk{};
+    readTilemapMeta(data, chunk);
+    chunk.id = 0;        // ephemeral: re-sent every frame, always uploaded
+    chunk.dirty = true;
+
     // Store tiles - pointer will be fixed in finalize
-    m_tilemapTiles.push_back(std::move(tiles));
+    m_tilemapTiles.push_back(parseTileArray(data));
     chunk.tiles = nullptr;
     chunk.tileCount = 0;
 
     m_tilemaps.push_back(chunk);
+}
+
+void SceneCollector::parseTilemapAdd(const IDataNode& data) {
+    const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
+    if (id == 0) {
+        return;  // retained chunks require a non-zero id (id 0 is the ephemeral sentinel)
+    }
+    RetainedTilemap rt;
+    readTilemapMeta(data, rt.chunk);
+    rt.chunk.id = id;
+    rt.chunk.dirty = true;            // upload on the next finalize
+    rt.tiles = parseTileArray(data);
+    rt.chunk.tiles = nullptr;         // pointer fixed in finalize
+    rt.chunk.tileCount = rt.tiles.size();
+    m_retainedTilemaps[id] = std::move(rt);
+}
+
+void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
+    const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
+    auto it = m_retainedTilemaps.find(id);
+    if (id == 0 || it == m_retainedTilemaps.end()) {
+        parseTilemapAdd(data);        // unknown id -> treat as add (mirrors sprite update)
+        return;
+    }
+    // Replace the grid (same geometry — to change dims, remove + add). Mark dirty for re-upload.
+    it->second.tiles = parseTileArray(data);
+    it->second.chunk.tileCount = it->second.tiles.size();
+    it->second.chunk.dirty = true;
+}
+
+void SceneCollector::parseTilemapRemove(const IDataNode& data) {
+    const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
+    m_retainedTilemaps.erase(id);
 }
 
 void SceneCollector::parseText(const IDataNode& data) {

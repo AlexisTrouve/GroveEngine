@@ -133,6 +133,67 @@ TEST_CASE("SceneCollector - retained sprite: remove deletes it", "[scene_collect
     REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone
 }
 
+TEST_CASE("SceneCollector - retained tilemap: add persists + dirty cycle + update + remove (A4.1)", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Add a 2x2 chunk, id=9, tiles "1,2,3,4".
+    auto add = std::make_unique<JsonDataNode>("tm");
+    add->setInt("id", 9);
+    add->setDouble("x", 50.0);
+    add->setInt("width", 2);
+    add->setInt("height", 2);
+    add->setInt("tileW", 32);
+    add->setInt("tileH", 32);
+    add->setString("tileData", "1,2,3,4");
+    fx.ioPublisher->publish("render:tilemap:add", std::move(add));
+    fx.pump();
+
+    // Frame 1: present, DIRTY (fresh add -> upload), tiles correct.
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tilemapCount == 1);
+        REQUIRE(p.tilemaps[0].id == 9u);
+        REQUIRE(p.tilemaps[0].dirty == true);
+        REQUIRE(p.tilemaps[0].width == 2);
+        REQUIRE(p.tilemaps[0].tileCount == 4);
+        REQUIRE(p.tilemaps[0].tiles != nullptr);
+        REQUIRE(p.tilemaps[0].tiles[0] == 1);
+        REQUIRE(p.tilemaps[0].tiles[3] == 4);
+    }
+
+    // Frame 2: persists WITHOUT re-publishing, and is now CLEAN (dirty cleared after frame 1).
+    // This is the upload-once signal: a static retained chunk reports dirty=false.
+    fx.collector.clear();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tilemapCount == 1);            // persistence
+        REQUIRE(p.tilemaps[0].dirty == false);   // no re-upload signalled
+    }
+
+    // Update: new tiles -> dirty again, grid replaced.
+    fx.collector.clear();
+    auto upd = std::make_unique<JsonDataNode>("tm");
+    upd->setInt("id", 9);
+    upd->setString("tileData", "5,6,7,8");
+    fx.ioPublisher->publish("render:tilemap:update", std::move(upd));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tilemapCount == 1);
+        REQUIRE(p.tilemaps[0].dirty == true);    // update -> re-upload
+        REQUIRE(p.tilemaps[0].tiles[0] == 5);
+    }
+
+    // Remove: gone.
+    fx.collector.clear();
+    auto rem = std::make_unique<JsonDataNode>("tm");
+    rem->setInt("id", 9);
+    fx.ioPublisher->publish("render:tilemap:remove", std::move(rem));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).tilemapCount == 0);
+}
+
 TEST_CASE("SceneCollector - retained text: add + persist + update + remove", "[scene_collector][retained]") {
     RetainedFixture fx;
     FrameAllocator allocator;

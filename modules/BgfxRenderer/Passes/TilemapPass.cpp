@@ -5,8 +5,21 @@
 #include "../Resources/ResourceCache.h"
 #include "../Scene/Camera.h"
 #include <vector>
+#include <unordered_set>
 
 namespace grove {
+
+// Create a resident R16UI tile-index texture (POINT/CLAMP — tile ids must never be filtered or
+// wrapped). Shared by the ephemeral and retained paths.
+static rhi::TextureHandle createIndexTexture(rhi::IRHIDevice& device, uint16_t w, uint16_t h) {
+    rhi::TextureDesc d;
+    d.width  = w;
+    d.height = h;
+    d.format = rhi::TextureDesc::R16UI;
+    d.filter = rhi::TextureDesc::Point;
+    d.wrap   = rhi::TextureDesc::Clamp;
+    return device.createTexture(d);
+}
 
 // ============================================================================
 // GPU tilemap pass (Slice A2). The tile grid lives in a GPU R16UI INDEX texture; one quad is drawn
@@ -96,6 +109,10 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
         if (it.handle.isValid()) device.destroy(it.handle);
     }
     m_indexTextures.clear();
+    for (auto& [id, idx] : m_retainedIndex) {
+        if (idx.handle.isValid()) device.destroy(idx.handle);
+    }
+    m_retainedIndex.clear();
 }
 
 void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
@@ -119,6 +136,9 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                                   static_cast<float>(frame.mainView.viewportH)};
     const camera::WorldBounds bounds = camera::visibleWorldBounds(view);
 
+    std::unordered_set<uint32_t> seenRetained;  // retained chunk ids present this frame (for GC)
+    uint32_t ephemeralSlot = 0;                  // positional slot for id==0 chunks
+
     for (size_t i = 0; i < frame.tilemapCount; ++i) {
         const TilemapChunk& chunk = frame.tilemaps[i];
 
@@ -136,30 +156,43 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             continue;
         }
 
-        // Ensure a resident R16UI index texture for this chunk slot, (re)creating only on a size
-        // change. POINT/CLAMP: tile ids must never be filtered or wrapped.
-        if (i >= m_indexTextures.size()) {
-            m_indexTextures.resize(i + 1);
-        }
-        IndexTexture& idx = m_indexTextures[i];
-        if (!idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height) {
-            if (idx.handle.isValid()) device.destroy(idx.handle);
-            rhi::TextureDesc d;
-            d.width = chunk.width;
-            d.height = chunk.height;
-            d.format = rhi::TextureDesc::R16UI;
-            d.filter = rhi::TextureDesc::Point;
-            d.wrap   = rhi::TextureDesc::Clamp;
-            idx.handle = device.createTexture(d);
-            idx.width = chunk.width;
-            idx.height = chunk.height;
-        }
-
-        // Upload the tile ids. The region overload covers the full grid but avoids the full-update
-        // m_width/m_height bug. A2 re-uploads each frame (immediate mode); A4 will upload once and
-        // patch only dirty texels.
+        // Resolve the resident R16UI index texture for this chunk and upload its tile ids.
+        // The region overload covers the full grid but avoids the full-update m_width/m_height bug.
         const uint32_t bytes = static_cast<uint32_t>(chunk.width) * chunk.height * sizeof(uint16_t);
-        device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
+        rhi::TextureHandle indexTex;
+
+        if (chunk.id != 0) {
+            // Retained (Slice A4): cache by chunk id, upload ONLY when the chunk is dirty (the frame
+            // it was added/updated) or just (re)created. A static chunk uploads exactly once.
+            seenRetained.insert(chunk.id);
+            IndexTexture& idx = m_retainedIndex[chunk.id];
+            const bool needsCreate =
+                !idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height;
+            if (needsCreate) {
+                if (idx.handle.isValid()) device.destroy(idx.handle);
+                idx.handle = createIndexTexture(device, chunk.width, chunk.height);
+                idx.width = chunk.width;
+                idx.height = chunk.height;
+            }
+            if (needsCreate || chunk.dirty) {
+                device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
+            }
+            indexTex = idx.handle;
+        } else {
+            // Ephemeral (id == 0): positional cache, re-uploaded every frame (immediate mode).
+            if (ephemeralSlot >= m_indexTextures.size()) {
+                m_indexTextures.resize(ephemeralSlot + 1);
+            }
+            IndexTexture& idx = m_indexTextures[ephemeralSlot++];
+            if (!idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height) {
+                if (idx.handle.isValid()) device.destroy(idx.handle);
+                idx.handle = createIndexTexture(device, chunk.width, chunk.height);
+                idx.width = chunk.width;
+                idx.height = chunk.height;
+            }
+            device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
+            indexTex = idx.handle;
+        }
 
         // Atlas = the procedural color ARRAY (A3). A real per-textureId atlas array — built by
         // slicing a grid-PNG into layers — is the A3.3 follow-on; binding a 2D texture here would be
@@ -176,12 +209,23 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         cmd.setUniform(m_paramsUniform, params, 1);
         cmd.setUniform(m_gridUniform, grid, 1);
 
-        cmd.setTexture(0, idx.handle, m_indexSampler);
+        cmd.setTexture(0, indexTex, m_indexSampler);
         cmd.setTexture(1, tileset, m_atlasSampler);
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
         cmd.drawIndexed(6);
         cmd.submit(0, m_shader, 0);
+    }
+
+    // GC retained index textures whose chunk id was not present this frame (chunk removed). Keeps
+    // the cache bounded without leaking GPU textures across removes.
+    for (auto it = m_retainedIndex.begin(); it != m_retainedIndex.end(); ) {
+        if (seenRetained.find(it->first) == seenRetained.end()) {
+            if (it->second.handle.isValid()) device.destroy(it->second.handle);
+            it = m_retainedIndex.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 

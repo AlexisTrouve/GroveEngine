@@ -3,6 +3,8 @@
 #include "../RenderGraph/RenderPass.h"
 #include "../RHI/RHITypes.h"
 #include <vector>
+#include <cstdint>
+#include <unordered_map>
 
 namespace grove {
 
@@ -78,7 +80,11 @@ private:
         uint16_t width = 0;
         uint16_t height = 0;
     };
+    // Ephemeral chunks (id == 0): positional cache, re-uploaded every frame (legacy immediate path).
     std::vector<IndexTexture> m_indexTextures;
+    // Retained chunks (id != 0, Slice A4): cache keyed by chunkId, uploaded only when the chunk is
+    // dirty (added/updated). Entries whose id is absent from a frame are evicted (GC).
+    std::unordered_map<uint32_t, IndexTexture> m_retainedIndex;
 };
 
 } // namespace grove

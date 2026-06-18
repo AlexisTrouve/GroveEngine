@@ -39,6 +39,15 @@ private:
     std::unordered_map<uint32_t, TextCommand> m_retainedTexts;
     std::unordered_map<uint32_t, std::string> m_retainedTextStrings;  // Text content for retained texts
 
+    // Retained tilemaps (Slice A4): persistent chunks by id, owning their tile data. Merged into the
+    // frame each finalize; `dirty` is set on add/update and cleared once the chunk is copied into a
+    // frame, so the pass uploads a static chunk exactly once.
+    struct RetainedTilemap {
+        TilemapChunk chunk;
+        std::vector<uint16_t> tiles;
+    };
+    std::unordered_map<uint32_t, RetainedTilemap> m_retainedTilemaps;
+
     // Ephemeral mode: staging buffers (filled during collect, cleared each frame)
     std::vector<SpriteInstance> m_sprites;
     std::vector<TilemapChunk> m_tilemaps;
@@ -81,6 +90,13 @@ private:
     void parseTextAdd(const IDataNode& data);
     void parseTextUpdate(const IDataNode& data);
     void parseTextRemove(const IDataNode& data);
+    void parseTilemapAdd(const IDataNode& data);
+    void parseTilemapUpdate(const IDataNode& data);
+    void parseTilemapRemove(const IDataNode& data);
+
+    // Parse a tile-index array from either a "tiles" child node or a comma-separated "tileData"
+    // string. Shared by the ephemeral and retained tilemap paths.
+    static std::vector<uint16_t> parseTileArray(const IDataNode& data);
 
     // Initialize default view
     void initDefaultView(uint16_t width, uint16_t height);

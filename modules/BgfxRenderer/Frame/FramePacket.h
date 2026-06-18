@@ -47,6 +47,12 @@ struct TilemapChunk {
     uint16_t textureId;
     const uint16_t* tiles; // Tile indices in tileset
     size_t tileCount;
+    // Retained-mode identity (Slice A4). id == 0 -> ephemeral chunk (re-sent every frame, always
+    // uploaded). id != 0 -> retained chunk (render:tilemap:add/update/remove by this id); the pass
+    // caches its index texture by id and uploads only when `dirty` is set (the frame it was
+    // added/updated), so a static retained chunk uploads exactly once.
+    uint32_t id = 0;
+    bool dirty = true;
 };
 
 // ============================================================================

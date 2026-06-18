@@ -178,3 +178,40 @@ TEST_CASE("GPU tilemap draw cost is independent of tile count (1 draw for a 360k
     REQUIRE(device.textureRegionUpdates.back().h == 600);
     pass.shutdown(device);
 }
+
+TEST_CASE("Retained tilemap uploads once: dirty frame uploads, clean frame skips (Slice A4.1)", "[culling][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    TilemapPass pass(shader);
+    pass.setup(device);
+
+    std::vector<uint16_t> tiles(100, static_cast<uint16_t>(1));
+    TilemapChunk chunk{};
+    chunk.x = 0.0f; chunk.y = 0.0f;
+    chunk.width = 10; chunk.height = 10;
+    chunk.tileWidth = 32; chunk.tileHeight = 32;
+    chunk.tiles = tiles.data();
+    chunk.tileCount = tiles.size();
+    chunk.id = 42;          // retained chunk
+    chunk.dirty = true;     // freshly added
+
+    FramePacket frame;
+    frame.tilemaps = &chunk;
+    frame.tilemapCount = 1;
+
+    // Frame 1 (dirty): uploads + draws.
+    { rhi::RHICommandBuffer cmd; pass.execute(frame, device, cmd); REQUIRE(drawIndexedCount(cmd) == 1); }
+    REQUIRE(device.textureRegionUpdates.size() == 1);
+
+    // Frame 2 (clean): still drawn, but the resident texture is REUSED — no upload. This is the win.
+    chunk.dirty = false;
+    { rhi::RHICommandBuffer cmd; pass.execute(frame, device, cmd); REQUIRE(drawIndexedCount(cmd) == 1); }
+    REQUIRE(device.textureRegionUpdates.size() == 1);   // STILL 1 — upload-once
+
+    // Frame 3 (dirty again = updated): re-uploads.
+    chunk.dirty = true;
+    { rhi::RHICommandBuffer cmd; pass.execute(frame, device, cmd); }
+    REQUIRE(device.textureRegionUpdates.size() == 2);
+
+    pass.shutdown(device);
+}
