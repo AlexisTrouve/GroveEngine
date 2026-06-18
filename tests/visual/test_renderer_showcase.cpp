@@ -324,24 +324,40 @@ private:
     }
 
     void sendTilemap() {
+        // Big contrasted CHECKERBOARD, published RETAINED (render:tilemap:add, id=1) exactly ONCE.
+        // Two purposes:
+        //  (1) LOD crossfade (Slice B): zoom IN -> you see the grey/blue grain (detail band);
+        //      zoom OUT -> the grain melts into a smooth grey-blue (the mipped LOD band). A fine
+        //      checkerboard is the classic mip test — without LOD it would shimmer/moiré.
+        //  (2) Retained upload-once at scale: 320x240 = 76,800 tiles uploaded a single time, 1 draw.
+        static bool sent = false;
+        if (sent) return;
+        sent = true;
+
+        // 1px-world tiles so tpp = 1/(tilePix*zoom) crosses 1..4 within the clamped zoom range
+        // [0.2, 6]: zoomed in -> detail grain, zoomed out -> LOD. 256x256 = 65,536 tiles, one upload.
+        constexpr int W = 256, H = 256;
         auto tilemap = std::make_unique<JsonDataNode>("tilemap");
+        tilemap->setInt("id", 1);                 // retained chunk id
         tilemap->setDouble("x", 50.0);
-        tilemap->setDouble("y", 400.0);
-        tilemap->setInt("width", TILEMAP_WIDTH);
-        tilemap->setInt("height", TILEMAP_HEIGHT);
-        tilemap->setInt("tileW", TILE_SIZE);
-        tilemap->setInt("tileH", TILE_SIZE);
+        tilemap->setDouble("y", 50.0);
+        tilemap->setInt("width", W);
+        tilemap->setInt("height", H);
+        tilemap->setInt("tileW", 1);
+        tilemap->setInt("tileH", 1);
         tilemap->setInt("textureId", 0);
 
-        // Convert tilemap to comma-separated string
         std::string tileData;
-        for (int i = 0; i < TILEMAP_WIDTH * TILEMAP_HEIGHT; ++i) {
-            if (i > 0) tileData += ",";
-            tileData += std::to_string(tilemapData[i]);
+        tileData.reserve(static_cast<size_t>(W) * H * 2);
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                if (!tileData.empty()) tileData += ",";
+                tileData += ((x + y) & 1) ? "1" : "3";   // 1 = light grey, 3 = blue (high contrast)
+            }
         }
         tilemap->setString("tileData", tileData);
 
-        m_gameIO->publish("render:tilemap", std::move(tilemap));
+        m_gameIO->publish("render:tilemap:add", std::move(tilemap));
     }
 
     void sendSprites() {

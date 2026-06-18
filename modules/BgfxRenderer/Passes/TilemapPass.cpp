@@ -145,6 +145,7 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_gridUniform   = device.createUniform("u_tilemapGrid", 1);
     m_indexSampler  = device.createUniform("s_index", 1);
     m_atlasSampler  = device.createUniform("s_atlas", 1);
+    m_lodSampler    = device.createUniform("s_lod", 1);
 
     // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
@@ -174,6 +175,7 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_gridUniform);
     device.destroy(m_indexSampler);
     device.destroy(m_atlasSampler);
+    device.destroy(m_lodSampler);
     device.destroy(m_defaultAtlas);
     for (auto& it : m_indexTextures) {
         if (it.handle.isValid()) device.destroy(it.handle);
@@ -276,7 +278,6 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             indexTex = idx.handle;
             lodTex = idx.lod;
         }
-        (void)lodTex;  // bound + sampled by the shader in B2; baked + cached here in B1
 
         // Atlas = the procedural color ARRAY (A3). A real per-textureId atlas array — built by
         // slicing a grid-PNG into layers — is the A3.3 follow-on; binding a 2D texture here would be
@@ -295,6 +296,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
 
         cmd.setTexture(0, indexTex, m_indexSampler);
         cmd.setTexture(1, tileset, m_atlasSampler);
+        cmd.setTexture(2, lodTex, m_lodSampler);
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
         cmd.drawIndexed(6);

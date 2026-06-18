@@ -58,6 +58,7 @@ private:
     rhi::UniformHandle m_gridUniform;     // u_tilemapGrid:   gridW, gridH, atlasCols, atlasRows
     rhi::UniformHandle m_indexSampler;    // s_index (slot 0) — R16UI tile-index texture
     rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas (texture2DArray)
+    rhi::UniformHandle m_lodSampler;      // s_lod   (slot 2) — mipped LOD color texture (Slice B)
 
     // Procedural color atlas ARRAY (one solid color per layer) used as the tileset for A3:
     // tile id N -> layer N-1 -> a distinct color. Proves the array indexing visually. Slicing a
