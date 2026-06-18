@@ -104,6 +104,11 @@ struct TextureDesc {
     uint16_t width = 0;
     uint16_t height = 0;
     uint8_t mipLevels = 1;
+    // Array layers. 1 = a regular 2D texture (default — unchanged for every existing texture).
+    // >1 = a texture2DArray: the tilemap atlas uses one LAYER per tile type so sub-UV stays in
+    // [0,1] within a layer (no cross-tile bleeding) and mips are per-tile-correct. Init `data`,
+    // when provided for an array, is the layers laid out contiguously (layer 0, then 1, ...).
+    uint16_t layers = 1;
     // R16UI = 16-bit unsigned INTEGER, non-normalized. The GPU tilemap uses it as the tile
     // INDEX texture (1 texel = 1 tile id) read by texelFetch. Appended last so the existing
     // ordinals (RGBA8..DXT5) — which BgfxDevice's switch relies on — never shift.

@@ -104,3 +104,22 @@ TEST_CASE("Adding R16UI did not renumber the existing formats", "[rhi][tilemap][
     REQUIRE(static_cast<int>(rhi::TextureDesc::DXT5)  == 4);
     REQUIRE(static_cast<int>(rhi::TextureDesc::R16UI) == 5);
 }
+
+TEST_CASE("TextureDesc carries a layer count for array textures (Slice A3.1)", "[rhi][tilemap][unit]") {
+    // Default = a single-layer (regular 2D) texture, so every existing texture is unaffected.
+    rhi::TextureDesc d0;
+    REQUIRE(d0.layers == 1);
+
+    // The tile atlas becomes a texture2DArray: N layers, one tile type per layer (no cross-tile
+    // bleeding, per-tile mips). The layer count must round-trip to the device unchanged.
+    test::MockRHIDevice device;
+    rhi::TextureDesc desc;
+    desc.width  = 32;
+    desc.height = 32;
+    desc.format = rhi::TextureDesc::RGBA8;
+    desc.layers = 4;
+    device.createTexture(desc);
+
+    REQUIRE(device.textureDescs.size() == 1);
+    REQUIRE(device.textureDescs.back().layers == 4);
+}

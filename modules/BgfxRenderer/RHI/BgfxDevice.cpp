@@ -106,7 +106,7 @@ public:
         bgfx::TextureHandle handle = bgfx::createTexture2D(
             desc.width, desc.height,
             desc.mipLevels > 1,
-            1, // layers
+            desc.layers, // 1 = plain 2D; >1 = texture2DArray (tilemap atlas: one layer per tile)
             format,
             toSamplerFlags(desc),  // Point/Clamp for the index texture; 0 (legacy) by default
             desc.data ? bgfx::copy(desc.data, desc.dataSize) : nullptr
