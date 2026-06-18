@@ -4,6 +4,7 @@
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
 #include "../Scene/Camera.h"
+#include <vector>
 
 namespace grove {
 
@@ -51,15 +52,36 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_indexSampler  = device.createUniform("s_index", 1);
     m_atlasSampler  = device.createUniform("s_atlas", 1);
 
-    // 1x1 white fallback atlas (used when a chunk has no valid tileset bound).
-    uint32_t whitePixel = 0xFFFFFFFF;
-    rhi::TextureDesc texDesc;
-    texDesc.width = 1;
-    texDesc.height = 1;
-    texDesc.format = rhi::TextureDesc::RGBA8;
-    texDesc.data = &whitePixel;
-    texDesc.dataSize = sizeof(whitePixel);
-    m_defaultTexture = device.createTexture(texDesc);
+    // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
+    // renders as a distinct color (id 1 -> layer 0, ...). RGBA8 texel bytes are [R,G,B,A]; on
+    // little-endian that is the literal 0xAABBGGRR. Layers are laid out contiguously for the upload.
+    constexpr int ATLAS_TILE = 8;       // px per layer; solid color -> exact size is irrelevant
+    constexpr int ATLAS_LAYERS = 8;
+    static const uint32_t kColors[ATLAS_LAYERS] = {
+        0xFFC8C8C8u, // 1: light grey
+        0xFF50C83Cu, // 2: green
+        0xFFE68246u, // 3: blue
+        0xFF3CD2E6u, // 4: yellow
+        0xFFC84CB4u, // 5: magenta
+        0xFF00B4C8u, // 6: amber
+        0xFFF0781Eu, // 7: cyan-blue
+        0xFFFFFFFFu, // 8: white
+    };
+    std::vector<uint32_t> atlasPixels(static_cast<size_t>(ATLAS_TILE) * ATLAS_TILE * ATLAS_LAYERS);
+    for (int layer = 0; layer < ATLAS_LAYERS; ++layer) {
+        const size_t base = static_cast<size_t>(layer) * ATLAS_TILE * ATLAS_TILE;
+        for (int p = 0; p < ATLAS_TILE * ATLAS_TILE; ++p) {
+            atlasPixels[base + p] = kColors[layer];
+        }
+    }
+    rhi::TextureDesc atlasDesc;
+    atlasDesc.width  = ATLAS_TILE;
+    atlasDesc.height = ATLAS_TILE;
+    atlasDesc.layers = ATLAS_LAYERS;
+    atlasDesc.format = rhi::TextureDesc::RGBA8;
+    atlasDesc.data = atlasPixels.data();
+    atlasDesc.dataSize = static_cast<uint32_t>(atlasPixels.size() * sizeof(uint32_t));
+    m_defaultAtlas = device.createTexture(atlasDesc);
 }
 
 void TilemapPass::shutdown(rhi::IRHIDevice& device) {
@@ -69,7 +91,7 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_gridUniform);
     device.destroy(m_indexSampler);
     device.destroy(m_atlasSampler);
-    device.destroy(m_defaultTexture);
+    device.destroy(m_defaultAtlas);
     for (auto& it : m_indexTextures) {
         if (it.handle.isValid()) device.destroy(it.handle);
     }
@@ -139,14 +161,11 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         const uint32_t bytes = static_cast<uint32_t>(chunk.width) * chunk.height * sizeof(uint16_t);
         device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
 
-        // Resolve the atlas (tileset) texture.
-        rhi::TextureHandle tileset;
-        if (chunk.textureId > 0 && m_resourceCache) {
-            tileset = m_resourceCache->getTextureById(chunk.textureId);
-        }
-        if (!tileset.isValid()) {
-            tileset = m_defaultTileset.isValid() ? m_defaultTileset : m_defaultTexture;
-        }
+        // Atlas = the procedural color ARRAY (A3). A real per-textureId atlas array — built by
+        // slicing a grid-PNG into layers — is the A3.3 follow-on; binding a 2D texture here would be
+        // invalid against the sampler2DArray. Until then the index path always samples the array,
+        // exercising array indexing end-to-end (tile id N -> layer N-1 -> its color).
+        rhi::TextureHandle tileset = m_defaultAtlas;
 
         // Per-chunk draw: state, uniforms, two textures (index + atlas), one quad.
         cmd.setState(state);

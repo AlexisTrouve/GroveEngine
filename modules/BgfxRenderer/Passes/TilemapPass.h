@@ -55,14 +55,17 @@ private:
     rhi::UniformHandle m_paramsUniform;   // u_tilemapParams: originX, originY, tilePixW, tilePixH
     rhi::UniformHandle m_gridUniform;     // u_tilemapGrid:   gridW, gridH, atlasCols, atlasRows
     rhi::UniformHandle m_indexSampler;    // s_index (slot 0) — R16UI tile-index texture
-    rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas
+    rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas (texture2DArray)
 
-    rhi::TextureHandle m_defaultTexture;  // 1x1 white atlas fallback
-    rhi::TextureHandle m_defaultTileset;
+    // Procedural color atlas ARRAY (one solid color per layer) used as the tileset for A3:
+    // tile id N -> layer N-1 -> a distinct color. Proves the array indexing visually. Slicing a
+    // real grid-PNG into an array (via textureId/ResourceCache) is the A3.3 follow-on.
+    rhi::TextureHandle m_defaultAtlas;
+    rhi::TextureHandle m_defaultTileset;  // (reserved API; the real per-textureId atlas path is A3.3)
 
     ResourceCache* m_resourceCache = nullptr;
 
-    // Atlas layout (tiles per row/col), fed to the shader as atlasCols/atlasRows.
+    // Atlas layout (kept for the future grid path); the array atlas does not use grid UVs.
     uint16_t m_tilesPerRow = 16;
     uint16_t m_tilesPerCol = 16;
 

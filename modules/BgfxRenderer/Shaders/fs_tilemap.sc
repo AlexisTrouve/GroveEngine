@@ -2,25 +2,24 @@ $input v_texcoord0
 
 #include <bgfx_shader.sh>
 
-// GPU tilemap fragment shader (Slice A2). Per pixel: read the tile id from the index texture and
-// sample the atlas.
+// GPU tilemap fragment shader (Slice A3). Per pixel: read the tile id from the index texture and
+// sample the atlas — now a texture2DArray, one tile type per LAYER.
 //
 // WHAT  : cell = floor(tileCoord); id = texelFetch(index, cell); if empty -> discard; else sample
-//         the atlas at the id's grid cell + the in-tile fraction.
-// WHY   : the index texture is INTEGER (R16UI) and must be read with texelFetch (POINT, no filter,
-//         no mip) — bilinear-sampling or wrapping tile ids is meaningless and corrupts the lookup.
-// HOW   : s_index is a usampler2D (unsigned-integer 2D). id 0 = empty (matches the CPU convention),
-//         real ids start at 1 so (id-1) indexes the atlas grid. A2 samples a MONO-texture atlas;
-//         A3 swaps this for a texture2DArray to kill the cross-cell bleeding at zoom-out.
-USAMPLER2D(s_index, 0);   // R16UI tile-index texture (1 texel = 1 tile id)
-SAMPLER2D(s_atlas, 1);    // tile atlas (mono-texture for now)
+//         the atlas array at layer (id-1), sub-UV = fract(tileCoord).
+// WHY   : a texture2DArray kills the cross-tile bleeding a packed atlas suffers under minification
+//         — sub-UV stays in [0,1] WITHIN a layer, so there is no neighbour cell to bleed into, and
+//         mips are per-tile-correct. The id maps straight to a layer; no grid-UV math at all.
+// HOW   : s_index is usampler2D (POINT/CLAMP). id 0 = empty; real ids start at 1 so (id-1) is the
+//         0-based layer. fract(tileCoord) is the position inside the tile.
+USAMPLER2D(s_index, 0);        // R16UI tile-index texture (1 texel = 1 tile id)
+SAMPLER2DARRAY(s_atlas, 1);    // tile atlas: one tile type per array layer
 
-uniform vec4 u_tilemapGrid;   // x=gridW, y=gridH, z=atlasCols, w=atlasRows
+uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w now unused — the atlas is an array)
 
 void main()
 {
-    vec2 grid     = u_tilemapGrid.xy;
-    vec2 atlasDim = u_tilemapGrid.zw;
+    vec2 grid = u_tilemapGrid.xy;
 
     vec2 tc = v_texcoord0;                                  // 0..grid (tile units)
     ivec2 cell = ivec2(floor(tc));
@@ -31,9 +30,6 @@ void main()
         discard;                                            // empty tile
     }
 
-    uint a = id - 1u;                                       // 1-based ids -> 0-based atlas index
-    uint cols = uint(atlasDim.x);
-    vec2 atlasCell = vec2(float(a % cols), float(a / cols));
-    vec2 uv = (atlasCell + fract(tc)) / atlasDim;
-    gl_FragColor = texture2D(s_atlas, uv);
+    float layer = float(id - 1u);                           // 1-based id -> 0-based array layer
+    gl_FragColor = texture2DArray(s_atlas, vec3(fract(tc), layer));
 }
