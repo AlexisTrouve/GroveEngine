@@ -1854,6 +1854,22 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(RhiReadbackGpu test_rhi_readback ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU end-to-end tilemap LOD test (Slice 2.2): render the TilemapPass offscreen and assert the
+    # center pixel analytically (detail -> tile color, zoom-out -> average color). [gpu], skips
+    # cleanly without a context.
+    add_executable(test_tilemap_lod_gpu unit/test_tilemap_lod_gpu.cpp)
+    target_include_directories(test_tilemap_lod_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_tilemap_lod_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(TilemapLodGpu test_tilemap_lod_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # Retained-mode demo (render:sprite:add/:update/:remove + render:text:add)
     add_executable(test_retained_showcase WIN32
         visual/test_retained_showcase.cpp
