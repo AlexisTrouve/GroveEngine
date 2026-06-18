@@ -459,6 +459,40 @@ while (gameIO->hasMessages() > 0) {
 
 **Full Topic Reference:** See [IIO Topics - Input Events](#input-events)
 
+#### Input bindings — `grove::input::ActionMap`
+
+Header-only helper (`modules/InputModule/ActionMap.h`) that maps **physical inputs to named
+actions** instead of hardcoding key constants. Bind by **scancode** (physical key position) — this
+is **layout-proof**: `SDL_SCANCODE_*` is the same physical key on QWERTY and AZERTY, whereas a
+character keycode (`SDLK_MINUS`) lands on a different key per layout (the bug class this fixes).
+
+```cpp
+#include "InputModule/ActionMap.h"
+using namespace grove::input;
+
+ActionMap actions;
+actions.bindKey("zoom_in", SDL_SCANCODE_PAGEUP);     // multi-bind per action allowed
+actions.bindKey("zoom_in", SDL_SCANCODE_KP_PLUS);
+actions.bindMouseButton("select", 0);
+
+// per frame:
+actions.beginFrame();                                 // clears justPressed/justReleased edges
+// feed raw events (e.g. from SDL): actions.onKey(e.key.keysym.scancode, e.type==SDL_KEYDOWN);
+//                                  actions.onMouseButton(button, pressed);
+if (actions.isActive("zoom_in"))     { /* held */ }
+if (actions.justPressed("select"))   { /* edge this frame */ }
+```
+
+Multi-bind (an action releases only when its LAST held key lifts), one key → many actions, OS
+key-repeat is idempotent, and `clearAction` + re-`bind` remaps at runtime. Pure/std-only (no SDL
+dependency — scancodes are plain ints). Live reference: `tests/visual/test_renderer_showcase.cpp`
+drives all its controls through an ActionMap. Locked by `ActionMapUnit`.
+
+> **Note (scancode vs intuition):** `SDL_SCANCODE_MINUS` is the US physical position (right of
+> `0`), which on AZERTY is the `)°` key — *not* where `-` is printed. Scancodes are layout-
+> *independent*, but pick **physically sensible** default keys (e.g. PgUp/PgDn for zoom) and let
+> the player remap; "the minus key" is a poor default across layouts.
+
 ---
 
 ## Animation (`grove::anim`)
