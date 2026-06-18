@@ -362,6 +362,60 @@ public:
         m_transientPoolCount = 0;
     }
 
+    // ========================================
+    // Offscreen framebuffers (test / readback)
+    // ========================================
+
+    FramebufferHandle createFramebuffer(uint16_t width, uint16_t height) override {
+        // Color render target we draw into...
+        bgfx::TextureHandle rt = bgfx::createTexture2D(
+            width, height, false, 1, bgfx::TextureFormat::RGBA8,
+            BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        // ...and a CPU-readable copy the GPU blits into and we read back.
+        bgfx::TextureHandle readback = bgfx::createTexture2D(
+            width, height, false, 1, bgfx::TextureFormat::RGBA8,
+            BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK
+            | BGFX_SAMPLER_POINT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        bgfx::FrameBufferHandle fb = bgfx::createFrameBuffer(1, &rt, false);  // we own `rt`
+
+        FramebufferHandle result;
+        result.id = static_cast<uint16_t>(m_framebuffers.size());
+        m_framebuffers.push_back({fb, rt, readback, width, height});
+        return result;
+    }
+
+    void setViewFramebuffer(ViewId id, FramebufferHandle handle) override {
+        if (handle.id >= m_framebuffers.size()) return;
+        bgfx::setViewFrameBuffer(id, m_framebuffers[handle.id].fb);
+    }
+
+    bool readFramebuffer(FramebufferHandle handle, void* out, uint32_t outSize) override {
+        if (handle.id >= m_framebuffers.size() || out == nullptr) return false;
+        const FramebufferRecord& rec = m_framebuffers[handle.id];
+        if (outSize < static_cast<uint32_t>(rec.w) * rec.h * 4u) return false;
+
+        // Copy the render target into the read-back texture, then read it to the CPU. The blit goes
+        // on a dedicated high view id so it stays out of the scene's view ordering. readTexture's
+        // result is ready at frame `frameAvail`; pump frames until then (blocking, fine for a test).
+        const ViewId kBlitView = 250;
+        bgfx::blit(kBlitView, rec.readback, 0, 0, rec.rt, 0, 0, rec.w, rec.h);
+        const uint32_t frameAvail = bgfx::readTexture(rec.readback, out);
+        uint32_t f = bgfx::frame();
+        while (f < frameAvail) { f = bgfx::frame(); }
+        return true;
+    }
+
+    void destroy(FramebufferHandle handle) override {
+        if (handle.id >= m_framebuffers.size()) return;
+        FramebufferRecord& rec = m_framebuffers[handle.id];
+        if (bgfx::isValid(rec.fb)) bgfx::destroy(rec.fb);
+        if (bgfx::isValid(rec.rt)) bgfx::destroy(rec.rt);
+        if (bgfx::isValid(rec.readback)) bgfx::destroy(rec.readback);
+        rec.fb = BGFX_INVALID_HANDLE;
+        rec.rt = BGFX_INVALID_HANDLE;
+        rec.readback = BGFX_INVALID_HANDLE;
+    }
+
     void executeCommandBuffer(const RHICommandBuffer& cmdBuffer) override {
         // Reset transient instance state for this command buffer execution
         m_useTransientInstance = false;
@@ -602,6 +656,15 @@ private:
     static constexpr uint16_t MAX_TRANSIENT_BUFFERS = 256;
     bgfx::InstanceDataBuffer m_transientPool[MAX_TRANSIENT_BUFFERS] = {};
     uint16_t m_transientPoolCount = 0;
+
+    // Offscreen framebuffers for test/readback (Slice ②). RHI FramebufferHandle.id indexes this.
+    struct FramebufferRecord {
+        bgfx::FrameBufferHandle fb;
+        bgfx::TextureHandle rt;        // color render target (drawn into)
+        bgfx::TextureHandle readback;  // CPU-readable blit copy
+        uint16_t w, h;
+    };
+    std::vector<FramebufferRecord> m_framebuffers;
 
     // Transient buffer state for command execution
     bool m_useTransientInstance = false;

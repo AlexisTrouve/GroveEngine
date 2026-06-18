@@ -1838,6 +1838,22 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     )
     message(STATUS "BgfxRenderer showcase 'test_renderer_showcase' enabled")
 
+    # GPU readback test (Slice ②): offscreen render -> readPixels -> assert. Needs a real GPU
+    # context (hidden SDL window + bgfx), so it is a [gpu] test — it skips cleanly without one.
+    # Catch2 owns main() (SDL_MAIN_HANDLED), so link SDL2 WITHOUT SDL2main.
+    add_executable(test_rhi_readback unit/test_rhi_readback.cpp)
+    target_include_directories(test_rhi_readback PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_rhi_readback PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(RhiReadbackGpu test_rhi_readback ${CMAKE_CURRENT_BINARY_DIR})
+
     # Retained-mode demo (render:sprite:add/:update/:remove + render:text:add)
     add_executable(test_retained_showcase WIN32
         visual/test_retained_showcase.cpp

@@ -36,6 +36,8 @@ public:
     std::atomic<int> bufferDestroyCount{0};
     std::atomic<int> shaderDestroyCount{0};
     std::atomic<int> uniformDestroyCount{0};
+    std::atomic<int> framebufferCreateCount{0};
+    std::atomic<int> framebufferDestroyCount{0};
 
     std::atomic<int> updateBufferCount{0};
     std::atomic<int> updateTextureCount{0};
@@ -147,6 +149,21 @@ public:
         uniformDestroyCount++;
     }
 
+    // Offscreen framebuffers (Slice ②). No GPU in the mock: createFramebuffer hands out ids,
+    // readFramebuffer is a no-op returning false (real readback is exercised by [gpu] tests).
+    rhi::FramebufferHandle createFramebuffer(uint16_t /*w*/, uint16_t /*h*/) override {
+        rhi::FramebufferHandle h;
+        h.id = static_cast<uint16_t>(framebufferCreateCount.fetch_add(1));
+        return h;
+    }
+    void setViewFramebuffer(rhi::ViewId /*id*/, rhi::FramebufferHandle /*fb*/) override {}
+    bool readFramebuffer(rhi::FramebufferHandle /*fb*/, void* /*out*/, uint32_t /*outSize*/) override {
+        return false;
+    }
+    void destroy(rhi::FramebufferHandle /*handle*/) override {
+        framebufferDestroyCount++;
+    }
+
     void updateBuffer(rhi::BufferHandle /*handle*/, const void* /*data*/, uint32_t size) override {
         updateBufferCount++;
         lastUpdateBufferSize.store(size);
@@ -206,6 +223,8 @@ public:
         bufferDestroyCount = 0;
         shaderDestroyCount = 0;
         uniformDestroyCount = 0;
+        framebufferCreateCount = 0;
+        framebufferDestroyCount = 0;
         updateBufferCount = 0;
         updateTextureCount = 0;
         lastUpdateBufferSize = 0;
