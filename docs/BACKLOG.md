@@ -25,8 +25,6 @@ tests; this file is only what's **not** done yet.
   `[gpu]` readback. Full status, commits, and learnings in
   [docs/design/tilemap-renderer.md](design/tilemap-renderer.md#implementation-status--shipped-a--b-20260618).
   **Remaining (deferred):**
-  - **②.2 LOD end-to-end readback** — render the tilemap offscreen, assert zoom-out pixel == average
-    of the tile colors (needs reproducing the renderer's view-transform offscreen).
   - **A3.3 real atlas** — slice a game-supplied grid-PNG into `texture2DArray` layers (today the atlas
     is a procedural color array; binding a 2D texture to the array sampler would be invalid).
   - **A4.2 sub-rect patch** — `render:tilemap:update {id,x,y,w,h,tiles}` to patch a few texels (fog

@@ -118,7 +118,8 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - B2 — detail↔LOD **derivative crossfade** (`a03cbd2`)
 - Tests — `PassCullingUnit` (1 draw/chunk, chunk cull, upload-once), `SceneCollectorTest` (retained
   CRUD + dirty cycle), `RhiTextureDescUnit`, `LodColorUnit` (box-filter == average — the LOD oracle),
-  `RhiReadbackGpu` (offscreen render → readback foundation, `7852855`)
+  `RhiReadbackGpu` (offscreen render → readback foundation, `7852855`), `TilemapLodGpu`
+  (end-to-end: detail → tile color, zoom-out → average color, asserted analytically, `ef16cf7`)
 
 **Learnings (paid for in blood — don't relearn these):**
 - **bgfx HLSL profile is `s_5_0`, NOT `vs_5_0`/`ps_5_0`** — the CMake `compile_bgfx_shader` helper
@@ -137,9 +138,8 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - Flagged pre-existing bug: full-image `updateTexture` uses device `m_width/m_height` (only correct
   for a screen-sized texture); the region overload sidesteps it.
 
-**Not done (backlog):** ②.2 (tilemap LOD *end-to-end* readback assert: zoom-out pixel == average),
-A3.3 (grid-PNG → array atlas), A4.2 (sub-rect patch for fog/terrain edits), mipped `R8` fog,
-multi-layer, animated tiles.
+**Not done (backlog):** A3.3 (grid-PNG → array atlas), A4.2 (sub-rect patch for fog/terrain edits),
+mipped `R8` fog, multi-layer, animated tiles.
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is
