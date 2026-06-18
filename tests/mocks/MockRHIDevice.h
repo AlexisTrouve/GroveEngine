@@ -55,6 +55,7 @@ public:
     // Stored handles
     // ========================================
     std::vector<rhi::TextureHandle> textures;
+    std::vector<rhi::TextureDesc> textureDescs;  // every desc handed to createTexture, in order
     std::vector<rhi::BufferHandle> buffers;
     std::vector<rhi::ShaderHandle> shaders;
     std::vector<rhi::UniformHandle> uniforms;
@@ -95,10 +96,11 @@ public:
         return caps;
     }
 
-    rhi::TextureHandle createTexture(const rhi::TextureDesc& /*desc*/) override {
+    rhi::TextureHandle createTexture(const rhi::TextureDesc& desc) override {
         rhi::TextureHandle h;
         h.id = static_cast<uint16_t>(textureCreateCount.fetch_add(1) + 1);
         textures.push_back(h);
+        textureDescs.push_back(desc);  // record so tests can assert format/filter/wrap round-trip
         return h;
     }
 
@@ -203,6 +205,7 @@ public:
         frameCount = 0;
 
         textures.clear();
+        textureDescs.clear();
         buffers.clear();
         shaders.clear();
         uniforms.clear();

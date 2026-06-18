@@ -1605,6 +1605,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${bgfx_SOURCE_DIR}/bimg/3rdparty)
     target_link_libraries(test_pass_culling PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(PassCullingUnit test_pass_culling ${CMAKE_CURRENT_BINARY_DIR})
+
+    # RHI TextureDesc surface for the GPU tilemap (Slice A0): R16UI integer index format +
+    # POINT/CLAMP sampler control. Header-only (RHITypes + MockRHIDevice), no bgfx/GPU link.
+    add_executable(test_rhi_texture_desc unit/test_rhi_texture_desc.cpp)
+    target_include_directories(test_rhi_texture_desc PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_rhi_texture_desc PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(RhiTextureDescUnit test_rhi_texture_desc ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

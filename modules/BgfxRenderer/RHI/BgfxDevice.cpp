@@ -108,7 +108,7 @@ public:
             desc.mipLevels > 1,
             1, // layers
             format,
-            BGFX_TEXTURE_NONE | BGFX_SAMPLER_NONE,
+            toSamplerFlags(desc),  // Point/Clamp for the index texture; 0 (legacy) by default
             desc.data ? bgfx::copy(desc.data, desc.dataSize) : nullptr
         );
 
@@ -606,8 +606,23 @@ private:
             case TextureDesc::R8:    return bgfx::TextureFormat::R8;
             case TextureDesc::DXT1:  return bgfx::TextureFormat::BC1;
             case TextureDesc::DXT5:  return bgfx::TextureFormat::BC3;
+            case TextureDesc::R16UI: return bgfx::TextureFormat::R16U;  // integer tile-index texture
             default: return bgfx::TextureFormat::RGBA8;
         }
+    }
+
+    // Translate the RHI sampler description into bgfx sampler flags. Linear+Repeat -> 0 (== the
+    // old BGFX_SAMPLER_NONE), so every pre-A0 texture is created identically. Point/Clamp are
+    // opt-in for the tilemap index texture (no filtering / no wrap on integer tile ids).
+    static uint64_t toSamplerFlags(const TextureDesc& desc) {
+        uint64_t flags = BGFX_TEXTURE_NONE;
+        if (desc.filter == TextureDesc::Point) {
+            flags |= BGFX_SAMPLER_POINT;  // MIN|MAG|MIP point — no bilinear blend across tile ids
+        }
+        if (desc.wrap == TextureDesc::Clamp) {
+            flags |= BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;  // no wrap at the chunk edge
+        }
+        return flags;
     }
 };
 
