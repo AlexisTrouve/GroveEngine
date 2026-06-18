@@ -19,13 +19,19 @@ tests; this file is only what's **not** done yet.
   Small pure helper in `grove::camera` if wanted.
 
 ## Rendering
-- **Tilemap high-perf — NEXT MAJOR PROJECT.** Full design pinned + SOTA-validated in
-  [docs/design/tilemap-renderer.md](design/tilemap-renderer.md): GPU index-texture (R16UI +
-  texelFetch, 1 draw/chunk), `texture2DArray` atlas, derivative LOD + palette-driven mipped color
-  band, mipped scalar fog. Needed because Drifterra will have **tens of thousands of tiles** with
-  seamless zoom — the current per-frame CSV re-parse + per-tile work is O(map). Implementation = an
-  RHI capability bump (integer/array textures, point-clamp samplers, a `*_tilemap` shader),
-  sliced A (detail) → B (LOD). Per-frame visible-window culling is already done (TilemapPass).
+- **Tilemap high-perf — ✅ SHIPPED A → B** (2026-06-18/19). GPU index-texture (R16UI + texelFetch,
+  1 draw/chunk), `texture2DArray` atlas, retained `render:tilemap:add/update/remove` (upload-once),
+  derivative detail↔LOD crossfade with a palette-driven mipped color band. Tested headless +
+  `[gpu]` readback. Full status, commits, and learnings in
+  [docs/design/tilemap-renderer.md](design/tilemap-renderer.md#implementation-status--shipped-a--b-20260618).
+  **Remaining (deferred):**
+  - **②.2 LOD end-to-end readback** — render the tilemap offscreen, assert zoom-out pixel == average
+    of the tile colors (needs reproducing the renderer's view-transform offscreen).
+  - **A3.3 real atlas** — slice a game-supplied grid-PNG into `texture2DArray` layers (today the atlas
+    is a procedural color array; binding a 2D texture to the array sampler would be invalid).
+  - **A4.2 sub-rect patch** — `render:tilemap:update {id,x,y,w,h,tiles}` to patch a few texels (fog
+    reveal, terrain edits) via the A1 region overload instead of replacing the whole grid.
+  - mipped `R8` **fog/state** (scalar visibility), **multi-layer** chunks, **animated tiles**.
 - **Render-side culling in passes** — SpritePass/TilemapPass skip instances outside the camera
   bounds before draw (same `visibleWorldBounds`). Couple with tilemap high-perf; measure first.
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and
