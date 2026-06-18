@@ -375,11 +375,12 @@ public:
         uint32_t instStart = 0;
         uint32_t instCount = 0;
 
-        // Store texture state to apply at draw time (not immediately)
-        TextureHandle pendingTexture;
-        UniformHandle pendingSampler;
-        uint8_t pendingTextureSlot = 0;
-        bool hasTexture = false;
+        // Store texture state to apply at draw time (not immediately). One pending binding PER
+        // slot — the tilemap binds TWO textures (index in slot 0 + atlas in slot 1) for a single
+        // submit, so a single global pending would let the second setTexture clobber the first.
+        static constexpr uint8_t MAX_TEXTURE_SLOTS = 4;
+        struct PendingTex { TextureHandle texture; UniformHandle sampler; bool has = false; };
+        PendingTex pendingTex[MAX_TEXTURE_SLOTS];
 
         for (const Command& cmd : cmdBuffer.getCommands()) {
             switch (cmd.type) {
@@ -441,12 +442,14 @@ public:
                 }
 
                 case CommandType::SetTexture: {
-                    // Store texture state - apply at draw time, not immediately
-                    // This ensures texture is set after all other state is configured
-                    pendingTexture = cmd.setTexture.texture;
-                    pendingSampler = cmd.setTexture.sampler;
-                    pendingTextureSlot = cmd.setTexture.slot;
-                    hasTexture = true;
+                    // Store texture state per slot - apply at draw time, not immediately, so the
+                    // texture is set after all other state is configured.
+                    uint8_t slot = cmd.setTexture.slot;
+                    if (slot < MAX_TEXTURE_SLOTS) {
+                        pendingTex[slot].texture = cmd.setTexture.texture;
+                        pendingTex[slot].sampler = cmd.setTexture.sampler;
+                        pendingTex[slot].has = true;
+                    }
                     break;
                 }
 
@@ -571,25 +574,19 @@ public:
                 }
 
                 case CommandType::Submit: {
-                    // Apply pending texture right before submit
-                    if (hasTexture) {
-                        bgfx::TextureHandle tex = { pendingTexture.id };
-                        bgfx::UniformHandle sampler = { pendingSampler.id };
-
-                        static int submitCount = 0;
-                        if (submitCount < 10) {
-                            spdlog::info("[Submit #{}] BgfxDevice::submit() - pendingTexture.id={}, tex.idx={}, sampler.idx={}, slot={}",
-                                submitCount, pendingTexture.id, tex.idx, sampler.idx, pendingTextureSlot);
-                            spdlog::info("  bgfx::isValid(tex): {}", bgfx::isValid(tex));
-                            submitCount++;
+                    // Apply every pending texture binding right before submit (index + atlas for
+                    // the tilemap; a single texture for sprites/text).
+                    for (uint8_t s = 0; s < MAX_TEXTURE_SLOTS; ++s) {
+                        if (pendingTex[s].has) {
+                            bgfx::TextureHandle tex = { pendingTex[s].texture.id };
+                            bgfx::UniformHandle sampler = { pendingTex[s].sampler.id };
+                            bgfx::setTexture(s, sampler, tex);
                         }
-
-                        bgfx::setTexture(pendingTextureSlot, sampler, tex);
                     }
                     bgfx::ProgramHandle program = { cmd.submit.shader.id };
                     bgfx::submit(cmd.submit.view, program, cmd.submit.depth);
                     // Reset texture state after submit (consumed)
-                    hasTexture = false;
+                    for (uint8_t s = 0; s < MAX_TEXTURE_SLOTS; ++s) pendingTex[s].has = false;
                     break;
                 }
             }

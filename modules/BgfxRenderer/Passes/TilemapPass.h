@@ -15,8 +15,8 @@ class ResourceCache;
 class TilemapPass : public RenderPass {
 public:
     /**
-     * @brief Construct TilemapPass with required shader
-     * @param shader The shader program to use (sprite shader)
+     * @brief Construct TilemapPass with the GPU tilemap shader program ("tilemap")
+     * @param shader The index-texture tilemap shader (vs_tilemap/fs_tilemap)
      */
     explicit TilemapPass(rhi::ShaderHandle shader);
 
@@ -47,24 +47,35 @@ public:
     }
 
 private:
-    rhi::ShaderHandle m_shader;
-    rhi::BufferHandle m_quadVB;
+    rhi::ShaderHandle m_shader;       // GPU tilemap program ("tilemap")
+    rhi::BufferHandle m_quadVB;       // unit quad, scaled per chunk by the VS
     rhi::BufferHandle m_quadIB;
-    rhi::BufferHandle m_instanceBuffer;
-    rhi::UniformHandle m_textureSampler;
-    rhi::TextureHandle m_defaultTexture;
+
+    // Shader uniforms (see vs_tilemap.sc / fs_tilemap.sc).
+    rhi::UniformHandle m_paramsUniform;   // u_tilemapParams: originX, originY, tilePixW, tilePixH
+    rhi::UniformHandle m_gridUniform;     // u_tilemapGrid:   gridW, gridH, atlasCols, atlasRows
+    rhi::UniformHandle m_indexSampler;    // s_index (slot 0) — R16UI tile-index texture
+    rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas
+
+    rhi::TextureHandle m_defaultTexture;  // 1x1 white atlas fallback
     rhi::TextureHandle m_defaultTileset;
 
     ResourceCache* m_resourceCache = nullptr;
 
-    // Tileset layout (for UV calculation)
+    // Atlas layout (tiles per row/col), fed to the shader as atlasCols/atlasRows.
     uint16_t m_tilesPerRow = 16;
     uint16_t m_tilesPerCol = 16;
 
-    // Reusable buffer for tile instances
-    std::vector<SpriteInstance> m_tileInstances;
-
-    static constexpr uint32_t MAX_TILES_PER_BATCH = 16384;
+    // Per-chunk-slot resident index texture (R16UI). Reused across frames (not re-allocated each
+    // frame); recreated only when a slot's dimensions change. Keyed by the chunk's position in the
+    // frame — stable while the submitted chunk set is stable. A4's retained chunkId path replaces
+    // this positional cache with a true upload-once grid.
+    struct IndexTexture {
+        rhi::TextureHandle handle;
+        uint16_t width = 0;
+        uint16_t height = 0;
+    };
+    std::vector<IndexTexture> m_indexTextures;
 };
 
 } // namespace grove

@@ -96,9 +96,14 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Get shader handles for passes
     rhi::ShaderHandle spriteShader = m_shaderManager->getProgram("sprite");
     rhi::ShaderHandle debugShader = m_shaderManager->getProgram("debug");
+    rhi::ShaderHandle tilemapShader = m_shaderManager->getProgram("tilemap");
 
     if (!spriteShader.isValid()) {
         m_logger->error("Failed to load sprite shader");
+        return;
+    }
+    if (!tilemapShader.isValid()) {
+        m_logger->error("Failed to load tilemap shader");
         return;
     }
 
@@ -111,8 +116,8 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Setup resource cache first (needed by passes)
     m_resourceCache = std::make_unique<ResourceCache>();
 
-    // Create TilemapPass (renders before sprites)
-    auto tilemapPass = std::make_unique<TilemapPass>(spriteShader);
+    // Create TilemapPass (renders before sprites) — uses the dedicated GPU tilemap shader
+    auto tilemapPass = std::make_unique<TilemapPass>(tilemapShader);
     tilemapPass->setResourceCache(m_resourceCache.get());
     m_renderGraph->addPass(std::move(tilemapPass));
     m_logger->info("Added TilemapPass");

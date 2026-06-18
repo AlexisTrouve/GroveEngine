@@ -1,16 +1,17 @@
 /**
  * Unit Tests: render-side view culling in SpritePass / TilemapPass.
  *
- * WHAT  : World-space draws outside the camera view must not be uploaded/drawn. The passes
- *         build the visible world bounds from FramePacket::mainView and skip instances whose
- *         AABB falls outside. HUD (screen-space, view 1) is NEVER culled.
+ * WHAT  : World-space draws outside the camera view must not be uploaded/drawn. SpritePass skips
+ *         off-screen sprite instances; the GPU TilemapPass draws ONE quad per visible chunk (the
+ *         fragment shader resolves every tile) and skips chunks whose AABB is off-screen. HUD
+ *         (screen-space, view 1) is NEVER culled.
  *
- * WHY    : the renderer drew everything submitted — wasteful for big tilemaps/scenes. Culling
- *         bounds per-frame work to roughly a screenful (the big tilemap-perf win) and reuses the
- *         grove::camera visibility math.
+ * WHY    : the renderer drew everything submitted — wasteful for big tilemaps/scenes. Sprite culling
+ *         bounds per-frame work to a screenful; the tilemap's index-texture path makes the draw cost
+ *         independent of tile count (1 draw/chunk), so a 360k-tile chunk is still a single draw.
  *
- * HOW    : MockRHIDevice + real RHICommandBuffer; we sum DrawInstanced.instanceCount to count
- *         how many instances actually reached the GPU.
+ * HOW    : MockRHIDevice + real RHICommandBuffer; we sum DrawInstanced.instanceCount (sprites) and
+ *         count DrawIndexed commands (tilemap quads) that actually reached the GPU.
  */
 
 #include <catch2/catch_test_macros.hpp>
@@ -31,6 +32,16 @@ static uint32_t drawnInstances(const rhi::RHICommandBuffer& cmd) {
     uint32_t n = 0;
     for (const auto& c : cmd.getCommands()) {
         if (c.type == rhi::CommandType::DrawInstanced) n += c.drawInstanced.instanceCount;
+    }
+    return n;
+}
+
+// Number of DrawIndexed commands = quads drawn. The GPU tilemap draws exactly one quad per VISIBLE
+// chunk (the fragment shader resolves every tile), so this counts visible chunks.
+static uint32_t drawIndexedCount(const rhi::RHICommandBuffer& cmd) {
+    uint32_t n = 0;
+    for (const auto& c : cmd.getCommands()) {
+        if (c.type == rhi::CommandType::DrawIndexed) ++n;
     }
     return n;
 }
@@ -78,14 +89,13 @@ TEST_CASE("SpritePass does NOT cull HUD sprites (screen-space)", "[culling][unit
     pass.shutdown(device);
 }
 
-TEST_CASE("TilemapPass culls tiles outside the camera view", "[culling][unit]") {
+TEST_CASE("TilemapPass draws one quad per visible chunk and culls off-screen chunks", "[culling][unit]") {
     MockRHIDevice device;
     rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
     TilemapPass pass(shader);
     pass.setup(device);
 
-    // 100x1 row of 32px tiles from x=0; viewport is 1280 wide -> ~40 tiles visible, 60 off-screen.
-    std::vector<uint16_t> tiles(100, static_cast<uint16_t>(1));  // all non-empty
+    std::vector<uint16_t> tiles(100, static_cast<uint16_t>(1));  // 100x1 row of 32px tiles
     TilemapChunk chunk{};
     chunk.x = 0.0f; chunk.y = 0.0f;
     chunk.width = 100; chunk.height = 1;
@@ -98,24 +108,52 @@ TEST_CASE("TilemapPass culls tiles outside the camera view", "[culling][unit]") 
     frame.tilemaps = &chunk;
     frame.tilemapCount = 1;
 
-    rhi::RHICommandBuffer cmd;
-    pass.execute(frame, device, cmd);
+    SECTION("visible chunk: one quad, one R16UI POINT/CLAMP index texture, one region upload") {
+        rhi::RHICommandBuffer cmd;
+        pass.execute(frame, device, cmd);
 
-    const uint32_t drawn = drawnInstances(cmd);
-    REQUIRE(drawn < 100);    // off-screen tail culled
-    REQUIRE(drawn >= 38);    // the ~40 visible tiles kept (not over-culled)
-    REQUIRE(drawn <= 44);
+        REQUIRE(drawIndexedCount(cmd) == 1);   // ONE quad covers the whole chunk
+        REQUIRE(drawnInstances(cmd) == 0);     // the old per-tile instanced path is gone
+
+        // An R16UI POINT/CLAMP index texture sized to the grid was created.
+        bool foundIndex = false;
+        for (const auto& d : device.textureDescs) {
+            if (d.format == rhi::TextureDesc::R16UI) {
+                foundIndex = true;
+                REQUIRE(d.filter == rhi::TextureDesc::Point);
+                REQUIRE(d.wrap   == rhi::TextureDesc::Clamp);
+                REQUIRE(d.width  == 100);
+                REQUIRE(d.height == 1);
+            }
+        }
+        REQUIRE(foundIndex);
+
+        // The grid was uploaded once via the region overload, at the grid's size.
+        REQUIRE(device.textureRegionUpdates.size() == 1);
+        REQUIRE(device.textureRegionUpdates.back().w == 100);
+        REQUIRE(device.textureRegionUpdates.back().h == 1);
+    }
+
+    SECTION("off-screen chunk: no draw, no upload (chunk-level cull)") {
+        chunk.x = 100000.0f;   // far outside the [0,1280]x[0,720] view
+        rhi::RHICommandBuffer cmd;
+        pass.execute(frame, device, cmd);
+
+        REQUIRE(drawIndexedCount(cmd) == 0);
+        REQUIRE(device.textureRegionUpdates.empty());
+    }
+
     pass.shutdown(device);
 }
 
-TEST_CASE("TilemapPass on a huge map draws only the visible window (O(visible), not O(map))", "[culling][unit]") {
+TEST_CASE("GPU tilemap draw cost is independent of tile count (1 draw for a 360k-tile chunk)", "[culling][unit]") {
     MockRHIDevice device;
     rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
     TilemapPass pass(shader);
     pass.setup(device);
 
-    // 600x600 = 360,000 tiles, all non-empty. Default viewport 1280x720 @ 32px tiles -> only a
-    // ~41x23 window (~940 tiles) is visible. The pass must touch only the window, never 360k.
+    // 600x600 = 360,000 tiles. The old path generated ~940 instances; the index-texture path
+    // generates ZERO per-tile CPU work — a single quad + a single index upload, full stop.
     const int W = 600, H = 600;
     std::vector<uint16_t> tiles(static_cast<size_t>(W) * H, static_cast<uint16_t>(1));
     TilemapChunk chunk{};
@@ -133,9 +171,10 @@ TEST_CASE("TilemapPass on a huge map draws only the visible window (O(visible), 
     rhi::RHICommandBuffer cmd;
     pass.execute(frame, device, cmd);
 
-    const uint32_t drawn = drawnInstances(cmd);
-    REQUIRE(drawn >= 850);     // ~941 visible tiles drawn (a screenful)
-    REQUIRE(drawn <= 1050);
-    REQUIRE(drawn < 5000);     // emphatically NOT the 360k map
+    REQUIRE(drawIndexedCount(cmd) == 1);                       // ONE draw, not O(map)
+    REQUIRE(drawnInstances(cmd) == 0);                         // zero per-tile instances
+    REQUIRE(device.textureRegionUpdates.size() == 1);          // one upload for the whole grid
+    REQUIRE(device.textureRegionUpdates.back().w == 600);
+    REQUIRE(device.textureRegionUpdates.back().h == 600);
     pass.shutdown(device);
 }

@@ -1,20 +1,26 @@
 #include "TilemapPass.h"
 #include "../RHI/RHIDevice.h"
+#include "../RHI/RHICommandBuffer.h"
 #include "../Frame/FramePacket.h"
 #include "../Resources/ResourceCache.h"
 #include "../Scene/Camera.h"
-#include <cmath>
 
 namespace grove {
+
+// ============================================================================
+// GPU tilemap pass (Slice A2). The tile grid lives in a GPU R16UI INDEX texture; one quad is drawn
+// per chunk and the fragment shader resolves each pixel's tile via texelFetch. Cost is independent
+// of tile count (1 draw/chunk) — replaces the old per-tile SpriteInstance generation entirely.
+// ============================================================================
 
 TilemapPass::TilemapPass(rhi::ShaderHandle shader)
     : m_shader(shader)
 {
-    m_tileInstances.reserve(MAX_TILES_PER_BATCH);
 }
 
 void TilemapPass::setup(rhi::IRHIDevice& device) {
-    // Create quad vertex buffer (unit quad, instanced) - same as SpritePass
+    // Unit quad (0..1). The tilemap vertex shader scales it to each chunk's pixel rectangle and
+    // places it at the chunk's world origin; the quad's color channel is unused by vs_tilemap.
     float quadVertices[] = {
         // pos.x, pos.y, pos.z,    r,    g,    b,    a
         0.0f, 0.0f, 0.0f,    1.0f, 1.0f, 1.0f, 1.0f,
@@ -31,12 +37,7 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     vbDesc.layout = rhi::BufferDesc::PosColor;
     m_quadVB = device.createBuffer(vbDesc);
 
-    // Create index buffer
-    uint16_t quadIndices[] = {
-        0, 1, 2,
-        0, 2, 3
-    };
-
+    uint16_t quadIndices[] = { 0, 1, 2, 0, 2, 3 };
     rhi::BufferDesc ibDesc;
     ibDesc.type = rhi::BufferDesc::Index;
     ibDesc.size = sizeof(quadIndices);
@@ -44,18 +45,13 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     ibDesc.dynamic = false;
     m_quadIB = device.createBuffer(ibDesc);
 
-    // Create dynamic instance buffer
-    rhi::BufferDesc instDesc;
-    instDesc.type = rhi::BufferDesc::Instance;
-    instDesc.size = MAX_TILES_PER_BATCH * sizeof(SpriteInstance);
-    instDesc.data = nullptr;
-    instDesc.dynamic = true;
-    m_instanceBuffer = device.createBuffer(instDesc);
+    // Shader uniforms + samplers.
+    m_paramsUniform = device.createUniform("u_tilemapParams", 1);
+    m_gridUniform   = device.createUniform("u_tilemapGrid", 1);
+    m_indexSampler  = device.createUniform("s_index", 1);
+    m_atlasSampler  = device.createUniform("s_atlas", 1);
 
-    // Create texture sampler uniform
-    m_textureSampler = device.createUniform("s_texColor", 1);
-
-    // Create default white texture
+    // 1x1 white fallback atlas (used when a chunk has no valid tileset bound).
     uint32_t whitePixel = 0xFFFFFFFF;
     rhi::TextureDesc texDesc;
     texDesc.width = 1;
@@ -69,9 +65,15 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
 void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_quadVB);
     device.destroy(m_quadIB);
-    device.destroy(m_instanceBuffer);
-    device.destroy(m_textureSampler);
+    device.destroy(m_paramsUniform);
+    device.destroy(m_gridUniform);
+    device.destroy(m_indexSampler);
+    device.destroy(m_atlasSampler);
     device.destroy(m_defaultTexture);
+    for (auto& it : m_indexTextures) {
+        if (it.handle.isValid()) device.destroy(it.handle);
+    }
+    m_indexTextures.clear();
 }
 
 void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
@@ -79,30 +81,65 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         return;
     }
 
-    // Set render state for tilemaps (alpha blending, no depth)
+    // Render state for tilemaps: alpha blend, no depth. Emitted PER chunk below — bgfx consumes the
+    // state at each submit, so setting it once would only cover the first chunk.
     rhi::RenderState state;
     state.blend = rhi::BlendMode::Alpha;
     state.cull = rhi::CullMode::None;
     state.depthTest = false;
     state.depthWrite = false;
-    cmd.setState(state);
 
-    // Visible world bounds for per-tile culling (big maps: only a screenful of tiles is built).
+    // Visible world bounds for chunk-level culling: a chunk whose AABB is fully off-screen is
+    // skipped entirely (no texture upload, no draw). Per-PIXEL tile work happens on the GPU.
     const camera::CameraView view{frame.mainView.positionX, frame.mainView.positionY,
                                   frame.mainView.zoom,
                                   static_cast<float>(frame.mainView.viewportW),
                                   static_cast<float>(frame.mainView.viewportH)};
     const camera::WorldBounds bounds = camera::visibleWorldBounds(view);
 
-    // Process each tilemap chunk
     for (size_t i = 0; i < frame.tilemapCount; ++i) {
         const TilemapChunk& chunk = frame.tilemaps[i];
 
-        if (!chunk.tiles || chunk.tileCount == 0) {
+        if (!chunk.tiles || chunk.tileCount == 0 || chunk.width == 0 || chunk.height == 0) {
             continue;
         }
 
-        // Get tileset texture
+        const float tw = static_cast<float>(chunk.tileWidth);
+        const float th = static_cast<float>(chunk.tileHeight);
+        const float chunkW = static_cast<float>(chunk.width) * tw;
+        const float chunkH = static_cast<float>(chunk.height) * th;
+
+        // Chunk-level cull (rotation-free: tilemaps are axis-aligned).
+        if (!camera::isVisible(bounds, chunk.x, chunk.y, chunkW, chunkH)) {
+            continue;
+        }
+
+        // Ensure a resident R16UI index texture for this chunk slot, (re)creating only on a size
+        // change. POINT/CLAMP: tile ids must never be filtered or wrapped.
+        if (i >= m_indexTextures.size()) {
+            m_indexTextures.resize(i + 1);
+        }
+        IndexTexture& idx = m_indexTextures[i];
+        if (!idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height) {
+            if (idx.handle.isValid()) device.destroy(idx.handle);
+            rhi::TextureDesc d;
+            d.width = chunk.width;
+            d.height = chunk.height;
+            d.format = rhi::TextureDesc::R16UI;
+            d.filter = rhi::TextureDesc::Point;
+            d.wrap   = rhi::TextureDesc::Clamp;
+            idx.handle = device.createTexture(d);
+            idx.width = chunk.width;
+            idx.height = chunk.height;
+        }
+
+        // Upload the tile ids. The region overload covers the full grid but avoids the full-update
+        // m_width/m_height bug. A2 re-uploads each frame (immediate mode); A4 will upload once and
+        // patch only dirty texels.
+        const uint32_t bytes = static_cast<uint32_t>(chunk.width) * chunk.height * sizeof(uint16_t);
+        device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
+
+        // Resolve the atlas (tileset) texture.
         rhi::TextureHandle tileset;
         if (chunk.textureId > 0 && m_resourceCache) {
             tileset = m_resourceCache->getTextureById(chunk.textureId);
@@ -111,105 +148,21 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             tileset = m_defaultTileset.isValid() ? m_defaultTileset : m_defaultTexture;
         }
 
-        // Calculate UV size per tile in tileset
-        float tileU = 1.0f / m_tilesPerRow;
-        float tileV = 1.0f / m_tilesPerCol;
+        // Per-chunk draw: state, uniforms, two textures (index + atlas), one quad.
+        cmd.setState(state);
 
-        m_tileInstances.clear();
+        float params[4] = { chunk.x, chunk.y, tw, th };
+        float grid[4]   = { static_cast<float>(chunk.width), static_cast<float>(chunk.height),
+                            static_cast<float>(m_tilesPerRow), static_cast<float>(m_tilesPerCol) };
+        cmd.setUniform(m_paramsUniform, params, 1);
+        cmd.setUniform(m_gridUniform, grid, 1);
 
-        // Iterate ONLY the visible tile window. The chunk is a regular grid, so the on-screen
-        // tile indices follow directly from the camera bounds — this is O(visible tiles), NOT
-        // O(map). Critical at tens of thousands of tiles: a per-tile cull loop would still visit
-        // every tile every frame; computing the index window skips that entirely.
-        const float tw = static_cast<float>(chunk.tileWidth);
-        const float th = static_cast<float>(chunk.tileHeight);
-        int minTX = static_cast<int>(std::floor((bounds.minX - chunk.x) / tw));
-        int maxTX = static_cast<int>(std::floor((bounds.maxX - chunk.x) / tw));
-        int minTY = static_cast<int>(std::floor((bounds.minY - chunk.y) / th));
-        int maxTY = static_cast<int>(std::floor((bounds.maxY - chunk.y) / th));
-        if (minTX < 0) minTX = 0;
-        if (minTY < 0) minTY = 0;
-        if (maxTX > static_cast<int>(chunk.width) - 1)  maxTX = static_cast<int>(chunk.width) - 1;
-        if (maxTY > static_cast<int>(chunk.height) - 1) maxTY = static_cast<int>(chunk.height) - 1;
-
-        // Generate sprite instances for each VISIBLE tile.
-        for (int tileY = minTY; tileY <= maxTY; ++tileY) {
-        for (int tileX = minTX; tileX <= maxTX; ++tileX) {
-            const size_t t = static_cast<size_t>(tileY) * chunk.width + static_cast<size_t>(tileX);
-            if (t >= chunk.tileCount) continue;
-            uint16_t tileIndex = chunk.tiles[t];
-            if (tileIndex == 0) continue;   // empty tile
-
-            const float worldX = chunk.x + (static_cast<float>(tileX) + 0.5f) * tw;
-            const float worldY = chunk.y + (static_cast<float>(tileY) + 0.5f) * th;
-
-            // Calculate UV coords from tile index
-            // tileIndex-1 because 0 is empty, actual tiles start at 1
-            uint16_t actualIndex = tileIndex - 1;
-            uint16_t tileCol = actualIndex % m_tilesPerRow;
-            uint16_t tileRow = actualIndex / m_tilesPerRow;
-
-            float u0 = tileCol * tileU;
-            float v0 = tileRow * tileV;
-            float u1 = u0 + tileU;
-            float v1 = v0 + tileV;
-
-            // Create sprite instance for this tile
-            SpriteInstance inst;
-            inst.x = worldX;
-            inst.y = worldY;
-            inst.scaleX = static_cast<float>(chunk.tileWidth);
-            inst.scaleY = static_cast<float>(chunk.tileHeight);
-            inst.rotation = 0.0f;
-            inst.u0 = u0;
-            inst.v0 = v0;
-            inst.u1 = u1;
-            inst.v1 = v1;
-            inst.textureId = 0.0f;  // Using tileset bound directly
-            inst.layer = -100.0f;   // Tilemaps render behind sprites
-            inst.padding0 = 0.0f;
-            inst.reserved[0] = 0.0f;
-            inst.reserved[1] = 0.0f;
-            inst.reserved[2] = 0.0f;
-            inst.reserved[3] = 0.0f;
-            inst.r = 1.0f;
-            inst.g = 1.0f;
-            inst.b = 1.0f;
-            inst.a = 1.0f;
-
-            m_tileInstances.push_back(inst);
-
-            // Flush batch if full
-            if (m_tileInstances.size() >= MAX_TILES_PER_BATCH) {
-                device.updateBuffer(m_instanceBuffer, m_tileInstances.data(),
-                                   static_cast<uint32_t>(m_tileInstances.size() * sizeof(SpriteInstance)));
-
-                cmd.setVertexBuffer(m_quadVB);
-                cmd.setIndexBuffer(m_quadIB);
-                cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_tileInstances.size()));
-                cmd.setTexture(0, tileset, m_textureSampler);
-                cmd.drawInstanced(6, static_cast<uint32_t>(m_tileInstances.size()));
-                cmd.submit(0, m_shader, 0);
-
-                m_tileInstances.clear();
-            }
-        }
-        }
-
-        // Flush remaining tiles for this chunk
-        if (!m_tileInstances.empty()) {
-            device.updateBuffer(m_instanceBuffer, m_tileInstances.data(),
-                               static_cast<uint32_t>(m_tileInstances.size() * sizeof(SpriteInstance)));
-
-            cmd.setVertexBuffer(m_quadVB);
-            cmd.setIndexBuffer(m_quadIB);
-            cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_tileInstances.size()));
-            cmd.setTexture(0, tileset, m_textureSampler);
-            cmd.drawInstanced(6, static_cast<uint32_t>(m_tileInstances.size()));
-            cmd.submit(0, m_shader, 0);
-
-            m_tileInstances.clear();
-        }
+        cmd.setTexture(0, idx.handle, m_indexSampler);
+        cmd.setTexture(1, tileset, m_atlasSampler);
+        cmd.setVertexBuffer(m_quadVB);
+        cmd.setIndexBuffer(m_quadIB);
+        cmd.drawIndexed(6);
+        cmd.submit(0, m_shader, 0);
     }
 }
 
