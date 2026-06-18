@@ -215,3 +215,40 @@ TEST_CASE("Retained tilemap uploads once: dirty frame uploads, clean frame skips
 
     pass.shutdown(device);
 }
+
+TEST_CASE("Tilemap bakes a mipped LOD color texture per chunk (Slice B1)", "[culling][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    TilemapPass pass(shader);
+    pass.setup(device);
+
+    std::vector<uint16_t> tiles(64, static_cast<uint16_t>(1));   // 8x8 chunk
+    TilemapChunk chunk{};
+    chunk.x = 0.0f; chunk.y = 0.0f;
+    chunk.width = 8; chunk.height = 8;
+    chunk.tileWidth = 32; chunk.tileHeight = 32;
+    chunk.tiles = tiles.data();
+    chunk.tileCount = tiles.size();
+
+    FramePacket frame;
+    frame.tilemaps = &chunk;
+    frame.tilemapCount = 1;
+
+    rhi::RHICommandBuffer cmd;
+    pass.execute(frame, device, cmd);
+
+    // A mipped RGBA8 LOD color texture sized to the grid must have been created. The procedural
+    // atlas array (created in setup) is also RGBA8 8x8 — distinguish by layers==1 + a full mip chain.
+    bool foundLod = false;
+    for (const auto& d : device.textureDescs) {
+        if (d.format == rhi::TextureDesc::RGBA8 && d.layers == 1 && d.mipLevels > 1
+            && d.width == 8 && d.height == 8) {
+            foundLod = true;
+            REQUIRE(d.mipLevels == 4);                       // 8 -> 4 -> 2 -> 1
+            REQUIRE(d.filter == rhi::TextureDesc::Linear);   // trilinear over the mip chain
+            REQUIRE(d.wrap   == rhi::TextureDesc::Clamp);
+        }
+    }
+    REQUIRE(foundLod);
+    pass.shutdown(device);
+}

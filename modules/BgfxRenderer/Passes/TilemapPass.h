@@ -76,7 +76,8 @@ private:
     // frame — stable while the submitted chunk set is stable. A4's retained chunkId path replaces
     // this positional cache with a true upload-once grid.
     struct IndexTexture {
-        rhi::TextureHandle handle;
+        rhi::TextureHandle handle;   // R16UI tile-index texture (detail band)
+        rhi::TextureHandle lod;      // RGBA8 mipped LOD color texture (zoom-out band, Slice B)
         uint16_t width = 0;
         uint16_t height = 0;
     };
