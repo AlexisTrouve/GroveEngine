@@ -1614,6 +1614,14 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_rhi_texture_desc PRIVATE Catch2::Catch2WithMain)
     grove_add_test(RhiTextureDescUnit test_rhi_texture_desc ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Tilemap LOD color mip generation (Slice B): pure box-filter math (LodColor.h), no bgfx/GPU.
+    add_executable(test_lod_color unit/test_lod_color.cpp)
+    target_include_directories(test_lod_color PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_lod_color PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(LodColorUnit test_lod_color ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================

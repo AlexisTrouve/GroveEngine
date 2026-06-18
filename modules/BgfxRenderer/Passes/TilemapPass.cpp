@@ -1,4 +1,5 @@
 #include "TilemapPass.h"
+#include "LodColor.h"
 #include "../RHI/RHIDevice.h"
 #include "../RHI/RHICommandBuffer.h"
 #include "../Frame/FramePacket.h"
@@ -21,78 +22,16 @@ static rhi::TextureHandle createIndexTexture(rhi::IRHIDevice& device, uint16_t w
     return device.createTexture(d);
 }
 
-// Tile palette (Slice A3/B): tile id -> color. Shared by the procedural atlas array (setup) and the
-// LOD color texture (bakeLodColor). id 0 = empty -> transparent, so empty/solid edges fade in alpha
-// when averaged into coarser mips (clean anti-aliased borders at zoom-out). RGBA8 bytes [R,G,B,A]
-// -> little-endian 0xAABBGGRR.
-static constexpr int kPaletteSize = 8;
-static const uint32_t kTileColors[kPaletteSize] = {
-    0xFFC8C8C8u, // 1: light grey
-    0xFF50C83Cu, // 2: green
-    0xFFE68246u, // 3: blue
-    0xFF3CD2E6u, // 4: yellow
-    0xFFC84CB4u, // 5: magenta
-    0xFF00B4C8u, // 6: amber
-    0xFFF0781Eu, // 7: cyan-blue
-    0xFFFFFFFFu, // 8: white
-};
-static uint32_t paletteColor(uint16_t id) {
-    if (id == 0) return 0x00000000u;                 // empty -> transparent
-    return kTileColors[(id - 1) % kPaletteSize];
-}
-
-// Average four RGBA8 texels component-wise (2x2 box filter).
-static uint32_t avg4(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
-    uint32_t out = 0;
-    for (int shift = 0; shift < 32; shift += 8) {
-        const uint32_t sum = ((a >> shift) & 0xFFu) + ((b >> shift) & 0xFFu)
-                           + ((c >> shift) & 0xFFu) + ((d >> shift) & 0xFFu);
-        out |= ((sum >> 2) & 0xFFu) << shift;
-    }
-    return out;
-}
-
-// Bake the chunk's "LOD color" texture (Slice B): mip0[t] = paletteColor(tile_id[t]), 1 texel per
-// tile; finer mips are 2x2 box-filters down to 1x1, uploaded as one contiguous mip chain. Linear +
-// mips => GPU trilinear gives the smooth, alias-free zoom-out band. Indices can't be mipped (their
-// average is meaningless), which is the whole reason this separate COLOR representation exists.
+// Bake the chunk's mipped LOD color texture (Slice B): build the mip chain with the pure helper in
+// LodColor.h, then upload it. Linear + mips => GPU trilinear gives the smooth, alias-free zoom-out
+// band. (The mip-chain math is unit-tested headless; see test_lod_color.)
 static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
-    const int w0 = chunk.width;
-    const int h0 = chunk.height;
-
     int mips = 1;
-    for (int d = (w0 > h0 ? w0 : h0); d > 1; d >>= 1) ++mips;
-
-    std::vector<uint32_t> buf;                       // mip0 || mip1 || ... (bgfx layout)
-    std::vector<uint32_t> prev(static_cast<size_t>(w0) * h0);
-    for (size_t i = 0; i < prev.size(); ++i) {
-        prev[i] = paletteColor(chunk.tiles[i]);
-    }
-    buf.insert(buf.end(), prev.begin(), prev.end());
-
-    int pw = w0, ph = h0;
-    for (int m = 1; m < mips; ++m) {
-        const int nw = pw > 1 ? pw >> 1 : 1;
-        const int nh = ph > 1 ? ph >> 1 : 1;
-        std::vector<uint32_t> cur(static_cast<size_t>(nw) * nh);
-        for (int y = 0; y < nh; ++y) {
-            for (int x = 0; x < nw; ++x) {
-                const int x0 = x * 2, y0 = y * 2;
-                const int x1 = (x0 + 1 < pw) ? x0 + 1 : x0;   // clamp for odd dims
-                const int y1 = (y0 + 1 < ph) ? y0 + 1 : y0;
-                cur[static_cast<size_t>(y) * nw + x] = avg4(
-                    prev[static_cast<size_t>(y0) * pw + x0], prev[static_cast<size_t>(y0) * pw + x1],
-                    prev[static_cast<size_t>(y1) * pw + x0], prev[static_cast<size_t>(y1) * pw + x1]);
-            }
-        }
-        buf.insert(buf.end(), cur.begin(), cur.end());
-        prev.swap(cur);
-        pw = nw; ph = nh;
-    }
+    std::vector<uint32_t> buf = lod::buildLodMipChain(chunk.width, chunk.height, chunk.tiles, mips);
 
     rhi::TextureDesc d;
-    d.width     = static_cast<uint16_t>(w0);
-    d.height    = static_cast<uint16_t>(h0);
+    d.width     = chunk.width;
+    d.height    = chunk.height;
     d.mipLevels = static_cast<uint8_t>(mips);
     d.format    = rhi::TextureDesc::RGBA8;
     d.filter    = rhi::TextureDesc::Linear;          // trilinear over the mip chain
@@ -151,17 +90,17 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
     // (kTileColors), so a tile looks identical detailed vs zoomed-out. Layers are contiguous.
     constexpr int ATLAS_TILE = 8;       // px per layer; solid color -> exact size is irrelevant
-    std::vector<uint32_t> atlasPixels(static_cast<size_t>(ATLAS_TILE) * ATLAS_TILE * kPaletteSize);
-    for (int layer = 0; layer < kPaletteSize; ++layer) {
+    std::vector<uint32_t> atlasPixels(static_cast<size_t>(ATLAS_TILE) * ATLAS_TILE * lod::kPaletteSize);
+    for (int layer = 0; layer < lod::kPaletteSize; ++layer) {
         const size_t base = static_cast<size_t>(layer) * ATLAS_TILE * ATLAS_TILE;
         for (int p = 0; p < ATLAS_TILE * ATLAS_TILE; ++p) {
-            atlasPixels[base + p] = kTileColors[layer];
+            atlasPixels[base + p] = lod::paletteColor(static_cast<uint16_t>(layer + 1));  // layer L = tile id L+1
         }
     }
     rhi::TextureDesc atlasDesc;
     atlasDesc.width  = ATLAS_TILE;
     atlasDesc.height = ATLAS_TILE;
-    atlasDesc.layers = kPaletteSize;
+    atlasDesc.layers = lod::kPaletteSize;
     atlasDesc.format = rhi::TextureDesc::RGBA8;
     atlasDesc.data = atlasPixels.data();
     atlasDesc.dataSize = static_cast<uint32_t>(atlasPixels.size() * sizeof(uint32_t));
