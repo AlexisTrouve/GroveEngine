@@ -10,6 +10,7 @@
 #include "Widgets/UITextInput.h"
 #include "Widgets/UIScrollPanel.h"
 #include "Widgets/UILabel.h"
+#include "Widgets/UIRadial.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -379,6 +380,29 @@ void UIModule::updateUI(float deltaTime) {
                     }
 
                     m_logger->info("Checkbox '{}' toggled to {}", checkbox->id, checkbox->checked);
+                }
+            }
+            else if (widgetType == "radial") {
+                // Roue d'action : un release sur la roue CONFIRME le segment sous le
+                // pointeur (publie ui:action + l'index), ou ANNULE si relâché dans la
+                // dead-zone centrale (selectedAction() == "").
+                // POURQUOI on émet sur ui:action (topic existant) : les jeux consomment
+                //   déjà ce topic pour les boutons -> zéro nouveau contrat à câbler.
+                // POURQUOI on NE se cache PAS ici : le retained-render ne purge pas les
+                //   entrées d'un widget invisible (limitation moteur pré-existante) ; la
+                //   fermeture est au jeu via ui:set_visible (widget = vue bête).
+                UIRadial* radial = static_cast<UIRadial*>(clickedWidget);
+                if (m_context->mouseReleased) {
+                    std::string action = radial->selectedAction();
+                    if (!action.empty()) {
+                        auto actionEvent = std::make_unique<JsonDataNode>("action");
+                        actionEvent->setString("action", action);
+                        actionEvent->setString("widgetId", radial->id);
+                        actionEvent->setInt("index", radial->selectedIndex());
+                        m_io->publish("ui:action", std::move(actionEvent));
+                        m_logger->info("Radial '{}' selected '{}' (index {})",
+                                       radial->id, action, radial->selectedIndex());
+                    }
                 }
             }
         }

@@ -9,6 +9,7 @@
 #include "../Widgets/UIProgressBar.h"
 #include "../Widgets/UITextInput.h"
 #include "../Widgets/UIScrollPanel.h"
+#include "../Widgets/UIRadial.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -316,6 +317,51 @@ void UITree::registerDefaultWidgets() {
         }
 
         return scrollPanel;
+    });
+
+    // Register radial (action-wheel) factory.
+    // QUOI : instancie une roue d'action depuis le JSON (rayons, items[], style).
+    // POURQUOI : menu radial input-agnostique (cf. UIRadial.h). Le radial est CENTRÉ sur
+    //   (x,y) — parseCommonProperties pose x,y comme centre ; pas de width/height requis.
+    // COMMENT : items[] est itéré par INDEX numérique ("0","1",…) pour garantir l'ordre
+    //   du tableau JSON = l'ordre des segments (index -> action).
+    registerWidget("radial", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto radial = std::make_unique<UIRadial>();
+        radial->innerRadius = static_cast<float>(node.getDouble("innerRadius", 40.0));
+        radial->outerRadius = static_cast<float>(node.getDouble("outerRadius", 160.0));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+
+        // items[] : tableau de { action, text, textureId? } — itéré dans l'ordre.
+        if (auto* itemsNode = mutableNode.getChildReadOnly("items")) {
+            int i = 0;
+            while (auto* it = itemsNode->getChildReadOnly(std::to_string(i))) {
+                RadialItem item;
+                item.action    = it->getString("action", "");
+                item.text      = it->getString("text", "");
+                item.textureId = it->getInt("textureId", 0);
+                radial->items.push_back(std::move(item));
+                ++i;
+            }
+        }
+
+        // style : couleurs hex "0xRRGGBBAA" + fontSize (défauts = ceux de RadialStyle).
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            auto hex = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+                std::string v = s->getString(key, "");
+                if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                    return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+                }
+                return def;
+            };
+            radial->style.bgColor    = hex(style, "bgColor",    radial->style.bgColor);
+            radial->style.itemColor  = hex(style, "itemColor",  radial->style.itemColor);
+            radial->style.hoverColor = hex(style, "hoverColor", radial->style.hoverColor);
+            radial->style.textColor  = hex(style, "textColor",  radial->style.textColor);
+            radial->style.fontSize   = static_cast<float>(style->getDouble("fontSize", radial->style.fontSize));
+        }
+
+        return radial;
     });
 }
 

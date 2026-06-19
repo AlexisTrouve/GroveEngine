@@ -16,6 +16,7 @@ Complete reference for all available widgets and their properties.
 | **UIImage** | Sprite/texture display | - |
 | **UIScrollPanel** | Scrollable container | `ui:scroll` |
 | **UITooltip** | Hover tooltip | - |
+| **UIRadial** | Action wheel / radial menu (angular selection) | `ui:action` |
 
 ## Common Properties
 
@@ -335,6 +336,55 @@ Hover tooltip (managed automatically by UIModule).
   ...
 }
 ```
+
+## UIRadial
+
+Action-wheel / radial menu. Centered on `(x, y)` (the wheel **center**, not the top-left like
+rect widgets). Selection is **angular** — the segment is chosen by the *direction* from the
+center — which makes it input-agnostic: mouse angle today, gamepad-stick angle / keyboard step
+later through the same model.
+
+```json
+{
+  "type": "radial",
+  "id": "action_wheel",
+  "x": 640,
+  "y": 360,
+  "innerRadius": 40,
+  "outerRadius": 160,
+  "visible": false,
+  "items": [
+    { "action": "act:move",   "text": "Move" },
+    { "action": "act:attack", "text": "Attack" },
+    { "action": "act:build",  "text": "Build" }
+  ],
+  "style": {
+    "bgColor": "0x000000A0",
+    "itemColor": "0x34495EFF",
+    "hoverColor": "0x2ECC71FF",
+    "textColor": "0xFFFFFFFF",
+    "fontSize": 16
+  }
+}
+```
+
+**Properties:**
+- `x, y` - wheel **center** (not top-left).
+- `innerRadius` - dead-zone radius; releasing inside it **cancels** (no action).
+- `outerRadius` - outer edge of the active band (and the hit-test disc).
+- `items[]` - wedges in **clockwise order from the top**. Each: `action` (published string),
+  `text` (label), `textureId` (optional icon, 0 = none).
+- `style` - `bgColor` (backdrop), `itemColor` (wedge at rest), `hoverColor` (wedge under the
+  pointer), `textColor`, `fontSize`.
+
+**Events:**
+- `ui:action` - `{widgetId, action, index}` on release over a wedge (`index` = clockwise-from-top).
+- Releasing in the center dead-zone emits nothing (cancel).
+
+**Open/close:** the wheel is a dumb view — it does **not** auto-hide. The game opens it
+(`ui:set_visible` → true, e.g. on right-click) and closes it on `ui:action`. (Retained-mode
+rendering doesn't purge a hidden widget's render entries — a known engine limitation — so the
+widget never hides itself, to avoid leaving ghost rects.)
 
 ## Creating Custom Widgets
 

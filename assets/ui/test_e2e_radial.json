@@ -1,0 +1,32 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "radial",
+      "id": "wheel",
+      "x": 400,
+      "y": 300,
+      "innerRadius": 40,
+      "outerRadius": 160,
+      "items": [
+        { "action": "act:move",   "text": "Move" },
+        { "action": "act:attack", "text": "Attack" },
+        { "action": "act:build",  "text": "Build" },
+        { "action": "act:scan",   "text": "Scan" }
+      ],
+      "style": {
+        "bgColor": "0x000000A0",
+        "itemColor": "0x34495EFF",
+        "hoverColor": "0x2ECC71FF",
+        "textColor": "0xFFFFFFFF",
+        "fontSize": 16
+      }
+    }
+  ]
+}

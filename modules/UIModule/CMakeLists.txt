@@ -29,6 +29,7 @@ add_library(UIModule SHARED
     Widgets/UIProgressBar.cpp
     Widgets/UITextInput.cpp
     Widgets/UIScrollPanel.cpp
+    Widgets/UIRadial.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp
@@ -96,6 +97,7 @@ add_library(UIModule_static STATIC
     Widgets/UIProgressBar.cpp
     Widgets/UITextInput.cpp
     Widgets/UIScrollPanel.cpp
+    Widgets/UIRadial.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp

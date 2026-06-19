@@ -4,6 +4,7 @@
 #include "../Widgets/UISlider.h"
 #include "../Widgets/UICheckbox.h"
 #include "../Widgets/UITextInput.h"
+#include "../Widgets/UIRadial.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -56,6 +57,13 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
     else if (type == "textinput") {
         UITextInput* textInput = static_cast<UITextInput*>(widget);
         if (textInput->containsPoint(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "radial") {
+        // Disque interactif (jusqu'à outerRadius) ; la dead-zone se résout en "annuler".
+        UIRadial* radial = static_cast<UIRadial*>(widget);
+        if (radial->containsPoint(x, y)) {
             return widget;
         }
     }
@@ -148,6 +156,14 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
 
         if (handled) {
             return target;  // Return for focus handling in UIModule
+        }
+    }
+    else if (type == "radial") {
+        UIRadial* radial = static_cast<UIRadial*>(target);
+        handled = radial->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
+
+        if (handled && !pressed) {
+            return target;  // release sur la roue -> UIModule résout action vs annuler
         }
     }
 

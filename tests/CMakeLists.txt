@@ -1747,6 +1747,27 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIScrollPanelE2E IT_019_ui_scrollpanel_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # test_radial_math: pure action-wheel geometry (RadialMath.h), no GPU/module/IIO.
+    add_executable(test_radial_math unit/test_radial_math.cpp)
+    target_include_directories(test_radial_math PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/UIModule
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_radial_math PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(RadialMathUnit test_radial_math ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_020: action-wheel (radial) click E2E — confirm a wedge by direction, cancel in
+    # the dead-zone, miss off-wheel. Locks the new UIRadial widget end-to-end.
+    add_executable(IT_020_ui_radial_e2e
+        integration/IT_020_ui_radial_e2e.cpp
+    )
+    target_link_libraries(IT_020_ui_radial_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIRadialE2E IT_020_ui_radial_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)
