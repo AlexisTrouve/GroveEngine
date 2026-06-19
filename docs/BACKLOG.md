@@ -35,6 +35,12 @@ tests; this file is only what's **not** done yet.
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and
   update its pixels (paint). Mostly EXPOSING existing RHI (`createTexture`/`updateTexture`,
   `ResourceCache::registerTexture`) via a topic (`render:texture:create`/`:update` → textureId).
+- **Sprite mips / unit anti-aliasing at zoom-out** — units are free sprites (world-float coords,
+  any sub-tile position) layered over the tilemap — already supported. BUT `TextureLoader` creates
+  sprite textures with NO mips (mipLevels=1), so under strong zoom-out units can shimmer/alias.
+  Fix = generate + upload mips for sprite textures (the RHI already does mips — see the tilemap LOD)
+  + a readback test. Note: *semantic* LOD (detailed ship → blip/icon at system zoom) stays GAME-SIDE
+  — the engine gives zoom + culling; the game picks what to submit.
 
 ## Animation (`grove::anim`)
 - **Clip blending** (slice 4) — crossfade two clips by weight. Advanced; not needed for "simple".
@@ -45,6 +51,15 @@ tests; this file is only what's **not** done yet.
 ## Sound (`SoundManager`)
 - Channel groups, per-sound instance caps, ducking, music preload/unload. v1 is fire-and-forget
   SFX + looping-stoppable-by-id + music + buses + preload/unload.
+- **Adaptive / interactive audio — TO PLAN (engine gap; de-risk it the way the tilemap was).**
+  Today's `SoundManager` (SDL_mixer) does fire-and-forget music + SFX. It does NOT do adaptive
+  audio: multi-**stem** layers mixed by game state, music **transitions quantized to the bar/beat**,
+  **state-driven mixing**. Drifterra will want this. Two routes, both behind `ISoundBackend`:
+  - **Custom AudioModule** — stems + a beat-clock + state→mix rules on top of the backend. More
+    control, more work, stays in our SDL stack.
+  - **Middleware (FMOD / Wwise)** — industry-standard adaptive-audio engines behind the interface.
+    Powerful fast, but licensing + integration cost.
+  Decide the route *before* the game needs it (anticipate, don't scramble — like the tilemap).
 
 ## Quality / infra
 - **`LimitsTest` flakiness** — SEGFAULTs intermittently in the FULL suite under load; passes
