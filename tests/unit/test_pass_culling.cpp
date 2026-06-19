@@ -252,3 +252,40 @@ TEST_CASE("Tilemap bakes a mipped LOD color texture per chunk (Slice B1)", "[cul
     REQUIRE(foundLod);
     pass.shutdown(device);
 }
+
+TEST_CASE("Retained tilemap partial update uploads only the dirty sub-rect (Slice A4.2)", "[culling][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    TilemapPass pass(shader);
+    pass.setup(device);
+
+    std::vector<uint16_t> tiles(100, static_cast<uint16_t>(1));   // 10x10
+    TilemapChunk chunk{};
+    chunk.x = 0; chunk.y = 0; chunk.width = 10; chunk.height = 10;
+    chunk.tileWidth = 32; chunk.tileHeight = 32;
+    chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+    chunk.id = 1; chunk.dirty = true;     // frame 1: full (dirtyW == 0)
+
+    FramePacket frame;
+    frame.tilemaps = &chunk;
+    frame.tilemapCount = 1;
+
+    // Frame 1: texture created -> full upload.
+    { rhi::RHICommandBuffer cmd; pass.execute(frame, device, cmd); }
+    REQUIRE(device.textureRegionUpdates.size() == 1);
+    REQUIRE(device.textureRegionUpdates.back().w == 10);
+    REQUIRE(device.textureRegionUpdates.back().h == 10);
+
+    // Frame 2: partial dirty rect -> only that sub-rect is uploaded (texture already resident).
+    chunk.dirty = true;
+    chunk.dirtyX = 2; chunk.dirtyY = 3; chunk.dirtyW = 4; chunk.dirtyH = 5;
+    { rhi::RHICommandBuffer cmd; pass.execute(frame, device, cmd); }
+    REQUIRE(device.textureRegionUpdates.size() == 2);
+    const auto& u = device.textureRegionUpdates.back();
+    REQUIRE(u.x == 2);
+    REQUIRE(u.y == 3);
+    REQUIRE(u.w == 4);
+    REQUIRE(u.h == 5);
+
+    pass.shutdown(device);
+}

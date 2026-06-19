@@ -199,7 +199,10 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
                         }
                     }
                     tilemaps[idx++] = chunk;
-                    rt.chunk.dirty = false;  // consumed this frame -> no re-upload until next update
+                    // Consumed this frame -> clean until the next update (clears the dirty rect too).
+                    rt.chunk.dirty = false;
+                    rt.chunk.dirtyX = 0; rt.chunk.dirtyY = 0;
+                    rt.chunk.dirtyW = 0; rt.chunk.dirtyH = 0;
                 }
 
                 // Ephemeral chunks (re-sent every frame).
@@ -539,6 +542,23 @@ void SceneCollector::parseTilemapAdd(const IDataNode& data) {
     m_retainedTilemaps[id] = std::move(rt);
 }
 
+// Grow a chunk's dirty rect to also cover [x,y,w,h] (Slice A4.2). A pending full-grid upload
+// (dirty && dirtyW==0) subsumes any patch; a clean chunk takes the rect as-is; otherwise union.
+static void unionDirtyRect(TilemapChunk& c, int x, int y, int w, int h) {
+    if (!c.dirty) {
+        c.dirtyX = static_cast<uint16_t>(x); c.dirtyY = static_cast<uint16_t>(y);
+        c.dirtyW = static_cast<uint16_t>(w); c.dirtyH = static_cast<uint16_t>(h);
+        return;
+    }
+    if (c.dirtyW == 0) return;  // full-grid upload already pending — it covers everything
+    const int x0 = (c.dirtyX < x) ? c.dirtyX : x;
+    const int y0 = (c.dirtyY < y) ? c.dirtyY : y;
+    const int x1 = (c.dirtyX + c.dirtyW > x + w) ? c.dirtyX + c.dirtyW : x + w;
+    const int y1 = (c.dirtyY + c.dirtyH > y + h) ? c.dirtyY + c.dirtyH : y + h;
+    c.dirtyX = static_cast<uint16_t>(x0); c.dirtyY = static_cast<uint16_t>(y0);
+    c.dirtyW = static_cast<uint16_t>(x1 - x0); c.dirtyH = static_cast<uint16_t>(y1 - y0);
+}
+
 void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
     const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
     auto it = m_retainedTilemaps.find(id);
@@ -546,10 +566,36 @@ void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
         parseTilemapAdd(data);        // unknown id -> treat as add (mirrors sprite update)
         return;
     }
-    // Replace the grid (same geometry — to change dims, remove + add). Mark dirty for re-upload.
-    it->second.tiles = parseTileArray(data);
-    it->second.chunk.tileCount = it->second.tiles.size();
-    it->second.chunk.dirty = true;
+    RetainedTilemap& rt = it->second;
+
+    const int w = data.getInt("w", 0);
+    const int h = data.getInt("h", 0);
+    if (w > 0 && h > 0) {
+        // PARTIAL patch (Slice A4.2): write a w*h block of ids at (x,y) into the stored grid, and
+        // grow the dirty rect — only those texels get re-uploaded, not the whole grid.
+        const int x = data.getInt("x", 0);
+        const int y = data.getInt("y", 0);
+        const std::vector<uint16_t> patch = parseTileArray(data);   // w*h tile ids, row-major
+        const int gw = rt.chunk.width;
+        for (int ty = 0; ty < h; ++ty) {
+            for (int tx = 0; tx < w; ++tx) {
+                const size_t pi = static_cast<size_t>(ty) * w + tx;
+                const size_t gi = static_cast<size_t>(y + ty) * gw + (x + tx);
+                if (pi < patch.size() && gi < rt.tiles.size()) {
+                    rt.tiles[gi] = patch[pi];
+                }
+            }
+        }
+        unionDirtyRect(rt.chunk, x, y, w, h);
+        rt.chunk.dirty = true;
+    } else {
+        // FULL replace (same geometry — to change dims, remove + add). dirtyW=0 => full upload.
+        rt.tiles = parseTileArray(data);
+        rt.chunk.tileCount = rt.tiles.size();
+        rt.chunk.dirty = true;
+        rt.chunk.dirtyW = 0;
+        rt.chunk.dirtyH = 0;
+    }
 }
 
 void SceneCollector::parseTilemapRemove(const IDataNode& data) {

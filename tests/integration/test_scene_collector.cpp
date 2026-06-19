@@ -194,6 +194,48 @@ TEST_CASE("SceneCollector - retained tilemap: add persists + dirty cycle + updat
     REQUIRE(fx.collector.finalize(allocator).tilemapCount == 0);
 }
 
+TEST_CASE("SceneCollector - retained tilemap: partial update patches a sub-rect + dirty rect (A4.2)", "[scene_collector][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Add a 4x4 chunk, all id 1.
+    auto add = std::make_unique<JsonDataNode>("tm");
+    add->setInt("id", 1);
+    add->setInt("width", 4);
+    add->setInt("height", 4);
+    add->setString("tileData", "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1");
+    fx.ioPublisher->publish("render:tilemap:add", std::move(add));
+    fx.pump();
+    fx.collector.finalize(allocator);   // frame 1 (full upload)
+    fx.collector.clear();
+
+    // Partial update: a 2x2 block of id 2 at (1,1).
+    auto upd = std::make_unique<JsonDataNode>("tm");
+    upd->setInt("id", 1);
+    upd->setInt("x", 1);
+    upd->setInt("y", 1);
+    upd->setInt("w", 2);
+    upd->setInt("h", 2);
+    upd->setString("tileData", "2,2,2,2");
+    fx.ioPublisher->publish("render:tilemap:update", std::move(upd));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.tilemapCount == 1);
+    const auto& c = p.tilemaps[0];
+    REQUIRE(c.dirty == true);
+    REQUIRE(c.dirtyX == 1);          // the dirty rect, not the whole grid
+    REQUIRE(c.dirtyY == 1);
+    REQUIRE(c.dirtyW == 2);
+    REQUIRE(c.dirtyH == 2);
+    // Grid patched inside the rect, untouched outside.
+    REQUIRE(c.tiles[0] == 1);
+    REQUIRE(c.tiles[1 * 4 + 1] == 2);
+    REQUIRE(c.tiles[1 * 4 + 2] == 2);
+    REQUIRE(c.tiles[2 * 4 + 2] == 2);
+    REQUIRE(c.tiles[3 * 4 + 3] == 1);
+}
+
 TEST_CASE("SceneCollector - retained text: add + persist + update + remove", "[scene_collector][retained]") {
     RetainedFixture fx;
     FrameAllocator allocator;

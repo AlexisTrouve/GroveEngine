@@ -53,6 +53,10 @@ struct TilemapChunk {
     // added/updated), so a static retained chunk uploads exactly once.
     uint32_t id = 0;
     bool dirty = true;
+    // Dirty sub-rectangle for PARTIAL retained updates (Slice A4.2). When dirty && dirtyW>0, only
+    // [dirtyX, dirtyY, +dirtyW, +dirtyH] of the index texture is re-uploaded (fog reveal, terrain
+    // edits) instead of the whole grid. dirtyW==0 (with dirty) = full-grid upload (add / full update).
+    uint16_t dirtyX = 0, dirtyY = 0, dirtyW = 0, dirtyH = 0;
 };
 
 // ============================================================================

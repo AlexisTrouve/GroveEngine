@@ -190,8 +190,26 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 idx.height = chunk.height;
             }
             if (needsCreate || chunk.dirty) {
-                device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
-                // The LOD color band depends on tile CONTENT, so any upload re-bakes it (Slice B).
+                const bool partial = !needsCreate && chunk.dirtyW > 0
+                                     && (chunk.dirtyW < chunk.width || chunk.dirtyH < chunk.height);
+                if (partial) {
+                    // Slice A4.2: upload ONLY the dirty sub-rect. Extract it contiguously from the
+                    // full grid (whose rows are strided by chunk.width).
+                    std::vector<uint16_t> sub(static_cast<size_t>(chunk.dirtyW) * chunk.dirtyH);
+                    for (int ty = 0; ty < chunk.dirtyH; ++ty) {
+                        for (int tx = 0; tx < chunk.dirtyW; ++tx) {
+                            sub[static_cast<size_t>(ty) * chunk.dirtyW + tx] =
+                                chunk.tiles[static_cast<size_t>(chunk.dirtyY + ty) * chunk.width
+                                            + (chunk.dirtyX + tx)];
+                        }
+                    }
+                    device.updateTexture(idx.handle, sub.data(),
+                                         static_cast<uint32_t>(sub.size() * sizeof(uint16_t)),
+                                         chunk.dirtyX, chunk.dirtyY, chunk.dirtyW, chunk.dirtyH);
+                } else {
+                    device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
+                }
+                // The LOD color band depends on tile CONTENT, so any change re-bakes it (Slice B).
                 if (idx.lod.isValid()) device.destroy(idx.lod);
                 idx.lod = bakeLodColor(device, chunk);
             }
