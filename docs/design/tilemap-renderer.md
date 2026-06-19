@@ -67,7 +67,7 @@ doesn't surface it yet. Real, bounded engine work.
 - **A — detail:** ✅ RHI extensions (R16UI, array, sampler flags) + `*_tilemap` shader + retained
   index grid (`render:tilemap:add/update/remove`) + atlas-array + texelFetch. Kills the CPU cost.
 - **B — LOD:** ✅ palette → mipped color + derivative crossfade.
-- **Then as needed:** ⬜ mipped R8 fog/state, multi-layer, animated tiles.
+- **Then as needed:** ✅ mipped R8 fog/state · ⬜ multi-layer, animated tiles.
 
 ## Validated against the state of the art (deep-research, 2026-06-17)
 A multi-source, adversarially-verified survey confirmed this design matches current best practice
@@ -127,6 +127,10 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - A4.2 — partial sub-rect updates: `render:tilemap:update {id,x,y,w,h,tileData}` patches a block into
   a retained chunk; the pass uploads only the dirty rect via the A1 region overload (fog/edits).
   Tests: `SceneCollectorTest` (patch + dirty rect), `PassCullingUnit` (frame 2 region == rect) (`26b27e3`).
+- Fog — fog-of-war: per-tile scalar visibility (`fogData`) baked as a mipped **R8** texture per chunk
+  (`buildR8MipChain`), sampled in fs_tilemap (`s_fog`) and multiplied into the color; dims correctly
+  at every zoom (`a0a714d`, `6396f6d`). Tests: `LodColorUnit` (R8 box-filter), `TilemapLodGpu`
+  (half-visibility -> half color). Fog updates are FULL (re-send fogData); partial-fog reveal TBD.
 
 **Learnings (paid for in blood — don't relearn these):**
 - **bgfx HLSL profile is `s_5_0`, NOT `vs_5_0`/`ps_5_0`** — the CMake `compile_bgfx_shader` helper
@@ -146,7 +150,7 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - Flagged pre-existing bug: full-image `updateTexture` uses device `m_width/m_height` (only correct
   for a screen-sized texture); the region overload sidesteps it.
 
-**Not done (backlog):** mipped `R8` fog, multi-layer, animated tiles.
+**Not done (backlog):** multi-layer, animated tiles.
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is
