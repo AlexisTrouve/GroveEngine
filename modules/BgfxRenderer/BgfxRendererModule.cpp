@@ -6,6 +6,7 @@
 #include "RenderGraph/RenderGraph.h"
 #include "Scene/SceneCollector.h"
 #include "Resources/ResourceCache.h"
+#include "Resources/TextureLoader.h"
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/TilemapPass.h"
@@ -119,6 +120,7 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Create TilemapPass (renders before sprites) — uses the dedicated GPU tilemap shader
     auto tilemapPass = std::make_unique<TilemapPass>(tilemapShader);
     tilemapPass->setResourceCache(m_resourceCache.get());
+    m_tilemapPass = tilemapPass.get();   // non-owning ref (setTileset / setFogTexture)
     m_renderGraph->addPass(std::move(tilemapPass));
     m_logger->info("Added TilemapPass");
 
@@ -169,6 +171,22 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             m_logger->info("Loaded default texture: {} (id={})", defaultTexturePath, texId);
         } else {
             m_logger->warn("Failed to load default texture: {}", defaultTexturePath);
+        }
+    }
+
+    // Load the tiled fog texture if specified (Slice fog): hidden tiles show this instead of black.
+    // Loaded with the default Repeat wrap, so it tiles seamlessly across the map.
+    std::string fogTexturePath = config.getString("fogTexture", "");
+    if (!fogTexturePath.empty() && m_tilemapPass) {
+        // Load WITHOUT a public textureId (loadFromFile, not loadTextureWithId): the fog texture is
+        // bound directly via setFogTexture, so it must NOT consume a sprite textureId slot (doing so
+        // shifted texture1/texture2 ids and broke sprite lookups). Default wrap is Repeat -> tiles.
+        TextureLoader::LoadResult fog = TextureLoader::loadFromFile(*m_device, fogTexturePath);
+        if (fog.success) {
+            m_tilemapPass->setFogTexture(fog.handle);
+            m_logger->info("Loaded fog texture: {} ({}x{})", fogTexturePath, fog.width, fog.height);
+        } else {
+            m_logger->warn("Failed to load fog texture: {} ({})", fogTexturePath, fog.error);
         }
     }
 

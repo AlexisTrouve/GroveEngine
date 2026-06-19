@@ -17,6 +17,7 @@ class SceneCollector;
 class ResourceCache;
 class ShaderManager;
 class SpritePass;
+class TilemapPass;
 class DebugOverlay;
 
 // ============================================================================
@@ -67,6 +68,7 @@ private:
 
     // Pass references (non-owning, owned by RenderGraph)
     SpritePass* m_spritePass = nullptr;
+    TilemapPass* m_tilemapPass = nullptr;   // non-owning (setTileset / setFogTexture)
 
     // IIO (non-owning)
     IIO* m_io = nullptr;

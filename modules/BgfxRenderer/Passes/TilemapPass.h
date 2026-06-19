@@ -57,6 +57,12 @@ public:
         m_tilesets[textureId] = arrayTexture;
     }
 
+    /**
+     * @brief Set the tiled fog texture (Slice fog): hidden tiles show this (wrap=Repeat, world-uv)
+     *        instead of going black. NON-OWNING. Invalid handle -> hidden tiles render black.
+     */
+    void setFogTexture(rhi::TextureHandle tex) { m_fogNoise = tex; }
+
 private:
     rhi::ShaderHandle m_shader;       // GPU tilemap program ("tilemap")
     rhi::BufferHandle m_quadVB;       // unit quad, scaled per chunk by the VS
@@ -69,6 +75,7 @@ private:
     rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas (texture2DArray)
     rhi::UniformHandle m_lodSampler;      // s_lod   (slot 2) — mipped LOD color texture (Slice B)
     rhi::UniformHandle m_fogSampler;      // s_fog   (slot 3) — mipped R8 visibility (Slice fog)
+    rhi::UniformHandle m_fogNoiseSampler; // s_fognoise (slot 4) — tiled fog texture (wrap=Repeat)
 
     // Procedural color atlas ARRAY (one solid color per layer) used as the tileset for A3:
     // tile id N -> layer N-1 -> a distinct color. Proves the array indexing visually. Slicing a
@@ -76,6 +83,8 @@ private:
     rhi::TextureHandle m_defaultAtlas;
     rhi::TextureHandle m_defaultTileset;  // (reserved API; the real per-textureId atlas path is A3.3)
     rhi::TextureHandle m_defaultFog;      // 1x1 R8 = 255 (fully visible), bound when a chunk has no fog
+    rhi::TextureHandle m_defaultFogNoise; // 1x1 black: hidden tiles go black (the no-fog-texture case)
+    rhi::TextureHandle m_fogNoise;        // tiled fog texture set by the host (NON-owning); invalid -> default
 
     // Per-textureId atlas arrays registered by the host (Slice A3.3); NON-owning. A chunk's
     // textureId selects one, else the procedural m_defaultAtlas is bound.

@@ -17,8 +17,10 @@ USAMPLER2D(s_index, 0);        // R16UI tile-index texture
 SAMPLER2DARRAY(s_atlas, 1);    // detail atlas: one tile type per layer
 SAMPLER2D(s_lod, 2);           // mipped LOD color texture (1 texel/tile + box-filter mips)
 SAMPLER2D(s_fog, 3);           // mipped R8 per-tile visibility (1 = visible, 0 = hidden)
+SAMPLER2D(s_fognoise, 4);      // tiled fog texture (wrap=Repeat); hidden tiles show this, not black
 
 uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w unused)
+uniform vec4 u_tilemapParams;  // x=originX, y=originY, z=tilePixW, w=tilePixH (world-space fog uv)
 
 void main()
 {
@@ -45,10 +47,14 @@ void main()
     float k = smoothstep(0.5, 1.0, tpp);
     vec4 col = mix(detail, lod, k);
 
-    // Fog of war (Slice fog): scalar visibility dims hidden tiles. Mipped + sampled at the normalized
-    // uv, so it dims correctly at every zoom (same band-agnostic multiply for detail and LOD).
+    // Fog of war (Slice fog): scalar visibility blends the tile with a TILED fog texture. vis=1 ->
+    // tile, vis=0 -> fog. Mipped R8 mask -> dims correctly at every zoom. The fog texture samples at
+    // a WORLD-space uv (so the fog is anchored to the terrain) and wraps (Repeat) -> tiles seamlessly.
+    // With the default 1x1 black fog texture this reduces to the old "hidden -> black".
     float vis = texture2D(s_fog, tc / grid).r;
-    col.rgb *= vis;
+    vec2 worldPos = u_tilemapParams.xy + tc * u_tilemapParams.zw;
+    vec3 fogColor = texture2D(s_fognoise, worldPos / 64.0).rgb;
+    col.rgb = mix(fogColor, col.rgb, vis);
 
     if (col.a < 0.01) {
         discard;                                             // fully empty -> nothing to draw

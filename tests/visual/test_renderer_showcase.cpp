@@ -176,6 +176,7 @@ public:
         // Works from build/ or build/tests/
         config.setString("texture1", "../assets/textures/1f440.png");      // Eye emoji
         config.setString("texture2", "../assets/textures/5oxaxt1vo2f91.jpg"); // Image
+        config.setString("fogTexture", "../assets/textures/fog_noise.png"); // tiled fog-of-war brume
 
         m_renderer->setConfiguration(config, m_rendererIO, nullptr);
 
@@ -356,6 +357,24 @@ private:
             }
         }
         tilemap->setString("tileData", tileData);
+
+        // Fog-of-war demo: a soft visibility disc centered in the chunk — clear in the middle,
+        // fading to black toward the edges. Proves the R8 fog layer (Fog.2) visually.
+        std::string fogData;
+        fogData.reserve(static_cast<size_t>(W) * H * 4);
+        const float cx = W * 0.5f, cy = H * 0.5f, R = W * 0.35f;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const float dx = x - cx, dy = y - cy;
+                const float d = std::sqrt(dx * dx + dy * dy);
+                float t = (R - d) / (0.4f * R);     // 1 inside 0.6R, linearly to 0 at R
+                if (t < 0.0f) t = 0.0f;
+                if (t > 1.0f) t = 1.0f;
+                if (!fogData.empty()) fogData += ",";
+                fogData += std::to_string(static_cast<int>(t * 255.0f));
+            }
+        }
+        tilemap->setString("fogData", fogData);
 
         m_gameIO->publish("render:tilemap:add", std::move(tilemap));
     }

@@ -104,6 +104,7 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_atlasSampler  = device.createUniform("s_atlas", 1);
     m_lodSampler    = device.createUniform("s_lod", 1);
     m_fogSampler    = device.createUniform("s_fog", 1);
+    m_fogNoiseSampler = device.createUniform("s_fognoise", 1);
 
     // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
@@ -134,6 +135,17 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     fogDesc.data = &fullVis;
     fogDesc.dataSize = 1;
     m_defaultFog = device.createTexture(fogDesc);
+
+    // 1x1 black fog texture — the no-fog-texture default, so mix(fog, color, vis) reduces to
+    // "hidden tiles go black" (the original look) until a host sets a real fog texture.
+    uint32_t blackPixel = 0xFF000000u;   // RGBA8 bytes [R,G,B,A] = [0,0,0,255] (opaque black)
+    rhi::TextureDesc fnDesc;
+    fnDesc.width = 1;
+    fnDesc.height = 1;
+    fnDesc.format = rhi::TextureDesc::RGBA8;
+    fnDesc.data = &blackPixel;
+    fnDesc.dataSize = sizeof(blackPixel);
+    m_defaultFogNoise = device.createTexture(fnDesc);
 }
 
 void TilemapPass::shutdown(rhi::IRHIDevice& device) {
@@ -145,8 +157,10 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_atlasSampler);
     device.destroy(m_lodSampler);
     device.destroy(m_fogSampler);
+    device.destroy(m_fogNoiseSampler);
     device.destroy(m_defaultAtlas);
     device.destroy(m_defaultFog);
+    device.destroy(m_defaultFogNoise);
     for (auto& it : m_indexTextures) {
         if (it.handle.isValid()) device.destroy(it.handle);
         if (it.lod.isValid()) device.destroy(it.lod);
@@ -300,6 +314,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         cmd.setTexture(1, tileset, m_atlasSampler);
         cmd.setTexture(2, lodTex, m_lodSampler);
         cmd.setTexture(3, fogTex, m_fogSampler);
+        cmd.setTexture(4, m_fogNoise.isValid() ? m_fogNoise : m_defaultFogNoise, m_fogNoiseSampler);
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
         cmd.drawIndexed(6);

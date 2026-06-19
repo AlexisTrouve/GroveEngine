@@ -432,7 +432,7 @@ public:
         // Store texture state to apply at draw time (not immediately). One pending binding PER
         // slot — the tilemap binds TWO textures (index in slot 0 + atlas in slot 1) for a single
         // submit, so a single global pending would let the second setTexture clobber the first.
-        static constexpr uint8_t MAX_TEXTURE_SLOTS = 4;
+        static constexpr uint8_t MAX_TEXTURE_SLOTS = 8;
         struct PendingTex { TextureHandle texture; UniformHandle sampler; bool has = false; };
         PendingTex pendingTex[MAX_TEXTURE_SLOTS];
 
