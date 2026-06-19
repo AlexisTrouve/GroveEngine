@@ -41,10 +41,8 @@ camera items are above. The genuine engine gaps it surfaces:
   derivative detail↔LOD crossfade with a palette-driven mipped color band. Tested headless +
   `[gpu]` readback. Full status, commits, and learnings in
   [docs/design/tilemap-renderer.md](design/tilemap-renderer.md#implementation-status--shipped-a--b-20260618).
-  **Remaining (deferred):**
-  - **A4.2 sub-rect patch** — `render:tilemap:update {id,x,y,w,h,tiles}` to patch a few texels (fog
-    reveal, terrain edits) via the A1 region overload instead of replacing the whole grid.
-  - mipped `R8` **fog/state** (scalar visibility), **multi-layer** chunks, **animated tiles**.
+  **Remaining (deferred):** mipped `R8` **fog/state** (scalar visibility), **multi-layer** chunks,
+  **animated tiles**.
 - **Render-side culling in passes** — SpritePass/TilemapPass skip instances outside the camera
   bounds before draw (same `visibleWorldBounds`). Couple with tilemap high-perf; measure first.
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and

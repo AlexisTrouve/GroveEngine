@@ -124,6 +124,9 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
   (PNG → array) + `TilemapPass::setTileset(textureId, array)`; a chunk's `textureId` picks the real
   atlas over the procedural one (`7a6e487`, `c068f21`, `0ea9d6c`). Tests: `AtlasSliceUnit`,
   `TextureArrayUnit`, + the tileset case in `TilemapLodGpu`.
+- A4.2 — partial sub-rect updates: `render:tilemap:update {id,x,y,w,h,tileData}` patches a block into
+  a retained chunk; the pass uploads only the dirty rect via the A1 region overload (fog/edits).
+  Tests: `SceneCollectorTest` (patch + dirty rect), `PassCullingUnit` (frame 2 region == rect) (`26b27e3`).
 
 **Learnings (paid for in blood — don't relearn these):**
 - **bgfx HLSL profile is `s_5_0`, NOT `vs_5_0`/`ps_5_0`** — the CMake `compile_bgfx_shader` helper
@@ -143,8 +146,7 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - Flagged pre-existing bug: full-image `updateTexture` uses device `m_width/m_height` (only correct
   for a screen-sized texture); the region overload sidesteps it.
 
-**Not done (backlog):** A4.2 (sub-rect patch for fog/terrain edits), mipped `R8` fog, multi-layer,
-animated tiles.
+**Not done (backlog):** mipped `R8` fog, multi-layer, animated tiles.
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is
