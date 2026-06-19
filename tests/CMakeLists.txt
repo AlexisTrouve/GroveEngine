@@ -1890,6 +1890,21 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TilemapLodGpu test_tilemap_lod_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # ctest's per-test ENVIRONMENT mangles PATH (CMake splits it on ';', the same char Windows PATH
+    # uses as a separator), so only the working_dir survives and SDL2.dll (in the toolchain) is lost
+    # -> the GPU tests fail to load (0xc0000135). Copy SDL2.dll next to the exes so it's found in the
+    # working_dir regardless of PATH.
+    find_file(GROVE_SDL2_DLL NAMES SDL2.dll PATHS ENV PATH)
+    if(GROVE_SDL2_DLL)
+        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu)
+            add_custom_command(TARGET ${gpu_test} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:${gpu_test}>")
+        endforeach()
+    else()
+        message(WARNING "SDL2.dll not found on PATH; GPU tests may fail under ctest (0xc0000135)")
+    endif()
+
     # Retained-mode demo (render:sprite:add/:update/:remove + render:text:add)
     add_executable(test_retained_showcase WIN32
         visual/test_retained_showcase.cpp
