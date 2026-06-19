@@ -5,6 +5,14 @@ Deferred engine work, with the *why now-or-later*. Not commitments; picked up wh
 tests; this file is only what's **not** done yet.
 
 ## Camera / View
+- **Zoom continuum (galaxy↔system↔ship↔interior) — ✅ engine math SHIPPED** (2026-06-20). The
+  continuous motion was already there (`grove::camera` zoomAt/damp/clampZoom); now `ZoomLadder`
+  (`Scene/ZoomLadder.h`) adds **readable plateaus** (`snap`) + the **strata/transition seam**
+  (`blend` → active strata + log-space smoothstep crossfade `t`), locked by `ZoomLadderUnit`.
+  **Remaining = GAME-SIDE by design** (engine gives the seam, not the content): *what* is
+  rendered/simulated per strata (semantic zoom), the actual content cross-fade during a transition,
+  and galaxy-scale culling/floating-origin. A renderer-side showcase **demo** of the continuum (prove
+  the 2→N strata transition à l'œil, INTERFACE.md "à prouver tôt") is the natural next visual step.
 - **Multi-cam** (N viewports in one window) — minimap, tactical inset. = N bgfx views, each with
   its own screen viewport + transform; passes draw the (culled) scene per camera. Moderate
   renderer refactor; it's the **foundation** the multi-screen item reuses.

@@ -1571,6 +1571,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_camera PRIVATE Catch2::Catch2WithMain)
     grove_add_test(CameraUnit test_camera ${CMAKE_CURRENT_BINARY_DIR})
 
+    # ZoomLadder (grove::camera): pure zoom-strata math (plateaus + log-space crossfade) for the
+    # zoom continuum. Header-only — no bgfx/GPU. Objective unit test with analytical oracles.
+    add_executable(test_zoom_ladder unit/test_zoom_ladder.cpp)
+    target_include_directories(test_zoom_ladder PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_zoom_ladder PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(ZoomLadderUnit test_zoom_ladder ${CMAKE_CURRENT_BINARY_DIR})
+
     # HUD overlay view routing: SpritePass/TextPass must submit HUD buckets to bgfx view 1,
     # world buckets to view 0. No GPU (MockRHIDevice), but SpritePass references
     # ResourceCache::getTextureById -> link ResourceCache + TextureLoader (stb_image header).

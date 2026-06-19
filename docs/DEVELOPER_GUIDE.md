@@ -275,6 +275,35 @@ barrier** — every frame draws whatever you submit — so a "seamless" transiti
 game swapping what it submits while the zoom ramps. Locked by `CameraUnit` +
 `SceneCollectorTest` (the latter proves the engine's matrices match these helpers).
 
+#### Zoom strata — `grove::camera::ZoomLadder` (`Scene/ZoomLadder.h`)
+
+`zoomAt`/`damp` give *continuous* zoom; `ZoomLadder` gives it **readable plateaus** and a
+**strata model** for a galaxy↔system↔ship↔interior continuum. The engine owns the MATH; the
+game owns the CONTENT (what to render/simulate per strata stays game-side, exactly like the
+tilemap LOD where the engine gives the crossfade factor and the shader uses it).
+
+```cpp
+#include "Scene/ZoomLadder.h"
+using namespace grove::camera;
+
+// Plateaus = the readable zoom levels (ascending). transitionWidth = how much of each gap ramps.
+ZoomLadder ladder({0.05f, 0.5f, 4.0f, 16.0f}, /*transitionWidth*/0.5f);
+
+// Per frame: snap toward the nearest plateau so the scale "poses" and reads (not infinite mush):
+float targetZoom = ladder.snap(view.zoom);
+view.zoom = damp(view.zoom, targetZoom, 8.0f, deltaTime);
+
+// Locate the zoom on the ladder to drive a SEAMLESS inter-strata transition:
+ZoomBlend b = ladder.blend(view.zoom);
+//  b.active        -> which strata to simulate/render (game decides the content)
+//  b.lower/b.upper -> the two strata it's between
+//  b.t             -> 0..1 crossfade factor between them (fade content in/out across the transition)
+```
+
+Work is in **log-zoom space** (zoom is multiplicative → equal ratios are equal steps). Pure,
+header-only, no GPU. Locked by `ZoomLadderUnit` (analytical oracles). It deliberately does NOT
+decide content or toggle modules — that's the game's call; the ladder only hands it the seam.
+
 **Full Topic Reference:** See [IIO Topics - Rendering](#rendering-topics)
 
 ---
