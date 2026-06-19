@@ -1,4 +1,5 @@
 #include "TextureLoader.h"
+#include "AtlasSlice.h"
 #include "../RHI/RHIDevice.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -93,6 +94,75 @@ TextureLoader::LoadResult TextureLoader::loadFromMemory(rhi::IRHIDevice& device,
     // Free stb_image memory
     stbi_image_free(pixels);
 
+    return result;
+}
+
+TextureLoader::LoadResult TextureLoader::loadArrayFromFile(rhi::IRHIDevice& device,
+                                                           const std::string& path, int tileW, int tileH) {
+    LoadResult result;
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        result.error = "Failed to open file: " + path;
+        spdlog::error("❌ TextureLoader: FAILED to open atlas '{}'", path);
+        return result;
+    }
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::vector<uint8_t> buffer(static_cast<size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+        result.error = "Failed to read file: " + path;
+        return result;
+    }
+    return loadArrayFromMemory(device, buffer.data(), buffer.size(), tileW, tileH);
+}
+
+TextureLoader::LoadResult TextureLoader::loadArrayFromMemory(rhi::IRHIDevice& device,
+                                                             const uint8_t* data, size_t size,
+                                                             int tileW, int tileH) {
+    LoadResult result;
+    if (tileW <= 0 || tileH <= 0) {
+        result.error = "invalid tile size";
+        return result;
+    }
+
+    int width = 0, height = 0, channels = 0;
+    stbi_uc* pixels = stbi_load_from_memory(data, static_cast<int>(size), &width, &height, &channels, 4);
+    if (!pixels) {
+        result.error = std::string("stb_image failed: ") + stbi_failure_reason();
+        return result;
+    }
+
+    // Slice the grid into row-major per-tile layers (RGBA8 texel == one uint32; no byte swap, just a
+    // block copy, so bgfx RGBA8 reads R,G,B,A correctly).
+    int layers = 0;
+    std::vector<uint32_t> arr = atlas::sliceToArray(
+        reinterpret_cast<const uint32_t*>(pixels), width, height, tileW, tileH, layers);
+    stbi_image_free(pixels);
+
+    if (layers < 1) {
+        result.error = "tile size larger than image (0 layers)";
+        return result;
+    }
+
+    rhi::TextureDesc desc;
+    desc.width  = static_cast<uint16_t>(tileW);
+    desc.height = static_cast<uint16_t>(tileH);
+    desc.layers = static_cast<uint16_t>(layers);
+    desc.format = rhi::TextureDesc::RGBA8;
+    desc.data = arr.data();
+    desc.dataSize = static_cast<uint32_t>(arr.size() * sizeof(uint32_t));
+
+    result.handle = device.createTexture(desc);
+    result.width  = static_cast<uint16_t>(tileW);
+    result.height = static_cast<uint16_t>(tileH);
+    result.layers = static_cast<uint16_t>(layers);
+    result.success = result.handle.isValid();
+    if (result.success) {
+        spdlog::info("✅ TextureLoader: atlas array {}x{} px image -> {} layers of {}x{}",
+                     width, height, layers, tileW, tileH);
+    } else {
+        result.error = "Failed to create array texture";
+    }
     return result;
 }
 

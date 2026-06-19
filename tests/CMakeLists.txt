@@ -1630,6 +1630,18 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_atlas_slice PRIVATE Catch2::Catch2WithMain)
     grove_add_test(AtlasSliceUnit test_atlas_slice ${CMAKE_CURRENT_BINARY_DIR})
+
+    # TextureLoader array load (Slice A3.3c): PNG grid -> texture2DArray. Compiles TextureLoader.cpp
+    # directly (stb_image) + MockRHIDevice; no GPU. Skips if the asset isn't found.
+    add_executable(test_texture_array
+        unit/test_texture_array.cpp
+        ../modules/BgfxRenderer/Resources/TextureLoader.cpp)
+    target_include_directories(test_texture_array PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${bgfx_SOURCE_DIR}/bimg/3rdparty)   # stb_image.h
+    target_link_libraries(test_texture_array PRIVATE spdlog::spdlog Catch2::Catch2WithMain)
+    grove_add_test(TextureArrayUnit test_texture_array ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================
