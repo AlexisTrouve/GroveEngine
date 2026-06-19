@@ -24,16 +24,23 @@ primitive, **action wheel** = action primitive, mouse/keyboard interchangeable (
 it leans on is mostly **already covered** — tilemap seamless zoom is shipped, *semantic* LOD
 (detailed ship → icon at system zoom) is **game-side** by design (engine gives zoom + culling),
 camera items are above. The genuine engine gaps it surfaces:
-- **Action-wheel / radial-menu widget** — `UIModule` has button/label/panel/image; a **contextual
-  radial menu** is net-new. It is the game's **action primitive** and the device-agnostic equalizer
-  (same gesture on mouse / keyboard / gamepad). = a radial widget fed by `input:*`, publishing the
-  picked action on `ui:*`. Why now-or-later: prerequisite of "no mandatory device"; pick it up when
-  the first action-heavy slice (combat command) is framed.
+- **Action-wheel / radial-menu widget — ✅ SHIPPED** (2026-06-20). `UIModule` now has a `radial`
+  widget (`UIRadial`): centered, **angular** selection (direction from center → segment), dead-zone
+  cancel, `items[]` clockwise from top, emits `ui:action {widgetId, action, index}`. The angular
+  model is the device-agnostic seam — mouse angle today, gamepad-stick angle / keyboard step later
+  via `setSelectedIndex`. Geometry is pure (`RadialMath.h`, objective unit test); locked E2E by
+  `IT_020` (real click → right action per direction). Docs: [UI_WIDGETS](../docs/UI_WIDGETS.md#uiradial).
+  **Remaining (deferred):** true pie/wedge visuals (today = radial *layout* of rect+label tiles, no
+  arc primitive); auto-close on selection (blocked on the retained-hide ghost-rect limit below).
 - **Gamepad input — premature, parked.** `InputModule` feeds SDL keyboard/mouse → `input:*`; no
   gamepad. A controller path (→ controller-native, Steam Deck) is wanted *eventually* but **not a
-  near-term need** — revisit only once the mouse/keyboard + radial scheme exists and is proven. The
-  enabling piece when it comes: SDL gamepad events as `input:*` + actions bound to several sources
-  mapping one intent (pad/mouse/key interchangeable).
+  near-term need** — the radial's `setSelectedIndex` is the ready seam, but revisit only once a
+  combat-command slice needs it. The enabling piece when it comes: SDL gamepad events as `input:*`
+  + actions bound to several sources mapping one intent (pad/mouse/key interchangeable).
+- **Retained-mode hide leaves ghost rects** — a widget with `visible=false` stops calling `render()`,
+  so its last-published retained entries stay on screen (BgfxRenderer keeps drawing them). Affects
+  *any* `ui:set_visible` toggle, not just the radial. Fix = on hide, publish `render:*:remove` for the
+  widget's entries (or a per-widget "clear" hook). Pick up when a slice needs clean show/hide.
 
 ## Rendering
 - **Tilemap high-perf — ✅ SHIPPED A → B** (2026-06-18/19). GPU index-texture (R16UI + texelFetch,
