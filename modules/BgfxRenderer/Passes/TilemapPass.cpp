@@ -218,11 +218,15 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             lodTex = idx.lod;
         }
 
-        // Atlas = the procedural color ARRAY (A3). A real per-textureId atlas array — built by
-        // slicing a grid-PNG into layers — is the A3.3 follow-on; binding a 2D texture here would be
-        // invalid against the sampler2DArray. Until then the index path always samples the array,
-        // exercising array indexing end-to-end (tile id N -> layer N-1 -> its color).
+        // Atlas = the chunk's registered tileset array (Slice A3.3), else the procedural color array.
+        // Both are texture2DArrays (one tile type per layer), so the sampler2DArray bind is valid.
         rhi::TextureHandle tileset = m_defaultAtlas;
+        if (chunk.textureId != 0) {
+            auto it = m_tilesets.find(chunk.textureId);
+            if (it != m_tilesets.end() && it->second.isValid()) {
+                tileset = it->second;
+            }
+        }
 
         // Per-chunk draw: state, uniforms, two textures (index + atlas), one quad.
         cmd.setState(state);

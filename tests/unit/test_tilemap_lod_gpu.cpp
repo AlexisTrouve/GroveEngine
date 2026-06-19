@@ -29,6 +29,7 @@
 #include "Frame/FramePacket.h"
 #include "Passes/TilemapPass.h"
 #include "Passes/LodColor.h"
+#include "Resources/AtlasSlice.h"
 #include "Shaders/ShaderManager.h"
 
 #include <cstdint>
@@ -146,6 +147,42 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
             CHECK(byteOf(got, shift) >= expected - 16);   // trilinear + rounding tolerance
             CHECK(byteOf(got, shift) <= expected + 16);
         }
+    }
+
+    // --- TILESET (A3.3): a game-supplied atlas array (sliced from a grid) is selected by textureId
+    //     and sampled, instead of the procedural color atlas.
+    {
+        // 2x1-tile grid (1x1 tiles): tile 0 = orange, tile 1 = teal (0xAABBGGRR). Slice -> 2 layers.
+        const uint32_t ORANGE = 0xFF0080FFu;   // R=255 G=128 B=0
+        const uint32_t TEAL   = 0xFFFF8000u;   // R=0   G=128 B=255
+        std::vector<uint32_t> grid = { ORANGE, TEAL };
+        int layers = 0;
+        std::vector<uint32_t> arr = grove::atlas::sliceToArray(grid.data(), 2, 1, 1, 1, layers);
+        REQUIRE(layers == 2);
+
+        rhi::TextureDesc d;
+        d.width = 1; d.height = 1; d.layers = static_cast<uint16_t>(layers);
+        d.format = rhi::TextureDesc::RGBA8;
+        d.data = arr.data();
+        d.dataSize = static_cast<uint32_t>(arr.size() * 4);
+        rhi::TextureHandle atlasArr = device->createTexture(d);
+        pass.setTileset(7, atlasArr);
+
+        // Uniform chunk of id 1 -> layer 0 = ORANGE; textureId 7 selects our atlas; zoomed in = detail.
+        const int G = 8;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        TilemapChunk chunk{};
+        chunk.x = 0; chunk.y = 0; chunk.width = G; chunk.height = G;
+        chunk.tileWidth = 1; chunk.tileHeight = 1;
+        chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+        chunk.textureId = 7; chunk.id = 102; chunk.dirty = true;
+
+        const uint32_t got = renderCenter(chunk, G);
+        INFO("tileset got=" << std::hex << got);
+        CHECK(byteOf(got, 0)  == byteOf(ORANGE, 0));    // our atlas layer 0, NOT the procedural grey
+        CHECK(byteOf(got, 8)  == byteOf(ORANGE, 8));
+        CHECK(byteOf(got, 16) == byteOf(ORANGE, 16));
+        device->destroy(atlasArr);
     }
 
     device->destroy(fb);

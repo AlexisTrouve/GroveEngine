@@ -48,6 +48,15 @@ public:
         m_tilesPerCol = tilesPerCol;
     }
 
+    /**
+     * @brief Register a per-textureId tileset as a texture2DArray (one tile type per layer, Slice
+     *        A3.3). A chunk's textureId selects it; with none registered the procedural color atlas
+     *        is used. NON-OWNING — the caller (host module / test) owns and destroys the handle.
+     */
+    void setTileset(uint16_t textureId, rhi::TextureHandle arrayTexture) {
+        m_tilesets[textureId] = arrayTexture;
+    }
+
 private:
     rhi::ShaderHandle m_shader;       // GPU tilemap program ("tilemap")
     rhi::BufferHandle m_quadVB;       // unit quad, scaled per chunk by the VS
@@ -65,6 +74,10 @@ private:
     // real grid-PNG into an array (via textureId/ResourceCache) is the A3.3 follow-on.
     rhi::TextureHandle m_defaultAtlas;
     rhi::TextureHandle m_defaultTileset;  // (reserved API; the real per-textureId atlas path is A3.3)
+
+    // Per-textureId atlas arrays registered by the host (Slice A3.3); NON-owning. A chunk's
+    // textureId selects one, else the procedural m_defaultAtlas is bound.
+    std::unordered_map<uint16_t, rhi::TextureHandle> m_tilesets;
 
     ResourceCache* m_resourceCache = nullptr;
 
