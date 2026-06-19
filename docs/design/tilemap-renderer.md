@@ -120,6 +120,10 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
   CRUD + dirty cycle), `RhiTextureDescUnit`, `LodColorUnit` (box-filter == average — the LOD oracle),
   `RhiReadbackGpu` (offscreen render → readback foundation, `7852855`), `TilemapLodGpu`
   (end-to-end: detail → tile color, zoom-out → average color, asserted analytically, `ef16cf7`)
+- A3.3 — real atlas: `AtlasSlice` (grid → row-major layers) + `TextureLoader::loadArrayFromFile`
+  (PNG → array) + `TilemapPass::setTileset(textureId, array)`; a chunk's `textureId` picks the real
+  atlas over the procedural one (`7a6e487`, `c068f21`, `0ea9d6c`). Tests: `AtlasSliceUnit`,
+  `TextureArrayUnit`, + the tileset case in `TilemapLodGpu`.
 
 **Learnings (paid for in blood — don't relearn these):**
 - **bgfx HLSL profile is `s_5_0`, NOT `vs_5_0`/`ps_5_0`** — the CMake `compile_bgfx_shader` helper
@@ -131,15 +135,16 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - **LOD visibility ⇔ tiles/pixel = `1/(tilePix·zoom)`**, and zoom is clamped `[0.2, 6]`: 16px tiles
   never reach the LOD in range — the demo uses **1px tiles**. `smoothstep(0.5,1.0)` hands over to the
   LOD *before* the point-sampled detail aliases (a tuning knob, not dogma).
-- **Atlas is a PROCEDURAL color array** (one color per id) for now; slicing a real grid-PNG into array
-  layers is **A3.3**.
+- **Atlas**: a procedural color array (one color per id) is the default/fallback; a real grid-PNG is
+  sliced into array layers via `loadArrayFromFile` + `setTileset` (A3.3, done). Both are arrays, so
+  the `sampler2DArray` bind is always valid.
 - **GPU readback is async** (`readTexture` returns a frame number; pump frames) and needs a real
   context → `[gpu]` tests (hidden window + bgfx), skipped on headless CI.
 - Flagged pre-existing bug: full-image `updateTexture` uses device `m_width/m_height` (only correct
   for a screen-sized texture); the region overload sidesteps it.
 
-**Not done (backlog):** A3.3 (grid-PNG → array atlas), A4.2 (sub-rect patch for fog/terrain edits),
-mipped `R8` fog, multi-layer, animated tiles.
+**Not done (backlog):** A4.2 (sub-rect patch for fog/terrain edits), mipped `R8` fog, multi-layer,
+animated tiles.
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is

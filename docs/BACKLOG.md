@@ -43,8 +43,6 @@ camera items are above. The genuine engine gaps it surfaces:
   `[gpu]` readback. Full status, commits, and learnings in
   [docs/design/tilemap-renderer.md](design/tilemap-renderer.md#implementation-status--shipped-a--b-20260618).
   **Remaining (deferred):**
-  - **A3.3 real atlas** — slice a game-supplied grid-PNG into `texture2DArray` layers (today the atlas
-    is a procedural color array; binding a 2D texture to the array sampler would be invalid).
   - **A4.2 sub-rect patch** — `render:tilemap:update {id,x,y,w,h,tiles}` to patch a few texels (fog
     reveal, terrain edits) via the A1 region overload instead of replacing the whole grid.
   - mipped `R8` **fog/state** (scalar visibility), **multi-layer** chunks, **animated tiles**.
