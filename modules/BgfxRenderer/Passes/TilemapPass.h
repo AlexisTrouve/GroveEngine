@@ -68,12 +68,14 @@ private:
     rhi::UniformHandle m_indexSampler;    // s_index (slot 0) — R16UI tile-index texture
     rhi::UniformHandle m_atlasSampler;    // s_atlas (slot 1) — tile atlas (texture2DArray)
     rhi::UniformHandle m_lodSampler;      // s_lod   (slot 2) — mipped LOD color texture (Slice B)
+    rhi::UniformHandle m_fogSampler;      // s_fog   (slot 3) — mipped R8 visibility (Slice fog)
 
     // Procedural color atlas ARRAY (one solid color per layer) used as the tileset for A3:
     // tile id N -> layer N-1 -> a distinct color. Proves the array indexing visually. Slicing a
     // real grid-PNG into an array (via textureId/ResourceCache) is the A3.3 follow-on.
     rhi::TextureHandle m_defaultAtlas;
     rhi::TextureHandle m_defaultTileset;  // (reserved API; the real per-textureId atlas path is A3.3)
+    rhi::TextureHandle m_defaultFog;      // 1x1 R8 = 255 (fully visible), bound when a chunk has no fog
 
     // Per-textureId atlas arrays registered by the host (Slice A3.3); NON-owning. A chunk's
     // textureId selects one, else the procedural m_defaultAtlas is bound.
@@ -92,6 +94,7 @@ private:
     struct IndexTexture {
         rhi::TextureHandle handle;   // R16UI tile-index texture (detail band)
         rhi::TextureHandle lod;      // RGBA8 mipped LOD color texture (zoom-out band, Slice B)
+        rhi::TextureHandle fog;      // R8 mipped visibility texture (Slice fog; invalid = no fog)
         uint16_t width = 0;
         uint16_t height = 0;
     };

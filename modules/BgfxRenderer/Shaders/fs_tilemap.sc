@@ -16,6 +16,7 @@ $input v_texcoord0
 USAMPLER2D(s_index, 0);        // R16UI tile-index texture
 SAMPLER2DARRAY(s_atlas, 1);    // detail atlas: one tile type per layer
 SAMPLER2D(s_lod, 2);           // mipped LOD color texture (1 texel/tile + box-filter mips)
+SAMPLER2D(s_fog, 3);           // mipped R8 per-tile visibility (1 = visible, 0 = hidden)
 
 uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w unused)
 
@@ -43,6 +44,11 @@ void main()
     // shimmer in the transition zone. (Crossfade window is a tuning knob, per the design.)
     float k = smoothstep(0.5, 1.0, tpp);
     vec4 col = mix(detail, lod, k);
+
+    // Fog of war (Slice fog): scalar visibility dims hidden tiles. Mipped + sampled at the normalized
+    // uv, so it dims correctly at every zoom (same band-agnostic multiply for detail and LOD).
+    float vis = texture2D(s_fog, tc / grid).r;
+    col.rgb *= vis;
 
     if (col.a < 0.01) {
         discard;                                             // fully empty -> nothing to draw

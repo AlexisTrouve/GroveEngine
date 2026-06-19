@@ -41,6 +41,24 @@ static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChu
     return device.createTexture(d);                  // bgfx::copy duplicates `buf`
 }
 
+// Bake the chunk's mipped R8 visibility (fog) texture from chunk.fog (Slice fog). Linear + mips =>
+// the fog dims/feathers correctly at every zoom (scalar visibility box-filters meaningfully).
+static rhi::TextureHandle bakeFog(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
+    int mips = 1;
+    std::vector<uint8_t> buf = lod::buildR8MipChain(chunk.fog, chunk.width, chunk.height, mips);
+
+    rhi::TextureDesc d;
+    d.width     = chunk.width;
+    d.height    = chunk.height;
+    d.mipLevels = static_cast<uint8_t>(mips);
+    d.format    = rhi::TextureDesc::R8;
+    d.filter    = rhi::TextureDesc::Linear;
+    d.wrap      = rhi::TextureDesc::Clamp;
+    d.data      = buf.data();
+    d.dataSize  = static_cast<uint32_t>(buf.size());
+    return device.createTexture(d);
+}
+
 // ============================================================================
 // GPU tilemap pass (Slice A2). The tile grid lives in a GPU R16UI INDEX texture; one quad is drawn
 // per chunk and the fragment shader resolves each pixel's tile via texelFetch. Cost is independent
@@ -85,6 +103,7 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_indexSampler  = device.createUniform("s_index", 1);
     m_atlasSampler  = device.createUniform("s_atlas", 1);
     m_lodSampler    = device.createUniform("s_lod", 1);
+    m_fogSampler    = device.createUniform("s_fog", 1);
 
     // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
@@ -105,6 +124,16 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     atlasDesc.data = atlasPixels.data();
     atlasDesc.dataSize = static_cast<uint32_t>(atlasPixels.size() * sizeof(uint32_t));
     m_defaultAtlas = device.createTexture(atlasDesc);
+
+    // 1x1 R8 = 255 (fully visible) — bound when a chunk carries no fog, so s_fog always samples 1.0.
+    uint8_t fullVis = 255;
+    rhi::TextureDesc fogDesc;
+    fogDesc.width = 1;
+    fogDesc.height = 1;
+    fogDesc.format = rhi::TextureDesc::R8;
+    fogDesc.data = &fullVis;
+    fogDesc.dataSize = 1;
+    m_defaultFog = device.createTexture(fogDesc);
 }
 
 void TilemapPass::shutdown(rhi::IRHIDevice& device) {
@@ -115,15 +144,19 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_indexSampler);
     device.destroy(m_atlasSampler);
     device.destroy(m_lodSampler);
+    device.destroy(m_fogSampler);
     device.destroy(m_defaultAtlas);
+    device.destroy(m_defaultFog);
     for (auto& it : m_indexTextures) {
         if (it.handle.isValid()) device.destroy(it.handle);
         if (it.lod.isValid()) device.destroy(it.lod);
+        if (it.fog.isValid()) device.destroy(it.fog);
     }
     m_indexTextures.clear();
     for (auto& [id, idx] : m_retainedIndex) {
         if (idx.handle.isValid()) device.destroy(idx.handle);
         if (idx.lod.isValid()) device.destroy(idx.lod);
+        if (idx.fog.isValid()) device.destroy(idx.fog);
     }
     m_retainedIndex.clear();
 }
@@ -175,6 +208,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         rhi::TextureHandle indexTex;
 
         rhi::TextureHandle lodTex;
+        rhi::TextureHandle fogTex = m_defaultFog;
 
         if (chunk.id != 0) {
             // Retained (Slice A4): cache by chunk id, upload ONLY when the chunk is dirty (the frame
@@ -212,9 +246,13 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 // The LOD color band depends on tile CONTENT, so any change re-bakes it (Slice B).
                 if (idx.lod.isValid()) device.destroy(idx.lod);
                 idx.lod = bakeLodColor(device, chunk);
+                // Fog (Slice fog): re-bake the R8 visibility texture on any content change.
+                if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
+                if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
             }
             indexTex = idx.handle;
             lodTex = idx.lod;
+            fogTex = idx.fog.isValid() ? idx.fog : m_defaultFog;
         } else {
             // Ephemeral (id == 0): positional cache, re-uploaded every frame (immediate mode). The
             // LOD is baked on (re)create only — ephemeral content is assumed stable (true for the
@@ -226,14 +264,17 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             if (!idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height) {
                 if (idx.handle.isValid()) device.destroy(idx.handle);
                 if (idx.lod.isValid()) device.destroy(idx.lod);
+                if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
                 idx.handle = createIndexTexture(device, chunk.width, chunk.height);
                 idx.lod = bakeLodColor(device, chunk);
+                if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
                 idx.width = chunk.width;
                 idx.height = chunk.height;
             }
             device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
             indexTex = idx.handle;
             lodTex = idx.lod;
+            fogTex = idx.fog.isValid() ? idx.fog : m_defaultFog;
         }
 
         // Atlas = the chunk's registered tileset array (Slice A3.3), else the procedural color array.
@@ -258,6 +299,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         cmd.setTexture(0, indexTex, m_indexSampler);
         cmd.setTexture(1, tileset, m_atlasSampler);
         cmd.setTexture(2, lodTex, m_lodSampler);
+        cmd.setTexture(3, fogTex, m_fogSampler);
         cmd.setVertexBuffer(m_quadVB);
         cmd.setIndexBuffer(m_quadIB);
         cmd.drawIndexed(6);
@@ -270,6 +312,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
         if (seenRetained.find(it->first) == seenRetained.end()) {
             if (it->second.handle.isValid()) device.destroy(it->second.handle);
             if (it->second.lod.isValid()) device.destroy(it->second.lod);
+            if (it->second.fog.isValid()) device.destroy(it->second.fog);
             it = m_retainedIndex.erase(it);
         } else {
             ++it;

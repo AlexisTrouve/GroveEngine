@@ -198,6 +198,14 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
                             chunk.tileCount = rt.tiles.size();
                         }
                     }
+                    if (!rt.fog.empty()) {
+                        uint8_t* fogCopy = static_cast<uint8_t*>(
+                            allocator.allocate(rt.fog.size(), alignof(uint8_t)));
+                        if (fogCopy) {
+                            std::memcpy(fogCopy, rt.fog.data(), rt.fog.size());
+                            chunk.fog = fogCopy;
+                        }
+                    }
                     tilemaps[idx++] = chunk;
                     // Consumed this frame -> clean until the next update (clears the dirty rect too).
                     rt.chunk.dirty = false;
@@ -481,6 +489,21 @@ static void readTilemapMeta(const IDataNode& data, TilemapChunk& chunk) {
     chunk.textureId = static_cast<uint16_t>(data.getInt("textureId", 0));
 }
 
+// Parse per-tile fog visibility (0..255) from a comma-separated "fogData" string. Empty = no fog.
+static std::vector<uint8_t> parseFogData(const IDataNode& data) {
+    std::vector<uint8_t> fog;
+    std::string s = data.getString("fogData", "");
+    size_t pos = 0;
+    while (pos < s.size()) {
+        size_t end = s.find(',', pos);
+        if (end == std::string::npos) end = s.size();
+        std::string n = s.substr(pos, end - pos);
+        if (!n.empty()) fog.push_back(static_cast<uint8_t>(std::stoi(n)));
+        pos = end + 1;
+    }
+    return fog;
+}
+
 // Shared tile-array parser: "tiles" child node (each child has int "v") OR a comma-separated
 // "tileData" string. Used by both the ephemeral and retained tilemap paths.
 std::vector<uint16_t> SceneCollector::parseTileArray(const IDataNode& data) {
@@ -537,7 +560,8 @@ void SceneCollector::parseTilemapAdd(const IDataNode& data) {
     rt.chunk.id = id;
     rt.chunk.dirty = true;            // upload on the next finalize
     rt.tiles = parseTileArray(data);
-    rt.chunk.tiles = nullptr;         // pointer fixed in finalize
+    rt.fog = parseFogData(data);      // optional per-tile visibility (empty = no fog)
+    rt.chunk.tiles = nullptr;         // pointers fixed in finalize
     rt.chunk.tileCount = rt.tiles.size();
     m_retainedTilemaps[id] = std::move(rt);
 }
@@ -591,6 +615,8 @@ void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
     } else {
         // FULL replace (same geometry — to change dims, remove + add). dirtyW=0 => full upload.
         rt.tiles = parseTileArray(data);
+        std::vector<uint8_t> f = parseFogData(data);
+        if (!f.empty()) rt.fog = std::move(f);   // replace fog only if provided
         rt.chunk.tileCount = rt.tiles.size();
         rt.chunk.dirty = true;
         rt.chunk.dirtyW = 0;

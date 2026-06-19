@@ -45,6 +45,7 @@ private:
     struct RetainedTilemap {
         TilemapChunk chunk;
         std::vector<uint16_t> tiles;
+        std::vector<uint8_t> fog;   // per-tile visibility 0..255 (empty = no fog); Slice fog
     };
     std::unordered_map<uint32_t, RetainedTilemap> m_retainedTilemaps;
 

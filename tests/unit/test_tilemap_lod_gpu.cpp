@@ -185,6 +185,28 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         device->destroy(atlasArr);
     }
 
+    // --- FOG (Slice fog): half visibility dims a tile to ~half its color (objective, not just "dark").
+    {
+        const int G = 8;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        std::vector<uint8_t> fog(static_cast<size_t>(G) * G, static_cast<uint8_t>(128));  // ~50%
+        TilemapChunk chunk{};
+        chunk.x = 0; chunk.y = 0; chunk.width = G; chunk.height = G;
+        chunk.tileWidth = 1; chunk.tileHeight = 1;
+        chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+        chunk.fog = fog.data();
+        chunk.id = 103; chunk.dirty = true;   // textureId 0 -> procedural atlas: id 1 = grey palette(1)
+
+        const uint32_t got = renderCenter(chunk, G);
+        const uint32_t full = lod::paletteColor(1);
+        INFO("fog got=" << std::hex << got);
+        for (int shift = 0; shift <= 16; shift += 8) {
+            const int expected = byteOf(full, shift) * 128 / 255;   // dimmed to ~half
+            CHECK(byteOf(got, shift) >= expected - 15);
+            CHECK(byteOf(got, shift) <= expected + 15);
+        }
+    }
+
     device->destroy(fb);
     pass.shutdown(*device);
     shaders.shutdown(*device);
