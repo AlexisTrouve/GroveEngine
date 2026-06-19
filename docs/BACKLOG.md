@@ -20,7 +20,7 @@ tests; this file is only what's **not** done yet.
 
 ## Input / UI
 From Drifterra's interface decision (`../drifterra/docs/INTERFACE.md`): zoom = navigation
-primitive, **action wheel** = action primitive, **no input device mandatory**. The zoom/LOD/camera
+primitive, **action wheel** = action primitive, mouse/keyboard interchangeable (controller a later bonus). The zoom/LOD/camera
 it leans on is mostly **already covered** — tilemap seamless zoom is shipped, *semantic* LOD
 (detailed ship → icon at system zoom) is **game-side** by design (engine gives zoom + culling),
 camera items are above. The genuine engine gaps it surfaces:
@@ -29,12 +29,11 @@ camera items are above. The genuine engine gaps it surfaces:
   (same gesture on mouse / keyboard / gamepad). = a radial widget fed by `input:*`, publishing the
   picked action on `ui:*`. Why now-or-later: prerequisite of "no mandatory device"; pick it up when
   the first action-heavy slice (combat command) is framed.
-- **Gamepad input + multi-source action binding** — `InputModule` feeds SDL keyboard/mouse →
-  `input:*`; **no gamepad**. The "keyboard optional / mouse not mandatory" goal needs a pad to reach
-  the same actions. = (a) SDL gamepad events surfaced as `input:*`; (b) actions bound to **several
-  sources mapping one intent** (mouse/key/pad interchangeable). Payoff: controller-native → Steam
-  Deck. Why now-or-later: settle before the control scheme hardens — retrofitting parity hurts like
-  i18n/E2E (anticipate, don't scramble — same as the tilemap/audio).
+- **Gamepad input — premature, parked.** `InputModule` feeds SDL keyboard/mouse → `input:*`; no
+  gamepad. A controller path (→ controller-native, Steam Deck) is wanted *eventually* but **not a
+  near-term need** — revisit only once the mouse/keyboard + radial scheme exists and is proven. The
+  enabling piece when it comes: SDL gamepad events as `input:*` + actions bound to several sources
+  mapping one intent (pad/mouse/key interchangeable).
 
 ## Rendering
 - **Tilemap high-perf — ✅ SHIPPED A → B** (2026-06-18/19). GPU index-texture (R16UI + texelFetch,
