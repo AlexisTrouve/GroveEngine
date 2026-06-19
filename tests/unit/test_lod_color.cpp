@@ -76,3 +76,28 @@ TEST_CASE("LOD box-filter: empty tiles fade in alpha (transparent averages in)",
     REQUIRE(topAlpha >= 120);
     REQUIRE(topAlpha <= 136);                 // ~half of 255
 }
+
+TEST_CASE("R8 fog mip: coarsest mip of a 0/255 visibility checkerboard = ~127", "[lod][tilemap][unit]") {
+    // Scalar visibility -> box-filtering is meaningful (soft partial-reveal edge at zoom-out).
+    const int W = 4, H = 4;
+    std::vector<uint8_t> vis(static_cast<size_t>(W) * H);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x)
+            vis[static_cast<size_t>(y) * W + x] = ((x + y) & 1) ? 255 : 0;
+
+    int mips = 0;
+    std::vector<uint8_t> chain = buildR8MipChain(vis.data(), W, H, mips);
+
+    REQUIRE(mips == 3);
+    const int top = chain.back();
+    REQUIRE(top >= 120);
+    REQUIRE(top <= 135);   // ~127
+}
+
+TEST_CASE("R8 fog mip: a uniform field keeps its exact value at every mip", "[lod][tilemap][unit]") {
+    const int W = 8, H = 8;
+    std::vector<uint8_t> vis(static_cast<size_t>(W) * H, static_cast<uint8_t>(200));
+    int mips = 0;
+    std::vector<uint8_t> chain = buildR8MipChain(vis.data(), W, H, mips);
+    for (uint8_t v : chain) REQUIRE(v == 200);
+}

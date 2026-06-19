@@ -85,4 +85,39 @@ inline std::vector<uint32_t> buildLodMipChain(int w0, int h0, const uint16_t* ti
     return buf;
 }
 
+// Build a mipped R8 chain (Slice fog): mip0 = the per-tile SCALAR bytes (e.g. visibility 0..255),
+// finer mips are 2x2 box-filters down to 1x1, contiguous (bgfx layout). Encoding fog as a SCALAR is
+// what makes mipping meaningful — box-filtering visibility gives soft partial-reveal edges at
+// zoom-out, whereas averaging discrete enum states would be nonsense.
+inline std::vector<uint8_t> buildR8MipChain(const uint8_t* src, int w0, int h0, int& outMips) {
+    outMips = mipCount(w0, h0);
+
+    std::vector<uint8_t> buf;
+    std::vector<uint8_t> prev(src, src + static_cast<size_t>(w0) * h0);
+    buf.insert(buf.end(), prev.begin(), prev.end());
+
+    int pw = w0, ph = h0;
+    for (int m = 1; m < outMips; ++m) {
+        const int nw = pw > 1 ? pw >> 1 : 1;
+        const int nh = ph > 1 ? ph >> 1 : 1;
+        std::vector<uint8_t> cur(static_cast<size_t>(nw) * nh);
+        for (int y = 0; y < nh; ++y) {
+            for (int x = 0; x < nw; ++x) {
+                const int x0 = x * 2, y0 = y * 2;
+                const int x1 = (x0 + 1 < pw) ? x0 + 1 : x0;
+                const int y1 = (y0 + 1 < ph) ? y0 + 1 : y0;
+                const unsigned s = prev[static_cast<size_t>(y0) * pw + x0]
+                                 + prev[static_cast<size_t>(y0) * pw + x1]
+                                 + prev[static_cast<size_t>(y1) * pw + x0]
+                                 + prev[static_cast<size_t>(y1) * pw + x1];
+                cur[static_cast<size_t>(y) * nw + x] = static_cast<uint8_t>(s >> 2);
+            }
+        }
+        buf.insert(buf.end(), cur.begin(), cur.end());
+        prev.swap(cur);
+        pw = nw; ph = nh;
+    }
+    return buf;
+}
+
 }} // namespace grove::lod
