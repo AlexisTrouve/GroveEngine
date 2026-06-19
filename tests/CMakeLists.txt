@@ -1622,6 +1622,14 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_lod_color PRIVATE Catch2::Catch2WithMain)
     grove_add_test(LodColorUnit test_lod_color ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Atlas grid -> texture2DArray slicing (Slice A3.3): pure pixel re-layout (AtlasSlice.h), no GPU.
+    add_executable(test_atlas_slice unit/test_atlas_slice.cpp)
+    target_include_directories(test_atlas_slice PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_atlas_slice PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(AtlasSliceUnit test_atlas_slice ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # ================================================================================
