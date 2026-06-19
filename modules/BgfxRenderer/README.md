@@ -183,7 +183,10 @@ io->publish("render:debug:rect", std::move(rect));
 | `render:sprite` | Un sprite (`x,y` = centre) |
 | `render:rect` | Rectangle plein coloré `{x,y,w,h,color,layer}` (coin haut-gauche) — quad **layeré** (sprite-pass, avant le texte), pour fonds de HUD. ≠ `render:debug:rect` (toujours au-dessus, sans layer) |
 | `render:sprite:batch` | Batch de sprites |
-| `render:tilemap` | Chunk de tilemap |
+| `render:tilemap` | Chunk **éphémère** (ré-uploadé chaque frame) — `{x,y,width,height,tileW,tileH,textureId,tileData}` |
+| `render:tilemap:add` | Chunk **retained** par `id` (upload-once), `+fogData?` (fog-of-war), LOD/zoom seamless. ⚠️ `x,y`=monde, **pas** de `chunkX`/`tileSize`/`layer` |
+| `render:tilemap:update` | MAJ chunk retained : full `{id,tileData}` ou patch partiel `{id,x,y,w,h,tileData}` (coords-tuiles) |
+| `render:tilemap:remove` | Retire un chunk retained `{id}` |
 | `render:text` | Texte à afficher |
 | `render:particle` | Particule |
 | `render:camera` | Configuration caméra |

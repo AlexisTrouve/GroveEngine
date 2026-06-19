@@ -729,9 +729,47 @@ io->publish("render:rect", std::move(bar));
 
 #### Tilemap
 
+GPU tilemap renderer — **1 draw call per chunk** (R16UI index texture + `usampler2D` + `texelFetch`),
+so cost is independent of tile count. Seamless continuous zoom (detail↔LOD crossfade driven by
+screen-space derivatives), `texture2DArray` atlas (one tile type per layer, no edge bleeding), and
+optional fog-of-war. Shipped and **verified headless** by `[gpu]` readback tests (pixel asserts) — not
+"to verify".
+
+Two modes:
+- **Ephemeral** (`render:tilemap`) — re-sent every frame, re-uploaded every frame. Simple, for small or
+  throwaway maps.
+- **Retained** (`render:tilemap:add/update/remove`, keyed by a non-zero `id`) — uploaded **once**, then
+  patched in place. **Use this for the game world** (a static 256×256 chunk uploads exactly once).
+
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:tilemap` | `{chunkX, chunkY, tiles: [array], tileSize, textureId, layer}` | Render tilemap chunk |
+| `render:tilemap` | `{x, y, width, height, tileW, tileH, textureId, tileData}` | Ephemeral chunk (re-uploaded each frame) |
+| `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?}` | Retained chunk by `id` (≠0) — upload-once |
+| `render:tilemap:update` | full: `{id, tileData, fogData?}` · partial: `{id, x, y, w, h, tileData}` | Update a retained chunk (see *Update semantics*) |
+| `render:tilemap:remove` | `{id}` | Drop a retained chunk |
+
+**Fields**
+- `x, y` (double) — chunk origin in **world** coords (top-left corner). *Not* a chunk index.
+- `width, height` (int) — grid size in **tiles**.
+- `tileW, tileH` (int, default 16) — tile size in **pixels**.
+- `textureId` (int) — tileset id (resolved to an atlas array). Tile id `N` → atlas layer `N-1`; id `0` =
+  empty/transparent.
+- `tileData` (string) — comma-separated tile ids, **row-major**. (Alternative: a `tiles` child node, one
+  child per tile with an int `v`.)
+- `fogData` (string, optional) — comma-separated per-tile visibility `0..255` (255 = visible, 0 = hidden
+  → fog). Empty = no fog. Stored as a mipped R8 mask and blended with a tiled fog texture.
+
+**Update semantics** (`render:tilemap:update`)
+- **Full replace** — `{id, tileData}` (+ optional `fogData`): replaces the whole grid. **Geometry is fixed**
+  at `:add` time — to change dims/origin, `:remove` then `:add`.
+- **Partial patch** — `{id, x, y, w, h, tileData}` with `w>0 && h>0`: writes a `w×h` block of ids at tile
+  offset `(x, y)` (row-major); only that sub-rect is re-uploaded. ⚠️ Here `x, y, w, h` are in **tile units
+  within the grid**, *not* world coords.
+
+> ⚠️ **Migrating from a `chunkX / chunkY / tileSize / layer` shape:** the renderer takes `x,y` (world),
+> `width/height` (tiles), and `tileW/tileH` (px) — there is **no** `chunkX`, `tileSize`, or `layer` field.
+> Tilemaps draw on the world view (camera-driven, so they zoom/pan with `render:camera`); they are not
+> ordered by a `layer` field.
 
 #### Particles
 
