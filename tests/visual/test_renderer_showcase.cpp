@@ -146,6 +146,7 @@ public:
         m_actions.bindKey("del_zone",  SDL_SCANCODE_BACKSPACE); // (laptop fallback for Delete)
         m_actions.bindKey("rot_left",  SDL_SCANCODE_Q);       // roll the camera (slice R: camera rotation)
         m_actions.bindKey("rot_right", SDL_SCANCODE_E);
+        m_actions.bindKey("lead_toggle", SDL_SCANCODE_V);     // toggle velocity LEAD (anticipate moving Ship-A)
     }
 
     // Clear per-frame action edges (justPressed/justReleased). Call once per frame BEFORE
@@ -265,6 +266,12 @@ public:
             if (m_actions.isActive("rot_left"))  m_nav.rotateBy(-1.4f * dt);   // camera owns the roll
             if (m_actions.isActive("rot_right")) m_nav.rotateBy(1.4f * dt);
             if (m_actions.justPressed("del_zone")) m_nav.removeZone(m_nav.activeZone());
+            // 'V' toggles velocity LEAD: lock onto Ship-A (zoom into it) and watch the camera ANTICIPATE
+            // ahead of its travel (flips at each turnaround) vs sitting dead-centre with lead off.
+            if (m_actions.justPressed("lead_toggle")) {
+                m_leadOn = !m_leadOn;
+                m_nav.setLeadSeconds(m_leadOn ? 0.25f : 0.0f);
+            }
             // Slice 6 demo: oscillate Ship-A so you can SEE the camera LOCK onto a moving zone.
             // The game (here) just re-syncs its bounds each frame; the navigator follows when active.
             if (m_nav.hasZone("Ship-A")) {
@@ -378,6 +385,7 @@ private:
     // ship. The navigator owns the camera in zone mode; m_demoZones mirrors the tree for drawing.
     void setupZones() {
         m_nav.configure(1024.0f, 768.0f, /*margin*/0.08f, /*magnetRate*/6.0f);
+        m_nav.setLeadSeconds(m_leadOn ? 0.25f : 0.0f);   // velocity lead ON by default (toggle with V)
         auto add = [&](const char* id, const char* parent,
                        float x0, float y0, float x1, float y1, uint32_t color) {
             m_nav.addZone(id, parent, camera::WorldBounds{x0, y0, x1, y1});
@@ -601,12 +609,12 @@ private:
         // Zoom strata readout (live ZoomLadder demo): which strata the current zoom is in, and the
         // inter-strata crossfade t. Watch it update as you zoom; press 'L' to snap to a plateau.
         {
-            char sb[176];
+            char sb[256];
             if (m_zoneMode) {
-                // Zone-navigation demo: the active zone + a reminder of the controls.
+                // Zone-navigation demo: the active zone + lead state + a reminder of the controls.
                 const std::string& az = m_nav.activeZone();
-                snprintf(sb, sizeof(sb), "Zone: %s   (zoom in = enter | pan locked to zone | Suppr = delete | Z = free cam)",
-                         az.empty() ? "<none>" : az.c_str());
+                snprintf(sb, sizeof(sb), "Zone: %s   lead:%s   (zoom in=enter | pan locked | Q/E=roll | V=lead | Suppr=del | Z=free)",
+                         az.empty() ? "<none>" : az.c_str(), m_leadOn ? "ON" : "OFF");
             } else {
                 // Free cam: the ZoomLadder strata readout.
                 const camera::ZoomBlend zb = m_ladder.blend(m_cameraZoom);
@@ -937,6 +945,7 @@ private:
     std::vector<DemoZone> m_demoZones;
     float m_mouseX = 512.0f, m_mouseY = 384.0f;   // cursor (for cursor-anchored zoom)
     float m_shipPhase = 0.0f;                     // animates Ship-A (slice 6: lock onto a moving zone)
+    bool  m_leadOn = true;                        // velocity lead on the moving Ship-A ('V' toggles)
 
     // Clear color
     int m_clearColorIndex = 0;

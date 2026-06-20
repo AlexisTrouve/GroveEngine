@@ -147,6 +147,11 @@ public:
     void setRotation(float radians) { m_rotation = radians; }
     float rotation() const { return m_rotation; }
 
+    // Toggle/tune the velocity lead at runtime (0 = off). Setting it without re-passing the whole
+    // configure() param list; updateLead zeroes the lead+tracking on the next frame when set to 0.
+    void setLeadSeconds(float leadSeconds) { m_leadSeconds = leadSeconds; }
+    float leadSeconds() const { return m_leadSeconds; }
+
     // Explicitly enter a zone (frame it). Eased by update().
     void setActive(const std::string& id) {
         auto it = m_zones.find(id);
