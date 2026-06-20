@@ -1600,9 +1600,17 @@ if(GROVE_BUILD_BGFX_RENDERER)
     add_executable(test_zone_nav unit/test_zone_nav.cpp)
     target_include_directories(test_zone_nav PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_zone_nav PRIVATE Catch2::Catch2WithMain)
     grove_add_test(ZoneNavUnit test_zone_nav ${CMAKE_CURRENT_BINARY_DIR})
+
+    # grove::snap — generic directional detent snapping (grove/snap.h), reused by ZoneNavigator's
+    # zoom snap. Pure, no engine coupling. Objective oracle test.
+    add_executable(test_snap unit/test_snap.cpp)
+    target_include_directories(test_snap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+    target_link_libraries(test_snap PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(SnapUnit test_snap ${CMAKE_CURRENT_BINARY_DIR})
 
     # HUD overlay view routing: SpritePass/TextPass must submit HUD buckets to bgfx view 1,
     # world buckets to view 0. No GPU (MockRHIDevice), but SpritePass references

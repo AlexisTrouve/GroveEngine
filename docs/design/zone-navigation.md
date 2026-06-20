@@ -123,9 +123,18 @@ that rotates the view around the **screen-centre pivot**; at rotation 0 it's bit
 - **Per-layer zoom bounds** (same slice): min = root framing; max = the deepest framing in the **active
   zone's subtree** × `maxDetail` — a shallow zone caps low, a deep one plunges. No more void zoom.
 
+## Zoom snap — ✅ SHIPPED (zoom-IN only, directional)
+On release after a zoom-**IN**, the zoom auto-completes to **frame the zone you're entering** (its
+framing = the "threshold") — *focus by zooming in*. Key rules (hard-won from playtesting):
+- **Zoom-IN only, upward only.** The snap can NEVER zoom you out (guards: last zoom was in **and** the
+  detent is above the current zoom). Zoom-OUT is always 100% free.
+- **Range-gated** (`snapRange`, log space): far from a framing it's free; only the last stretch toward
+  the zone you're entering gets completed. `snapStrength 0` disables it.
+- **Generic kernel:** the detent math is `grove::snap::directionalDetent` (`include/grove/snap.h`) —
+  a reusable primitive (zoom log-space here; also rotation cardinals, scroll stops, timeline markers).
+  Locked by `SnapUnit`; the navigator wiring by `ZoneNavUnit`.
+
 ## Follow-ups (remaining)
-- **Stronger / configurable zoom snap** — once you zoom *enough* toward an object, auto-complete the
-  zoom to its framing ("high threshold") instead of a half-zoom. Navigator-only detent, configurable.
 - **Entity-attached zones — position follow ✅ SHIPPED (slice 6)** — when the ACTIVE zone moves (game
   re-syncs its bounds via the idempotent `addZone`), the focus rides the zone's centre delta so the
   camera LOCKS onto the moving entity (not just edge-clamps). Locked by `ZoneNavUnit` (focus at centre,

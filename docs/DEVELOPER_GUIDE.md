@@ -373,6 +373,8 @@ io->publish("render:camera", std::move(cam));
 | `magnetRate` | 6.0 | glide snappiness (higher = `update()` eases faster toward the target) |
 | `panMargin` | 0.25 | how far pan may overshoot a zone edge (fraction of the screen) for context around a POI |
 | `maxDetail` | 3.0 | max zoom-in past the deepest zone's framing — the per-layer cap (anti-void) |
+| `snapStrength` | 8.0 | zoom-snap ease rate (0 = off). On release after a zoom-**IN**, the zoom auto-completes to frame the zone you're entering (*focus*). Zoom-IN only, upward only — it can never zoom you out; zoom-OUT is always free |
+| `snapRange` | 0.7 | how close (log-zoom) to a framing the snap engages — free beyond it (detail zoom stays free) |
 
 **Notes / limits**
 - Zoom-in is bounded **per layer**: to the active zone's *subtree* deepest framing × `maxDetail` (a

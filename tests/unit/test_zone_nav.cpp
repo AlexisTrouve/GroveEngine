@@ -316,3 +316,57 @@ TEST_CASE("ZoneNavigator: the camera locks onto a MOVING active zone", "[unit][z
     REQUIRE(std::fabs(sx - 500.0f) < 2.0f);
     REQUIRE(std::fabs(sy - 500.0f) < 2.0f);
 }
+
+// Directional snap: the snap COMPLETES your last zoom motion (in -> focus a deeper zone by zooming
+// IN; out -> settle on a layer by zooming OUT), never reversing, and only within snapRange.
+static ZoneNavigator makeSnapNav(float snapStrength = 15.0f) {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f, /*panMargin*/0.0f, /*detail*/3.0f,
+                snapStrength, /*snapRange*/0.3f);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});  // framing 1
+    n.addZone("obj",  "root", WorldBounds{400.0f, 400.0f, 600.0f,  600.0f});   // framing 5, centred on root
+    n.reset();
+    return n;
+}
+
+TEST_CASE("ZoneNavigator: zoom-IN near a deeper zone snaps UP to frame it (focus by zooming IN)", "[unit][zonenav]") {
+    ZoneNavigator n = makeSnapNav();
+    n.zoomBy(4.3f);                              // zooming IN (dir +1), near obj's framing 5
+    REQUIRE(n.activeZone() == "root");           // not yet entered
+    for (int i = 0; i < 150; ++i) n.update(0.05f);
+    REQUIRE(std::fabs(n.zoom() - 5.0f) < 0.1f);  // snapped UP to frame obj (zoomed IN, not out)
+    REQUIRE(n.activeZone() == "obj");
+}
+
+TEST_CASE("ZoneNavigator: zoom-IN far from the next zone stays free", "[unit][zonenav]") {
+    ZoneNavigator n = makeSnapNav();
+    n.zoomBy(2.2f);                              // dir +1, but far below obj's framing 5
+    for (int i = 0; i < 150; ++i) n.update(0.05f);
+    REQUIRE(std::fabs(n.zoom() - 2.2f) < 0.1f);  // free
+    REQUIRE(n.activeZone() == "root");
+}
+
+TEST_CASE("ZoneNavigator: the snap NEVER reverses (zoom-in past a framing isn't pulled back out)", "[unit][zonenav]") {
+    ZoneNavigator n = makeSnapNav();
+    n.zoomBy(5.3f);                              // dir +1, just past obj's framing 5 (entered, leaf)
+    REQUIRE(n.activeZone() == "obj");
+    for (int i = 0; i < 150; ++i) n.update(0.05f);
+    REQUIRE(std::fabs(n.zoom() - 5.3f) < 0.1f);  // stays (no detent above; NOT zoomed back out to 5)
+}
+
+TEST_CASE("ZoneNavigator: the snap NEVER zooms you out (zoom-out is free)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();                // root(1) > S(2.5) > P(10)
+    n.setActive("P");                            // zoom 10, inside the ship
+    n.zoomBy(0.3f);                              // zoom OUT (dir -1) to 3 — near S's framing 2.5
+    REQUIRE(n.activeZone() == "S");
+    for (int i = 0; i < 150; ++i) n.update(0.05f);
+    REQUIRE(std::fabs(n.zoom() - 3.0f) < 0.1f);  // STAYS at 3 — the snap does NOT pull it down to frame S
+    REQUIRE(n.activeZone() == "S");
+}
+
+TEST_CASE("ZoneNavigator: snapStrength 0 disables the snap entirely", "[unit][zonenav]") {
+    ZoneNavigator n = makeSnapNav(0.0f);
+    n.zoomBy(5.3f);
+    for (int i = 0; i < 150; ++i) n.update(0.05f);
+    REQUIRE(std::fabs(n.zoom() - 5.3f) < 0.1f);  // no snap at all -> stays put
+}

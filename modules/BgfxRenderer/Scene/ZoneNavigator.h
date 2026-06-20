@@ -20,6 +20,7 @@
  */
 
 #include "Camera.h"
+#include <grove/snap.h>   // generic directional detent snap (zoom snaps to framings)
 
 #include <string>
 #include <unordered_map>
@@ -34,9 +35,11 @@ public:
     // panMargin = how far you may pan PAST a zone's edge, as a fraction of the visible size (so a
     // slice of the screen can sit outside a POI for context). 0 = strict hard clamp.
     void configure(float viewportW, float viewportH, float margin = 0.05f, float magnetRate = 6.0f,
-                   float panMargin = 0.25f, float maxDetail = 3.0f) {
+                   float panMargin = 0.25f, float maxDetail = 3.0f, float snapStrength = 8.0f,
+                   float snapRange = 0.7f) {
         m_vpW = viewportW; m_vpH = viewportH; m_margin = margin; m_magnetRate = magnetRate;
         m_panMarginFrac = panMargin; m_maxDetailFactor = maxDetail;
+        m_snapStrength = snapStrength; m_snapRange = snapRange;
         recomputeZoomLimits();
     }
 
@@ -166,6 +169,27 @@ public:
 
     // Ease the view toward the target (soft magnet + seamless) and return it for render:camera.
     CameraView update(float dt) {
+        // Zoom SNAP (anti semi-zoom): when NOT actively zooming, ease the zoom toward the nearest
+        // framing "detent" — the levels you can settle on from here (the active zone + its ancestors,
+        // plus the child under the cursor = the next level you can enter). A fling-zoom therefore
+        // auto-completes to FRAME the object instead of stopping half-way. snapStrength 0 disables it.
+        // Snap ONLY on zoom-IN, and ONLY upward (toward the zone you're entering = focus). Zoom-OUT is
+        // ALWAYS free — the snap can NEVER zoom you out. Two guards: m_lastZoomDir > 0 (your last move
+        // was a zoom-in) and det > m_zoom (the detent is above you). Far from a framing it's free; the
+        // last stretch toward the zone you're entering gets completed.
+        if (m_snapStrength > 0.0f && !m_zoomActive && m_lastZoomDir > 0) {
+            std::vector<float> dets;
+            collectDetents(dets);
+            const float det = snap::directionalDetent(m_zoom, dets.data(), static_cast<int>(dets.size()),
+                                                      /*dir up*/+1, m_snapRange, /*logSpace*/true);
+            if (det > m_zoom + 1e-4f) {   // only ever zoom IN
+                float nz = damp(m_zoom, det, m_snapStrength, dt);
+                if (std::fabs(nz - det) < det * 0.005f) nz = det;   // settle exactly on the detent
+                applyZoom(nz);
+            }
+        }
+        m_zoomActive = false;
+
         const CameraView t = target();
         m_view.x    = damp(m_view.x,    t.x,    m_magnetRate, dt);
         m_view.y    = damp(m_view.y,    t.y,    m_magnetRate, dt);
@@ -212,6 +236,32 @@ protected:
         if (m_maxZoom < m_minZoom) m_maxZoom = m_minZoom;
         m_zoom = clampZoom(m_zoom, m_minZoom, m_maxZoom);
     }
+
+    // Set the zoom (centre-anchored, focus unchanged) and re-evaluate the active zone + clamp. Used by
+    // the idle snap (which eases the zoom toward a detent without moving the focus).
+    void applyZoom(float newZoom) {
+        m_zoom = clampZoom(newZoom, m_minZoom, m_maxZoom);
+        const std::string na = computeActive();
+        if (na != m_activeId) { m_activeId = na; recomputeZoomLimits(); }
+        clampFocus();
+    }
+
+    // The framings reachable from here = the snap detents: the active zone + its ancestors (zoom-OUT
+    // targets, BELOW the current zoom) AND the children of the active zone under the focus (zoom-IN
+    // targets you're heading into, ABOVE). The directional snap (update) then picks the one in your
+    // zoom direction — so zooming in completes IN to frame a child, zooming out settles on a layer.
+    void collectDetents(std::vector<float>& out) const {
+        if (m_activeId.empty() || !m_zones.count(m_activeId)) return;
+        for (std::string id = m_activeId; !id.empty() && m_zones.count(id); id = m_zones.at(id).parentId)
+            out.push_back(framingZoom(m_zones.at(id).bounds));               // active + ancestors
+        const float z = (m_zoom > 0.0f) ? m_zoom : 1.0f;
+        const float mX = m_panMarginFrac * (m_vpW / z), mY = m_panMarginFrac * (m_vpH / z);
+        for (const std::string& c : m_zones.at(m_activeId).childIds) {       // child under the cursor
+            auto cit = m_zones.find(c);
+            if (cit != m_zones.end() && containsM(cit->second.bounds, m_focusX, m_focusY, mX, mY))
+                out.push_back(framingZoom(cit->second.bounds));
+        }
+    }
     static bool contains(const WorldBounds& b, float x, float y) {
         return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
     }
@@ -252,6 +302,9 @@ protected:
     // re-evaluate the active zone (descend/ascend follows the focus). No re-center -> the cursor stays.
     void zoomAtAnchor(float factor, float sx, float sy) {
         if (m_activeId.empty()) return;
+        m_zoomActive = true;   // actively zooming this frame -> the idle snap pauses
+        if (factor > 1.0f)      m_lastZoomDir = 1;    // zoom IN  -> snap completes INWARD (focus)
+        else if (factor < 1.0f) m_lastZoomDir = -1;   // zoom OUT -> snap settles on a lower layer
         CameraView cur = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
         cur.rotation = m_rotation;                              // anchor in the CAMERA frame
         float pinX = 0.0f, pinY = 0.0f;
@@ -314,6 +367,10 @@ protected:
     float m_vpW = 1280.0f, m_vpH = 720.0f, m_margin = 0.05f, m_magnetRate = 6.0f;
     float m_panMarginFrac = 0.25f;   // pan overshoot past a zone edge, as a fraction of the visible size
     float m_maxDetailFactor = 3.0f;  // max zoom-in past the deepest zone's framing (anti-void)
+    float m_snapStrength = 8.0f;     // idle zoom-snap rate toward a framing detent (0 = off)
+    float m_snapRange = 0.7f;        // only snap within this log-zoom distance of a detent (free beyond)
+    bool  m_zoomActive = false;      // a zoomBy happened this frame -> pause the snap
+    int   m_lastZoomDir = 0;         // +1/-1: direction of the last zoomBy (drives the directional snap)
     float m_zoom = 1.0f, m_minZoom = 0.001f, m_maxZoom = 1.0e4f;
     float m_focusX = 0.0f, m_focusY = 0.0f;
     float m_rotation = 0.0f;   // camera roll (radians); pan/zoom honour it, update() outputs it
