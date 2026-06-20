@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** design locked, slice 1 in progress (2026-06-20).
+**Status:** design locked; slice 1 (pure helpers) shipped; slice 2 next (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -87,8 +87,8 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 
 ## Slices (TDD headless + an eye-validated demo)
 
-1. **Pure helpers** — `fitBounds` / `clampPanToBounds` / `worldPanForScreen`. Oracle unit tests.
-   *(in progress)*
+1. **Pure helpers** — `fitBounds` / `clampPanToBounds` / `worldPanForScreen` in `Scene/Camera.h`.
+   ✅ shipped — locked by `ZoneNavUnit` (6 cases / 17 assertions, analytical oracles).
 2. **`ZoneNavigator` core** — tree + active zone + **soft magnet** (ease toward `fitBounds`) +
    **elastic clamp** + **pan∝zoom**. Headless tests (input sequence → camera glides + stays bounded).
 3. **Dynamic + back-out** — add/remove at runtime; `removeZone(active)` → nearest live ancestor,
@@ -100,5 +100,6 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 
 ## Status
 
-- **Slice 1** — in progress.
-- Slices 2-4 — pending slice 1.
+- **Slice 1** — ✅ shipped (pure helpers, `ZoneNavUnit`).
+- **Slice 2** — next (`ZoneNavigator` core).
+- Slices 3-4 — pending.

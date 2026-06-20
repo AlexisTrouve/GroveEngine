@@ -1595,6 +1595,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_zoom_ladder PRIVATE Catch2::Catch2WithMain)
     grove_add_test(ZoomLadderUnit test_zoom_ladder ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Zone-navigation primitives (grove::camera): fitBounds / clampPanToBounds / worldPanForScreen.
+    # Pure camera math (Camera.h) for the nested-zones navigation model. Objective oracle test.
+    add_executable(test_zone_nav unit/test_zone_nav.cpp)
+    target_include_directories(test_zone_nav PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_zone_nav PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(ZoneNavUnit test_zone_nav ${CMAKE_CURRENT_BINARY_DIR})
+
     # HUD overlay view routing: SpritePass/TextPass must submit HUD buckets to bgfx view 1,
     # world buckets to view 0. No GPU (MockRHIDevice), but SpritePass references
     # ResourceCache::getTextureById -> link ResourceCache + TextureLoader (stb_image header).

@@ -169,5 +169,54 @@ inline bool isVisible(const CameraView& c, float x, float y, float w, float h, f
     return isVisible(visibleWorldBounds(c), x, y, w, h, margin);
 }
 
+// ----------------------------------------------------------------------------
+// Zone navigation primitives (see docs/design/zone-navigation.md). fitBounds frames a world AABB,
+// clampPanToBounds keeps the view inside one, worldPanForScreen scales pan by zoom. All PURE — the
+// soft-magnet / elastic feel is the ZoneNavigator damping toward these targets, not these helpers.
+// ----------------------------------------------------------------------------
+
+// The camera that FRAMES a zone: centered on it, zoomed so the whole AABB fits the viewport (the
+// constraining dimension). `margin` in [0,0.9) leaves padding (0.1 => the zone fills 90% of the
+// viewport). This is the magnet's target view.
+inline CameraView fitBounds(const WorldBounds& b, float viewportW, float viewportH, float margin = 0.0f) {
+    const float zw = (b.maxX - b.minX) > 1e-6f ? (b.maxX - b.minX) : 1e-6f;
+    const float zh = (b.maxY - b.minY) > 1e-6f ? (b.maxY - b.minY) : 1e-6f;
+    const float zx = viewportW / zw;
+    const float zy = viewportH / zh;
+    float zoom = (zx < zy) ? zx : zy;                       // fit the constraining dimension
+    const float m = margin < 0.0f ? 0.0f : (margin > 0.9f ? 0.9f : margin);
+    zoom *= (1.0f - m);                                     // leave padding
+    const float cx = (b.minX + b.maxX) * 0.5f;
+    const float cy = (b.minY + b.maxY) * 0.5f;
+    return centerOn(cx, cy, zoom, viewportW, viewportH);
+}
+
+// Keep the camera's visible rectangle INSIDE a zone AABB. If the zone is smaller than the view on an
+// axis, the zone is centered on that axis (you can't pan past it). The HARD clamp — the navigator
+// damps toward it for the elastic feel.
+inline void clampPanToBounds(CameraView& c, const WorldBounds& b) {
+    const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
+    const float visW = c.viewportW / z;
+    const float visH = c.viewportH / z;
+    const float zw = b.maxX - b.minX;
+    const float zh = b.maxY - b.minY;
+
+    if (visW >= zw)               c.x = (b.minX + b.maxX) * 0.5f - visW * 0.5f;  // zone < view -> center
+    else if (c.x < b.minX)        c.x = b.minX;
+    else if (c.x + visW > b.maxX) c.x = b.maxX - visW;
+
+    if (visH >= zh)               c.y = (b.minY + b.maxY) * 0.5f - visH * 0.5f;
+    else if (c.y < b.minY)        c.y = b.minY;
+    else if (c.y + visH > b.maxY) c.y = b.maxY - visH;
+}
+
+// World-space pan delta for an on-screen drag/velocity at the current zoom. Dividing by zoom gives a
+// CONSTANT on-screen feel: the same screen drag covers less world zoomed in (precise), more zoomed
+// out (fast traversal).
+inline float worldPanForScreen(float screenDelta, float zoom) {
+    const float z = (zoom != 0.0f) ? zoom : 1.0f;
+    return screenDelta / z;
+}
+
 } // namespace camera
 } // namespace grove
