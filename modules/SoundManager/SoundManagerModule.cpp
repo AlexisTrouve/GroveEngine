@@ -3,6 +3,8 @@
 #include <grove/IDataNode.h>
 #include <grove/JsonDataNode.h>
 
+#include <cmath>
+
 namespace grove {
 
 SoundManagerModule::SoundManagerModule()
@@ -21,6 +23,10 @@ void SoundManagerModule::setConfiguration(const IDataNode& /*config*/, IIO* io, 
     // (same pattern as SceneCollector's render:.* — '.*' is a terminal wildcard).
     if (m_io) {
         m_io->subscribe("sound:.*", [this](const Message& msg) { handleMessage(msg); });
+        // Adaptive music spine (slice 1): the game publishes its emotional state on audio:* and the
+        // mixer drives the stems. Kept a SEPARATE namespace from sound:* on purpose — sound:* is
+        // imperative ("play this"), audio:* is declarative ("the mood is X").
+        m_io->subscribe("audio:.*", [this](const Message& msg) { handleMessage(msg); });
     }
 
     // Bring the backend up (the real SDLMixerBackend opens the device here; the mock just flags).
@@ -29,11 +35,16 @@ void SoundManagerModule::setConfiguration(const IDataNode& /*config*/, IIO* io, 
     }
 }
 
-void SoundManagerModule::process(const IDataNode& /*input*/) {
-    // Pull-based: drain everything queued this frame; each message hits handleMessage().
+void SoundManagerModule::process(const IDataNode& input) {
+    // Pull-based: drain everything queued this frame FIRST (each message hits handleMessage), so
+    // this frame's audio:intent/layer/mix have updated the mixer targets before we ramp.
     while (m_io && m_io->hasMessages() > 0) {
         m_io->pullAndDispatch();
     }
+
+    // Then advance the adaptive stem gains toward their targets and push the changed ones.
+    const float dt = static_cast<float>(input.getDouble("deltaTime", 0.016));
+    tickAdaptive(dt);
 }
 
 void SoundManagerModule::handleMessage(const Message& msg) {
@@ -103,11 +114,80 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         // The master and music buses scale the currently-playing track -> re-apply live.
         if (bus == "master" || bus == "music") applyMusicVolume();
     }
+    // ------------------------------------------------------------------------
+    // Adaptive music (slice 1): tension-driven vertical layers.
+    // ------------------------------------------------------------------------
+    else if (msg.topic == "audio:layer") {
+        // Register/replace a stem and start it looping. gainCalm/gainPeak define its crossfade
+        // over tension ({1,1}=bed, {0,1}=fades in, {1,0}=fades out). It starts at the gain for
+        // the current tension (stems play in sync), then ramps as tension changes (tickAdaptive).
+        const std::string id = d.getString("id", "");
+        const std::string path = d.getString("path", "");
+        if (id.empty() || path.empty()) return;
+        const float gainCalm = static_cast<float>(d.getDouble("gainCalm", 1.0));
+        const float gainPeak = static_cast<float>(d.getDouble("gainPeak", 1.0));
+        const bool loop = d.getBool("loop", true);
+        const int soundId = m_backend->loadSound(path);
+        if (soundId < 0) return;
+        // Replacing an existing layer id: stop the old channel first.
+        auto old = m_layerHandles.find(id);
+        if (old != m_layerHandles.end()) m_backend->stopSound(old->second, 0);
+
+        m_mixer.addLayer(id, gainCalm, gainPeak);
+        const sound::AdaptiveLayer* L = m_mixer.find(id);
+        const float eff = clamp01((L ? L->currentGain : 0.0f) * m_music * m_master);  // music bus
+        const int handle = m_backend->playSound(soundId, eff, 0.0f, loop);
+        m_layerHandles[id] = handle;
+        m_layerLastSent[id] = eff;
+    }
+    else if (msg.topic == "audio:intent") {
+        // The game's emotional state. Recomputes every layer's target gain from its curve; the
+        // actual gains ramp toward the new targets over the next frames (tickAdaptive).
+        m_mixer.setTension(static_cast<float>(d.getDouble("tension", 0.0)));
+    }
+    else if (msg.topic == "audio:mix") {
+        // Low-level: set one layer's target gain explicitly (until the next audio:intent).
+        const std::string id = d.getString("id", "");
+        if (!id.empty()) m_mixer.setMix(id, static_cast<float>(d.getDouble("gain", 0.0)));
+    }
+    else if (msg.topic == "audio:layer:stop") {
+        // Stop + drop a stem (optionally fading the channel out).
+        const std::string id = d.getString("id", "");
+        const int fadeMs = static_cast<int>(d.getInt("fadeMs", 0));
+        auto it = m_layerHandles.find(id);
+        if (it != m_layerHandles.end()) {
+            m_backend->stopSound(it->second, fadeMs);
+            m_layerHandles.erase(it);
+            m_layerLastSent.erase(id);
+            m_mixer.removeLayer(id);
+        }
+    }
 }
 
 void SoundManagerModule::applyMusicVolume() {
     if (m_backend) {
         m_backend->setMusicVolume(clamp01(m_master * m_music * m_musicBaseVolume));
+    }
+}
+
+void SoundManagerModule::tickAdaptive(float dt) {
+    // QUOI : rampe les gains des stems vers leur cible et pousse au backend ceux qui ont changé.
+    // POURQUOI : la cible bouge à chaque audio:intent ; le ramp (lissé, framerate-indépendant)
+    //   donne un fondu de couches plutôt qu'un saut. On n'appelle setSoundVolume que sur un VRAI
+    //   changement (seuil) pour ne pas spammer le backend chaque frame (retained-style).
+    // COMMENT : eff = clamp01(currentGain * music * master) — les stems adaptatifs sont sur le bus
+    //   MUSIC (sound:volume {bus:music} les affecte donc, via le re-push au prochain tick).
+    if (!m_backend || m_mixer.count() == 0) return;
+    m_mixer.tick(dt, m_layerRampRate);
+    for (const auto& L : m_mixer.layers()) {
+        auto hIt = m_layerHandles.find(L.id);
+        if (hIt == m_layerHandles.end()) continue;
+        const float eff = clamp01(L.currentGain * m_music * m_master);
+        auto sIt = m_layerLastSent.find(L.id);
+        if (sIt == m_layerLastSent.end() || std::fabs(sIt->second - eff) > 1e-3f) {
+            m_backend->setSoundVolume(hIt->second, eff);
+            m_layerLastSent[L.id] = eff;
+        }
     }
 }
 

@@ -142,6 +142,7 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 ### SoundManager (`modules/SoundManager/`, `-DGROVE_BUILD_SOUND_MODULE=ON`)
 - `SoundManagerModule` (IModule) consumes `sound:*` → drives `ISoundBackend`. Real backend `SDLMixerBackend` (SDL2_mixer) is **behind the interface** → module is SDL-free + headless-testable (MockSoundBackend).
 - **Topics**: `sound:sfx {path,volume?,pan?,loop?,id?}`, `sound:sfx:stop {id,fadeMs?}`, `sound:sfx:stopAll`, `sound:music {path,loop?,fadeMs?,volume?}`, `sound:music:stop`, `sound:volume {bus,value}`, `sound:preload`/`sound:unload {path}`. Buses master/music/sfx; eff = clamp01(call·bus·master).
+- **Adaptive music (slice 1)**: `audio:*` (declarative mood) — `audio:layer {id,path,gainCalm?,gainPeak?,loop?}` (stem; gain crossfades calm→peak by tension), `audio:intent {tension}` (0..1), `audio:mix {id,gain}`, `audio:layer:stop {id,fadeMs?}`. Pure `AdaptiveMixer` ramps stem gains (on the music bus) via `ISoundBackend::setSoundVolume`. Locked by `SoundManagerUnit` `[adaptive]`. Next slices: bar-quantized transitions, cues/leitmotifs.
 - Static-link host (Drifterra): link **`SoundManager_static`**, `module.setBackend(make_unique<sound::SDLMixerBackend>())`. Locked by `SoundManagerUnit`; real audio via `tests/visual/test_sound_demo.cpp`. **SDL2_mixer** required (devel package on the toolchain).
 
 ## Debugging Tools

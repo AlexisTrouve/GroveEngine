@@ -43,6 +43,7 @@ public:
     int playSound(int soundId, float volume, float pan, bool loop) override;
     void stopSound(int handle, int fadeMs) override;
     void stopAllSounds(int fadeMs) override;
+    void setSoundVolume(int handle, float volume) override;
     void playMusic(int musicId, bool loop, int fadeMs, float volume) override;
     void stopMusic(int fadeMs) override;
     void setMusicVolume(float volume) override;

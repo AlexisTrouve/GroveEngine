@@ -22,6 +22,7 @@ public:
     struct PlaySound { int soundId; float volume; float pan; bool loop; int handle; };
     struct PlayMusic { int musicId; bool loop; int fadeMs; float volume; };
     struct StopSound { int handle; int fadeMs; };
+    struct SetVol { int handle; float volume; };
 
     // Recorded calls (named *Calls so they don't collide with the override method names).
     std::vector<PlaySound> playSoundCalls;
@@ -31,6 +32,7 @@ public:
     std::vector<std::string> unloadCalls;     // path per unloadSound
     std::vector<int> stopMusicCalls;          // fadeMs per call
     std::vector<float> setMusicVolumeCalls;   // effective volume per call
+    std::vector<SetVol> setSoundVolumeCalls;  // (handle, effective volume) per setSoundVolume
     bool inited = false;
 
     bool init() override { inited = true; return true; }
@@ -51,6 +53,7 @@ public:
     }
     void stopSound(int handle, int fadeMs) override { stopSoundCalls.push_back({handle, fadeMs}); }
     void stopAllSounds(int fadeMs) override { stopAllCalls.push_back(fadeMs); }
+    void setSoundVolume(int handle, float volume) override { setSoundVolumeCalls.push_back({handle, volume}); }
 
     void playMusic(int musicId, bool loop, int fadeMs, float volume) override {
         playMusicCalls.push_back({musicId, loop, fadeMs, volume});

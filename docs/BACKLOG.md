@@ -80,15 +80,20 @@ camera items are above. The genuine engine gaps it surfaces:
 ## Sound (`SoundManager`)
 - Channel groups, per-sound instance caps, ducking, music preload/unload. v1 is fire-and-forget
   SFX + looping-stoppable-by-id + music + buses + preload/unload.
-- **Adaptive / interactive audio — TO PLAN (engine gap; de-risk it the way the tilemap was).**
-  Today's `SoundManager` (SDL_mixer) does fire-and-forget music + SFX. It does NOT do adaptive
-  audio: multi-**stem** layers mixed by game state, music **transitions quantized to the bar/beat**,
-  **state-driven mixing**. Drifterra will want this. Two routes, both behind `ISoundBackend`:
-  - **Custom AudioModule** — stems + a beat-clock + state→mix rules on top of the backend. More
-    control, more work, stays in our SDL stack.
-  - **Middleware (FMOD / Wwise)** — industry-standard adaptive-audio engines behind the interface.
-    Powerful fast, but licensing + integration cost.
-  Decide the route *before* the game needs it (anticipate, don't scramble — like the tilemap).
+- **Adaptive / interactive audio — 🚧 slice 1 SHIPPED, route = CUSTOM** (2026-06-20). Route decided
+  (Alexi): **custom**, behind `ISoundBackend` — not middleware (FMOD/Wwise stays a future swap behind
+  the same interface if sample-accurate DSP is ever needed; the adaptive *logic* is backend-agnostic
+  + headless-testable, so the proof needs no real audio). **Slice 1 done = state-driven vertical
+  layering**: `audio:layer`/`audio:intent`/`audio:mix`/`audio:layer:stop` → a pure `AdaptiveMixer`
+  (stems crossfade calm→peak by tension, ramped) driving the backend via the new
+  `ISoundBackend::setSoundVolume`. Locked by `SoundManagerUnit` `[adaptive]`. Lives INSIDE
+  SoundManager (owns the backend + the per-frame tick; a 2nd module would fight SDL_mixer's singleton).
+  **Remaining slices:** **slice 2 = bar-quantized transitions** (a BPM beat-clock; big changes/cues
+  snap to the next bar — "transitions calées sur la mesure"); **slice 3 = cues/stingers + leitmotif
+  whose arrangement follows an entity's state** (needs stem assets → audible "by ear" proof, compos
+  late). **Risk flagged:** SDL_mixer plays the N stems as independent looping channels — no
+  sample-accurate phase-lock between stems; fine for fade-in/out layering, the trigger to reconsider
+  middleware if strict phase-lock is ever required.
 
 ## Quality / infra
 - **`LimitsTest` flakiness** — SEGFAULTs intermittently in the FULL suite under load; passes

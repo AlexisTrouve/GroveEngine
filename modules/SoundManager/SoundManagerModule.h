@@ -20,6 +20,7 @@
 #include <grove/IIO.h>
 #include <grove/ITaskScheduler.h>
 #include "ISoundBackend.h"
+#include "AdaptiveMixer.h"
 
 #include <cstdint>
 #include <memory>
@@ -51,6 +52,7 @@ public:
 private:
     void handleMessage(const Message& msg);
     void applyMusicVolume();                 // push effective music volume to the backend
+    void tickAdaptive(float dt);             // ramp adaptive stem gains -> backend (per frame)
     static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
     IIO* m_io = nullptr;
@@ -67,6 +69,14 @@ private:
     // Game-supplied id -> backend playback handle, for controllable (e.g. looping) SFX so
     // sound:sfx:stop can target the right channel. One-shot SFX (no id) are not tracked.
     std::unordered_map<std::string, int> m_sfxHandles;
+
+    // Adaptive music bed (slice 1): tension-driven vertical layers (stems). The mixer holds the
+    // gain math (pure); the module holds each layer's backend handle + the last volume it pushed
+    // (so it only calls setSoundVolume on a real change). Adaptive stems sit on the MUSIC bus.
+    sound::AdaptiveMixer m_mixer;
+    std::unordered_map<std::string, int> m_layerHandles;     // layer id -> backend playback handle
+    std::unordered_map<std::string, float> m_layerLastSent;  // layer id -> last effective gain sent
+    float m_layerRampRate = 8.0f;                            // stem gain ramp speed (fraction/second)
 
     uint64_t m_sfxCount = 0;
     uint64_t m_musicCount = 0;

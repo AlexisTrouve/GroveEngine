@@ -47,6 +47,11 @@ struct ISoundBackend {
     // Stop ALL SFX playbacks, optionally fading out.
     virtual void stopAllSounds(int fadeMs) = 0;
 
+    // Re-apply the EFFECTIVE volume [0,1] to a PLAYING SFX (by the handle playSound returned).
+    // The adaptive-music mixer uses this to ramp a looping stem's gain live as the game's tension
+    // changes — symmetric to setMusicVolume, but per-SFX-channel.
+    virtual void setSoundVolume(int handle, float volume) = 0;
+
     // Start music (replaces the current track): loop, fade-in ms, EFFECTIVE volume [0,1].
     virtual void playMusic(int musicId, bool loop, int fadeMs, float volume) = 0;
 

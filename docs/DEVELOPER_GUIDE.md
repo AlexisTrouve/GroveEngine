@@ -630,6 +630,28 @@ interface, so the module's topic/bus logic is SDL-free and headless-testable.
 Effective volume sent to the device = `clamp01(per-call volume × bus × master)`. Changing the
 `master`/`music` bus re-applies live to the playing track.
 
+### Adaptive music — `audio:*` (state-driven vertical layering, slice 1)
+
+Beyond fire-and-forget `sound:music`, the module does **adaptive music**: a set of looping
+**stems** (layers) whose gains are driven by the game's emotional **tension** (0..1), so layers
+fade in/out as the mood shifts. *Hooks early, compositions late* — the game wires the spine now;
+the stems/score come later. The `audio:*` namespace is **declarative** ("the mood is X"), distinct
+from the imperative `sound:*` ("play this").
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `audio:layer` | `{id, path, loop?=true, gainCalm?=1, gainPeak?=1}` | Register/start a stem. Its gain crossfades `gainCalm`→`gainPeak` over tension: `{1,1}`=constant bed, `{0,1}`=fades in, `{1,0}`=fades out |
+| `audio:intent` | `{tension}` | Set the emotional tension `[0,1]`; every stem's target gain recomputes from its curve |
+| `audio:mix` | `{id, gain}` | Low-level: set one stem's target gain explicitly (until the next `audio:intent`) |
+| `audio:layer:stop` | `{id, fadeMs?=0}` | Stop + drop a stem |
+
+Stem gains **ramp** smoothly toward their targets each `process()` (framerate-independent), so
+tension changes fade layers instead of snapping. Adaptive stems sit on the **music bus**
+(`sound:volume {bus:"music"}` scales them). The mix math is a pure `AdaptiveMixer`
+(`SoundManager/AdaptiveMixer.h`); the game owns the tension + the stems (content). Locked headless
+by `SoundManagerUnit` (`[adaptive]` cases). *Roadmap: bar-quantized transitions + cues/stingers +
+leitmotif-by-entity-state are the next slices.*
+
 **Wiring (static-link host, e.g. Drifterra):** link `SoundManager_static`, instantiate the
 module, inject the backend, drive `process()` each frame:
 

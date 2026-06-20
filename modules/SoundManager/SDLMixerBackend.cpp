@@ -127,6 +127,12 @@ void SDLMixerBackend::stopAllSounds(int fadeMs) {
     else            Mix_HaltChannel(-1);
 }
 
+void SDLMixerBackend::setSoundVolume(int handle, float volume) {
+    // Live per-channel gain for adaptive stems. handle = the channel Mix_PlayChannel returned.
+    if (!m_open || handle < 0) return;
+    Mix_Volume(handle, toMixVolume(volume));
+}
+
 void SDLMixerBackend::playMusic(int musicId, bool loop, int fadeMs, float volume) {
     if (!m_open || musicId < 0 || musicId >= static_cast<int>(m_musics.size())) return;
     Mix_Music* music = m_musics[static_cast<size_t>(musicId)];

@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "SoundManager/SoundManagerModule.h"
+#include "SoundManager/AdaptiveMixer.h"
 #include "../mocks/MockSoundBackend.h"
 
 #include "grove/IntraIOManager.h"
@@ -25,6 +26,7 @@
 #include "grove/JsonDataNode.h"
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <sstream>
 
@@ -35,6 +37,13 @@ using Catch::Matchers::WithinAbs;
 static std::string uid(const std::string& p) {
     auto n = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     std::ostringstream o; o << p << "_" << n; return o.str();
+}
+
+// Last effective volume the module pushed to a given playback handle via setSoundVolume, or -1.
+static float lastVolForHandle(const test::MockSoundBackend& m, int handle) {
+    float v = -1.0f;
+    for (const auto& c : m.setSoundVolumeCalls) if (c.handle == handle) v = c.volume;
+    return v;
 }
 
 // Build a module wired to a fresh mock backend + test IIO. Returns the module, the publisher
@@ -65,6 +74,11 @@ struct Harness {
     }
     void pump() {
         JsonDataNode in("input");
+        module->process(in);
+    }
+    void pump(double dt) {
+        JsonDataNode in("input");
+        in.setDouble("deltaTime", dt);
         module->process(in);
     }
 };
@@ -226,4 +240,111 @@ TEST_CASE("SoundManager - a one-shot SFX (no id) needs no handle tracking", "[so
     h.pump();
     REQUIRE(h.mock->playSoundCalls.size() == 1);
     REQUIRE(h.mock->playSoundCalls[0].loop == false);   // default
+}
+
+// ============================================================================
+// Slice 1 (adaptive audio): tension-driven vertical layering.
+//   - the PURE mixer (AdaptiveMixer): analytical oracles, no module/IIO/backend.
+//   - the MODULE wiring (audio:* topics -> mixer -> backend): via the mock.
+// ============================================================================
+
+TEST_CASE("AdaptiveMixer - layers crossfade calm->peak by tension", "[sound][unit][adaptive]") {
+    AdaptiveMixer mix;
+    mix.addLayer("bed",  1.0f, 1.0f);   // constant bed
+    mix.addLayer("rise", 0.0f, 1.0f);   // fades in with tension
+    mix.addLayer("calm", 1.0f, 0.0f);   // fades out with tension
+
+    // tension 0 (default): bed=1, rise=0, calm=1 (current+target snap on add).
+    REQUIRE_THAT(mix.find("bed")->targetGain,  WithinAbs(1.0f, 1e-4f));
+    REQUIRE_THAT(mix.find("rise")->targetGain, WithinAbs(0.0f, 1e-4f));
+    REQUIRE_THAT(mix.find("calm")->targetGain, WithinAbs(1.0f, 1e-4f));
+
+    mix.setTension(1.0f);
+    REQUIRE_THAT(mix.find("bed")->targetGain,  WithinAbs(1.0f, 1e-4f));
+    REQUIRE_THAT(mix.find("rise")->targetGain, WithinAbs(1.0f, 1e-4f));
+    REQUIRE_THAT(mix.find("calm")->targetGain, WithinAbs(0.0f, 1e-4f));
+
+    mix.setTension(0.5f);
+    REQUIRE_THAT(mix.find("rise")->targetGain, WithinAbs(0.5f, 1e-4f));
+    REQUIRE_THAT(mix.find("calm")->targetGain, WithinAbs(0.5f, 1e-4f));
+}
+
+TEST_CASE("AdaptiveMixer - tick ramps currentGain toward target (framerate-independent)", "[sound][unit][adaptive]") {
+    AdaptiveMixer mix;
+    mix.addLayer("rise", 0.0f, 1.0f);   // current=target=0 at tension 0
+    mix.setTension(1.0f);               // target -> 1, current still 0
+    REQUIRE_THAT(mix.find("rise")->currentGain, WithinAbs(0.0f, 1e-4f));
+
+    const float rate = std::log(2.0f);  // r*dt = ln2 -> close exactly half the gap each tick
+    mix.tick(1.0f, rate);
+    REQUIRE_THAT(mix.find("rise")->currentGain, WithinAbs(0.5f, 1e-4f));
+    mix.tick(1.0f, rate);
+    REQUIRE_THAT(mix.find("rise")->currentGain, WithinAbs(0.75f, 1e-4f));
+}
+
+TEST_CASE("AdaptiveMixer - setMix overrides one layer's target", "[sound][unit][adaptive]") {
+    AdaptiveMixer mix;
+    mix.addLayer("rise", 0.0f, 1.0f);
+    mix.setMix("rise", 0.25f);
+    REQUIRE_THAT(mix.find("rise")->targetGain, WithinAbs(0.25f, 1e-4f));
+}
+
+TEST_CASE("SoundManager - audio:layer starts a looping stem at its calm gain", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","bed");  n->setString("path","bed.ogg");  n->setDouble("gainCalm",1.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","rise.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->playSoundCalls.size() == 2);
+    REQUIRE(h.mock->playSoundCalls[0].loop == true);     // stems loop
+    REQUIRE(h.mock->playSoundCalls[1].loop == true);
+    // tension 0: the bed plays at full, the rise stem starts silent (its calm gain is 0).
+    REQUIRE_THAT(h.mock->playSoundCalls[0].volume, WithinAbs(1.0f, 1e-3f));
+    REQUIRE_THAT(h.mock->playSoundCalls[1].volume, WithinAbs(0.0f, 1e-3f));
+}
+
+TEST_CASE("SoundManager - audio:intent ramps stem gains (vertical layering)", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","bed");  n->setString("path","bed.ogg");  n->setDouble("gainCalm",1.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","rise.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    h.pump(0.016);
+    const int riseHandle = h.mock->playSoundCalls[1].handle;
+
+    // Tension up -> the rise stem climbs toward full over a few frames.
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    INFO("rise vol after tension=1: " << lastVolForHandle(*h.mock, riseHandle));
+    REQUIRE_THAT(lastVolForHandle(*h.mock, riseHandle), WithinAbs(1.0f, 0.02f));
+
+    // Tension back to calm -> the rise stem fades back out.
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",0.0); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, riseHandle), WithinAbs(0.0f, 0.02f));
+}
+
+TEST_CASE("SoundManager - the music bus scales adaptive stems", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","r.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto v = std::make_unique<JsonDataNode>("vol"); v->setString("bus","music"); v->setDouble("value",0.5); h.publish("sound:volume", std::move(v)); }
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); h.publish("audio:intent", std::move(n)); }
+    h.pump(0.016);
+    const int riseHandle = h.mock->playSoundCalls[0].handle;
+
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    // currentGain -> 1, music bus 0.5, master 1 -> effective 0.5 (adaptive stems are on the music bus).
+    REQUIRE_THAT(lastVolForHandle(*h.mock, riseHandle), WithinAbs(0.5f, 0.02f));
+}
+
+TEST_CASE("SoundManager - audio:layer:stop stops and drops a stem", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","r.ogg"); h.publish("audio:layer", std::move(n)); }
+    h.pump();
+    const int handle = h.mock->playSoundCalls[0].handle;
+
+    { auto n = std::make_unique<JsonDataNode>("stop"); n->setString("id","rise"); n->setInt("fadeMs",300); h.publish("audio:layer:stop", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->stopSoundCalls.size() == 1);
+    REQUIRE(h.mock->stopSoundCalls[0].handle == handle);
+    REQUIRE(h.mock->stopSoundCalls[0].fadeMs == 300);
 }
