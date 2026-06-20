@@ -46,9 +46,17 @@ public:
     void addZone(const std::string& id, const std::string& parentId, const WorldBounds& bounds) {
         auto it = m_zones.find(id);
         if (it != m_zones.end()) {
+            if (id == m_activeId) {
+                // LOCK onto a moving active zone: ride its centre delta so the camera FOLLOWS the
+                // entity (not just edge-clamps when it slides under us). The game updates the bounds
+                // each frame; we shift the focus by the same translation before re-clamping.
+                const WorldBounds& ob = it->second.bounds;    // old bounds (still current here)
+                m_focusX += (bounds.minX + bounds.maxX) * 0.5f - (ob.minX + ob.maxX) * 0.5f;
+                m_focusY += (bounds.minY + bounds.maxY) * 0.5f - (ob.minY + ob.maxY) * 0.5f;
+            }
             it->second.bounds = bounds;                       // moved/resized
             recomputeZoomLimits();
-            if (id == m_activeId) clampFocus();
+            clampFocus();
             return;
         }
         Zone z; z.id = id; z.parentId = parentId; z.bounds = bounds;

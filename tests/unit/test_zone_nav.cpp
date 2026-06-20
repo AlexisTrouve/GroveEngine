@@ -295,3 +295,24 @@ TEST_CASE("ZoneNavigator: zoom-in bound is PER LAYER (shallow zone caps low, dee
     for (int i = 0; i < 30; ++i) n.zoomBy(2.0f);
     REQUIRE(n.zoom() > 40.0f);
 }
+
+TEST_CASE("ZoneNavigator: the camera locks onto a MOVING active zone", "[unit][zonenav]") {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/50.0f, /*panMargin*/0.0f, /*detail*/3.0f);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
+    n.addZone("ship", "root", WorldBounds{400.0f, 400.0f, 600.0f,  600.0f});   // centre (500,500)
+    n.reset();
+    n.setActive("ship");
+    n.zoomBy(2.0f);                                    // zoom in INSIDE the ship (visible < ship)
+    REQUIRE(std::fabs(n.focusX() - 500.0f) < 1e-2f);   // looking at the ship centre
+
+    // The ship slides +40 in x; the game re-syncs its bounds (idempotent addZone).
+    n.addZone("ship", "root", WorldBounds{440.0f, 400.0f, 640.0f, 600.0f});   // centre now (540,500)
+    REQUIRE(std::fabs(n.focusX() - 540.0f) < 1.0f);    // the focus RODE the +40 move (a pure clamp would stay at 500)
+
+    // And the live view glides to keep the (moved) ship centre at screen centre.
+    for (int i = 0; i < 60; ++i) n.update(0.05f);
+    float sx, sy; worldToScreen(n.view(), 540.0f, 500.0f, sx, sy);
+    REQUIRE(std::fabs(sx - 500.0f) < 2.0f);
+    REQUIRE(std::fabs(sy - 500.0f) < 2.0f);
+}

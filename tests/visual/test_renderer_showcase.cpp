@@ -265,6 +265,14 @@ public:
             if (m_actions.isActive("rot_left"))  m_nav.rotateBy(-1.4f * dt);   // camera owns the roll
             if (m_actions.isActive("rot_right")) m_nav.rotateBy(1.4f * dt);
             if (m_actions.justPressed("del_zone")) m_nav.removeZone(m_nav.activeZone());
+            // Slice 6 demo: oscillate Ship-A so you can SEE the camera LOCK onto a moving zone.
+            // The game (here) just re-syncs its bounds each frame; the navigator follows when active.
+            if (m_nav.hasZone("Ship-A")) {
+                m_shipPhase += dt;
+                const float bx = 180.0f + 80.0f * std::sin(m_shipPhase);   // slides within Alpha
+                m_nav.addZone("Ship-A", "Alpha", camera::WorldBounds{bx, 120.0f, bx + 140.0f, 230.0f});
+                for (auto& z : m_demoZones) if (z.id == "Ship-A") { z.minX = bx; z.maxX = bx + 140.0f; }
+            }
             const camera::CameraView v = m_nav.update(dt);
             m_cameraX = v.x; m_cameraY = v.y; m_cameraZoom = v.zoom; m_cameraRotation = v.rotation;
         } else {
@@ -928,6 +936,7 @@ private:
     bool m_zoneMode = true;             // start in the zone-nav demo; 'Z' toggles to the free camera
     std::vector<DemoZone> m_demoZones;
     float m_mouseX = 512.0f, m_mouseY = 384.0f;   // cursor (for cursor-anchored zoom)
+    float m_shipPhase = 0.0f;                     // animates Ship-A (slice 6: lock onto a moving zone)
 
     // Clear color
     int m_clearColorIndex = 0;

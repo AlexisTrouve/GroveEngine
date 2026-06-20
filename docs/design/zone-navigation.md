@@ -126,8 +126,9 @@ that rotates the view around the **screen-centre pivot**; at rotation 0 it's bit
 ## Follow-ups (remaining)
 - **Stronger / configurable zoom snap** — once you zoom *enough* toward an object, auto-complete the
   zoom to its framing ("high threshold") instead of a half-zoom. Navigator-only detent, configurable.
-- **Entity-attached zones — position/velocity follow** — when the ACTIVE zone moves (game updates its
-  bounds), the camera should LOCK onto it (focus rides the zone's delta; velocity = lead). Today moving a
-  zone only re-clamps at the edges — not a true follow. Navigator-side, next slice.
+- **Entity-attached zones — position follow ✅ SHIPPED (slice 6)** — when the ACTIVE zone moves (game
+  re-syncs its bounds via the idempotent `addZone`), the focus rides the zone's centre delta so the
+  camera LOCKS onto the moving entity (not just edge-clamps). Locked by `ZoneNavUnit` (focus at centre,
+  zone slides +40 → camera follows). *Remaining: velocity LEAD (anticipate ahead of motion) — optional.*
 - **Rotated-rect clamp** — `clampPanToBounds`/`fitBounds` are still axis-aligned; under camera rotation
   the pan bounding is approximate. Make them rotation-aware (rotate the zone AABB into the view frame).
