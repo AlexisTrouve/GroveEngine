@@ -216,20 +216,31 @@ inline CameraView fitBounds(const WorldBounds& b, float viewportW, float viewpor
 // units, per axis) so the view can overshoot the zone edges a little — letting part of the screen
 // sit slightly outside a POI for context. margin 0 = the strict hard clamp. If the (expanded) zone
 // is smaller than the view on an axis, it's centered on that axis.
+// ROTATION-AWARE: under camera roll the visible region is a ROTATED rectangle whose world-space AABB
+// is LARGER than viewport/zoom (spanX = |cosθ|·w + |sinθ|·h, idem Y). We bound that rotated AABB — so
+// no rolled corner pokes outside the zone — by working with the view CENTRE (the roll pivot, invariant
+// under rotation) and the rotated half-spans. At rotation 0 (cos=1,sin=0) span = w/h: bit-identical to
+// the old axis-aligned clamp.
 inline void clampPanToBounds(CameraView& c, const WorldBounds& b, float marginX = 0.0f, float marginY = 0.0f) {
     const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
-    const float visW = c.viewportW / z;
-    const float visH = c.viewportH / z;
+    const float w = c.viewportW / z, h = c.viewportH / z;     // unrotated visible span (world units)
+    const float ca = std::fabs(std::cos(c.rotation)), sa = std::fabs(std::sin(c.rotation));
+    const float spanX = ca * w + sa * h;                       // world-AABB span of the rotated view
+    const float spanY = sa * w + ca * h;
     const float minX = b.minX - marginX, maxX = b.maxX + marginX;
     const float minY = b.minY - marginY, maxY = b.maxY + marginY;
 
-    if (visW >= (maxX - minX))    c.x = (minX + maxX) * 0.5f - visW * 0.5f;  // zone+margin < view -> center
-    else if (c.x < minX)          c.x = minX;
-    else if (c.x + visW > maxX)   c.x = maxX - visW;
-
-    if (visH >= (maxY - minY))    c.y = (minY + maxY) * 0.5f - visH * 0.5f;
-    else if (c.y < minY)          c.y = minY;
-    else if (c.y + visH > maxY)   c.y = maxY - visH;
+    // The view CENTRE (roll pivot) = top-left + half the UNROTATED span (rotation pivots about it, so
+    // this offset is rotation-independent). Clamp the centre so [centre ± span/2] stays in the zone.
+    float cxC = c.x + w * 0.5f, cyC = c.y + h * 0.5f;
+    if (spanX >= (maxX - minX))   cxC = (minX + maxX) * 0.5f;                 // rotated view wider than zone -> center
+    else                          cxC = (cxC < minX + spanX * 0.5f) ? minX + spanX * 0.5f
+                                      : (cxC > maxX - spanX * 0.5f) ? maxX - spanX * 0.5f : cxC;
+    if (spanY >= (maxY - minY))   cyC = (minY + maxY) * 0.5f;
+    else                          cyC = (cyC < minY + spanY * 0.5f) ? minY + spanY * 0.5f
+                                      : (cyC > maxY - spanY * 0.5f) ? maxY - spanY * 0.5f : cyC;
+    c.x = cxC - w * 0.5f;                                       // back to top-left
+    c.y = cyC - h * 0.5f;
 }
 
 // World-space pan delta for an on-screen drag/velocity at the current zoom. Dividing by zoom gives a

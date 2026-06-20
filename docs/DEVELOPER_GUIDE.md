@@ -385,8 +385,9 @@ io->publish("render:camera", std::move(cam));
   `leadSeconds > 0` to additionally **lead** ahead of its velocity (anticipation). Lead is bounded and
   self-decaying, off by default.
 - Camera roll: `render:camera` carries `rotation` (radians; pivot = screen centre) — pan and
-  cursor-zoom run in the camera frame. The pan **clamp** is still axis-aligned (approximate under
-  rotation); a rotated-rect clamp is the remaining planned follow-on.
+  cursor-zoom run in the camera frame, and the pan **clamp is rotation-aware** (it bounds the rolled
+  view's world AABB, so no corner escapes the zone). Only `fitBounds` *framing* a zone while rolled stays
+  approximate (an exotic case — left parked).
 - `ZoomLadder` above still fits a content-less continuous zoom; `ZoneNavigator` is the richer,
   zone-driven option (zones become the plateaus). Locked by `ZoneNavUnit`.
 

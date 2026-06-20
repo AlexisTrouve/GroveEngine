@@ -79,6 +79,29 @@ TEST_CASE("clampPanToBounds centers a zone smaller than the view", "[unit][zonen
     REQUIRE(std::fabs(v.y - (-30.0f)) < 1e-3f);
 }
 
+TEST_CASE("clampPanToBounds accounts for camera rotation (rotated-rect clamp)", "[unit][zonenav]") {
+    // POURQUOI : under roll the visible region is a ROTATED rectangle whose world AABB is LARGER than
+    // viewport/zoom; an axis-aligned clamp lets the rotated corners poke outside the zone. The clamp must
+    // bound the rotated rect's world AABB, not the unrotated one.
+    WorldBounds z{0.0f, 0.0f, 200.0f, 200.0f};
+    const float deg45 = 0.785398163f;
+    // square viewport 100x100 @ zoom 1 -> unrotated visible 100; rotated 45deg -> world AABB 100*sqrt2.
+    CameraView v{999.0f, 999.0f, 1.0f, 100.0f, 100.0f, deg45};
+    clampPanToBounds(v, z);
+
+    // The whole rotated view must sit inside the zone: its world AABB is within bounds (the real proof).
+    WorldBounds vis = visibleWorldBounds(v);
+    REQUIRE(vis.minX >= z.minX - 1e-2f);
+    REQUIRE(vis.maxX <= z.maxX + 1e-2f);
+    REQUIRE(vis.minY >= z.minY - 1e-2f);
+    REQUIRE(vis.maxY <= z.maxY + 1e-2f);
+    // Exact: view centre clamps to maxX - span/2 (span = 100*sqrt2); centre = c.x + visW/2.
+    const float span = (std::fabs(std::cos(deg45)) + std::fabs(std::sin(deg45))) * 100.0f;   // ~141.42
+    const float expectedCx = (200.0f - span * 0.5f) - 50.0f;
+    REQUIRE(std::fabs(v.x - expectedCx) < 1e-2f);
+    REQUIRE(std::fabs(v.y - expectedCx) < 1e-2f);
+}
+
 TEST_CASE("worldPanForScreen scales pan inversely with zoom", "[unit][zonenav]") {
     REQUIRE(std::fabs(worldPanForScreen(100.0f, 2.0f) - 50.0f)  < 1e-4f);  // zoomed in  -> slow
     REQUIRE(std::fabs(worldPanForScreen(100.0f, 0.5f) - 200.0f) < 1e-4f);  // zoomed out -> fast
@@ -268,6 +291,22 @@ TEST_CASE("ZoneNavigator: pan follows the camera frame when rotated", "[unit][zo
     // At 90 deg, screen-right maps to world -y -> focusY drops 100 (300/zoom), focusX unchanged.
     REQUIRE(std::fabs(n.focusX() - 500.0f) < 1e-2f);
     REQUIRE(std::fabs(n.focusY() - 400.0f) < 1e-2f);
+}
+
+TEST_CASE("ZoneNavigator: the rotated view stays inside the zone (rotated-rect clamp)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();   // root 1000, strict clamp (panMargin 0)
+    n.setActive("A");              // A = [100,100,300,300], 200x200
+    n.zoomBy(2.0f);                // zoom 10 -> visible 100; rotated 45deg -> AABB ~141 < zone 200
+    n.setRotation(0.785398163f);   // 45 deg
+    n.panScreen(100000.0f, 100000.0f);   // slam toward a corner
+
+    // The rolled view's world AABB must stay within A — no corner pokes outside (the axis-aligned clamp
+    // would let it: centre could reach 250, AABB max 250+70.7 = 320 > 300).
+    WorldBounds vis = visibleWorldBounds(n.target());
+    REQUIRE(vis.minX >= 100.0f - 0.5f);
+    REQUIRE(vis.maxX <= 300.0f + 0.5f);
+    REQUIRE(vis.minY >= 100.0f - 0.5f);
+    REQUIRE(vis.maxY <= 300.0f + 0.5f);
 }
 
 TEST_CASE("ZoneNavigator: zoom-out is bounded to the root framing (keep the whole world)", "[unit][zonenav]") {

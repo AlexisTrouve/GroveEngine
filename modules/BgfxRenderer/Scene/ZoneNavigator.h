@@ -165,12 +165,12 @@ public:
     // bounded by both the per-axis cap (updateLead) and the zone clamp below, so it never escapes.
     CameraView target() const {
         CameraView c = centerOn(m_focusX + m_leadX, m_focusY + m_leadY, m_zoom, m_vpW, m_vpH);
+        c.rotation = m_rotation;   // set BEFORE the clamp so clampPanToBounds bounds the ROTATED view AABB
         auto it = m_zones.find(m_activeId);
         if (it != m_zones.end()) {
             const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
             clampPanToBounds(c, it->second.bounds, m_panMarginFrac * (m_vpW / z), m_panMarginFrac * (m_vpH / z));
         }
-        c.rotation = m_rotation;   // NOTE: the clamp above is still axis-aligned (rotated-rect clamp is a later slice)
         return c;
     }
 
@@ -369,18 +369,22 @@ protected:
         clampFocus();
     }
 
-    // Keep the focus (view center) inside the active zone EXPANDED by the pan margin (so a slice of
+    // Keep the focus (= view centre) inside the active zone EXPANDED by the pan margin (so a slice of
     // the screen may sit outside the POI). Center it if the expanded zone is smaller than the view.
+    // ROTATION-AWARE: mirrors target()'s clampPanToBounds — the half-extent is the ROTATED view's
+    // world-AABB span (so focus == the clamped view centre, never diverging). At rotation 0 span = vis.
     void clampFocus() {
         auto it = m_zones.find(m_activeId);
         if (it == m_zones.end()) return;
         const WorldBounds& b = it->second.bounds;
         const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
         const float visW = m_vpW / z, visH = m_vpH / z;
-        const float mX = m_panMarginFrac * visW, mY = m_panMarginFrac * visH;
+        const float ca = std::fabs(std::cos(m_rotation)), sa = std::fabs(std::sin(m_rotation));
+        const float spanX = ca * visW + sa * visH, spanY = sa * visW + ca * visH;   // rotated AABB span
+        const float mX = m_panMarginFrac * visW, mY = m_panMarginFrac * visH;       // overshoot (UX, unrotated)
         const float minX = b.minX - mX, maxX = b.maxX + mX, minY = b.minY - mY, maxY = b.maxY + mY;
-        const float loX = minX + visW * 0.5f, hiX = maxX - visW * 0.5f;
-        const float loY = minY + visH * 0.5f, hiY = maxY - visH * 0.5f;
+        const float loX = minX + spanX * 0.5f, hiX = maxX - spanX * 0.5f;
+        const float loY = minY + spanY * 0.5f, hiY = maxY - spanY * 0.5f;
         m_focusX = (loX > hiX) ? (minX + maxX) * 0.5f : clampf(m_focusX, loX, hiX);
         m_focusY = (loY > hiY) ? (minY + maxY) * 0.5f : clampf(m_focusY, loY, hiY);
     }

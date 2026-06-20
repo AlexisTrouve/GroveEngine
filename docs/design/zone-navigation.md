@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds + zoom snap + entity position-lock + velocity lead shipped & eye-validated; remaining: rotated-rect clamp (2026-06-20).
+**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds + zoom snap + entity position-lock + velocity lead + rotated-rect pan clamp shipped & eye-validated; only `fitBounds` framing-under-roll left approximate (exotic) (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -145,5 +145,12 @@ framing = the "threshold") — *focus by zooming in*. Key rules (hard-won from p
   Bounded per axis to a fraction of the screen (the led-to point can't fly off) and the zone clamp bounds
   it further; decays to zero when motion stops or the active zone changes. Locked by `ZoneNavUnit` (lead
   vs no-lead contrast: a moving ship projects clearly behind centre with lead, at/ahead without; decay).
-- **Rotated-rect clamp** — `clampPanToBounds`/`fitBounds` are still axis-aligned; under camera rotation
-  the pan bounding is approximate. Make them rotation-aware (rotate the zone AABB into the view frame).
+- **Rotated-rect pan clamp ✅ SHIPPED** — `clampPanToBounds` is rotation-aware: under camera roll the
+  visible region is a ROTATED rectangle whose world AABB is larger than viewport/zoom
+  (`spanX = |cosθ|·w + |sinθ|·h`), so the clamp bounds that rotated AABB (working with the view CENTRE =
+  the roll pivot). No rolled corner pokes outside the zone. `ZoneNavigator::clampFocus` mirrors it (focus
+  never diverges from the clamped view centre). At rotation 0 it's bit-identical to the old clamp. Locked
+  by `ZoneNavUnit` (oracle: rotated view AABB stays inside the zone at 45°) + `CameraUnit`.
+  *Remaining (exotic, parked): `fitBounds` framing a zone while the camera is ROLLED is the inscribed-
+  rectangle problem — today framing uses the unrotated fit so a rolled view's corners can slightly
+  overflow when you FRAME a zone. Low value (you rarely frame while rolled); not done.*
