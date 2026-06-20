@@ -115,7 +115,7 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - A2 — `*_tilemap` shader (index `texelFetch`) + `TilemapPass` rewritten to **1 quad/chunk**;
   the command replay gained **multi-texture binding** (`d3532be`, `a6c915e`)
 - A3 — atlas as `texture2DArray` + procedural color atlas (`dbedcb2`, `03cfcd8`)
-- A4.1 — retained `render:tilemap:add/update/remove` (by `chunkId`) → **upload-once** (`88f5dee`)
+- A4.1 — retained `render:tilemap:add/update/remove` (by `id`) → **upload-once** (`88f5dee`)
 - B1 — per-chunk mipped LOD color texture (palette + CPU box-filter) (`d47402c`)
 - B2 — detail↔LOD **derivative crossfade** (`a03cbd2`)
 - Tests — `PassCullingUnit` (1 draw/chunk, chunk cull, upload-once), `SceneCollectorTest` (retained
