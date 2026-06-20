@@ -640,7 +640,8 @@ from the imperative `sound:*` ("play this").
 
 | Topic | Payload | Effect |
 |-------|---------|--------|
-| `audio:layer` | `{id, path, loop?=true, gainCalm?=1, gainPeak?=1}` | Register/start a stem. Its gain crossfades `gainCalm`→`gainPeak` over tension: `{1,1}`=constant bed, `{0,1}`=fades in, `{1,0}`=fades out |
+| `audio:layer` | `{id, path, loop?=true, gainCalm?=1, gainPeak?=1, theme?, state?}` | Register/start a stem. Gain crossfades `gainCalm`→`gainPeak` over tension (`{1,1}`=bed, `{0,1}`=fades in, `{1,0}`=fades out). Tagging `theme`+`state` makes it a leitmotif **arrangement** (tension-exempt; see below) |
+| `audio:theme` | `{id, state}` | Select a leitmotif's arrangement by state: the matching `theme`/`state` stem crossfades to its `gainPeak`, the others to 0 |
 | `audio:intent` | `{tension, quantize?="now"}` | Set the emotional tension `[0,1]`; recomputes every stem's target. `quantize`: `"now"` immediately, `"bar"`/`"beat"` waits for the next measure (see below) |
 | `audio:tempo` | `{bpm, beatsPerBar?=4}` | Set the musical clock for quantized transitions. `bpm=0` stops it (quantized intents then apply immediately) |
 | `audio:mix` | `{id, gain}` | Low-level: set one stem's target gain explicitly (until the next `audio:intent`) |
@@ -657,9 +658,16 @@ the next bar — so section/mood changes land *on the measure* instead of jarrin
 (`"beat"` snaps to the next beat; `"now"` / no tempo = immediate). The clock is a pure `BeatClock`
 (`SoundManager/BeatClock.h`).
 
-The mix math is a pure `AdaptiveMixer` (`SoundManager/AdaptiveMixer.h`); the game owns the tension +
-the stems (content). Locked headless by `SoundManagerUnit` (`[adaptive]` cases). *Roadmap:
-cues/stingers + leitmotif-by-entity-state are the next slices.*
+**Leitmotif by entity state (slice 3):** register several stems under one `theme` with different
+`state`s (a leader's theme: `soft` / `twisted` / `triumphant` / `broken`). They are **tension-exempt**
+(driven only by the selector) and start silent; `audio:theme {id:"leader", state:"broken"}` crossfades
+to that arrangement and fades the others out — so the motif's *arrangement follows the entity's state*.
+
+The mix math is a pure `AdaptiveMixer` (`SoundManager/AdaptiveMixer.h`); the game owns the tension,
+the stems, and the states (content). Locked headless by `SoundManagerUnit` (`[adaptive]` cases —
+32 cases / 89 assertions for the whole sound module). The adaptive-music vision (vertical layers +
+bar-quantized transitions + cues + leitmotifs) is **shipped as logic**; real stems for an audible
+pass are content (compositions late).
 
 **Wiring (static-link host, e.g. Drifterra):** link `SoundManager_static`, instantiate the
 module, inject the backend, drive `process()` each frame:

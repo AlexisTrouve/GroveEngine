@@ -33,18 +33,26 @@ struct AdaptiveLayer {
     float gainPeak = 1.0f;     // gain at tension 1
     float targetGain = 1.0f;   // where the gain wants to be (from the tension curve, or an explicit mix)
     float currentGain = 1.0f;  // ramped value actually pushed to the backend
+    // curveDriven=false layers IGNORE the tension curve — they are driven only by setMix (the
+    // leitmotif/theme selector, slice 3b). They start SILENT and a theme-select brings them in.
+    bool curveDriven = true;
 };
 
 class AdaptiveMixer {
 public:
-    // Add or replace a layer; its current AND target gain snap to the curve at the current tension
-    // so a newly-added stem starts at the right level (stems play in sync — no add-time ramp).
-    void addLayer(const std::string& id, float gainCalm, float gainPeak) {
-        const float tgt = curve(gainCalm, gainPeak, m_tension);
+    // Add or replace a layer. A curve-driven layer snaps its current AND target gain to the curve at
+    // the current tension (stems play in sync — no add-time ramp). A non-curve-driven layer
+    // (themed/leitmotif arrangement) starts SILENT and waits for setMix (the theme selector).
+    void addLayer(const std::string& id, float gainCalm, float gainPeak, bool curveDriven = true) {
+        const float tgt = curveDriven ? curve(gainCalm, gainPeak, m_tension) : 0.0f;
         for (auto& L : m_layers) {
-            if (L.id == id) { L.gainCalm = gainCalm; L.gainPeak = gainPeak; L.targetGain = L.currentGain = tgt; return; }
+            if (L.id == id) {
+                L.gainCalm = gainCalm; L.gainPeak = gainPeak; L.curveDriven = curveDriven;
+                L.targetGain = L.currentGain = tgt;
+                return;
+            }
         }
-        m_layers.push_back({id, gainCalm, gainPeak, tgt, tgt});
+        m_layers.push_back({id, gainCalm, gainPeak, tgt, tgt, curveDriven});
     }
 
     void removeLayer(const std::string& id) {
@@ -53,10 +61,11 @@ public:
         }
     }
 
-    // Set the global tension 0..1; recompute every layer's target from its calm->peak curve.
+    // Set the global tension 0..1; recompute every CURVE-DRIVEN layer's target from its calm->peak
+    // curve. Themed (non-curve-driven) layers are left to their selector (setMix).
     void setTension(float tension) {
         m_tension = clamp01(tension);
-        for (auto& L : m_layers) L.targetGain = curve(L.gainCalm, L.gainPeak, m_tension);
+        for (auto& L : m_layers) if (L.curveDriven) L.targetGain = curve(L.gainCalm, L.gainPeak, m_tension);
     }
 
     // Explicit target for one layer (low-level override; the next setTension recomputes from curve).

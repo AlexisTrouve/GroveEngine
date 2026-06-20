@@ -129,13 +129,26 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         const float gainCalm = static_cast<float>(d.getDouble("gainCalm", 1.0));
         const float gainPeak = static_cast<float>(d.getDouble("gainPeak", 1.0));
         const bool loop = d.getBool("loop", true);
+        // Optional leitmotif tagging (slice 3b): a layer naming a (theme,state) is an ARRANGEMENT
+        // of that theme — non-curve-driven (tension won't move it), brought in by audio:theme.
+        const std::string theme = d.getString("theme", "");
+        const std::string state = d.getString("state", "");
+        const bool themed = !theme.empty() && !state.empty();
+
         const int soundId = m_backend->loadSound(path);
         if (soundId < 0) return;
         // Replacing an existing layer id: stop the old channel first.
         auto old = m_layerHandles.find(id);
         if (old != m_layerHandles.end()) m_backend->stopSound(old->second, 0);
 
-        m_mixer.addLayer(id, gainCalm, gainPeak);
+        m_mixer.addLayer(id, gainCalm, gainPeak, /*curveDriven=*/!themed);
+        if (themed) {
+            // Record (state -> layerId) under the theme; update the state if the layer re-registers.
+            auto& arr = m_themes[theme];
+            bool found = false;
+            for (auto& e : arr) if (e.second == id) { e.first = state; found = true; break; }
+            if (!found) arr.push_back({state, id});
+        }
         const sound::AdaptiveLayer* L = m_mixer.find(id);
         const float eff = clamp01((L ? L->currentGain : 0.0f) * m_music * m_master);  // music bus
         const int handle = m_backend->playSound(soundId, eff, 0.0f, loop);
@@ -182,6 +195,20 @@ void SoundManagerModule::handleMessage(const Message& msg) {
             m_backend->playSound(soundId, clamp01(vol * m_music * m_master), 0.0f, false);
         } else {
             m_pendingCues.push_back({soundId, vol, (q != "beat")});
+        }
+    }
+    else if (msg.topic == "audio:theme") {
+        // Select a leitmotif arrangement by state: the matching layer crossfades to its full gain
+        // (its gainPeak), every other arrangement of the theme to 0. The mixer ramps the crossfade
+        // (tickAdaptive pushes it) — soft -> twisted -> triumphant -> broken follows the entity state.
+        const std::string theme = d.getString("id", "");
+        const std::string state = d.getString("state", "");
+        auto it = m_themes.find(theme);
+        if (it == m_themes.end()) return;
+        for (const auto& entry : it->second) {
+            const sound::AdaptiveLayer* L = m_mixer.find(entry.second);
+            const float activeGain = L ? L->gainPeak : 1.0f;
+            m_mixer.setMix(entry.second, (entry.first == state) ? activeGain : 0.0f);
         }
     }
     else if (msg.topic == "audio:layer:stop") {

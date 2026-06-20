@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace grove {
@@ -94,6 +95,11 @@ private:
     // MUSIC bus (they're part of the score, not gameplay SFX).
     struct PendingCue { int soundId; float callVolume; bool onBar; };
     std::vector<PendingCue> m_pendingCues;
+
+    // Leitmotif themes (slice 3b): theme name -> list of (state, layerId) arrangements. A themed
+    // layer is registered non-curve-driven (tension doesn't touch it); audio:theme {id,state}
+    // crossfades to the layer whose state matches and silences the others (a discrete selector).
+    std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> m_themes;
 
     uint64_t m_sfxCount = 0;
     uint64_t m_musicCount = 0;

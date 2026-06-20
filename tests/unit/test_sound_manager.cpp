@@ -465,3 +465,57 @@ TEST_CASE("SoundManager - audio:cue with no tempo fires immediately even if quan
     h.pump();
     REQUIRE(h.mock->playSoundCalls.size() == 1);
 }
+
+// ============================================================================
+// Slice 3b (adaptive audio): leitmotif — arrangement crossfaded by entity state.
+// ============================================================================
+
+TEST_CASE("AdaptiveMixer - non-curve-driven layers ignore tension (themed)", "[sound][unit][adaptive]") {
+    AdaptiveMixer mix;
+    mix.addLayer("themed", 1.0f, 1.0f, /*curveDriven=*/false);
+    REQUIRE_THAT(mix.find("themed")->currentGain, WithinAbs(0.0f, 1e-4f));  // starts silent
+    mix.setTension(1.0f);
+    REQUIRE_THAT(mix.find("themed")->targetGain, WithinAbs(0.0f, 1e-4f));   // tension left it alone
+    mix.setMix("themed", 0.8f);
+    REQUIRE_THAT(mix.find("themed")->targetGain, WithinAbs(0.8f, 1e-4f));   // only the selector drives it
+}
+
+TEST_CASE("SoundManager - audio:theme crossfades a leitmotif's arrangement by state", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","soft");   n->setString("path","soft.ogg");   n->setString("theme","leader"); n->setString("state","soft");   n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","broken"); n->setString("path","broken.ogg"); n->setString("theme","leader"); n->setString("state","broken"); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    h.pump(0.016);
+    const int softH   = h.mock->playSoundCalls[0].handle;
+    const int brokenH = h.mock->playSoundCalls[1].handle;
+    // Both arrangements start silent (themed -> not curve-driven).
+    REQUIRE_THAT(h.mock->playSoundCalls[0].volume, WithinAbs(0.0f, 1e-3f));
+    REQUIRE_THAT(h.mock->playSoundCalls[1].volume, WithinAbs(0.0f, 1e-3f));
+
+    // Select "soft" -> it comes in, "broken" stays silent.
+    { auto n = std::make_unique<JsonDataNode>("theme"); n->setString("id","leader"); n->setString("state","soft"); h.publish("audio:theme", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, softH), WithinAbs(1.0f, 0.02f));
+    REQUIRE(countVolForHandle(*h.mock, brokenH) == 0);   // never driven up
+
+    // Switch to "broken" -> it crossfades in, "soft" fades out.
+    { auto n = std::make_unique<JsonDataNode>("theme"); n->setString("id","leader"); n->setString("state","broken"); h.publish("audio:theme", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, brokenH), WithinAbs(1.0f, 0.02f));
+    REQUIRE_THAT(lastVolForHandle(*h.mock, softH),   WithinAbs(0.0f, 0.02f));
+}
+
+TEST_CASE("SoundManager - audio:intent does not disturb a themed leitmotif layer", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","soft"); n->setString("path","soft.ogg"); n->setString("theme","leader"); n->setString("state","soft"); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    h.pump(0.016);
+    const int softH = h.mock->playSoundCalls[0].handle;
+
+    { auto n = std::make_unique<JsonDataNode>("theme"); n->setString("id","leader"); n->setString("state","soft"); h.publish("audio:theme", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, softH), WithinAbs(1.0f, 0.02f));   // active arrangement
+
+    // A tension change must NOT move a themed layer (it's selector-driven, not curve-driven).
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 60; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, softH), WithinAbs(1.0f, 0.02f));   // unchanged
+}
