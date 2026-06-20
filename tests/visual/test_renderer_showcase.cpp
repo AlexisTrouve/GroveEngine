@@ -29,6 +29,7 @@
 #include "../helpers/WindowIcon.h"
 #include "BgfxRendererModule.h"
 #include "Scene/Camera.h"               // grove::camera helpers (damp/focusOn)
+#include "Scene/ZoomLadder.h"           // grove::camera::ZoomLadder (zoom strata: snap + blend)
 #include "InputModule/ActionMap.h"      // grove::input::ActionMap (scancode bindings, AZERTY-proof)
 #include "grove/anim/AnimationPlayer.h" // grove::anim: Hierarchy + Clip + player (procedural)
 #include "grove/anim/Flipbook.h"        // grove::anim: SpriteSheet + Flipbook (frame-by-frame)
@@ -136,6 +137,7 @@ public:
         m_actions.bindKey("zoom_out",  SDL_SCANCODE_PAGEDOWN);
         m_actions.bindKey("zoom_out",  SDL_SCANCODE_MINUS);
         m_actions.bindKey("zoom_out",  SDL_SCANCODE_KP_MINUS);
+        m_actions.bindKey("snap_zoom", SDL_SCANCODE_L);   // ZoomLadder: snap to the nearest plateau
         m_actions.bindKey("spawn",     SDL_SCANCODE_SPACE);
         m_actions.bindKey("cycle_color", SDL_SCANCODE_C);
     }
@@ -236,6 +238,9 @@ public:
         // Discrete: fire once on the press edge (key-repeat is idempotent in ActionMap).
         if (m_actions.justPressed("spawn"))       spawnExplosion(512.0f + m_cameraX, 400.0f + m_cameraY);
         if (m_actions.justPressed("cycle_color")) m_clearColorIndex = (m_clearColorIndex + 1) % numClearColors;
+        // ZoomLadder (live demo): snap the zoom to the nearest readable plateau — the camera glides
+        // there via the same smooth-zoom path. Proves snap() + the strata model in the live scene.
+        if (m_actions.justPressed("snap_zoom")) setZoomTarget(m_ladder.snap(m_cameraZoom), 512.0f, 384.0f);
 
         // Smooth zoom: glide toward the target (framerate-independent camera::damp), re-framing
         // so the focus world point stays pinned under its screen anchor — buttery wheel/key
@@ -517,6 +522,27 @@ private:
             m_gameIO->publish("render:text", std::move(text));
         }
 
+        // Zoom strata readout (live ZoomLadder demo): which strata the current zoom is in, and the
+        // inter-strata crossfade t. Watch it update as you zoom; press 'L' to snap to a plateau.
+        {
+            const camera::ZoomBlend zb = m_ladder.blend(m_cameraZoom);
+            char sb[160];
+            if (zb.lower == zb.upper) {
+                snprintf(sb, sizeof(sb), "Strata: %s (locked)", m_strataNames[zb.active]);
+            } else {
+                snprintf(sb, sizeof(sb), "Strata: %s   [%s -> %s  t=%.2f]",
+                         m_strataNames[zb.active], m_strataNames[zb.lower], m_strataNames[zb.upper], zb.t);
+            }
+            auto text = std::make_unique<JsonDataNode>("text");
+            text->setDouble("x", 10);
+            text->setDouble("y", 90);
+            text->setString("text", sb);
+            text->setInt("fontSize", 16);
+            text->setInt("color", 0x66E0FFFF);
+            text->setInt("layer", 100);
+            m_gameIO->publish("render:text", std::move(text));
+        }
+
         // Particles count
         {
             auto text = std::make_unique<JsonDataNode>("text");
@@ -538,7 +564,7 @@ private:
             auto text = std::make_unique<JsonDataNode>("text");
             text->setDouble("x", 750);
             text->setDouble("y", 730);
-            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/PgUp-PgDn: Zoom");
+            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/PgUp-PgDn: Zoom | L: Snap strata");
             text->setInt("fontSize", 14);
             text->setInt("color", 0x888888FF);
             text->setInt("layer", 100);
@@ -816,6 +842,11 @@ private:
     float m_targetZoom = 1.0f;
     float m_zoomFocusWorldX = 0.0f, m_zoomFocusWorldY = 0.0f;
     float m_zoomFocusScreenX = 512.0f, m_zoomFocusScreenY = 384.0f;
+
+    // Zoom strata (live ZoomLadder demo): readable plateaus within the [0.2, 6] zoom range. The HUD
+    // shows the active strata + the inter-strata blend t as you zoom; 'L' snaps to the nearest one.
+    camera::ZoomLadder m_ladder{ std::vector<float>{0.25f, 0.75f, 2.0f, 5.0f}, 0.5f };
+    const char* m_strataNames[4] = {"Galaxy", "System", "Tactical", "Detail"};
 
     // Clear color
     int m_clearColorIndex = 0;

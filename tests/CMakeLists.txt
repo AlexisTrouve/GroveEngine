@@ -549,8 +549,23 @@ if(SDL2_FOUND AND SDL2_mixer_FOUND)
         SDL2::SDL2
         SDL2_mixer::SDL2_mixer)
     message(STATUS "Sound demo 'test_sound_demo' enabled (SDL2_mixer found)")
+
+    # Adaptive-audio demo (slices 1-3): synth stems + audio:* layering/quantized-cue/leitmotif.
+    # Verified by ear (no headless audio assertion) — the logic is locked by SoundManagerUnit.
+    add_executable(test_adaptive_demo
+        visual/test_adaptive_demo.cpp
+        ../modules/SoundManager/SoundManagerModule.cpp
+        ../modules/SoundManager/SDLMixerBackend.cpp)
+    target_include_directories(test_adaptive_demo PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_adaptive_demo PRIVATE
+        GroveEngine::impl
+        SDL2::SDL2
+        SDL2_mixer::SDL2_mixer)
+    message(STATUS "Adaptive-audio demo 'test_adaptive_demo' enabled (SDL2_mixer found)")
 else()
-    message(STATUS "Sound demo skipped (SDL2_mixer not found)")
+    message(STATUS "Sound demos skipped (SDL2_mixer not found)")
 endif()
 
 # ConfigWatcherModule for cross-system integration tests
