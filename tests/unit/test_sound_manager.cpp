@@ -429,3 +429,39 @@ TEST_CASE("SoundManager - quantize:bar with no tempo set applies immediately", "
     for (int i = 0; i < 40; ++i) h.pump(0.05);
     REQUIRE_THAT(lastVolForHandle(*h.mock, handle), WithinAbs(1.0f, 0.05f));
 }
+
+// ============================================================================
+// Slice 3a (adaptive audio): one-shot cues / stingers (quantizable, music bus).
+// ============================================================================
+
+TEST_CASE("SoundManager - audio:cue quantize:now fires immediately on the music bus", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto v = std::make_unique<JsonDataNode>("vol"); v->setString("bus","music"); v->setDouble("value",0.5); h.publish("sound:volume", std::move(v)); }
+    { auto n = std::make_unique<JsonDataNode>("cue"); n->setString("path","sting.ogg"); n->setDouble("volume",1.0); n->setString("quantize","now"); h.publish("audio:cue", std::move(n)); }
+    h.pump();
+
+    REQUIRE(h.mock->playSoundCalls.size() == 1);
+    REQUIRE(h.mock->playSoundCalls[0].loop == false);                       // a cue is a one-shot
+    REQUIRE_THAT(h.mock->playSoundCalls[0].volume, WithinAbs(0.5f, 1e-3f)); // music bus 0.5
+}
+
+TEST_CASE("SoundManager - audio:cue quantize:bar fires on the next bar", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("tempo"); n->setDouble("bpm",120.0); n->setInt("beatsPerBar",4); h.publish("audio:tempo", std::move(n)); }  // 2.0s/bar
+    h.pump(0.016);
+
+    { auto n = std::make_unique<JsonDataNode>("cue"); n->setString("path","sting.ogg"); n->setString("quantize","bar"); h.publish("audio:cue", std::move(n)); }
+    for (int i = 0; i < 38; ++i) h.pump(0.05);   // 1.9s -> staged, not fired
+    REQUIRE(h.mock->playSoundCalls.empty());
+
+    for (int i = 0; i < 8; ++i) h.pump(0.05);    // cross the 2.0s bar
+    REQUIRE(h.mock->playSoundCalls.size() == 1);
+    REQUIRE(h.mock->playSoundCalls[0].loop == false);
+}
+
+TEST_CASE("SoundManager - audio:cue with no tempo fires immediately even if quantized", "[sound][unit][adaptive]") {
+    Harness h;   // no tempo -> clock stopped -> nothing to wait for
+    { auto n = std::make_unique<JsonDataNode>("cue"); n->setString("path","s.ogg"); n->setString("quantize","bar"); h.publish("audio:cue", std::move(n)); }
+    h.pump();
+    REQUIRE(h.mock->playSoundCalls.size() == 1);
+}

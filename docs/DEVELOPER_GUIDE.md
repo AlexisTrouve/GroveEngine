@@ -644,6 +644,7 @@ from the imperative `sound:*` ("play this").
 | `audio:intent` | `{tension, quantize?="now"}` | Set the emotional tension `[0,1]`; recomputes every stem's target. `quantize`: `"now"` immediately, `"bar"`/`"beat"` waits for the next measure (see below) |
 | `audio:tempo` | `{bpm, beatsPerBar?=4}` | Set the musical clock for quantized transitions. `bpm=0` stops it (quantized intents then apply immediately) |
 | `audio:mix` | `{id, gain}` | Low-level: set one stem's target gain explicitly (until the next `audio:intent`) |
+| `audio:cue` | `{path, volume?=1, quantize?="now"}` | One-shot musical **sting** on the music bus; `quantize:"bar"/"beat"` lands it on the next measure |
 | `audio:layer:stop` | `{id, fadeMs?=0}` | Stop + drop a stem |
 
 Stem gains **ramp** smoothly toward their targets each `process()` (framerate-independent), so

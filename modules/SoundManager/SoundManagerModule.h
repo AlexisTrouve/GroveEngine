@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace grove {
 
@@ -87,6 +88,12 @@ private:
     bool  m_pendingIntent = false;
     float m_pendingTension = 0.0f;
     bool  m_pendingOnBar = true;    // true: wait for the next BAR; false: next BEAT
+
+    // Pending cues / stingers (slice 3): one-shot musical events asked with quantize:"bar"/"beat"
+    // wait here and fire (playSound, no loop) when the clock crosses that boundary. Cues are on the
+    // MUSIC bus (they're part of the score, not gameplay SFX).
+    struct PendingCue { int soundId; float callVolume; bool onBar; };
+    std::vector<PendingCue> m_pendingCues;
 
     uint64_t m_sfxCount = 0;
     uint64_t m_musicCount = 0;

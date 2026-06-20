@@ -168,6 +168,22 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         const std::string id = d.getString("id", "");
         if (!id.empty()) m_mixer.setMix(id, static_cast<float>(d.getDouble("gain", 0.0)));
     }
+    else if (msg.topic == "audio:cue") {
+        // One-shot musical sting (slice 3), on the MUSIC bus. quantize: "now" (default) fires
+        // immediately; "bar"/"beat" waits for the next measure (reuses the beat clock) so the
+        // sting lands in time. Clock stopped -> immediate.
+        const std::string path = d.getString("path", "");
+        if (path.empty()) return;
+        const float vol = clamp01(static_cast<float>(d.getDouble("volume", 1.0)));
+        const std::string q = d.getString("quantize", "now");
+        const int soundId = m_backend->loadSound(path);
+        if (soundId < 0) return;
+        if (q == "now" || !m_clock.running()) {
+            m_backend->playSound(soundId, clamp01(vol * m_music * m_master), 0.0f, false);
+        } else {
+            m_pendingCues.push_back({soundId, vol, (q != "beat")});
+        }
+    }
     else if (msg.topic == "audio:layer:stop") {
         // Stop + drop a stem (optionally fading the channel out).
         const std::string id = d.getString("id", "");
@@ -219,6 +235,16 @@ void SoundManagerModule::updateBeatClock(float dt) {
             m_mixer.setTension(m_pendingTension);
             m_pendingIntent = false;
         }
+    }
+    // Fire any pending cues whose boundary was crossed this tick; keep the rest waiting.
+    if (!m_pendingCues.empty()) {
+        std::vector<PendingCue> still;
+        for (const PendingCue& c : m_pendingCues) {
+            const bool fire = c.onBar ? m_clock.crossedBar() : m_clock.crossedBeat();
+            if (fire) m_backend->playSound(c.soundId, clamp01(c.callVolume * m_music * m_master), 0.0f, false);
+            else      still.push_back(c);
+        }
+        m_pendingCues.swap(still);
     }
 }
 
