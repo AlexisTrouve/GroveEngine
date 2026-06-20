@@ -370,3 +370,80 @@ TEST_CASE("ZoneNavigator: snapStrength 0 disables the snap entirely", "[unit][zo
     for (int i = 0; i < 150; ++i) n.update(0.05f);
     REQUIRE(std::fabs(n.zoom() - 5.3f) < 0.1f);  // no snap at all -> stays put
 }
+
+// ============================================================================
+// Velocity LEAD: when the active zone moves at a steady velocity, the camera looks AHEAD of it
+// (anticipates) instead of lagging behind — so the entity sits behind centre in the travel direction
+// and you see where it's going. The lead is bounded (never throws the entity off-screen) and decays
+// to zero when the motion stops. leadSeconds 0 = off (pure position-lock, the default).
+// ============================================================================
+
+// A ship inside a root, zoomed in so there is pan room; configurable lead. magnetRate high so the live
+// view settles fast under the steady drive.
+static ZoneNavigator makeLeadNav(float leadSeconds) {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/50.0f, /*panMargin*/0.25f,
+                /*detail*/3.0f, /*snap*/0.0f, /*snapRange*/0.7f, leadSeconds);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
+    n.addZone("ship", "root", WorldBounds{400.0f, 400.0f, 600.0f,  600.0f});   // centre (500,500), 200x200
+    n.reset();
+    n.setActive("ship");
+    n.zoomBy(2.0f);   // zoom 10 -> visible 100 < ship 200 -> pan room exists
+    return n;
+}
+
+// Drive the ship +20 world units in x every 0.05s frame (= 400 u/s) for N frames; return its final
+// centre x. Each frame: game re-syncs the moved bounds (idempotent addZone) then the engine updates.
+static float driveShipRight(ZoneNavigator& n, int frames) {
+    float x = 400.0f;
+    for (int i = 0; i < frames; ++i) {
+        x += 20.0f;
+        n.addZone("ship", "root", WorldBounds{x, 400.0f, x + 200.0f, 600.0f});
+        n.update(0.05f);
+    }
+    return x + 100.0f;   // final ship centre x
+}
+
+TEST_CASE("ZoneNavigator: velocity lead makes the camera look AHEAD of a moving zone", "[unit][zonenav]") {
+    ZoneNavigator n = makeLeadNav(/*leadSeconds*/0.3f);
+    const float shipCentreX = driveShipRight(n, 60);
+
+    // The ship moves +x, so the camera leads +x -> the ship centre projects LEFT of screen centre (500),
+    // but stays comfortably on screen (the lead is capped, not unbounded).
+    float sx = 0.0f, sy = 0.0f;
+    worldToScreen(n.view(), shipCentreX, 500.0f, sx, sy);
+    REQUIRE(sx < 500.0f - 50.0f);   // clearly behind centre = the camera anticipates ahead
+    REQUIRE(sx > 50.0f);            // still on screen (bounded lead, not flung off)
+}
+
+TEST_CASE("ZoneNavigator: lead places the moving zone further behind centre than no-lead", "[unit][zonenav]") {
+    // Contrast control: same drive, lead ON vs OFF. POURQUOI a contrast and not "no-lead == centred":
+    // the soft magnet inherently LAGS a fast mover (the entity drifts slightly AHEAD of centre with no
+    // lead) — that lag is exactly what the lead counteracts. So the honest claim is relative.
+    ZoneNavigator withLead = makeLeadNav(/*leadSeconds*/0.3f);
+    ZoneNavigator noLead   = makeLeadNav(/*leadSeconds*/0.0f);
+    const float c1 = driveShipRight(withLead, 60);
+    const float c2 = driveShipRight(noLead,   60);
+
+    float sxLead = 0.0f, sxNo = 0.0f, sy = 0.0f;
+    worldToScreen(withLead.view(), c1, 500.0f, sxLead, sy);
+    worldToScreen(noLead.view(),   c2, 500.0f, sxNo,   sy);
+    REQUIRE(sxLead < sxNo - 100.0f);   // lead pushes the ship clearly behind where no-lead leaves it
+    REQUIRE(sxNo   > 495.0f);          // no-lead does NOT anticipate (sits at/ahead of centre, lagging)
+}
+
+TEST_CASE("ZoneNavigator: the lead decays to zero when the zone stops moving", "[unit][zonenav]") {
+    ZoneNavigator n = makeLeadNav(/*leadSeconds*/0.3f);
+    const float shipCentreX = driveShipRight(n, 40);   // build up lead while moving
+
+    // Now hold the ship still (re-sync the SAME bounds) and let the view settle.
+    const float stillX = shipCentreX - 100.0f;   // bounds min x
+    for (int i = 0; i < 120; ++i) {
+        n.addZone("ship", "root", WorldBounds{stillX, 400.0f, stillX + 200.0f, 600.0f});
+        n.update(0.05f);
+    }
+    // Velocity -> 0 -> lead -> 0 -> the (now static) ship centre returns to screen centre.
+    float sx = 0.0f, sy = 0.0f;
+    worldToScreen(n.view(), shipCentreX, 500.0f, sx, sy);
+    REQUIRE(std::fabs(sx - 500.0f) < 5.0f);
+}

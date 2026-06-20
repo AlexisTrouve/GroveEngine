@@ -350,7 +350,8 @@ io->publish("render:camera", std::move(cam));
 ```
 
 **API**
-- `configure(vpW, vpH, margin?, magnetRate?, panMargin?, maxDetail?)` — viewport + feel knobs (below).
+- `configure(vpW, vpH, margin?, magnetRate?, panMargin?, maxDetail?, snapStrength?, snapRange?, leadSeconds?)`
+  — viewport + feel knobs (below).
 - `addZone(id, parentId, WorldBounds)` — add OR update a zone (idempotent: re-adding updates the bounds
   and keeps children; moving the active zone locks the camera onto it). Empty `parentId` = root.
 - `removeZone(id)` — drop the zone + its subtree; if the active zone vanishes, ease back to the nearest
@@ -375,14 +376,17 @@ io->publish("render:camera", std::move(cam));
 | `maxDetail` | 3.0 | max zoom-in past the deepest zone's framing — the per-layer cap (anti-void) |
 | `snapStrength` | 8.0 | zoom-snap ease rate (0 = off). On release after a zoom-**IN**, the zoom auto-completes to frame the zone you're entering (*focus*). Zoom-IN only, upward only — it can never zoom you out; zoom-OUT is always free |
 | `snapRange` | 0.7 | how close (log-zoom) to a framing the snap engages — free beyond it (detail zoom stays free) |
+| `leadSeconds` | 0.0 | velocity **lead** (0 = off): when the active zone moves, look this many seconds *ahead* of it so a fast entity isn't dragged to the screen edge by the magnet lag (you see where it's going). Bounded — the led-to point stays on screen — and decays to zero when the motion stops |
 
 **Notes / limits**
 - Zoom-in is bounded **per layer**: to the active zone's *subtree* deepest framing × `maxDetail` (a
   shallow zone caps low, a deep one plunges). Zoom-out is bounded to the root framing.
+- Moving zones: the active zone is always **position-locked** (the camera rides its centre); set
+  `leadSeconds > 0` to additionally **lead** ahead of its velocity (anticipation). Lead is bounded and
+  self-decaying, off by default.
 - Camera roll: `render:camera` carries `rotation` (radians; pivot = screen centre) — pan and
   cursor-zoom run in the camera frame. The pan **clamp** is still axis-aligned (approximate under
-  rotation); a rotated-rect clamp + velocity **lead** (anticipate ahead of a moving zone) are planned
-  follow-ons (today it's position lock).
+  rotation); a rotated-rect clamp is the remaining planned follow-on.
 - `ZoomLadder` above still fits a content-less continuous zoom; `ZoneNavigator` is the richer,
   zone-driven option (zones become the plateaus). Locked by `ZoneNavUnit`.
 

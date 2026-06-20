@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds shipped & eye-validated; remaining: stronger snap, entity position/velocity follow, rotated-rect clamp (2026-06-20).
+**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds + zoom snap + entity position-lock + velocity lead shipped & eye-validated; remaining: rotated-rect clamp (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -138,6 +138,12 @@ framing = the "threshold") — *focus by zooming in*. Key rules (hard-won from p
 - **Entity-attached zones — position follow ✅ SHIPPED (slice 6)** — when the ACTIVE zone moves (game
   re-syncs its bounds via the idempotent `addZone`), the focus rides the zone's centre delta so the
   camera LOCKS onto the moving entity (not just edge-clamps). Locked by `ZoneNavUnit` (focus at centre,
-  zone slides +40 → camera follows). *Remaining: velocity LEAD (anticipate ahead of motion) — optional.*
+  zone slides +40 → camera follows).
+- **Velocity LEAD ✅ SHIPPED** — `configure(..., leadSeconds)` (0 = off): the camera looks `leadSeconds`
+  *ahead* of the active zone's (smoothed) velocity, so a fast mover sits behind centre in the travel
+  direction (you see where it's going) instead of being dragged to the leading edge by the magnet lag.
+  Bounded per axis to a fraction of the screen (the led-to point can't fly off) and the zone clamp bounds
+  it further; decays to zero when motion stops or the active zone changes. Locked by `ZoneNavUnit` (lead
+  vs no-lead contrast: a moving ship projects clearly behind centre with lead, at/ahead without; decay).
 - **Rotated-rect clamp** — `clampPanToBounds`/`fitBounds` are still axis-aligned; under camera rotation
   the pan bounding is approximate. Make them rotation-aware (rotate the zone AABB into the view frame).

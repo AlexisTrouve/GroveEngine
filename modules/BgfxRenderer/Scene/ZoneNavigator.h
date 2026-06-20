@@ -34,12 +34,17 @@ public:
     // Viewport + feel. margin = framing padding (fraction); magnetRate = glide snappiness;
     // panMargin = how far you may pan PAST a zone's edge, as a fraction of the visible size (so a
     // slice of the screen can sit outside a POI for context). 0 = strict hard clamp.
+    // leadSeconds = velocity LEAD: when the active zone moves, look this many seconds AHEAD of it
+    // (anticipate motion) so a fast entity isn't dragged to the screen edge by the magnet lag. 0 = off.
+    // MERDIER FLAG: this is now 9 positional params — past the readable limit. A `Config` struct
+    // (named fields + defaults) is the right refactor; deferred to avoid rippling the showcase + tests
+    // mid-feature. Surgical for now.
     void configure(float viewportW, float viewportH, float margin = 0.05f, float magnetRate = 6.0f,
                    float panMargin = 0.25f, float maxDetail = 3.0f, float snapStrength = 8.0f,
-                   float snapRange = 0.7f) {
+                   float snapRange = 0.7f, float leadSeconds = 0.0f) {
         m_vpW = viewportW; m_vpH = viewportH; m_margin = margin; m_magnetRate = magnetRate;
         m_panMarginFrac = panMargin; m_maxDetailFactor = maxDetail;
-        m_snapStrength = snapStrength; m_snapRange = snapRange;
+        m_snapStrength = snapStrength; m_snapRange = snapRange; m_leadSeconds = leadSeconds;
         recomputeZoomLimits();
     }
 
@@ -155,9 +160,11 @@ public:
 
     // --- output ---
 
-    // The un-damped magnet target (deterministic): what the live view eases toward.
+    // The un-damped magnet target (deterministic): what the live view eases toward. The velocity LEAD
+    // (m_lead*, computed in update) offsets the focus so the camera looks AHEAD of a moving zone; it's
+    // bounded by both the per-axis cap (updateLead) and the zone clamp below, so it never escapes.
     CameraView target() const {
-        CameraView c = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
+        CameraView c = centerOn(m_focusX + m_leadX, m_focusY + m_leadY, m_zoom, m_vpW, m_vpH);
         auto it = m_zones.find(m_activeId);
         if (it != m_zones.end()) {
             const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
@@ -169,6 +176,7 @@ public:
 
     // Ease the view toward the target (soft magnet + seamless) and return it for render:camera.
     CameraView update(float dt) {
+        updateLead(dt);   // velocity lead: estimate the active zone's motion and look ahead of it
         // Zoom SNAP (anti semi-zoom): when NOT actively zooming, ease the zoom toward the nearest
         // framing "detent" — the levels you can settle on from here (the active zone + its ancestors,
         // plus the child under the cursor = the next level you can enter). A fling-zoom therefore
@@ -245,6 +253,46 @@ protected:
         if (na != m_activeId) { m_activeId = na; recomputeZoomLimits(); }
         clampFocus();
     }
+
+    // Velocity LEAD — anticipate ahead of a moving active zone.
+    // WHAT : estimate the active zone's world velocity (smoothed) and set m_lead* = leadSeconds*velocity,
+    //        the view offset target() adds to the focus so the camera looks WHERE THE ENTITY IS GOING.
+    // WHY  : the soft magnet lags a fast mover — without lead the entity drifts to the leading screen
+    //        edge and you can't see ahead. Lead counteracts the lag (and overshoots into anticipation).
+    //        Pure position-lock (slice 6) keeps the entity on screen; lead is the polish on top. Off by
+    //        default (leadSeconds 0) — it's a feel choice the game opts into.
+    // HOW  : 1. sample the active zone's centre each frame; 2. instantaneous velocity = Δcentre/dt;
+    //        3. smooth it (damp, leadSmoothRate) so a noisy/instant resync doesn't jerk the camera;
+    //        4. lead = leadSeconds*velocity, CAPPED per axis to leadMaxFrac of the visible span so the
+    //        led-to point can't leave the screen (the zone clamp in target() bounds it further). On an
+    //        active-zone change or lead-off, tracking resets and the lead decays to zero.
+    void updateLead(float dt) {
+        auto it = m_zones.find(m_activeId);
+        if (m_leadSeconds <= 0.0f || it == m_zones.end() || dt <= 1e-6f) {
+            m_velX = m_velY = m_leadX = m_leadY = 0.0f;   // off / no active zone -> no lead, no tracking
+            m_velValid = false;
+            return;
+        }
+        const float cx = (it->second.bounds.minX + it->second.bounds.maxX) * 0.5f;
+        const float cy = (it->second.bounds.minY + it->second.bounds.maxY) * 0.5f;
+        if (m_velValid && m_velActiveId == m_activeId) {
+            const float instVX = (cx - m_velCentreX) / dt;        // world units / second
+            const float instVY = (cy - m_velCentreY) / dt;
+            m_velX = damp(m_velX, instVX, kLeadSmoothRate, dt);   // smooth: no jerk on a noisy resync
+            m_velY = damp(m_velY, instVY, kLeadSmoothRate, dt);
+        } else {
+            m_velX = m_velY = 0.0f;                               // active zone changed -> restart clean
+        }
+        m_velCentreX = cx; m_velCentreY = cy; m_velActiveId = m_activeId; m_velValid = true;
+
+        const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
+        const float capX = kLeadMaxFrac * (m_vpW / z), capY = kLeadMaxFrac * (m_vpH / z);
+        m_leadX = clampf(m_leadSeconds * m_velX, -capX, capX);    // keep the led-to point on screen
+        m_leadY = clampf(m_leadSeconds * m_velY, -capY, capY);
+    }
+
+    static constexpr float kLeadSmoothRate = 5.0f;   // velocity-estimate smoothing rate (1/s)
+    static constexpr float kLeadMaxFrac    = 0.35f;  // max lead as a fraction of the visible span (per axis)
 
     // The framings reachable from here = the snap detents: the active zone + its ancestors (zoom-OUT
     // targets, BELOW the current zoom) AND the children of the active zone under the focus (zoom-IN
@@ -371,6 +419,16 @@ protected:
     float m_snapRange = 0.7f;        // only snap within this log-zoom distance of a detent (free beyond)
     bool  m_zoomActive = false;      // a zoomBy happened this frame -> pause the snap
     int   m_lastZoomDir = 0;         // +1/-1: direction of the last zoomBy (drives the directional snap)
+    // Velocity LEAD (anticipate ahead of a moving active zone). leadSeconds = how far ahead to look;
+    // m_vel* = the smoothed world velocity of the active zone's centre; m_lead* = the resulting view
+    // offset applied in target(); the m_velCentre*/m_velActiveId/m_velValid triplet samples the centre
+    // frame-to-frame to estimate that velocity.
+    float m_leadSeconds = 0.0f;      // 0 = off (opt-in: pure position-lock stays the default behaviour)
+    float m_velX = 0.0f, m_velY = 0.0f;          // smoothed active-zone velocity (world units / second)
+    float m_leadX = 0.0f, m_leadY = 0.0f;        // computed lead offset (world), added to focus in target()
+    float m_velCentreX = 0.0f, m_velCentreY = 0.0f;   // last sampled active-zone centre
+    std::string m_velActiveId;       // which zone the velocity sample belongs to (reset on active change)
+    bool  m_velValid = false;        // do we have a previous centre sample to diff against?
     float m_zoom = 1.0f, m_minZoom = 0.001f, m_maxZoom = 1.0e4f;
     float m_focusX = 0.0f, m_focusY = 0.0f;
     float m_rotation = 0.0f;   // camera roll (radians); pan/zoom honour it, update() outputs it
