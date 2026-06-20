@@ -113,6 +113,7 @@ public:
         m_zoom = m_minZoom;
         recenterOnActive();
         clampFocus();
+        m_panVelX = m_panVelY = 0.0f; m_dragging = false;   // fresh frame -> no carried-over glide
         m_view = target();   // initial frame is a snap, not a glide
     }
 
@@ -140,6 +141,29 @@ public:
         clampFocus();   // pan can't leave the active zone
     }
 
+    // DIRECT-manipulation pan (a MOUSE DRAG / grab): move the LIVE view by an on-screen delta
+    // IMMEDIATELY — no soft-magnet lag. WHY: a grab must track the cursor 1:1; routing it through
+    // panScreen moves only the focus and the view LERPS toward it (magnetRate), so the world visibly
+    // trails the cursor ("on suit pas bien la souris"). Here we move the focus AND snap the live view to
+    // the (clamped) target this call, so the world point under the cursor stays pinned. The magnet still
+    // owns the INDIRECT transitions (zoom-enter recentre, deletion back-out). Same camera-frame +
+    // 1/zoom scaling + zone clamp as panScreen. Caveat: uses the target zoom; a drag DURING a zoom-glide
+    // pins against the settling zoom (transient, negligible — pan and wheel are separate gestures).
+    void dragPan(float dxScreen, float dyScreen) {
+        applyPanScreen(dxScreen, dyScreen);                     // immediate 1:1 follow
+        m_panAccumX += dxScreen; m_panAccumY += dyScreen;      // feed the momentum velocity estimate
+        m_dragging = true;                                      // a drag is in progress (held)
+    }
+
+    // Release the drag: the residual velocity becomes a light kinetic glide (decays via panInertia).
+    // The consumer calls this on button-up; without it a still cursor mid-drag would be read as a stop.
+    void endDragPan() { m_dragging = false; }
+
+    // Light release inertia for dragPan (decay rate, 1/s; 0 = off = the pan cuts dead on release).
+    // Higher = stops sooner. A small value (~8-12) gives the "très léger accel/decel" kinetic feel.
+    void setPanInertia(float decayRate) { m_panInertia = decayRate; }
+    float panInertia() const { return m_panInertia; }
+
     // Camera roll (radians). rotateBy accumulates (e.g. Q/E held); setRotation jumps (e.g. snap to an
     // entity heading). The navigator OWNS rotation so pan + cursor-zoom stay in the camera frame and
     // update() outputs it for render:camera.
@@ -161,6 +185,7 @@ public:
         m_zoom = clampZoom(framingZoom(it->second.bounds), m_minZoom, m_maxZoom);
         recenterOnActive();
         clampFocus();
+        m_panVelX = m_panVelY = 0.0f; m_dragging = false;   // an explicit reframe cancels any pan glide
     }
 
     // --- output ---
@@ -182,6 +207,26 @@ public:
     // Ease the view toward the target (soft magnet + seamless) and return it for render:camera.
     CameraView update(float dt) {
         updateLead(dt);   // velocity lead: estimate the active zone's motion and look ahead of it
+
+        // PAN MOMENTUM (light kinetic glide). While dragging, track the live screen velocity from the
+        // deltas dragPan fed this frame. On RELEASE (m_dragging false), keep applying that velocity,
+        // decaying by m_panInertia, so the pan eases to a stop instead of cutting dead — "léger
+        // accel/decel". The drag itself stays 1:1 (applied in dragPan); momentum only adds the release
+        // glide. m_panInertia 0 = off (instant stop) — then this is a pure no-op (back-compat default).
+        if (m_dragging) {
+            if (dt > 1e-6f) {
+                m_panVelX = damp(m_panVelX, m_panAccumX / dt, kPanVelSmooth, dt);
+                m_panVelY = damp(m_panVelY, m_panAccumY / dt, kPanVelSmooth, dt);
+            }
+            m_panAccumX = m_panAccumY = 0.0f;
+        } else if (m_panInertia > 0.0f &&
+                   (std::fabs(m_panVelX) > kPanVelStop || std::fabs(m_panVelY) > kPanVelStop)) {
+            applyPanScreen(m_panVelX * dt, m_panVelY * dt);   // continue the throw (clamped), no magnet lag
+            const float decay = std::exp(-m_panInertia * dt);
+            m_panVelX *= decay; m_panVelY *= decay;
+        } else {
+            m_panVelX = m_panVelY = 0.0f;                     // settled / off
+        }
         // Zoom SNAP (anti semi-zoom): when NOT actively zooming, ease the zoom toward the nearest
         // framing "detent" — the levels you can settle on from here (the active zone + its ancestors,
         // plus the child under the cursor = the next level you can enter). A fling-zoom therefore
@@ -374,6 +419,22 @@ protected:
         clampFocus();
     }
 
+    // Core of a direct-manipulation pan: shift the focus by an on-screen delta (camera frame, 1/zoom),
+    // clamp, and snap the LIVE view to the clamped target THIS CALL (no magnet damp). Shared by dragPan
+    // (a held drag) and the release-momentum glide. Pin uses the target zoom (see dragPan caveat).
+    void applyPanScreen(float dxScreen, float dyScreen) {
+        if (m_activeId.empty()) return;
+        const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
+        const float cs = std::cos(m_rotation), sn = std::sin(m_rotation);   // R^-1 = [[c,s],[-s,c]]
+        m_focusX += (cs * dxScreen + sn * dyScreen) / z;
+        m_focusY += (-sn * dxScreen + cs * dyScreen) / z;
+        clampFocus();
+        const CameraView t = target();
+        m_view.x = t.x; m_view.y = t.y;
+        m_view.rotation = m_rotation;
+        m_view.viewportW = m_vpW; m_view.viewportH = m_vpH;
+    }
+
     // Keep the focus (= view centre) inside the active zone EXPANDED by the pan margin (so a slice of
     // the screen may sit outside the POI). Center it if the expanded zone is smaller than the view.
     // ROTATION-AWARE: mirrors target()'s clampPanToBounds — the half-extent is the ROTATED view's
@@ -438,6 +499,15 @@ protected:
     float m_velCentreX = 0.0f, m_velCentreY = 0.0f;   // last sampled active-zone centre
     std::string m_velActiveId;       // which zone the velocity sample belongs to (reset on active change)
     bool  m_velValid = false;        // do we have a previous centre sample to diff against?
+    // Pan MOMENTUM (light kinetic glide on drag release). m_panVel = current screen velocity (px/s);
+    // m_panAccum = screen delta dragged since the last update (to estimate that velocity); m_dragging =
+    // a drag is held; m_panInertia = release decay rate (0 = off).
+    float m_panVelX = 0.0f, m_panVelY = 0.0f;
+    float m_panAccumX = 0.0f, m_panAccumY = 0.0f;
+    bool  m_dragging = false;
+    float m_panInertia = 0.0f;       // 0 = instant stop (back-compat); ~8-12 = light kinetic glide
+    static constexpr float kPanVelSmooth = 20.0f;   // velocity-estimate smoothing while dragging (1/s)
+    static constexpr float kPanVelStop   = 4.0f;    // below this screen speed (px/s) the glide stops
     float m_zoom = 1.0f, m_minZoom = 0.001f, m_maxZoom = 1.0e4f;
     float m_focusX = 0.0f, m_focusY = 0.0f;
     float m_rotation = 0.0f;   // camera roll (radians); pan/zoom honour it, update() outputs it

@@ -25,6 +25,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "Scene/Camera.h"
+#include "Scene/DragPan.h"
 
 #include <cmath>
 
@@ -190,4 +191,65 @@ TEST_CASE("Camera - isVisible margin pulls in near-edge objects (pop-in guard)",
     // Box just left of the view: x in [-100,-50], outside by 50.
     REQUIRE_FALSE(camera::isVisible(c, -100.0f, 100.0f, 50.0f, 50.0f));
     REQUIRE(camera::isVisible(c, -100.0f, 100.0f, 50.0f, 50.0f, 60.0f));  // margin 60 -> visible
+}
+
+// ============================================================================
+// DragPan — click-drag to pan: press → move → release into per-frame screen deltas.
+// Pure state machine (Scene/DragPan.h); the consumer feeds it cursor pos + button and pipes the delta
+// into a pan (negated = "grab"). Locked here because a first-frame jump or a stale delta = a broken pan.
+// ============================================================================
+
+TEST_CASE("DragPan - inactive returns zero delta", "[camera][unit][dragpan]") {
+    camera::DragPan d;
+    REQUIRE_FALSE(d.active());
+    camera::ScreenDelta z = d.update(123.0f, 456.0f);   // no begin() -> not dragging
+    REQUIRE_THAT(z.dx, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(z.dy, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("DragPan - first update after begin has no jump", "[camera][unit][dragpan]") {
+    camera::DragPan d;
+    d.begin(200.0f, 300.0f);
+    REQUIRE(d.active());
+    camera::ScreenDelta first = d.update(200.0f, 300.0f);   // cursor hasn't moved from the anchor
+    REQUIRE_THAT(first.dx, WithinAbs(0.0f, 1e-6f));         // {0,0} -> no first-frame jump
+    REQUIRE_THAT(first.dy, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("DragPan - reports the per-sample screen delta while held", "[camera][unit][dragpan]") {
+    camera::DragPan d;
+    d.begin(100.0f, 100.0f);
+    d.update(100.0f, 100.0f);                       // prime (anchor)
+    camera::ScreenDelta a = d.update(130.0f, 120.0f);   // moved +30,+20 since last sample
+    REQUIRE_THAT(a.dx, WithinAbs(30.0f, 1e-4f));
+    REQUIRE_THAT(a.dy, WithinAbs(20.0f, 1e-4f));
+    camera::ScreenDelta b = d.update(120.0f, 120.0f);   // moved -10,0 since the PREVIOUS sample (not the anchor)
+    REQUIRE_THAT(b.dx, WithinAbs(-10.0f, 1e-4f));
+    REQUIRE_THAT(b.dy, WithinAbs(0.0f,   1e-4f));
+}
+
+TEST_CASE("DragPan - end stops the drag (delta goes to zero)", "[camera][unit][dragpan]") {
+    camera::DragPan d;
+    d.begin(0.0f, 0.0f);
+    d.update(0.0f, 0.0f);
+    d.update(50.0f, 50.0f);     // dragging
+    d.end();
+    REQUIRE_FALSE(d.active());
+    camera::ScreenDelta z = d.update(999.0f, 999.0f);   // released -> ignored
+    REQUIRE_THAT(z.dx, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(z.dy, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("DragPan - a fresh begin re-anchors (no jump from the old position)", "[camera][unit][dragpan]") {
+    camera::DragPan d;
+    d.begin(10.0f, 10.0f);
+    d.update(10.0f, 10.0f);
+    d.update(60.0f, 60.0f);     // dragged far
+    d.begin(500.0f, 500.0f);    // new press elsewhere -> re-anchor, no phantom delta from the old drag
+    camera::ScreenDelta first = d.update(500.0f, 500.0f);
+    REQUIRE_THAT(first.dx, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(first.dy, WithinAbs(0.0f, 1e-6f));
+    camera::ScreenDelta nxt = d.update(515.0f, 505.0f);   // +15,+5 from the new anchor
+    REQUIRE_THAT(nxt.dx, WithinAbs(15.0f, 1e-4f));
+    REQUIRE_THAT(nxt.dy, WithinAbs(5.0f,  1e-4f));
 }

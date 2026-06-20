@@ -31,6 +31,7 @@
 #include "Scene/Camera.h"               // grove::camera helpers (damp/focusOn)
 #include "Scene/ZoomLadder.h"           // grove::camera::ZoomLadder (zoom strata: snap + blend)
 #include "Scene/ZoneNavigator.h"        // grove::camera::ZoneNavigator (nested-zones navigation)
+#include "Scene/DragPan.h"              // grove::camera::DragPan (right-click drag to pan)
 #include "InputModule/ActionMap.h"      // grove::input::ActionMap (scancode bindings, AZERTY-proof)
 #include "grove/anim/AnimationPlayer.h" // grove::anim: Hierarchy + Clip + player (procedural)
 #include "grove/anim/Flipbook.h"        // grove::anim: SpriteSheet + Flipbook (frame-by-frame)
@@ -212,10 +213,32 @@ public:
         if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
             m_actions.onKey(e.key.keysym.scancode, e.type == SDL_KEYDOWN);
         }
-        // Track the cursor so zone-nav zoom can anchor on it (zoom toward the mouse).
+        // RIGHT mouse button = click-drag to pan (DragPan). Left stays free for selection (Drifterra
+        // binds whatever it wants — DragPan is button-agnostic; here the demo uses RIGHT, Alexi's pick).
+        else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT) {
+            m_dragPan.begin(static_cast<float>(e.button.x), static_cast<float>(e.button.y));
+        }
+        else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_RIGHT) {
+            m_dragPan.end();
+            m_nav.endDragPan();   // release -> the residual velocity becomes a light kinetic glide
+        }
+        // Track the cursor (zone-nav zoom anchors on it) AND drive the drag-pan when the right button
+        // is held: the screen delta since the last sample feeds the pan, NEGATED for a "grab" feel (the
+        // world point under the cursor stays under it). panScreen is already 1/zoom-scaled + rotation-
+        // aware + zone-clamped, so the grab is exact even zoomed/rolled.
         else if (e.type == SDL_MOUSEMOTION) {
             m_mouseX = static_cast<float>(e.motion.x);
             m_mouseY = static_cast<float>(e.motion.y);
+            if (m_dragPan.active()) {
+                const camera::ScreenDelta d = m_dragPan.update(m_mouseX, m_mouseY);
+                if (m_zoneMode) {
+                    m_nav.dragPan(-d.dx, -d.dy);                         // grab: immediate (no magnet lag)
+                } else {
+                    const float z = (m_cameraZoom != 0.0f) ? m_cameraZoom : 1.0f;
+                    m_cameraX += -d.dx / z;                              // free cam: world follows the cursor
+                    m_cameraY += -d.dy / z;
+                }
+            }
         }
         // Mouse wheel: smooth zoom toward the SCREEN CENTER. (Zooming toward the cursor made
         // the scene travel when the cursor was off-center, which reads as "zoom + dezoom" —
@@ -386,6 +409,7 @@ private:
     void setupZones() {
         m_nav.configure(1024.0f, 768.0f, /*margin*/0.08f, /*magnetRate*/6.0f);
         m_nav.setLeadSeconds(m_leadOn ? 0.25f : 0.0f);   // velocity lead ON by default (toggle with V)
+        m_nav.setPanInertia(10.0f);                      // light kinetic glide on right-drag release
         auto add = [&](const char* id, const char* parent,
                        float x0, float y0, float x1, float y1, uint32_t color) {
             m_nav.addZone(id, parent, camera::WorldBounds{x0, y0, x1, y1});
@@ -613,7 +637,7 @@ private:
             if (m_zoneMode) {
                 // Zone-navigation demo: the active zone + lead state + a reminder of the controls.
                 const std::string& az = m_nav.activeZone();
-                snprintf(sb, sizeof(sb), "Zone: %s   lead:%s   (zoom in=enter | pan locked | Q/E=roll | V=lead | Suppr=del | Z=free)",
+                snprintf(sb, sizeof(sb), "Zone: %s   lead:%s   (zoom in=enter | RMB drag=pan | Q/E=roll | V=lead | Suppr=del | Z=free)",
                          az.empty() ? "<none>" : az.c_str(), m_leadOn ? "ON" : "OFF");
             } else {
                 // Free cam: the ZoomLadder strata readout.
@@ -944,6 +968,7 @@ private:
     bool m_zoneMode = true;             // start in the zone-nav demo; 'Z' toggles to the free camera
     std::vector<DemoZone> m_demoZones;
     float m_mouseX = 512.0f, m_mouseY = 384.0f;   // cursor (for cursor-anchored zoom)
+    camera::DragPan m_dragPan;                    // right-click drag-to-pan (grab feel), both cam modes
     float m_shipPhase = 0.0f;                     // animates Ship-A (slice 6: lock onto a moving zone)
     bool  m_leadOn = true;                        // velocity lead on the moving Ship-A ('V' toggles)
 

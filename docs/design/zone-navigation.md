@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds + zoom snap + entity position-lock + velocity lead + rotated-rect pan clamp shipped & eye-validated; only `fitBounds` framing-under-roll left approximate (exotic) (2026-06-20).
+**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds + zoom snap + entity position-lock + velocity lead + rotated-rect pan clamp + mouse drag-pan (grab + light inertia) shipped & eye-validated; only `fitBounds` framing-under-roll left approximate (exotic) (2026-06-21).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -145,6 +145,14 @@ framing = the "threshold") — *focus by zooming in*. Key rules (hard-won from p
   Bounded per axis to a fraction of the screen (the led-to point can't fly off) and the zone clamp bounds
   it further; decays to zero when motion stops or the active zone changes. Locked by `ZoneNavUnit` (lead
   vs no-lead contrast: a moving ship projects clearly behind centre with lead, at/ahead without; decay).
+- **Mouse drag-pan (grab + light inertia) ✅ SHIPPED** — `dragPan(dx,dy)` / `endDragPan()`: a click-drag
+  moves the LIVE view 1:1 **immediately** (direct manipulation — bypasses the soft magnet, which only
+  owns indirect transitions; routing a drag through `panScreen` made the world trail the cursor). On
+  release the residual screen velocity glides to a stop, decayed by `setPanInertia(rate)` (0 = cut dead)
+  — a "très léger" kinetic feel. The reusable `grove::camera::DragPan` (`Scene/DragPan.h`, button-
+  agnostic) turns press/move/release into the deltas; the consumer negates them for the grab convention.
+  Locked by `CameraUnit` (DragPan delta machine) + `ZoneNavUnit` (immediate 1:1 pin; glide-then-stop;
+  inertia 0 = no glide). Showcase: RIGHT-drag (left free for selection).
 - **Rotated-rect pan clamp ✅ SHIPPED** — `clampPanToBounds` is rotation-aware: under camera roll the
   visible region is a ROTATED rectangle whose world AABB is larger than viewport/zoom
   (`spanX = |cosθ|·w + |sinθ|·h`), so the clamp bounds that rotated AABB (working with the view CENTRE =

@@ -293,6 +293,70 @@ TEST_CASE("ZoneNavigator: pan follows the camera frame when rotated", "[unit][zo
     REQUIRE(std::fabs(n.focusY() - 400.0f) < 1e-2f);
 }
 
+TEST_CASE("ZoneNavigator: dragPan moves the LIVE view immediately and pins the cursor point", "[unit][zonenav]") {
+    // POURQUOI : a mouse grab is DIRECT manipulation — it must track the cursor 1:1, NOT ease through
+    // the soft magnet (panScreen moves the focus and the view lerps toward it -> visible lag). dragPan
+    // moves the live view THIS CALL (no update()), so the world point under the cursor stays under it.
+    ZoneNavigator n = makeNav();
+    n.setActive("A");                 // frame A (200x200)
+    n.zoomBy(2.0f);                   // zoom 10 -> visible 100 < zone 200 -> pan room
+    for (int i = 0; i < 100; ++i) n.update(0.05f);   // settle the live view onto A
+    const CameraView v0 = n.view();
+    float px = 0.0f, py = 0.0f;
+    screenToWorld(v0, 400.0f, 300.0f, px, py);        // world point under screen (400,300)
+
+    n.dragPan(30.0f, 10.0f);          // NO update() after -> must be immediate
+    const CameraView v1 = n.view();
+    REQUIRE(std::fabs(v1.x - v0.x) > 1e-3f);          // the view MOVED this call (no magnet lag)
+
+    // The grabbed point shifts by exactly -delta on screen (1:1 follow): 400-30, 300-10.
+    float sx = 0.0f, sy = 0.0f;
+    worldToScreen(v1, px, py, sx, sy);
+    REQUIRE(std::fabs(sx - 370.0f) < 0.5f);
+    REQUIRE(std::fabs(sy - 290.0f) < 0.5f);
+}
+
+// Helper: settle the live view onto A zoomed in (pan room), then steady-drag it left for `frames`
+// frames at `dt`, building pan velocity. Returns the navigator mid-drag (call endDragPan to release).
+static ZoneNavigator makeDraggingNav(float panInertia, int frames, float dt) {
+    ZoneNavigator n = makeNav();
+    n.setActive("A");
+    n.zoomBy(2.0f);                                   // zoom 10 -> pan room inside A
+    for (int i = 0; i < 100; ++i) n.update(0.05f);    // settle
+    n.setPanInertia(panInertia);
+    for (int i = 0; i < frames; ++i) { n.dragPan(-12.0f, 0.0f); n.update(dt); }   // steady drag left
+    return n;
+}
+
+TEST_CASE("ZoneNavigator: drag release glides then eases to a stop (pan inertia)", "[unit][zonenav]") {
+    const float dt = 1.0f / 60.0f;
+    ZoneNavigator n = makeDraggingNav(/*panInertia*/8.0f, /*frames*/6, dt);
+    const float xRelease = n.view().x;
+    n.endDragPan();
+
+    // Right after release the view KEEPS moving the same way (momentum), it doesn't cut dead.
+    n.update(dt);
+    const float xGlide1 = n.view().x;
+    REQUIRE(std::fabs(xGlide1 - xRelease) > 1e-3f);
+
+    // The glide decays: a much later frame barely moves, and it fully stops.
+    for (int i = 0; i < 240; ++i) n.update(dt);
+    const float xStopped = n.view().x;
+    for (int i = 0; i < 120; ++i) n.update(dt);
+    REQUIRE(std::fabs(n.view().x - xStopped) < 1e-3f);   // settled (velocity decayed below threshold)
+    // It glided FURTHER than the release point (momentum carried it on), in the drag direction (left = -x).
+    REQUIRE(xStopped < xRelease - 1e-3f);
+}
+
+TEST_CASE("ZoneNavigator: panInertia 0 cuts the pan dead on release (no glide)", "[unit][zonenav]") {
+    const float dt = 1.0f / 60.0f;
+    ZoneNavigator n = makeDraggingNav(/*panInertia*/0.0f, /*frames*/6, dt);
+    const float xRelease = n.view().x;
+    n.endDragPan();
+    for (int i = 0; i < 60; ++i) n.update(dt);
+    REQUIRE(std::fabs(n.view().x - xRelease) < 1e-4f);   // inertia off -> stops instantly, no carry
+}
+
 TEST_CASE("ZoneNavigator: the rotated view stays inside the zone (rotated-rect clamp)", "[unit][zonenav]") {
     ZoneNavigator n = makeNav();   // root 1000, strict clamp (panMargin 0)
     n.setActive("A");              // A = [100,100,300,300], 200x200

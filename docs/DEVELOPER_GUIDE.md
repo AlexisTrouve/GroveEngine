@@ -360,7 +360,14 @@ io->publish("render:camera", std::move(cam));
 - `zoomBy(factor)` / `zoomBy(factor, screenX, screenY)` — zoom toward the centre, or toward the cursor
   (the world point under it stays pinned; you enter the zone you're pointing at).
 - `panScreen(dxScreen, dyScreen)` — pan by an on-screen delta (rotated into the camera frame, scaled by
-  1/zoom, clamped to the active zone + pan margin).
+  1/zoom, clamped to the active zone + pan margin). EASED through the magnet — for keyboard/edge pan.
+- `dragPan(dxScreen, dyScreen)` / `endDragPan()` — **mouse drag-to-pan** (grab): moves the LIVE view 1:1
+  **immediately** (no magnet lag — a grab must track the cursor), then `endDragPan()` on release lets the
+  residual velocity glide to a stop (light kinetic inertia, see `setPanInertia`). Feed it the per-frame
+  cursor delta (negated = "grab", the world follows the cursor); the `grove::camera::DragPan` helper
+  (`Scene/DragPan.h`) turns a button press/move/release into those deltas (button-agnostic).
+- `setLeadSeconds(s)` / `setPanInertia(rate)` — runtime feel setters (velocity lead; drag-release inertia,
+  0 = cut dead). Tune without re-passing the whole `configure` list.
 - `rotateBy(dRadians)` / `setRotation(radians)` — camera roll.
 - `update(dt) -> CameraView` — ease toward the target; the value to publish on `render:camera`.
 - `reset()` — snap to frame the root (call once after building the tree).
@@ -384,6 +391,8 @@ io->publish("render:camera", std::move(cam));
 - Moving zones: the active zone is always **position-locked** (the camera rides its centre); set
   `leadSeconds > 0` to additionally **lead** ahead of its velocity (anticipation). Lead is bounded and
   self-decaying, off by default.
+- Mouse pan: use `dragPan` (not `panScreen`) for a click-drag grab — it's immediate (1:1), where
+  `panScreen` is magnet-eased. `setPanInertia(rate)` adds a light release glide (`0` = cut dead).
 - Camera roll: `render:camera` carries `rotation` (radians; pivot = screen centre) — pan and
   cursor-zoom run in the camera frame, and the pan **clamp is rotation-aware** (it bounds the rolled
   view's world AABB, so no corner escapes the zone). Only `fitBounds` *framing* a zone while rolled stays
