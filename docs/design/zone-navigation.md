@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** design locked; slices 1-2 shipped (helpers + `ZoneNavigator`); slice 3 next (2026-06-20).
+**Status:** design locked; slices 1-3 shipped (logic complete); slice 4 (showcase demo) next (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -94,7 +94,9 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
    the magnet re-centers on enter, pan is clamped, `update(dt)` glides seamlessly. Locked by
    `ZoneNavUnit` (+5 cases).
 3. **Dynamic + back-out** — add/remove at runtime; `removeZone(active)` → nearest live ancestor,
-   seamless. Headless tests (delete active → glide to parent; parent also gone → grandparent).
+   seamless. ✅ shipped — `addZone` is idempotent (a zone that moved/resized keeps its children);
+   `removeZone` drops the subtree and backs the camera out one zone (then two, …) to the nearest live
+   ancestor, eased. Locked by `ZoneNavUnit` (+6 cases).
 4. **Demo (showcase)** — a toy 3-level hierarchy: zoom to *enter*, pan locked+scaled, a key to delete
    the current zone → watch the back-out. Eye-validated.
 
@@ -104,5 +106,5 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 
 - **Slice 1** — ✅ shipped (pure helpers, `ZoneNavUnit`).
 - **Slice 2** — ✅ shipped (`ZoneNavigator` core, `ZoneNavUnit`).
-- **Slice 3** — next (dynamic add/remove + deletion back-out).
-- **Slice 4** — pending (showcase demo).
+- **Slice 3** — ✅ shipped (dynamic add/remove + deletion back-out, `ZoneNavUnit`).
+- **Slice 4** — next (showcase demo, eye-validated).

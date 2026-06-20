@@ -142,3 +142,80 @@ TEST_CASE("ZoneNavigator: setActive frames the zone and update() glides to it", 
     REQUIRE(std::fabs(v.zoom - 5.0f) < 0.05f);
     REQUIRE(std::fabs(v.x - 600.0f) < 0.5f);
 }
+
+// ============================================================================
+// Slice 3: dynamic add/remove + current-zone-deletion back-out to nearest live ancestor.
+// ============================================================================
+
+// A 3-level chain: root (1000) > S (400, framing 2.5) > P (100, framing 10).
+static ZoneNavigator makeNav3() {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, 0.0f, 20.0f);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
+    n.addZone("S",    "root", WorldBounds{100.0f, 100.0f, 500.0f,  500.0f});
+    n.addZone("P",    "S",    WorldBounds{150.0f, 150.0f, 250.0f,  250.0f});
+    n.reset();
+    return n;
+}
+
+TEST_CASE("ZoneNavigator: deleting the active leaf backs out one zone", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    n.setActive("P");
+    REQUIRE(n.activeZone() == "P");
+    n.removeZone("P");
+    REQUIRE(n.activeZone() == "S");        // backed out to the parent
+    REQUIRE_FALSE(n.hasZone("P"));
+}
+
+TEST_CASE("ZoneNavigator: deleting the active zone's parent backs out two zones", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    n.setActive("P");
+    REQUIRE(n.activeZone() == "P");
+    n.removeZone("S");                     // deletes S AND its child P (the subtree)
+    REQUIRE(n.activeZone() == "root");     // the parent S is gone too -> grandparent
+    REQUIRE_FALSE(n.hasZone("S"));
+    REQUIRE_FALSE(n.hasZone("P"));
+}
+
+TEST_CASE("ZoneNavigator: deleting a non-active zone leaves the camera put", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    n.setActive("root");
+    n.removeZone("S");
+    REQUIRE(n.activeZone() == "root");     // unaffected
+    REQUIRE_FALSE(n.hasZone("S"));
+    REQUIRE_FALSE(n.hasZone("P"));         // S's subtree went with it
+}
+
+TEST_CASE("ZoneNavigator: a zone can be added at runtime then entered", "[unit][zonenav]") {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, 0.0f, 20.0f);
+    n.addZone("root", "", WorldBounds{0.0f, 0.0f, 1000.0f, 1000.0f});
+    n.reset();
+    REQUIRE_FALSE(n.hasZone("S"));
+    n.addZone("S", "root", WorldBounds{100.0f, 100.0f, 500.0f, 500.0f});   // appears at runtime
+    REQUIRE(n.hasZone("S"));
+    n.setActive("S");
+    REQUIRE(n.activeZone() == "S");
+    REQUIRE(std::fabs(n.target().zoom - 2.5f) < 1e-3f);                     // 1000/400
+}
+
+TEST_CASE("ZoneNavigator: re-adding a zone updates its bounds, keeps children", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    n.setActive("S");
+    REQUIRE(std::fabs(n.target().zoom - 2.5f) < 1e-3f);                     // 400x400
+    n.addZone("S", "root", WorldBounds{100.0f, 100.0f, 300.0f, 300.0f});   // resized to 200x200
+    n.setActive("S");
+    REQUIRE(std::fabs(n.target().zoom - 5.0f) < 1e-3f);                     // 1000/200
+    REQUIRE(n.hasZone("P"));                                                // child preserved
+}
+
+TEST_CASE("ZoneNavigator: back-out is seamless (the view glides out)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    n.setActive("P");
+    for (int i = 0; i < 100; ++i) n.update(0.05f);   // settle inside P (framing 10)
+    REQUIRE(std::fabs(n.view().zoom - 10.0f) < 0.1f);
+    n.removeZone("S");                                // active vanishes -> back out to root
+    REQUIRE(n.activeZone() == "root");
+    for (int i = 0; i < 200; ++i) n.update(0.05f);   // glide out, not a jump
+    REQUIRE(std::fabs(n.view().zoom - 1.0f) < 0.05f); // now framing the root
+}

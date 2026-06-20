@@ -36,12 +36,51 @@ public:
         if (!m_rootId.empty()) m_minZoom = framingZoom(m_zones[m_rootId].bounds);
     }
 
-    // Sync a zone from the game. An empty parentId marks the ROOT. Bounds are world units.
+    // Sync a zone from the game. An empty parentId marks the ROOT. Bounds are world units. Idempotent:
+    // re-adding an existing id just updates its bounds (a zone that MOVED/RESIZED) — children + parent
+    // link are kept, and the camera stays coherent (seamless, since target() re-clamps each frame).
     void addZone(const std::string& id, const std::string& parentId, const WorldBounds& bounds) {
+        auto it = m_zones.find(id);
+        if (it != m_zones.end()) {
+            it->second.bounds = bounds;                       // moved/resized
+            if (id == m_rootId)   m_minZoom = framingZoom(bounds);
+            if (id == m_activeId) clampFocus();
+            return;
+        }
         Zone z; z.id = id; z.parentId = parentId; z.bounds = bounds;
         m_zones[id] = z;
         if (parentId.empty()) { m_rootId = id; m_minZoom = framingZoom(bounds); }
         else if (m_zones.count(parentId)) m_zones[parentId].childIds.push_back(id);
+    }
+
+    // Remove a zone and its whole subtree. If the active zone vanishes, BACK OUT to the nearest
+    // still-alive ancestor (parent; if it's gone too, grandparent; …) — eased by update(), so the
+    // retreat is seamless (slice 3, the special case Alexi flagged).
+    void removeZone(const std::string& id) {
+        if (!m_zones.count(id)) return;
+
+        // Capture the ACTIVE zone's ancestor chain BEFORE erasing (parent links are lost after).
+        std::vector<std::string> activeAncestors;
+        if (m_zones.count(m_activeId)) {
+            std::string p = m_zones[m_activeId].parentId;
+            while (!p.empty() && m_zones.count(p)) { activeAncestors.push_back(p); p = m_zones[p].parentId; }
+        }
+
+        std::vector<std::string> doomed;
+        collectSubtree(id, doomed);
+        const bool activeDoomed = vecHas(doomed, m_activeId);
+
+        const std::string deletedParent = m_zones[id].parentId;
+        if (m_zones.count(deletedParent)) removeChild(deletedParent, id);
+        for (const std::string& d : doomed) m_zones.erase(d);
+        if (vecHas(doomed, m_rootId)) m_rootId.clear();
+
+        if (activeDoomed) {
+            std::string anc;
+            for (const std::string& a : activeAncestors) if (m_zones.count(a)) { anc = a; break; }
+            if (!anc.empty()) setActive(anc);                 // eased glide out (seamless back-out)
+            else { m_activeId.clear(); m_view = CameraView{}; } // whole tree gone
+        }
     }
 
     // Snap the view to frame the root. Call once after the tree is built.
@@ -119,6 +158,27 @@ protected:
         return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
     }
     static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    static bool vecHas(const std::vector<std::string>& v, const std::string& s) {
+        for (const std::string& e : v) if (e == s) return true;
+        return false;
+    }
+
+    // DFS the subtree rooted at `id` (id + all descendants) into `out`.
+    void collectSubtree(const std::string& id, std::vector<std::string>& out) const {
+        auto it = m_zones.find(id);
+        if (it == m_zones.end()) return;
+        out.push_back(id);
+        for (const std::string& c : it->second.childIds) collectSubtree(c, out);
+    }
+
+    // Drop `child` from `parent`'s child list.
+    void removeChild(const std::string& parent, const std::string& child) {
+        auto it = m_zones.find(parent);
+        if (it == m_zones.end()) return;
+        std::vector<std::string> kept;
+        for (const std::string& c : it->second.childIds) if (c != child) kept.push_back(c);
+        it->second.childIds.swap(kept);
+    }
 
     void recenterOnActive() {
         auto it = m_zones.find(m_activeId);
