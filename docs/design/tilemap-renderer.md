@@ -1,8 +1,10 @@
 # Tilemap renderer — design
 
+> ✅ **SHIPPED A→B (2026-06-18/19)** — see *Implementation status* below. This page is the **agreed design, now in code**; the future-tense passages ("not yet implemented", "the RHI doesn't surface it yet") are **historical**. Topic-contract source of truth = `modules/BgfxRenderer/Scene/SceneCollector.cpp`. *(Cross-track resync by the Drifterra Claude, 2026-06-20.)*
+
 High-perf tilemap for **tens of thousands of tiles** with **seamless zoom** (tactical ↔ system),
 pan, occasional updates (fog/terrain), 60 fps. CPU/frame ≈ 0 by design — all the work is on the
-GPU (shader) and in the RHI. Not yet implemented; this is the agreed design.
+GPU (shader) and in the RHI. This is the agreed design — **now implemented (shipped A→B, see status below).**
 
 ## Architecture (GPU-resident, index-texture)
 
@@ -56,8 +58,8 @@ texture/uniform → time-based layer offset. Shares the Flipbook timing concept.
 - **Skip:** chunked/streamed multi-index-textures — only needed beyond ~16384² (multi-million-tile
   worlds). Note the threshold; don't build it.
 
-## Implementation reality — this is an RHI capability bump, not a weekend
-The current RHI/`TextureDesc` exposes only basic RGBA8 sprite textures. This design needs the RHI
+## Implementation reality — this is an RHI capability bump, not a weekend **(✅ done — see Implementation status)**
+*(Historical — the RHI work below is now shipped.)* The current RHI/`TextureDesc` exposes only basic RGBA8 sprite textures. This design needs the RHI
 to add: **integer texture formats (R16UI), texture-array textures, POINT/CLAMP sampler flags**, a
 `*_tilemap` shader using `texelFetch` / `textureGrad` / `sampler2DArray`, and CPU mip generation +
 upload for the index/LOD/state textures. bgfx supports all of it single-threaded; our abstraction
