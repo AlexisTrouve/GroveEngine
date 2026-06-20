@@ -304,6 +304,86 @@ Work is in **log-zoom space** (zoom is multiplicative → equal ratios are equal
 header-only, no GPU. Locked by `ZoomLadderUnit` (analytical oracles). It deliberately does NOT
 decide content or toggle modules — that's the game's call; the ladder only hands it the seam.
 
+#### Nested-zones navigation — `grove::camera::ZoneNavigator` (`Scene/ZoneNavigator.h`)
+
+For a continuum where zoom **enters things** (galaxy → system → ship → room), `ZoneNavigator` drives
+the whole camera from a tree of **zones** you sync from your game. It composes the helpers above into
+the full feel: zoom into the zone under the cursor, pan locked + scaled to the active zone, a soft
+magnet that frames it, per-layer zoom bounds, camera roll, and a lock onto moving zones. Header-only
+logic (no bgfx). Design: [docs/design/zone-navigation.md](design/zone-navigation.md).
+
+**The deal:** the engine owns the navigation *mechanics*; the GAME owns the zone *hierarchy* (what /
+where) — it syncs zones (id, parent, world bounds), feeds input, and publishes the result on
+`render:camera`. An empty `parentId` marks the root.
+
+```cpp
+#include "Scene/ZoneNavigator.h"
+using namespace grove::camera;
+
+ZoneNavigator nav;
+nav.configure(1280.0f, 720.0f);    // viewport; sensible defaults for the rest (see knobs below)
+
+// Build the tree once (mirror your game hierarchy). Root has an EMPTY parent. Bounds are world AABBs.
+nav.addZone("galaxy", "",       WorldBounds{0.0f, 0.0f, 8000.0f, 8000.0f});
+nav.addZone("sysA",   "galaxy", WorldBounds{1000.0f, 1000.0f, 2200.0f, 2200.0f});
+nav.addZone("shipA1", "sysA",   WorldBounds{1200.0f, 1200.0f, 1340.0f, 1310.0f});
+nav.reset();                       // snap to frame the root
+
+// --- per frame ---
+// 1. Re-sync any zone bound to a MOVING entity (addZone is idempotent -> updates the bounds). If that
+//    zone is active, the camera LOCKS onto it (rides its motion).
+nav.addZone("shipA1", "sysA", boundsOf(ship));      // ship slides -> camera follows when you're in it
+
+// 2. Feed input (all optional).
+if (wheelY != 0)           nav.zoomBy(wheelY > 0 ? 1.25f : 0.8f, mouseX, mouseY);  // zoom toward cursor
+if (panDx || panDy)        nav.panScreen(panDx, panDy);     // on-screen delta; rotated + scaled for you
+if (rollLeft || rollRight) nav.rotateBy(rollRight ? +dr : -dr);
+if (zoneRemoved)           nav.removeZone(deletedId);       // active gone -> seamless back-out
+
+// 3. Advance + publish. update() returns the eased CameraView to drive render:camera.
+CameraView v = nav.update(dt);
+auto cam = std::make_unique<JsonDataNode>("camera");
+cam->setDouble("x", v.x); cam->setDouble("y", v.y); cam->setDouble("zoom", v.zoom);
+cam->setDouble("rotation", v.rotation);
+cam->setInt("viewportW", (int)v.viewportW); cam->setInt("viewportH", (int)v.viewportH);
+io->publish("render:camera", std::move(cam));
+```
+
+**API**
+- `configure(vpW, vpH, margin?, magnetRate?, panMargin?, maxDetail?)` — viewport + feel knobs (below).
+- `addZone(id, parentId, WorldBounds)` — add OR update a zone (idempotent: re-adding updates the bounds
+  and keeps children; moving the active zone locks the camera onto it). Empty `parentId` = root.
+- `removeZone(id)` — drop the zone + its subtree; if the active zone vanishes, ease back to the nearest
+  living ancestor (one level, or two…).
+- `setActive(id)` — explicitly frame a zone (eased).
+- `zoomBy(factor)` / `zoomBy(factor, screenX, screenY)` — zoom toward the centre, or toward the cursor
+  (the world point under it stays pinned; you enter the zone you're pointing at).
+- `panScreen(dxScreen, dyScreen)` — pan by an on-screen delta (rotated into the camera frame, scaled by
+  1/zoom, clamped to the active zone + pan margin).
+- `rotateBy(dRadians)` / `setRotation(radians)` — camera roll.
+- `update(dt) -> CameraView` — ease toward the target; the value to publish on `render:camera`.
+- `reset()` — snap to frame the root (call once after building the tree).
+- Getters: `activeZone()`, `view()`, `zoom()`, `rotation()`, `focusX()/focusY()`, `hasZone(id)`.
+
+**Knobs** (`configure`)
+
+| Param | Default | Effect |
+|-------|---------|--------|
+| `margin` | 0.05 | framing padding — the zone fills `1 - margin` of the view |
+| `magnetRate` | 6.0 | glide snappiness (higher = `update()` eases faster toward the target) |
+| `panMargin` | 0.25 | how far pan may overshoot a zone edge (fraction of the screen) for context around a POI |
+| `maxDetail` | 3.0 | max zoom-in past the deepest zone's framing — the per-layer cap (anti-void) |
+
+**Notes / limits**
+- Zoom-in is bounded **per layer**: to the active zone's *subtree* deepest framing × `maxDetail` (a
+  shallow zone caps low, a deep one plunges). Zoom-out is bounded to the root framing.
+- Camera roll: `render:camera` carries `rotation` (radians; pivot = screen centre) — pan and
+  cursor-zoom run in the camera frame. The pan **clamp** is still axis-aligned (approximate under
+  rotation); a rotated-rect clamp + velocity **lead** (anticipate ahead of a moving zone) are planned
+  follow-ons (today it's position lock).
+- `ZoomLadder` above still fits a content-less continuous zoom; `ZoneNavigator` is the richer,
+  zone-driven option (zones become the plateaus). Locked by `ZoneNavUnit`.
+
 **Full Topic Reference:** See [IIO Topics - Rendering](#rendering-topics)
 
 ---
@@ -849,7 +929,7 @@ Two modes:
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:camera` | `{x, y, zoom, viewportX, viewportY, viewportW, viewportH}` | Set camera transform. `x,y` = world coord at the viewport **top-left** (not center); `screen = zoom·(world−cam)`. See the [camera helper](#camera-helper--grovecamera-seamless-zoompan) (`Scene/Camera.h`) for centerOn/zoomAt/screenToWorld |
+| `render:camera` | `{x, y, zoom, rotation?, viewportX, viewportY, viewportW, viewportH}` | Set camera transform. `x,y` = world coord at the viewport **top-left** (not center); `screen = zoom·(world−cam)`. `rotation` (radians, default 0) rolls the view around the **screen centre** (0 = unchanged). See the [camera helper](#camera-helper--grovecamera-seamless-zoompan) (`Scene/Camera.h`) + [ZoneNavigator](#nested-zones-navigation--grovecamerazonenavigator-scenezonenavigatorh) |
 
 #### Clear
 
