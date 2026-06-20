@@ -34,10 +34,10 @@ public:
     // panMargin = how far you may pan PAST a zone's edge, as a fraction of the visible size (so a
     // slice of the screen can sit outside a POI for context). 0 = strict hard clamp.
     void configure(float viewportW, float viewportH, float margin = 0.05f, float magnetRate = 6.0f,
-                   float panMargin = 0.25f) {
+                   float panMargin = 0.25f, float maxDetail = 3.0f) {
         m_vpW = viewportW; m_vpH = viewportH; m_margin = margin; m_magnetRate = magnetRate;
-        m_panMarginFrac = panMargin;
-        if (!m_rootId.empty()) m_minZoom = framingZoom(m_zones[m_rootId].bounds);
+        m_panMarginFrac = panMargin; m_maxDetailFactor = maxDetail;
+        recomputeZoomLimits();
     }
 
     // Sync a zone from the game. An empty parentId marks the ROOT. Bounds are world units. Idempotent:
@@ -47,14 +47,15 @@ public:
         auto it = m_zones.find(id);
         if (it != m_zones.end()) {
             it->second.bounds = bounds;                       // moved/resized
-            if (id == m_rootId)   m_minZoom = framingZoom(bounds);
+            recomputeZoomLimits();
             if (id == m_activeId) clampFocus();
             return;
         }
         Zone z; z.id = id; z.parentId = parentId; z.bounds = bounds;
         m_zones[id] = z;
-        if (parentId.empty()) { m_rootId = id; m_minZoom = framingZoom(bounds); }
+        if (parentId.empty()) m_rootId = id;
         else if (m_zones.count(parentId)) m_zones[parentId].childIds.push_back(id);
+        recomputeZoomLimits();
     }
 
     // Remove a zone and its whole subtree. If the active zone vanishes, BACK OUT to the nearest
@@ -78,6 +79,7 @@ public:
         if (m_zones.count(deletedParent)) removeChild(deletedParent, id);
         for (const std::string& d : doomed) m_zones.erase(d);
         if (vecHas(doomed, m_rootId)) m_rootId.clear();
+        recomputeZoomLimits();
 
         if (activeDoomed) {
             std::string anc;
@@ -91,7 +93,7 @@ public:
     void reset() {
         if (m_rootId.empty()) return;
         m_activeId = m_rootId;
-        m_minZoom = framingZoom(m_zones[m_rootId].bounds);
+        recomputeZoomLimits();
         m_zoom = m_minZoom;
         recenterOnActive();
         clampFocus();
@@ -111,19 +113,30 @@ public:
         zoomAtAnchor(factor, anchorScreenX, anchorScreenY);
     }
 
-    // Pan by an ON-SCREEN delta; scaled by 1/zoom (constant screen feel) then clamped to the zone.
+    // Pan by an ON-SCREEN delta, in the CAMERA frame: rotate the delta by the camera roll (R^-1) so
+    // "pan right" follows what you SEE (not world +x), scaled by 1/zoom, then clamped to the zone.
     void panScreen(float dxScreen, float dyScreen) {
         if (m_activeId.empty()) return;
-        m_focusX += worldPanForScreen(dxScreen, m_zoom);
-        m_focusY += worldPanForScreen(dyScreen, m_zoom);
+        const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
+        const float cs = std::cos(m_rotation), sn = std::sin(m_rotation);   // R^-1 = [[c,s],[-s,c]]
+        m_focusX += (cs * dxScreen + sn * dyScreen) / z;
+        m_focusY += (-sn * dxScreen + cs * dyScreen) / z;
         clampFocus();   // pan can't leave the active zone
     }
+
+    // Camera roll (radians). rotateBy accumulates (e.g. Q/E held); setRotation jumps (e.g. snap to an
+    // entity heading). The navigator OWNS rotation so pan + cursor-zoom stay in the camera frame and
+    // update() outputs it for render:camera.
+    void rotateBy(float dRadians) { m_rotation += dRadians; }
+    void setRotation(float radians) { m_rotation = radians; }
+    float rotation() const { return m_rotation; }
 
     // Explicitly enter a zone (frame it). Eased by update().
     void setActive(const std::string& id) {
         auto it = m_zones.find(id);
         if (it == m_zones.end()) return;
         m_activeId = id;
+        recomputeZoomLimits();   // this layer's bounds
         m_zoom = clampZoom(framingZoom(it->second.bounds), m_minZoom, m_maxZoom);
         recenterOnActive();
         clampFocus();
@@ -139,6 +152,7 @@ public:
             const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
             clampPanToBounds(c, it->second.bounds, m_panMarginFrac * (m_vpW / z), m_panMarginFrac * (m_vpH / z));
         }
+        c.rotation = m_rotation;   // NOTE: the clamp above is still axis-aligned (rotated-rect clamp is a later slice)
         return c;
     }
 
@@ -148,6 +162,7 @@ public:
         m_view.x    = damp(m_view.x,    t.x,    m_magnetRate, dt);
         m_view.y    = damp(m_view.y,    t.y,    m_magnetRate, dt);
         m_view.zoom = damp(m_view.zoom, t.zoom, m_magnetRate, dt);
+        m_view.rotation = t.rotation;   // immediate (input is already smooth; entity-heading snap can damp later)
         m_view.viewportW = m_vpW; m_view.viewportH = m_vpH;
         return m_view;
     }
@@ -163,6 +178,32 @@ protected:
     struct Zone { std::string id, parentId; WorldBounds bounds; std::vector<std::string> childIds; };
 
     float framingZoom(const WorldBounds& b) const { return fitBounds(b, m_vpW, m_vpH, m_margin).zoom; }
+
+    // Deepest (largest) framing zoom among `id` and all its descendants — i.e. how far you can zoom
+    // in from this layer down to the smallest thing reachable below it.
+    float maxFramingInSubtree(const std::string& id) const {
+        auto it = m_zones.find(id);
+        if (it == m_zones.end()) return m_minZoom;
+        float m = framingZoom(it->second.bounds);
+        for (const std::string& c : it->second.childIds) {
+            const float cm = maxFramingInSubtree(c);
+            if (cm > m) m = cm;
+        }
+        return m;
+    }
+
+    // PER-LAYER zoom bounds (recomputed when the active zone or the tree changes; the current zoom is
+    // re-clamped). min = the root's framing (can't zoom out past the whole world). max = the deepest
+    // framing in the ACTIVE zone's SUBTREE * detail factor — so a shallow zone caps low (no zooming it
+    // to the void) while a deep zone lets you plunge to its smallest descendant + detail headroom.
+    void recomputeZoomLimits() {
+        if (m_rootId.empty() || !m_zones.count(m_rootId)) return;
+        m_minZoom = framingZoom(m_zones[m_rootId].bounds);
+        const std::string base = m_zones.count(m_activeId) ? m_activeId : m_rootId;
+        m_maxZoom = maxFramingInSubtree(base) * m_maxDetailFactor;
+        if (m_maxZoom < m_minZoom) m_maxZoom = m_minZoom;
+        m_zoom = clampZoom(m_zoom, m_minZoom, m_maxZoom);
+    }
     static bool contains(const WorldBounds& b, float x, float y) {
         return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
     }
@@ -203,15 +244,19 @@ protected:
     // re-evaluate the active zone (descend/ascend follows the focus). No re-center -> the cursor stays.
     void zoomAtAnchor(float factor, float sx, float sy) {
         if (m_activeId.empty()) return;
-        const CameraView cur = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
+        CameraView cur = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
+        cur.rotation = m_rotation;                              // anchor in the CAMERA frame
         float pinX = 0.0f, pinY = 0.0f;
         screenToWorld(cur, sx, sy, pinX, pinY);                 // world point currently under the cursor
         const float nz = clampZoom(m_zoom * factor, m_minZoom, m_maxZoom);
-        m_focusX = pinX + (m_vpW * 0.5f - sx) / nz;             // re-frame so it stays under the cursor
-        m_focusY = pinY + (m_vpH * 0.5f - sy) / nz;
+        // Re-frame so pinWorld stays under (sx,sy): focus = pin - R^-1*(anchor - centre)/nz.
+        const float cs = std::cos(m_rotation), sn = std::sin(m_rotation);
+        const float ax = sx - m_vpW * 0.5f, ay = sy - m_vpH * 0.5f;
+        m_focusX = pinX - (cs * ax + sn * ay) / nz;
+        m_focusY = pinY - (-sn * ax + cs * ay) / nz;
         m_zoom = nz;
         const std::string na = computeActive();
-        if (na != m_activeId) m_activeId = na;                  // enter/leave; cursor anchored, no recenter
+        if (na != m_activeId) { m_activeId = na; recomputeZoomLimits(); }  // new layer -> new per-layer bounds
         clampFocus();
     }
 
@@ -260,8 +305,10 @@ protected:
     std::string m_rootId, m_activeId;
     float m_vpW = 1280.0f, m_vpH = 720.0f, m_margin = 0.05f, m_magnetRate = 6.0f;
     float m_panMarginFrac = 0.25f;   // pan overshoot past a zone edge, as a fraction of the visible size
+    float m_maxDetailFactor = 3.0f;  // max zoom-in past the deepest zone's framing (anti-void)
     float m_zoom = 1.0f, m_minZoom = 0.001f, m_maxZoom = 1.0e4f;
     float m_focusX = 0.0f, m_focusY = 0.0f;
+    float m_rotation = 0.0f;   // camera roll (radians); pan/zoom honour it, update() outputs it
     CameraView m_view;
 };
 

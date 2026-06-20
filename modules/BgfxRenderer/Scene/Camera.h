@@ -43,6 +43,7 @@ struct CameraView {
     float zoom = 1.0f;
     float viewportW = 1280.0f;
     float viewportH = 720.0f;
+    float rotation = 0.0f;   // radians; rotates the view around the SCREEN CENTRE (0 = axis-aligned)
 };
 
 // ----------------------------------------------------------------------------
@@ -51,8 +52,16 @@ struct CameraView {
 // ----------------------------------------------------------------------------
 inline void worldToScreen(const CameraView& c, float worldX, float worldY,
                           float& outScreenX, float& outScreenY) {
-    outScreenX = c.zoom * (worldX - c.x);
-    outScreenY = c.zoom * (worldY - c.y);
+    // screen = screenCentre + zoom * R(rotation) * (world - pivot), where pivot is the world point
+    // at the screen centre. At rotation 0 this collapses to screen = zoom*(world - cam). Matches the
+    // renderer's view matrix (SceneCollector::parseCamera), proven by SceneCollectorTest.
+    const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
+    const float halfW = c.viewportW * 0.5f, halfH = c.viewportH * 0.5f;
+    const float dx = worldX - (c.x + halfW / z);
+    const float dy = worldY - (c.y + halfH / z);
+    const float cs = std::cos(c.rotation), sn = std::sin(c.rotation);   // R = [[c,-s],[s,c]]
+    outScreenX = halfW + z * (cs * dx - sn * dy);
+    outScreenY = halfH + z * (sn * dx + cs * dy);
 }
 
 // ----------------------------------------------------------------------------
@@ -62,9 +71,15 @@ inline void worldToScreen(const CameraView& c, float worldX, float worldY,
 // ----------------------------------------------------------------------------
 inline void screenToWorld(const CameraView& c, float screenX, float screenY,
                           float& outWorldX, float& outWorldY) {
+    // Exact inverse of worldToScreen (un-rotate around the screen centre). At rotation 0:
+    // world = cam + screen/zoom.
     const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
-    outWorldX = c.x + screenX / z;
-    outWorldY = c.y + screenY / z;
+    const float halfW = c.viewportW * 0.5f, halfH = c.viewportH * 0.5f;
+    const float ex = (screenX - halfW) / z;        // = R*(world - pivot)
+    const float ey = (screenY - halfH) / z;
+    const float cs = std::cos(c.rotation), sn = std::sin(c.rotation);   // R^-1 = [[c,s],[-s,c]]
+    outWorldX = (c.x + halfW / z) + (cs * ex + sn * ey);
+    outWorldY = (c.y + halfH / z) + (-sn * ex + cs * ey);
 }
 
 // ----------------------------------------------------------------------------
@@ -148,12 +163,18 @@ struct WorldBounds {
 };
 
 inline WorldBounds visibleWorldBounds(const CameraView& c) {
-    const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
+    // The visible region is a (possibly rotated) rectangle; return its world-space AABB by unprojecting
+    // the four screen corners. At rotation 0 this is exactly [cam, cam + viewport/zoom].
+    float cx0, cy0, cx1, cy1, cx2, cy2, cx3, cy3;
+    screenToWorld(c, 0.0f,          0.0f,          cx0, cy0);
+    screenToWorld(c, c.viewportW,   0.0f,          cx1, cy1);
+    screenToWorld(c, 0.0f,          c.viewportH,   cx2, cy2);
+    screenToWorld(c, c.viewportW,   c.viewportH,   cx3, cy3);
     WorldBounds b;
-    b.minX = c.x;
-    b.minY = c.y;
-    b.maxX = c.x + c.viewportW / z;
-    b.maxY = c.y + c.viewportH / z;
+    b.minX = std::fmin(std::fmin(cx0, cx1), std::fmin(cx2, cx3));
+    b.maxX = std::fmax(std::fmax(cx0, cx1), std::fmax(cx2, cx3));
+    b.minY = std::fmin(std::fmin(cy0, cy1), std::fmin(cy2, cy3));
+    b.maxY = std::fmax(std::fmax(cy0, cy1), std::fmax(cy2, cy3));
     return b;
 }
 

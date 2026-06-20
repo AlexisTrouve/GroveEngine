@@ -256,3 +256,42 @@ TEST_CASE("ZoneNavigator: pan margin lets the view overshoot a POI's edge", "[un
     REQUIRE(n.focusX() > 260.0f);                       // overshoots the STRICT right wall (250)
     REQUIRE(std::fabs(n.focusX() - 275.0f) < 1e-2f);    // maxX(300) + margin(25) - visW/2(50)
 }
+
+TEST_CASE("ZoneNavigator: pan follows the camera frame when rotated", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    n.setActive("root");
+    n.zoomBy(3.0f);                  // zoom 3 so panning is possible inside root
+    REQUIRE(std::fabs(n.focusX() - 500.0f) < 1e-3f);
+    REQUIRE(std::fabs(n.focusY() - 500.0f) < 1e-3f);
+    n.setRotation(1.5707963f);       // 90 degrees
+    n.panScreen(300.0f, 0.0f);       // "pan right" on screen
+    // At 90 deg, screen-right maps to world -y -> focusY drops 100 (300/zoom), focusX unchanged.
+    REQUIRE(std::fabs(n.focusX() - 500.0f) < 1e-2f);
+    REQUIRE(std::fabs(n.focusY() - 400.0f) < 1e-2f);
+}
+
+TEST_CASE("ZoneNavigator: zoom-out is bounded to the root framing (keep the whole world)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav3();
+    for (int i = 0; i < 20; ++i) n.zoomBy(0.5f);
+    REQUIRE(std::fabs(n.zoom() - 1.0f) < 1e-3f);    // root framing 1
+}
+
+TEST_CASE("ZoneNavigator: zoom-in bound is PER LAYER (shallow zone caps low, deep zone plunges)", "[unit][zonenav]") {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f, /*panMargin*/0.0f, /*detail*/2.0f);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});  // framing 1
+    n.addZone("deep", "root", WorldBounds{100.0f, 100.0f, 300.0f,  300.0f});   // framing 5; has a child
+    n.addZone("deepChild", "deep", WorldBounds{120.0f, 120.0f, 160.0f, 160.0f}); // framing 25
+    n.addZone("shallow", "root", WorldBounds{600.0f, 600.0f, 900.0f, 900.0f}); // framing ~3.33; no child
+    n.reset();
+
+    // Shallow zone: max = its own framing(~3.33) * 2 ≈ 6.67 — can't zoom it into the void.
+    n.setActive("shallow");
+    for (int i = 0; i < 30; ++i) n.zoomBy(2.0f);
+    REQUIRE(n.zoom() < 7.5f);
+
+    // Deep zone: max = its deepest descendant framing(25) * 2 = 50 — can plunge much further.
+    n.setActive("deep");
+    for (int i = 0; i < 30; ++i) n.zoomBy(2.0f);
+    REQUIRE(n.zoom() > 40.0f);
+}

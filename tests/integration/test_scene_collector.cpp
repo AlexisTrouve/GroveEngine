@@ -493,6 +493,66 @@ TEST_CASE("SceneCollector - zoom scales the projection and matches grove::camera
     REQUIRE_THAT(shy, WithinAbs(25.0f, 0.05f));   // 0.5 * 50
 }
 
+// Locks CAMERA ROTATION (slice R): the renderer's rotated view matrix matches the rotation-aware
+// grove::camera helper, the rotation pivots around the SCREEN CENTRE (that world point doesn't move),
+// and a concrete 90° case lands where expected. rotation 0 is covered by the test above (unchanged).
+TEST_CASE("SceneCollector - camera rotation matches grove::camera and pivots on screen centre", "[scene_collector][integration][camera]") {
+    auto& ioManager = IntraIOManager::getInstance();
+    auto viewFor = [&](float camX, float camY, float zoom, float rotation) -> ViewInfo {
+        auto ioC = ioManager.createInstance(uniqueId("camrot_recv"));
+        auto ioP = ioManager.createInstance(uniqueId("camrot_pub"));
+        SceneCollector collector; FrameAllocator allocator;
+        collector.setup(ioC.get());
+        auto cam = std::make_unique<JsonDataNode>("camera");
+        cam->setDouble("x", camX); cam->setDouble("y", camY);
+        cam->setDouble("zoom", zoom); cam->setDouble("rotation", rotation);
+        cam->setInt("viewportW", 1280); cam->setInt("viewportH", 720);
+        ioP->publish("render:camera", std::move(cam));
+        collector.collect(ioC.get(), 0.016f);
+        return collector.finalize(allocator).mainView;
+    };
+    auto engineProject = [](const ViewInfo& v, float wx, float wy, float& sx, float& sy) {
+        float eye[4], clip[4];
+        mat4MulVec4(v.viewMatrix, wx, wy, 0.0f, 1.0f, eye);
+        mat4MulVec4(v.projMatrix, eye[0], eye[1], eye[2], eye[3], clip);
+        sx = (clip[0] / clip[3] * 0.5f + 0.5f) * v.viewportW;
+        sy = (0.5f - clip[1] / clip[3] * 0.5f) * v.viewportH;
+    };
+
+    const float rot = 0.7853981634f;  // 45 degrees
+
+    // (1) The engine's rotated matrices == grove::camera::worldToScreen (same convention).
+    ViewInfo v = viewFor(100.0f, 200.0f, 1.5f, rot);
+    camera::CameraView c{100.0f, 200.0f, 1.5f, 1280.0f, 720.0f, rot};
+    const float pts[][2] = {{100.0f, 200.0f}, {460.0f, 380.0f}, {800.0f, 200.0f}, {300.0f, 560.0f}};
+    for (auto& p : pts) {
+        float ex, ey, hx, hy;
+        engineProject(v, p[0], p[1], ex, ey);
+        camera::worldToScreen(c, p[0], p[1], hx, hy);
+        REQUIRE_THAT(ex, WithinAbs(hx, 0.1f));
+        REQUIRE_THAT(ey, WithinAbs(hy, 0.1f));
+    }
+
+    // (2) Rotation pivots on the SCREEN CENTRE: the world point shown at centre is unchanged by rotation.
+    camera::CameraView cv0{100.0f, 200.0f, 1.5f, 1280.0f, 720.0f, 0.0f};
+    camera::CameraView cv1{100.0f, 200.0f, 1.5f, 1280.0f, 720.0f, rot};
+    float c0x, c0y, c1x, c1y;
+    camera::screenToWorld(cv0, 640.0f, 360.0f, c0x, c0y);
+    camera::screenToWorld(cv1, 640.0f, 360.0f, c1x, c1y);
+    REQUIRE_THAT(c1x, WithinAbs(c0x, 0.05f));
+    REQUIRE_THAT(c1y, WithinAbs(c0y, 0.05f));
+
+    // (3) Concrete 90° roll (square view): pivot = world centre (500,500); a point 100 to its RIGHT
+    //     appears 100 BELOW centre on screen (x stays at centre).
+    camera::CameraView cv90{0.0f, 0.0f, 1.0f, 1000.0f, 1000.0f, 1.5707963f};
+    float pcx, pcy; camera::screenToWorld(cv90, 500.0f, 500.0f, pcx, pcy);
+    REQUIRE_THAT(pcx, WithinAbs(500.0f, 0.05f));
+    REQUIRE_THAT(pcy, WithinAbs(500.0f, 0.05f));
+    float s90x, s90y; camera::worldToScreen(cv90, 600.0f, 500.0f, s90x, s90y);
+    REQUIRE_THAT(s90x, WithinAbs(500.0f, 0.05f));
+    REQUIRE_THAT(s90y, WithinAbs(600.0f, 0.05f));
+}
+
 // This locks the HUD overlay contract (engine help: screen-space view so the HUD does NOT
 // zoom/pan with the world). Two guarantees:
 //   1. render:rect / render:text carrying space:"screen" are bucketed into the HUD arrays,

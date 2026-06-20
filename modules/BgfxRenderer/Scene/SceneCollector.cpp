@@ -3,6 +3,7 @@
 #include "grove/IDataNode.h"
 #include "../Frame/FrameAllocator.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -675,15 +676,30 @@ void SceneCollector::parseCamera(const IDataNode& data) {
     m_mainView.viewportY = static_cast<uint16_t>(data.getInt("viewportY", 0));
     m_mainView.viewportW = static_cast<uint16_t>(data.getInt("viewportW", 1280));
     m_mainView.viewportH = static_cast<uint16_t>(data.getInt("viewportH", 720));
+    m_mainView.rotation = static_cast<float>(data.getDouble("rotation", 0.0));
 
-    // Compute view matrix (translation by -camera position)
-    std::memset(m_mainView.viewMatrix, 0, sizeof(m_mainView.viewMatrix));
-    m_mainView.viewMatrix[0] = 1.0f;
-    m_mainView.viewMatrix[5] = 1.0f;
-    m_mainView.viewMatrix[10] = 1.0f;
-    m_mainView.viewMatrix[12] = -m_mainView.positionX;
-    m_mainView.viewMatrix[13] = -m_mainView.positionY;
-    m_mainView.viewMatrix[15] = 1.0f;
+    // Compute the view matrix. QUOI : translate la caméra à l'origine ET tourne le monde autour du
+    //   PIVOT centre-écran par `rotation` (la caméra peut "rouler"). POURQUOI : une caméra qui suit
+    //   le cap d'une entité doit faire pivoter le monde autour du point montré au centre, pas autour
+    //   du coin haut-gauche. COMMENT : eye' = R*(world - pivot) + eyeCentre, avec pivot = le point
+    //   monde au centre écran = (x + vpW/(2*zoom), y + vpH/(2*zoom)) et eyeCentre = (vpW/(2*zoom),
+    //   vpH/(2*zoom)). À rotation 0 ça retombe sur l'ancien translate(-x,-y) (verrouillé par
+    //   SceneCollectorTest). Column-major ; R = [[c,-s],[s,c]].
+    {
+        const float c = std::cos(m_mainView.rotation);
+        const float s = std::sin(m_mainView.rotation);
+        const float halfW = static_cast<float>(m_mainView.viewportW) / (2.0f * m_mainView.zoom);
+        const float halfH = static_cast<float>(m_mainView.viewportH) / (2.0f * m_mainView.zoom);
+        const float pivotX = m_mainView.positionX + halfW;
+        const float pivotY = m_mainView.positionY + halfH;
+        std::memset(m_mainView.viewMatrix, 0, sizeof(m_mainView.viewMatrix));
+        m_mainView.viewMatrix[0] = c;    m_mainView.viewMatrix[1] = s;     // col0 = (R00, R10)
+        m_mainView.viewMatrix[4] = -s;   m_mainView.viewMatrix[5] = c;     // col1 = (R01, R11)
+        m_mainView.viewMatrix[10] = 1.0f;
+        m_mainView.viewMatrix[12] = halfW - (c * pivotX - s * pivotY);     // eyeCentre.x - R*pivot
+        m_mainView.viewMatrix[13] = halfH - (s * pivotX + c * pivotY);     // eyeCentre.y - R*pivot
+        m_mainView.viewMatrix[15] = 1.0f;
+    }
 
     // Compute orthographic projection matrix with zoom
     float width = static_cast<float>(m_mainView.viewportW) / m_mainView.zoom;

@@ -113,6 +113,7 @@ struct ViewInfo {
     float projMatrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};  // Identity matrix
     float positionX = 0.0f, positionY = 0.0f;
     float zoom = 1.0f;
+    float rotation = 0.0f;   // radians; rotates the view around the screen-centre pivot (0 = none)
     uint16_t viewportX = 0, viewportY = 0;
     uint16_t viewportW = 1280, viewportH = 720;
 };

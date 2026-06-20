@@ -193,7 +193,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
     const camera::CameraView view{frame.mainView.positionX, frame.mainView.positionY,
                                   frame.mainView.zoom,
                                   static_cast<float>(frame.mainView.viewportW),
-                                  static_cast<float>(frame.mainView.viewportH)};
+                                  static_cast<float>(frame.mainView.viewportH),
+                                  frame.mainView.rotation};   // cull AABB accounts for camera roll
     const camera::WorldBounds bounds = camera::visibleWorldBounds(view);
 
     std::unordered_set<uint32_t> seenRetained;  // retained chunk ids present this frame (for GC)

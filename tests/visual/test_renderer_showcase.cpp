@@ -144,6 +144,8 @@ public:
         m_actions.bindKey("zone_mode", SDL_SCANCODE_Z);       // toggle zone-navigation demo (slice 4)
         m_actions.bindKey("del_zone",  SDL_SCANCODE_DELETE);  // delete the current zone -> back out
         m_actions.bindKey("del_zone",  SDL_SCANCODE_BACKSPACE); // (laptop fallback for Delete)
+        m_actions.bindKey("rot_left",  SDL_SCANCODE_Q);       // roll the camera (slice R: camera rotation)
+        m_actions.bindKey("rot_right", SDL_SCANCODE_E);
     }
 
     // Clear per-frame action edges (justPressed/justReleased). Call once per frame BEFORE
@@ -260,9 +262,11 @@ public:
             const float pdx = (m_actions.isActive("pan_right") ? ps : 0.0f) - (m_actions.isActive("pan_left") ? ps : 0.0f);
             const float pdy = (m_actions.isActive("pan_down")  ? ps : 0.0f) - (m_actions.isActive("pan_up")   ? ps : 0.0f);
             if (pdx != 0.0f || pdy != 0.0f) m_nav.panScreen(pdx, pdy);
+            if (m_actions.isActive("rot_left"))  m_nav.rotateBy(-1.4f * dt);   // camera owns the roll
+            if (m_actions.isActive("rot_right")) m_nav.rotateBy(1.4f * dt);
             if (m_actions.justPressed("del_zone")) m_nav.removeZone(m_nav.activeZone());
             const camera::CameraView v = m_nav.update(dt);
-            m_cameraX = v.x; m_cameraY = v.y; m_cameraZoom = v.zoom;
+            m_cameraX = v.x; m_cameraY = v.y; m_cameraZoom = v.zoom; m_cameraRotation = v.rotation;
         } else {
             // --- Free camera (the original showcase behavior) ---
             m_cameraVX = (m_actions.isActive("pan_right") ? 200.0f : 0.0f) - (m_actions.isActive("pan_left") ? 200.0f : 0.0f);
@@ -270,13 +274,18 @@ public:
             if (m_actions.isActive("zoom_in"))  setZoomTarget(m_targetZoom * (1.0f + 2.0f * dt), 512.0f, 384.0f);
             if (m_actions.isActive("zoom_out")) setZoomTarget(m_targetZoom / (1.0f + 2.0f * dt), 512.0f, 384.0f);
             if (m_actions.justPressed("snap_zoom")) setZoomTarget(m_ladder.snap(m_cameraZoom), 512.0f, 384.0f);
+            if (m_actions.isActive("rot_left"))  m_cameraRotation -= 1.4f * dt;
+            if (m_actions.isActive("rot_right")) m_cameraRotation += 1.4f * dt;
             if (std::fabs(m_cameraZoom - m_targetZoom) > 0.0005f) {
                 m_cameraZoom = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
                 camera::CameraView v = camera::focusOn(m_zoomFocusWorldX, m_zoomFocusWorldY, m_cameraZoom,
                                                        1024.0f, 768.0f, m_zoomFocusScreenX, m_zoomFocusScreenY);
                 m_cameraX = v.x; m_cameraY = v.y;
             } else {
-                m_cameraX += m_cameraVX * dt; m_cameraY += m_cameraVY * dt;
+                // Pan in the camera frame (rotate the intent by the roll), so arrows follow the screen.
+                const float c = std::cos(m_cameraRotation), s = std::sin(m_cameraRotation);
+                m_cameraX += (c * m_cameraVX + s * m_cameraVY) * dt;
+                m_cameraY += (-s * m_cameraVX + c * m_cameraVY) * dt;
             }
         }
 
@@ -349,6 +358,7 @@ private:
         cam->setDouble("x", m_cameraX);
         cam->setDouble("y", m_cameraY);
         cam->setDouble("zoom", m_cameraZoom);
+        cam->setDouble("rotation", m_cameraRotation);
         cam->setInt("viewportX", 0);
         cam->setInt("viewportY", 0);
         cam->setInt("viewportW", 1024);
@@ -366,10 +376,9 @@ private:
             m_demoZones.push_back({id, x0, y0, x1, y1, color});
         };
         add("Galaxy", "",       0.0f,   0.0f,   1024.0f, 768.0f, 0x3366CC2Au);
-        add("Alpha",  "Galaxy", 80.0f,  80.0f,  420.0f,  360.0f, 0x33CCAA2Au);
-        add("Beta",   "Galaxy", 560.0f, 400.0f, 960.0f,  720.0f, 0x33CCAA2Au);
+        add("Alpha",  "Galaxy", 80.0f,  80.0f,  420.0f,  360.0f, 0x33CCAA2Au);   // DEEP: has a ship
+        add("Beta",   "Galaxy", 560.0f, 400.0f, 960.0f,  720.0f, 0x33CCAA2Au);   // SHALLOW: no child -> caps low
         add("Ship-A", "Alpha",  120.0f, 120.0f, 260.0f,  230.0f, 0xCC66CC2Au);
-        add("Ship-B", "Beta",   620.0f, 460.0f, 800.0f,  600.0f, 0xCC66CC2Au);
         m_nav.reset();
     }
 
@@ -628,7 +637,7 @@ private:
             auto text = std::make_unique<JsonDataNode>("text");
             text->setDouble("x", 750);
             text->setDouble("y", 730);
-            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/PgUp-PgDn: Zoom | L: Snap strata");
+            text->setString("text", "SPACE: Particles | C: Color | Arrows: Pan | Molette/PgUp-PgDn: Zoom | Q/E: Rotate | L: Snap strata");
             text->setInt("fontSize", 14);
             text->setInt("color", 0x888888FF);
             text->setInt("layer", 100);
@@ -901,6 +910,7 @@ private:
     float m_cameraVX = 0.0f;
     float m_cameraVY = 0.0f;
     float m_cameraZoom = 1.0f;
+    float m_cameraRotation = 0.0f;   // camera roll (radians), Q/E — slice R
 
     // Smooth-zoom state: glide m_cameraZoom toward m_targetZoom while pinning the focus point.
     float m_targetZoom = 1.0f;

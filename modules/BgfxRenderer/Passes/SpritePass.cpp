@@ -105,7 +105,8 @@ void SpritePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi:
     const camera::CameraView view{frame.mainView.positionX, frame.mainView.positionY,
                                   frame.mainView.zoom,
                                   static_cast<float>(frame.mainView.viewportW),
-                                  static_cast<float>(frame.mainView.viewportH)};
+                                  static_cast<float>(frame.mainView.viewportH),
+                                  frame.mainView.rotation};   // cull AABB accounts for camera roll
     const camera::WorldBounds worldBounds = camera::visibleWorldBounds(view);
     renderSpriteSet(device, cmd, frame.sprites, frame.spriteCount, 0, &worldBounds);
     renderSpriteSet(device, cmd, frame.hudSprites, frame.hudSpriteCount, 1, nullptr);

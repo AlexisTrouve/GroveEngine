@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** slices 1-4 shipped + eye-validated (cursor-anchored zoom + POI pan margin); follow-ups: stronger zoom snap + entity-attached zones (2026-06-20).
+**Status:** slices 1-4 + camera rotation (slice R) + per-layer zoom bounds shipped & eye-validated; remaining: stronger snap, entity position/velocity follow, rotated-rect clamp (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -112,11 +112,22 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
   **POI pan margin** (`configure(..., panMargin)`: pan can overshoot a zone edge by a fraction of the
   screen so context shows around a POI). `ZoneNavUnit` 20 cases / 62 assertions.
 
-## Follow-ups (requested 2026-06-20, design pending)
+## Camera rotation — ✅ SHIPPED (slice R, 2026-06-20)
+The renderer camera can roll. `render:camera` + `ViewInfo` + `CameraView` gain a **`rotation`** (radians)
+that rotates the view around the **screen-centre pivot**; at rotation 0 it's bit-identical to before.
+- **R1** — `SceneCollector::parseCamera` builds the rotated view matrix. Locked by `SceneCollectorTest`
+  (engine matrices == `grove::camera::worldToScreen`, pivot pinned, concrete 90° case).
+- **R2** — `worldToScreen`/`screenToWorld`/`visibleWorldBounds` are rotation-aware (cull = AABB of the
+  rotated view). `ZoneNavigator` **owns** the rotation: pan + cursor-zoom are in the **camera frame**
+  (rotate the screen delta by the roll), and `update()` outputs it. Locked by `ZoneNavUnit`.
+- **Per-layer zoom bounds** (same slice): min = root framing; max = the deepest framing in the **active
+  zone's subtree** × `maxDetail` — a shallow zone caps low, a deep one plunges. No more void zoom.
+
+## Follow-ups (remaining)
 - **Stronger / configurable zoom snap** — once you zoom *enough* toward an object, auto-complete the
-  zoom to fully frame it (snap to the zone's framing zoom = its "high threshold") instead of leaving a
-  half-zoom. Navigator-only (a detent on the target zoom), configurable strength.
-- **Entity-attached zones** — zones bound to moving game objects: track **position** (zone follows the
-  entity) and **velocity** (lead/smooth) — navigator-side; and **rotation** (the view rotates to match
-  the entity's heading) — **needs a renderer camera-rotation feature** (render:camera rotation + rotated
-  projection; the AABB clamp/cull become rotated-rect). Bigger, touches the renderer.
+  zoom to its framing ("high threshold") instead of a half-zoom. Navigator-only detent, configurable.
+- **Entity-attached zones — position/velocity follow** — when the ACTIVE zone moves (game updates its
+  bounds), the camera should LOCK onto it (focus rides the zone's delta; velocity = lead). Today moving a
+  zone only re-clamps at the edges — not a true follow. Navigator-side, next slice.
+- **Rotated-rect clamp** — `clampPanToBounds`/`fitBounds` are still axis-aligned; under camera rotation
+  the pan bounding is approximate. Make them rotation-aware (rotate the zone AABB into the view frame).
