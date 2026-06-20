@@ -191,23 +191,24 @@ inline CameraView fitBounds(const WorldBounds& b, float viewportW, float viewpor
     return centerOn(cx, cy, zoom, viewportW, viewportH);
 }
 
-// Keep the camera's visible rectangle INSIDE a zone AABB. If the zone is smaller than the view on an
-// axis, the zone is centered on that axis (you can't pan past it). The HARD clamp — the navigator
-// damps toward it for the elastic feel.
-inline void clampPanToBounds(CameraView& c, const WorldBounds& b) {
+// Keep the camera's visible rectangle inside a zone AABB, EXPANDED by an optional margin (world
+// units, per axis) so the view can overshoot the zone edges a little — letting part of the screen
+// sit slightly outside a POI for context. margin 0 = the strict hard clamp. If the (expanded) zone
+// is smaller than the view on an axis, it's centered on that axis.
+inline void clampPanToBounds(CameraView& c, const WorldBounds& b, float marginX = 0.0f, float marginY = 0.0f) {
     const float z = (c.zoom != 0.0f) ? c.zoom : 1.0f;
     const float visW = c.viewportW / z;
     const float visH = c.viewportH / z;
-    const float zw = b.maxX - b.minX;
-    const float zh = b.maxY - b.minY;
+    const float minX = b.minX - marginX, maxX = b.maxX + marginX;
+    const float minY = b.minY - marginY, maxY = b.maxY + marginY;
 
-    if (visW >= zw)               c.x = (b.minX + b.maxX) * 0.5f - visW * 0.5f;  // zone < view -> center
-    else if (c.x < b.minX)        c.x = b.minX;
-    else if (c.x + visW > b.maxX) c.x = b.maxX - visW;
+    if (visW >= (maxX - minX))    c.x = (minX + maxX) * 0.5f - visW * 0.5f;  // zone+margin < view -> center
+    else if (c.x < minX)          c.x = minX;
+    else if (c.x + visW > maxX)   c.x = maxX - visW;
 
-    if (visH >= zh)               c.y = (b.minY + b.maxY) * 0.5f - visH * 0.5f;
-    else if (c.y < b.minY)        c.y = b.minY;
-    else if (c.y + visH > b.maxY) c.y = b.maxY - visH;
+    if (visH >= (maxY - minY))    c.y = (minY + maxY) * 0.5f - visH * 0.5f;
+    else if (c.y < minY)          c.y = minY;
+    else if (c.y + visH > maxY)   c.y = maxY - visH;
 }
 
 // World-space pan delta for an on-screen drag/velocity at the current zoom. Dividing by zoom gives a

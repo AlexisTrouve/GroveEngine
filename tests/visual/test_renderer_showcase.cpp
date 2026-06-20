@@ -30,6 +30,7 @@
 #include "BgfxRendererModule.h"
 #include "Scene/Camera.h"               // grove::camera helpers (damp/focusOn)
 #include "Scene/ZoomLadder.h"           // grove::camera::ZoomLadder (zoom strata: snap + blend)
+#include "Scene/ZoneNavigator.h"        // grove::camera::ZoneNavigator (nested-zones navigation)
 #include "InputModule/ActionMap.h"      // grove::input::ActionMap (scancode bindings, AZERTY-proof)
 #include "grove/anim/AnimationPlayer.h" // grove::anim: Hierarchy + Clip + player (procedural)
 #include "grove/anim/Flipbook.h"        // grove::anim: SpriteSheet + Flipbook (frame-by-frame)
@@ -140,6 +141,9 @@ public:
         m_actions.bindKey("snap_zoom", SDL_SCANCODE_L);   // ZoomLadder: snap to the nearest plateau
         m_actions.bindKey("spawn",     SDL_SCANCODE_SPACE);
         m_actions.bindKey("cycle_color", SDL_SCANCODE_C);
+        m_actions.bindKey("zone_mode", SDL_SCANCODE_Z);       // toggle zone-navigation demo (slice 4)
+        m_actions.bindKey("del_zone",  SDL_SCANCODE_DELETE);  // delete the current zone -> back out
+        m_actions.bindKey("del_zone",  SDL_SCANCODE_BACKSPACE); // (laptop fallback for Delete)
     }
 
     // Clear per-frame action edges (justPressed/justReleased). Call once per frame BEFORE
@@ -188,7 +192,12 @@ public:
         m_logger->info("  +/-: Zoom");
         m_logger->info("  SPACE: Spawn particles");
         m_logger->info("  C: Cycle clear color");
+        m_logger->info("  Z: toggle ZONE-NAVIGATION demo (slice 4)  |  Suppr: delete current zone");
         m_logger->info("  ESC: Exit");
+
+        // Build a toy zone hierarchy for the zone-navigation demo (slice 4). The navigator owns the
+        // camera while in zone mode; here we just declare the spaces (game-authored tree).
+        setupZones();
 
         return true;
     }
@@ -200,6 +209,11 @@ public:
         if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
             m_actions.onKey(e.key.keysym.scancode, e.type == SDL_KEYDOWN);
         }
+        // Track the cursor so zone-nav zoom can anchor on it (zoom toward the mouse).
+        else if (e.type == SDL_MOUSEMOTION) {
+            m_mouseX = static_cast<float>(e.motion.x);
+            m_mouseY = static_cast<float>(e.motion.y);
+        }
         // Mouse wheel: smooth zoom toward the SCREEN CENTER. (Zooming toward the cursor made
         // the scene travel when the cursor was off-center, which reads as "zoom + dezoom" —
         // center zoom keeps the motion purely a scale.) Robust to inverted-scroll devices and
@@ -209,7 +223,8 @@ public:
             if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) wy = -wy;
             if (wy != 0.0f) {
                 const float factor = (wy > 0.0f) ? 1.25f : (1.0f / 1.25f);
-                setZoomTarget(m_targetZoom * factor, 512.0f, 384.0f);  // 1024x768 center
+                if (m_zoneMode) m_nav.zoomBy(factor, m_mouseX, m_mouseY);   // zoom toward the cursor
+                else setZoomTarget(m_targetZoom * factor, 512.0f, 384.0f);  // free cam (1024x768 center)
             }
         }
     }
@@ -229,31 +244,40 @@ public:
         m_frameCount++;
 
         // --- Consume semantic actions (fed this frame by handleInput, via scancode) ---
-        // Pan: held actions set the camera velocity.
-        m_cameraVX = (m_actions.isActive("pan_right") ? 200.0f : 0.0f) - (m_actions.isActive("pan_left") ? 200.0f : 0.0f);
-        m_cameraVY = (m_actions.isActive("pan_down")  ? 200.0f : 0.0f) - (m_actions.isActive("pan_up")   ? 200.0f : 0.0f);
-        // Zoom: continuous while held — ramps the smooth target (the wheel feeds it too).
-        if (m_actions.isActive("zoom_in"))  setZoomTarget(m_targetZoom * (1.0f + 2.0f * dt), 512.0f, 384.0f);
-        if (m_actions.isActive("zoom_out")) setZoomTarget(m_targetZoom / (1.0f + 2.0f * dt), 512.0f, 384.0f);
-        // Discrete: fire once on the press edge (key-repeat is idempotent in ActionMap).
+        // 'Z' toggles ZONE-NAVIGATION mode (slice 4): the ZoneNavigator owns the camera — zoom to
+        // ENTER a zone, pan is locked + scaled to it, Suppr deletes the current zone (seamless back-out).
+        if (m_actions.justPressed("zone_mode")) { m_zoneMode = !m_zoneMode; if (m_zoneMode) m_nav.reset(); }
+
+        // Discrete actions shared by both modes.
         if (m_actions.justPressed("spawn"))       spawnExplosion(512.0f + m_cameraX, 400.0f + m_cameraY);
         if (m_actions.justPressed("cycle_color")) m_clearColorIndex = (m_clearColorIndex + 1) % numClearColors;
-        // ZoomLadder (live demo): snap the zoom to the nearest readable plateau — the camera glides
-        // there via the same smooth-zoom path. Proves snap() + the strata model in the live scene.
-        if (m_actions.justPressed("snap_zoom")) setZoomTarget(m_ladder.snap(m_cameraZoom), 512.0f, 384.0f);
 
-        // Smooth zoom: glide toward the target (framerate-independent camera::damp), re-framing
-        // so the focus world point stays pinned under its screen anchor — buttery wheel/key
-        // zoom instead of per-notch jumps. Pan (arrow velocity) applies when not mid-zoom.
-        if (std::fabs(m_cameraZoom - m_targetZoom) > 0.0005f) {
-            m_cameraZoom = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
-            camera::CameraView v = camera::focusOn(m_zoomFocusWorldX, m_zoomFocusWorldY, m_cameraZoom,
-                                                   1024.0f, 768.0f, m_zoomFocusScreenX, m_zoomFocusScreenY);
-            m_cameraX = v.x;
-            m_cameraY = v.y;
+        if (m_zoneMode) {
+            // Input drives the navigator; it returns the camera (soft magnet + elastic clamp + pan∝zoom).
+            if (m_actions.isActive("zoom_in"))  m_nav.zoomBy(1.0f + 1.5f * dt, m_mouseX, m_mouseY);
+            if (m_actions.isActive("zoom_out")) m_nav.zoomBy(1.0f / (1.0f + 1.5f * dt), m_mouseX, m_mouseY);
+            const float ps = 700.0f * dt;   // on-screen pan speed; the navigator scales it by 1/zoom
+            const float pdx = (m_actions.isActive("pan_right") ? ps : 0.0f) - (m_actions.isActive("pan_left") ? ps : 0.0f);
+            const float pdy = (m_actions.isActive("pan_down")  ? ps : 0.0f) - (m_actions.isActive("pan_up")   ? ps : 0.0f);
+            if (pdx != 0.0f || pdy != 0.0f) m_nav.panScreen(pdx, pdy);
+            if (m_actions.justPressed("del_zone")) m_nav.removeZone(m_nav.activeZone());
+            const camera::CameraView v = m_nav.update(dt);
+            m_cameraX = v.x; m_cameraY = v.y; m_cameraZoom = v.zoom;
         } else {
-            m_cameraX += m_cameraVX * dt;
-            m_cameraY += m_cameraVY * dt;
+            // --- Free camera (the original showcase behavior) ---
+            m_cameraVX = (m_actions.isActive("pan_right") ? 200.0f : 0.0f) - (m_actions.isActive("pan_left") ? 200.0f : 0.0f);
+            m_cameraVY = (m_actions.isActive("pan_down")  ? 200.0f : 0.0f) - (m_actions.isActive("pan_up")   ? 200.0f : 0.0f);
+            if (m_actions.isActive("zoom_in"))  setZoomTarget(m_targetZoom * (1.0f + 2.0f * dt), 512.0f, 384.0f);
+            if (m_actions.isActive("zoom_out")) setZoomTarget(m_targetZoom / (1.0f + 2.0f * dt), 512.0f, 384.0f);
+            if (m_actions.justPressed("snap_zoom")) setZoomTarget(m_ladder.snap(m_cameraZoom), 512.0f, 384.0f);
+            if (std::fabs(m_cameraZoom - m_targetZoom) > 0.0005f) {
+                m_cameraZoom = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
+                camera::CameraView v = camera::focusOn(m_zoomFocusWorldX, m_zoomFocusWorldY, m_cameraZoom,
+                                                       1024.0f, 768.0f, m_zoomFocusScreenX, m_zoomFocusScreenY);
+                m_cameraX = v.x; m_cameraY = v.y;
+            } else {
+                m_cameraX += m_cameraVX * dt; m_cameraY += m_cameraVY * dt;
+            }
         }
 
         // Advance the animation rig: the player writes node locals, then one update() composes
@@ -280,6 +304,9 @@ public:
 
         // 5. Render particles
         sendParticles();
+
+        // 5b. Zone-navigation overlay (slice 4): translucent world rects for the zones.
+        if (m_zoneMode) sendZones();
 
         // 6. Render text
         sendText();
@@ -327,6 +354,38 @@ private:
         cam->setInt("viewportW", 1024);
         cam->setInt("viewportH", 768);
         m_gameIO->publish("render:camera", std::move(cam));
+    }
+
+    // Game-authored zone hierarchy for the slice-4 demo: a galaxy with two systems, each holding a
+    // ship. The navigator owns the camera in zone mode; m_demoZones mirrors the tree for drawing.
+    void setupZones() {
+        m_nav.configure(1024.0f, 768.0f, /*margin*/0.08f, /*magnetRate*/6.0f);
+        auto add = [&](const char* id, const char* parent,
+                       float x0, float y0, float x1, float y1, uint32_t color) {
+            m_nav.addZone(id, parent, camera::WorldBounds{x0, y0, x1, y1});
+            m_demoZones.push_back({id, x0, y0, x1, y1, color});
+        };
+        add("Galaxy", "",       0.0f,   0.0f,   1024.0f, 768.0f, 0x3366CC2Au);
+        add("Alpha",  "Galaxy", 80.0f,  80.0f,  420.0f,  360.0f, 0x33CCAA2Au);
+        add("Beta",   "Galaxy", 560.0f, 400.0f, 960.0f,  720.0f, 0x33CCAA2Au);
+        add("Ship-A", "Alpha",  120.0f, 120.0f, 260.0f,  230.0f, 0xCC66CC2Au);
+        add("Ship-B", "Beta",   620.0f, 460.0f, 800.0f,  600.0f, 0xCC66CC2Au);
+        m_nav.reset();
+    }
+
+    // Draw the still-alive zones as translucent world rects (so you SEE the nested spaces) — the
+    // active zone is highlighted green. World-space, so they zoom/pan with the camera. Zone mode only.
+    void sendZones() {
+        for (const auto& z : m_demoZones) {
+            if (!m_nav.hasZone(z.id)) continue;   // deleted -> its subtree disappears with it
+            const bool active = (z.id == m_nav.activeZone());
+            auto r = std::make_unique<JsonDataNode>("rect");
+            r->setDouble("x", z.minX); r->setDouble("y", z.minY);
+            r->setDouble("w", z.maxX - z.minX); r->setDouble("h", z.maxY - z.minY);
+            r->setInt("color", active ? 0x33DD5577 : static_cast<int>(z.color));
+            r->setInt("layer", 50);
+            m_gameIO->publish("render:rect", std::move(r));
+        }
     }
 
     void sendTilemap() {
@@ -525,20 +584,25 @@ private:
         // Zoom strata readout (live ZoomLadder demo): which strata the current zoom is in, and the
         // inter-strata crossfade t. Watch it update as you zoom; press 'L' to snap to a plateau.
         {
-            const camera::ZoomBlend zb = m_ladder.blend(m_cameraZoom);
-            char sb[160];
-            if (zb.lower == zb.upper) {
-                snprintf(sb, sizeof(sb), "Strata: %s (locked)", m_strataNames[zb.active]);
+            char sb[176];
+            if (m_zoneMode) {
+                // Zone-navigation demo: the active zone + a reminder of the controls.
+                const std::string& az = m_nav.activeZone();
+                snprintf(sb, sizeof(sb), "Zone: %s   (zoom in = enter | pan locked to zone | Suppr = delete | Z = free cam)",
+                         az.empty() ? "<none>" : az.c_str());
             } else {
-                snprintf(sb, sizeof(sb), "Strata: %s   [%s -> %s  t=%.2f]",
-                         m_strataNames[zb.active], m_strataNames[zb.lower], m_strataNames[zb.upper], zb.t);
+                // Free cam: the ZoomLadder strata readout.
+                const camera::ZoomBlend zb = m_ladder.blend(m_cameraZoom);
+                if (zb.lower == zb.upper) snprintf(sb, sizeof(sb), "Strata: %s (locked)   (Z = zone-nav demo)", m_strataNames[zb.active]);
+                else snprintf(sb, sizeof(sb), "Strata: %s   [%s -> %s  t=%.2f]   (Z = zone-nav demo)",
+                              m_strataNames[zb.active], m_strataNames[zb.lower], m_strataNames[zb.upper], zb.t);
             }
             auto text = std::make_unique<JsonDataNode>("text");
             text->setDouble("x", 10);
             text->setDouble("y", 90);
             text->setString("text", sb);
             text->setInt("fontSize", 16);
-            text->setInt("color", 0x66E0FFFF);
+            text->setInt("color", m_zoneMode ? 0x88FF99FF : 0x66E0FFFF);
             text->setInt("layer", 100);
             m_gameIO->publish("render:text", std::move(text));
         }
@@ -847,6 +911,13 @@ private:
     // shows the active strata + the inter-strata blend t as you zoom; 'L' snaps to the nearest one.
     camera::ZoomLadder m_ladder{ std::vector<float>{0.25f, 0.75f, 2.0f, 5.0f}, 0.5f };
     const char* m_strataNames[4] = {"Galaxy", "System", "Tactical", "Detail"};
+
+    // Zone-navigation demo (slice 4): the navigator + the authored toy hierarchy (kept for drawing).
+    struct DemoZone { std::string id; float minX, minY, maxX, maxY; uint32_t color; };
+    camera::ZoneNavigator m_nav;
+    bool m_zoneMode = true;             // start in the zone-nav demo; 'Z' toggles to the free camera
+    std::vector<DemoZone> m_demoZones;
+    float m_mouseX = 512.0f, m_mouseY = 384.0f;   // cursor (for cursor-anchored zoom)
 
     // Clear color
     int m_clearColorIndex = 0;

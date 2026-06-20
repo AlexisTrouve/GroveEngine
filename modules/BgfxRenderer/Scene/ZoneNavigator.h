@@ -30,9 +30,13 @@ namespace camera {
 
 class ZoneNavigator {
 public:
-    // Viewport + feel. margin = framing padding (fraction); magnetRate = how snappy the glide is.
-    void configure(float viewportW, float viewportH, float margin = 0.05f, float magnetRate = 6.0f) {
+    // Viewport + feel. margin = framing padding (fraction); magnetRate = glide snappiness;
+    // panMargin = how far you may pan PAST a zone's edge, as a fraction of the visible size (so a
+    // slice of the screen can sit outside a POI for context). 0 = strict hard clamp.
+    void configure(float viewportW, float viewportH, float margin = 0.05f, float magnetRate = 6.0f,
+                   float panMargin = 0.25f) {
         m_vpW = viewportW; m_vpH = viewportH; m_margin = margin; m_magnetRate = magnetRate;
+        m_panMarginFrac = panMargin;
         if (!m_rootId.empty()) m_minZoom = framingZoom(m_zones[m_rootId].bounds);
     }
 
@@ -96,13 +100,15 @@ public:
 
     // --- input ---
 
-    // Multiply the zoom (e.g. 1.25 in, 0.8 out). May descend into / ascend out of a zone.
-    void zoomBy(float factor) {
-        if (m_activeId.empty()) return;
-        m_zoom = clampZoom(m_zoom * factor, m_minZoom, m_maxZoom);
-        const std::string na = computeActive();
-        if (na != m_activeId) { m_activeId = na; recenterOnActive(); }  // soft magnet: re-center on enter
-        clampFocus();
+    // Zoom toward the viewport CENTER (back-compat; keyboard zoom without a cursor).
+    void zoomBy(float factor) { zoomAtAnchor(factor, m_vpW * 0.5f, m_vpH * 0.5f); }
+
+    // Zoom toward a SCREEN anchor (the cursor): the world point under it stays PINNED — this is what
+    // makes "zoom into the thing under the mouse" work (without it the nested-zones idea falls apart).
+    // Entering/leaving a zone follows the focus, which migrates toward the cursor as you zoom in, so
+    // there is no hard re-center to yank the view off the cursor.
+    void zoomBy(float factor, float anchorScreenX, float anchorScreenY) {
+        zoomAtAnchor(factor, anchorScreenX, anchorScreenY);
     }
 
     // Pan by an ON-SCREEN delta; scaled by 1/zoom (constant screen feel) then clamped to the zone.
@@ -129,7 +135,10 @@ public:
     CameraView target() const {
         CameraView c = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
         auto it = m_zones.find(m_activeId);
-        if (it != m_zones.end()) clampPanToBounds(c, it->second.bounds);
+        if (it != m_zones.end()) {
+            const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
+            clampPanToBounds(c, it->second.bounds, m_panMarginFrac * (m_vpW / z), m_panMarginFrac * (m_vpH / z));
+        }
         return c;
     }
 
@@ -156,6 +165,9 @@ protected:
     float framingZoom(const WorldBounds& b) const { return fitBounds(b, m_vpW, m_vpH, m_margin).zoom; }
     static bool contains(const WorldBounds& b, float x, float y) {
         return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+    }
+    static bool containsM(const WorldBounds& b, float x, float y, float mx, float my) {
+        return x >= b.minX - mx && x <= b.maxX + mx && y >= b.minY - my && y <= b.maxY + my;
     }
     static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
     static bool vecHas(const std::vector<std::string>& v, const std::string& s) {
@@ -187,23 +199,43 @@ protected:
         m_focusY = (it->second.bounds.minY + it->second.bounds.maxY) * 0.5f;
     }
 
-    // Keep the focus (view center) inside the active zone; center it if the zone is smaller than view.
+    // Cursor-anchored zoom: keep the world point under (sx,sy) pinned there as the zoom changes, then
+    // re-evaluate the active zone (descend/ascend follows the focus). No re-center -> the cursor stays.
+    void zoomAtAnchor(float factor, float sx, float sy) {
+        if (m_activeId.empty()) return;
+        const CameraView cur = centerOn(m_focusX, m_focusY, m_zoom, m_vpW, m_vpH);
+        float pinX = 0.0f, pinY = 0.0f;
+        screenToWorld(cur, sx, sy, pinX, pinY);                 // world point currently under the cursor
+        const float nz = clampZoom(m_zoom * factor, m_minZoom, m_maxZoom);
+        m_focusX = pinX + (m_vpW * 0.5f - sx) / nz;             // re-frame so it stays under the cursor
+        m_focusY = pinY + (m_vpH * 0.5f - sy) / nz;
+        m_zoom = nz;
+        const std::string na = computeActive();
+        if (na != m_activeId) m_activeId = na;                  // enter/leave; cursor anchored, no recenter
+        clampFocus();
+    }
+
+    // Keep the focus (view center) inside the active zone EXPANDED by the pan margin (so a slice of
+    // the screen may sit outside the POI). Center it if the expanded zone is smaller than the view.
     void clampFocus() {
         auto it = m_zones.find(m_activeId);
         if (it == m_zones.end()) return;
         const WorldBounds& b = it->second.bounds;
         const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
         const float visW = m_vpW / z, visH = m_vpH / z;
-        const float zw = b.maxX - b.minX, zh = b.maxY - b.minY;
-        m_focusX = (visW >= zw) ? (b.minX + b.maxX) * 0.5f
-                                : clampf(m_focusX, b.minX + visW * 0.5f, b.maxX - visW * 0.5f);
-        m_focusY = (visH >= zh) ? (b.minY + b.maxY) * 0.5f
-                                : clampf(m_focusY, b.minY + visH * 0.5f, b.maxY - visH * 0.5f);
+        const float mX = m_panMarginFrac * visW, mY = m_panMarginFrac * visH;
+        const float minX = b.minX - mX, maxX = b.maxX + mX, minY = b.minY - mY, maxY = b.maxY + mY;
+        const float loX = minX + visW * 0.5f, hiX = maxX - visW * 0.5f;
+        const float loY = minY + visH * 0.5f, hiY = maxY - visH * 0.5f;
+        m_focusX = (loX > hiX) ? (minX + maxX) * 0.5f : clampf(m_focusX, loX, hiX);
+        m_focusY = (loY > hiY) ? (minY + maxY) * 0.5f : clampf(m_focusY, loY, hiY);
     }
 
     // Deepest zone containing the focus whose framing zoom <= current zoom (descend from the root).
     std::string computeActive() const {
         if (m_rootId.empty()) return std::string();
+        const float z = (m_zoom != 0.0f) ? m_zoom : 1.0f;
+        const float mX = m_panMarginFrac * (m_vpW / z), mY = m_panMarginFrac * (m_vpH / z);
         std::string cur = m_rootId;
         for (;;) {
             auto it = m_zones.find(cur);
@@ -211,7 +243,9 @@ protected:
             for (const std::string& cid : it->second.childIds) {
                 auto cit = m_zones.find(cid);
                 if (cit == m_zones.end()) continue;
-                if (contains(cit->second.bounds, m_focusX, m_focusY) &&
+                // Use the margin-expanded bounds so a focus parked in the overshoot margin still
+                // counts as "in the zone" (otherwise zooming there would pop back out to the parent).
+                if (containsM(cit->second.bounds, m_focusX, m_focusY, mX, mY) &&
                     framingZoom(cit->second.bounds) <= m_zoom + 1e-3f) {
                     next = cid; break;   // first matching child (siblings are assumed non-overlapping)
                 }
@@ -225,6 +259,7 @@ protected:
     std::unordered_map<std::string, Zone> m_zones;
     std::string m_rootId, m_activeId;
     float m_vpW = 1280.0f, m_vpH = 720.0f, m_margin = 0.05f, m_magnetRate = 6.0f;
+    float m_panMarginFrac = 0.25f;   // pan overshoot past a zone edge, as a fraction of the visible size
     float m_zoom = 1.0f, m_minZoom = 0.001f, m_maxZoom = 1.0e4f;
     float m_focusX = 0.0f, m_focusY = 0.0f;
     CameraView m_view;

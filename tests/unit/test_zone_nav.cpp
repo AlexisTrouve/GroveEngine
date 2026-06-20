@@ -20,7 +20,7 @@ using namespace grove::camera;
 // (A top-left, B bottom-right). 1000x1000 viewport, no margin -> clean analytical framings.
 static ZoneNavigator makeNav() {
     ZoneNavigator n;
-    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f);
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f, /*panMargin*/0.0f);
     n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
     n.addZone("A",    "root", WorldBounds{100.0f, 100.0f, 300.0f,  300.0f});   // framing zoom 5
     n.addZone("B",    "root", WorldBounds{600.0f, 600.0f, 800.0f,  800.0f});   // framing zoom 5
@@ -150,7 +150,7 @@ TEST_CASE("ZoneNavigator: setActive frames the zone and update() glides to it", 
 // A 3-level chain: root (1000) > S (400, framing 2.5) > P (100, framing 10).
 static ZoneNavigator makeNav3() {
     ZoneNavigator n;
-    n.configure(1000.0f, 1000.0f, 0.0f, 20.0f);
+    n.configure(1000.0f, 1000.0f, 0.0f, 20.0f, /*panMargin*/0.0f);
     n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
     n.addZone("S",    "root", WorldBounds{100.0f, 100.0f, 500.0f,  500.0f});
     n.addZone("P",    "S",    WorldBounds{150.0f, 150.0f, 250.0f,  250.0f});
@@ -218,4 +218,41 @@ TEST_CASE("ZoneNavigator: back-out is seamless (the view glides out)", "[unit][z
     REQUIRE(n.activeZone() == "root");
     for (int i = 0; i < 200; ++i) n.update(0.05f);   // glide out, not a jump
     REQUIRE(std::fabs(n.view().zoom - 1.0f) < 0.05f); // now framing the root
+}
+
+// ============================================================================
+// Slice 4 (feedback): cursor-anchored zoom — zoom toward the mouse, enter what's under it.
+// ============================================================================
+
+TEST_CASE("ZoneNavigator: zoom is anchored at the cursor (world point stays under it)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();   // root framed: zoom 1, view (0,0)
+    // The world point currently under screen (250,250):
+    CameraView before = n.target();
+    float wx = 0.0f, wy = 0.0f;
+    screenToWorld(before, 250.0f, 250.0f, wx, wy);
+    n.zoomBy(2.0f, 250.0f, 250.0f);                 // zoom in toward that screen point
+    CameraView after = n.target();
+    float sx = 0.0f, sy = 0.0f;
+    worldToScreen(after, wx, wy, sx, sy);
+    REQUIRE(std::fabs(sx - 250.0f) < 1.0f);         // same world point is still under the cursor
+    REQUIRE(std::fabs(sy - 250.0f) < 1.0f);
+}
+
+TEST_CASE("ZoneNavigator: zooming toward a child's on-screen spot enters that child", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();   // at reset: zoom 1, view (0,0) -> A's center world (200,200) = screen (200,200)
+    for (int i = 0; i < 12; ++i) n.zoomBy(1.3f, 200.0f, 200.0f);   // keep zooming toward A's on-screen spot
+    REQUIRE(n.activeZone() == "A");                 // we entered the zone under the cursor (not the center)
+}
+
+TEST_CASE("ZoneNavigator: pan margin lets the view overshoot a POI's edge", "[unit][zonenav]") {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f, /*panMargin*/0.25f);
+    n.addZone("root", "", WorldBounds{0.0f, 0.0f, 1000.0f, 1000.0f});
+    n.addZone("A", "root", WorldBounds{100.0f, 100.0f, 300.0f, 300.0f});   // 200x200, framing 5
+    n.reset();
+    n.setActive("A");
+    n.zoomBy(2.0f);                // zoom 10 -> visible 100 < zone 200; pan margin = 0.25*100 = 25
+    n.panScreen(100000.0f, 0.0f);  // hard pan right
+    REQUIRE(n.focusX() > 260.0f);                       // overshoots the STRICT right wall (250)
+    REQUIRE(std::fabs(n.focusX() - 275.0f) < 1e-2f);    // maxX(300) + margin(25) - visW/2(50)
 }

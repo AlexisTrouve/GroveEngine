@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** design locked; slices 1-3 shipped (logic complete); slice 4 (showcase demo) next (2026-06-20).
+**Status:** slices 1-4 shipped + eye-validated (cursor-anchored zoom + POI pan margin); follow-ups: stronger zoom snap + entity-attached zones (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -107,4 +107,16 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 - **Slice 1** — ✅ shipped (pure helpers, `ZoneNavUnit`).
 - **Slice 2** — ✅ shipped (`ZoneNavigator` core, `ZoneNavUnit`).
 - **Slice 3** — ✅ shipped (dynamic add/remove + deletion back-out, `ZoneNavUnit`).
-- **Slice 4** — next (showcase demo, eye-validated).
+- **Slice 4** — ✅ shipped (showcase demo, eye-validated) + feedback refinements: **cursor-anchored
+  zoom** (zoom toward the mouse, the world point under it stays pinned — `zoomBy(factor, sx, sy)`) and a
+  **POI pan margin** (`configure(..., panMargin)`: pan can overshoot a zone edge by a fraction of the
+  screen so context shows around a POI). `ZoneNavUnit` 20 cases / 62 assertions.
+
+## Follow-ups (requested 2026-06-20, design pending)
+- **Stronger / configurable zoom snap** — once you zoom *enough* toward an object, auto-complete the
+  zoom to fully frame it (snap to the zone's framing zoom = its "high threshold") instead of leaving a
+  half-zoom. Navigator-only (a detent on the target zoom), configurable strength.
+- **Entity-attached zones** — zones bound to moving game objects: track **position** (zone follows the
+  entity) and **velocity** (lead/smooth) — navigator-side; and **rotation** (the view rotates to match
+  the entity's heading) — **needs a renderer camera-rotation feature** (render:camera rotation + rotated
+  projection; the AABB clamp/cull become rotated-rect). Bigger, touches the renderer.
