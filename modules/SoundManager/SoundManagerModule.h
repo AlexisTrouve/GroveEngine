@@ -21,6 +21,7 @@
 #include <grove/ITaskScheduler.h>
 #include "ISoundBackend.h"
 #include "AdaptiveMixer.h"
+#include "BeatClock.h"
 
 #include <cstdint>
 #include <memory>
@@ -53,6 +54,7 @@ private:
     void handleMessage(const Message& msg);
     void applyMusicVolume();                 // push effective music volume to the backend
     void tickAdaptive(float dt);             // ramp adaptive stem gains -> backend (per frame)
+    void updateBeatClock(float dt);          // advance the beat clock + release a pending quantized intent
     static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
     IIO* m_io = nullptr;
@@ -77,6 +79,14 @@ private:
     std::unordered_map<std::string, int> m_layerHandles;     // layer id -> backend playback handle
     std::unordered_map<std::string, float> m_layerLastSent;  // layer id -> last effective gain sent
     float m_layerRampRate = 8.0f;                            // stem gain ramp speed (fraction/second)
+
+    // Beat clock + a pending quantized intent (slice 2): a tension change asked with
+    // quantize:"bar"/"beat" is staged here and applied when the clock crosses that boundary, so
+    // transitions land on the measure. Clock stopped (no audio:tempo) => changes apply immediately.
+    sound::BeatClock m_clock;
+    bool  m_pendingIntent = false;
+    float m_pendingTension = 0.0f;
+    bool  m_pendingOnBar = true;    // true: wait for the next BAR; false: next BEAT
 
     uint64_t m_sfxCount = 0;
     uint64_t m_musicCount = 0;

@@ -80,16 +80,18 @@ camera items are above. The genuine engine gaps it surfaces:
 ## Sound (`SoundManager`)
 - Channel groups, per-sound instance caps, ducking, music preload/unload. v1 is fire-and-forget
   SFX + looping-stoppable-by-id + music + buses + preload/unload.
-- **Adaptive / interactive audio — 🚧 slice 1 SHIPPED, route = CUSTOM** (2026-06-20). Route decided
+- **Adaptive / interactive audio — 🚧 slices 1-2 SHIPPED, route = CUSTOM** (2026-06-20). Route decided
   (Alexi): **custom**, behind `ISoundBackend` — not middleware (FMOD/Wwise stays a future swap behind
   the same interface if sample-accurate DSP is ever needed; the adaptive *logic* is backend-agnostic
   + headless-testable, so the proof needs no real audio). **Slice 1 done = state-driven vertical
   layering**: `audio:layer`/`audio:intent`/`audio:mix`/`audio:layer:stop` → a pure `AdaptiveMixer`
   (stems crossfade calm→peak by tension, ramped) driving the backend via the new
-  `ISoundBackend::setSoundVolume`. Locked by `SoundManagerUnit` `[adaptive]`. Lives INSIDE
-  SoundManager (owns the backend + the per-frame tick; a 2nd module would fight SDL_mixer's singleton).
-  **Remaining slices:** **slice 2 = bar-quantized transitions** (a BPM beat-clock; big changes/cues
-  snap to the next bar — "transitions calées sur la mesure"); **slice 3 = cues/stingers + leitmotif
+  `ISoundBackend::setSoundVolume`. **Slice 2 done = bar-quantized transitions**: a pure `BeatClock`
+  (`audio:tempo {bpm,beatsPerBar}`) + `audio:intent {tension, quantize:"bar"|"beat"|"now"}` — a
+  quantized intent is staged and released when the clock crosses the next bar/beat ("transitions
+  calées sur la mesure"); clock stopped ⇒ immediate. Locked by `SoundManagerUnit` `[adaptive]`. Lives
+  INSIDE SoundManager (owns the backend + the per-frame tick; a 2nd module would fight SDL_mixer's
+  singleton). **Remaining: slice 3 = cues/stingers (quantizable, reusing the BeatClock) + leitmotif
   whose arrangement follows an entity's state** (needs stem assets → audible "by ear" proof, compos
   late). **Risk flagged:** SDL_mixer plays the N stems as independent looping channels — no
   sample-accurate phase-lock between stems; fine for fade-in/out layering, the trigger to reconsider

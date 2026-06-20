@@ -641,16 +641,24 @@ from the imperative `sound:*` ("play this").
 | Topic | Payload | Effect |
 |-------|---------|--------|
 | `audio:layer` | `{id, path, loop?=true, gainCalm?=1, gainPeak?=1}` | Register/start a stem. Its gain crossfades `gainCalm`→`gainPeak` over tension: `{1,1}`=constant bed, `{0,1}`=fades in, `{1,0}`=fades out |
-| `audio:intent` | `{tension}` | Set the emotional tension `[0,1]`; every stem's target gain recomputes from its curve |
+| `audio:intent` | `{tension, quantize?="now"}` | Set the emotional tension `[0,1]`; recomputes every stem's target. `quantize`: `"now"` immediately, `"bar"`/`"beat"` waits for the next measure (see below) |
+| `audio:tempo` | `{bpm, beatsPerBar?=4}` | Set the musical clock for quantized transitions. `bpm=0` stops it (quantized intents then apply immediately) |
 | `audio:mix` | `{id, gain}` | Low-level: set one stem's target gain explicitly (until the next `audio:intent`) |
 | `audio:layer:stop` | `{id, fadeMs?=0}` | Stop + drop a stem |
 
 Stem gains **ramp** smoothly toward their targets each `process()` (framerate-independent), so
 tension changes fade layers instead of snapping. Adaptive stems sit on the **music bus**
-(`sound:volume {bus:"music"}` scales them). The mix math is a pure `AdaptiveMixer`
-(`SoundManager/AdaptiveMixer.h`); the game owns the tension + the stems (content). Locked headless
-by `SoundManagerUnit` (`[adaptive]` cases). *Roadmap: bar-quantized transitions + cues/stingers +
-leitmotif-by-entity-state are the next slices.*
+(`sound:volume {bus:"music"}` scales them).
+
+**Bar-quantized transitions (slice 2):** set a tempo with `audio:tempo`, then an
+`audio:intent {tension, quantize:"bar"}` is **staged** and applied only when the beat clock crosses
+the next bar — so section/mood changes land *on the measure* instead of jarringly mid-phrase
+(`"beat"` snaps to the next beat; `"now"` / no tempo = immediate). The clock is a pure `BeatClock`
+(`SoundManager/BeatClock.h`).
+
+The mix math is a pure `AdaptiveMixer` (`SoundManager/AdaptiveMixer.h`); the game owns the tension +
+the stems (content). Locked headless by `SoundManagerUnit` (`[adaptive]` cases). *Roadmap:
+cues/stingers + leitmotif-by-entity-state are the next slices.*
 
 **Wiring (static-link host, e.g. Drifterra):** link `SoundManager_static`, instantiate the
 module, inject the backend, drive `process()` each frame:

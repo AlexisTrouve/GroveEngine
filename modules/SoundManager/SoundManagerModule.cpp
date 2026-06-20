@@ -42,8 +42,10 @@ void SoundManagerModule::process(const IDataNode& input) {
         m_io->pullAndDispatch();
     }
 
-    // Then advance the adaptive stem gains toward their targets and push the changed ones.
+    // Then advance the beat clock (may release a pending quantized intent on a bar/beat) and ramp
+    // the adaptive stem gains toward their (possibly just-changed) targets.
     const float dt = static_cast<float>(input.getDouble("deltaTime", 0.016));
+    updateBeatClock(dt);
     tickAdaptive(dt);
 }
 
@@ -140,10 +142,26 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         m_layerHandles[id] = handle;
         m_layerLastSent[id] = eff;
     }
+    else if (msg.topic == "audio:tempo") {
+        // Configure the musical clock used to quantize transitions to the measure. bpm 0 = stop
+        // (no quantization -> quantized intents apply immediately).
+        const float bpm = static_cast<float>(d.getDouble("bpm", 0.0));
+        const int beatsPerBar = static_cast<int>(d.getInt("beatsPerBar", 4));
+        m_clock.setTempo(bpm, beatsPerBar);
+    }
     else if (msg.topic == "audio:intent") {
-        // The game's emotional state. Recomputes every layer's target gain from its curve; the
-        // actual gains ramp toward the new targets over the next frames (tickAdaptive).
-        m_mixer.setTension(static_cast<float>(d.getDouble("tension", 0.0)));
+        // The game's emotional state. quantize: "now" (default) applies immediately; "bar"/"beat"
+        // STAGE the change and release it when the clock crosses that boundary (transitions land on
+        // the measure). With the clock stopped there is nothing to wait for -> apply now.
+        const float tension = static_cast<float>(d.getDouble("tension", 0.0));
+        const std::string q = d.getString("quantize", "now");
+        if (q == "now" || !m_clock.running()) {
+            m_mixer.setTension(tension);
+        } else {
+            m_pendingIntent = true;
+            m_pendingTension = tension;
+            m_pendingOnBar = (q != "beat");   // "bar" (default for a quantized intent) unless "beat"
+        }
     }
     else if (msg.topic == "audio:mix") {
         // Low-level: set one layer's target gain explicitly (until the next audio:intent).
@@ -187,6 +205,19 @@ void SoundManagerModule::tickAdaptive(float dt) {
         if (sIt == m_layerLastSent.end() || std::fabs(sIt->second - eff) > 1e-3f) {
             m_backend->setSoundVolume(hIt->second, eff);
             m_layerLastSent[L.id] = eff;
+        }
+    }
+}
+
+void SoundManagerModule::updateBeatClock(float dt) {
+    // Advance the clock and, if a quantized intent is waiting, release it the moment the clock
+    // crosses the requested boundary (bar or beat) — this is the "transitions calées sur la mesure".
+    m_clock.advance(dt);
+    if (m_pendingIntent) {
+        const bool fire = m_pendingOnBar ? m_clock.crossedBar() : m_clock.crossedBeat();
+        if (fire) {
+            m_mixer.setTension(m_pendingTension);
+            m_pendingIntent = false;
         }
     }
 }

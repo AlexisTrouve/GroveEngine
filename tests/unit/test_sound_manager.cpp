@@ -19,6 +19,7 @@
 
 #include "SoundManager/SoundManagerModule.h"
 #include "SoundManager/AdaptiveMixer.h"
+#include "SoundManager/BeatClock.h"
 #include "../mocks/MockSoundBackend.h"
 
 #include "grove/IntraIOManager.h"
@@ -44,6 +45,13 @@ static float lastVolForHandle(const test::MockSoundBackend& m, int handle) {
     float v = -1.0f;
     for (const auto& c : m.setSoundVolumeCalls) if (c.handle == handle) v = c.volume;
     return v;
+}
+
+// How many setSoundVolume calls targeted a given handle (0 = its gain was never pushed/changed).
+static int countVolForHandle(const test::MockSoundBackend& m, int handle) {
+    int n = 0;
+    for (const auto& c : m.setSoundVolumeCalls) if (c.handle == handle) ++n;
+    return n;
 }
 
 // Build a module wired to a fresh mock backend + test IIO. Returns the module, the publisher
@@ -347,4 +355,77 @@ TEST_CASE("SoundManager - audio:layer:stop stops and drops a stem", "[sound][uni
     REQUIRE(h.mock->stopSoundCalls.size() == 1);
     REQUIRE(h.mock->stopSoundCalls[0].handle == handle);
     REQUIRE(h.mock->stopSoundCalls[0].fadeMs == 300);
+}
+
+// ============================================================================
+// Slice 2 (adaptive audio): beat clock + bar-quantized transitions.
+//   - the PURE BeatClock: analytical oracles.
+//   - the MODULE: audio:tempo + audio:intent{quantize} applies on the measure (via the mock).
+// ============================================================================
+
+TEST_CASE("BeatClock - advances beats and detects beat/bar boundaries", "[sound][unit][adaptive]") {
+    BeatClock c;
+    c.setTempo(120.0f, 4);              // 2 beats/sec, 4 beats/bar -> 2.0s per bar
+    REQUIRE(c.running());
+
+    c.advance(0.5f);                    // beatPos 1.0
+    REQUIRE(c.crossedBeat());
+    REQUIRE_FALSE(c.crossedBar());
+
+    c.advance(0.5f);                    // 2.0
+    c.advance(0.5f);                    // 3.0
+    REQUIRE_FALSE(c.crossedBar());
+
+    c.advance(0.5f);                    // 4.0 -> bar boundary
+    REQUIRE(c.crossedBar());
+}
+
+TEST_CASE("BeatClock - a stopped clock (bpm 0) never advances", "[sound][unit][adaptive]") {
+    BeatClock c;                        // default bpm 0
+    REQUIRE_FALSE(c.running());
+    c.advance(1.0f);
+    REQUIRE_FALSE(c.crossedBeat());
+    REQUIRE_FALSE(c.crossedBar());
+    REQUIRE(c.beatPos() == 0.0);
+}
+
+TEST_CASE("SoundManager - audio:intent quantize:bar applies on the NEXT bar", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","r.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("tempo"); n->setDouble("bpm",120.0); n->setInt("beatsPerBar",4); h.publish("audio:tempo", std::move(n)); }  // 2.0s/bar
+    h.pump(0.016);
+    const int handle = h.mock->playSoundCalls[0].handle;
+
+    // Stage a quantized intent, then run ~1.9s (< one bar): it must NOT apply yet -> the rise
+    // stem's gain is never pushed (still silent).
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); n->setString("quantize","bar"); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 38; ++i) h.pump(0.05);   // 1.9s
+    REQUIRE(countVolForHandle(*h.mock, handle) == 0);   // staged, not applied -> no gain change
+
+    // Cross the bar (total > 2.0s) and let it ramp -> the change releases and the stem climbs.
+    for (int i = 0; i < 40; ++i) h.pump(0.05);   // +2.0s
+    REQUIRE_THAT(lastVolForHandle(*h.mock, handle), WithinAbs(1.0f, 0.05f));
+}
+
+TEST_CASE("SoundManager - audio:intent quantize:now applies immediately", "[sound][unit][adaptive]") {
+    Harness h;
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","r.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    { auto n = std::make_unique<JsonDataNode>("tempo"); n->setDouble("bpm",120.0); n->setInt("beatsPerBar",4); h.publish("audio:tempo", std::move(n)); }
+    h.pump(0.016);
+    const int handle = h.mock->playSoundCalls[0].handle;
+
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); n->setString("quantize","now"); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 40; ++i) h.pump(0.05);   // no bar wait -> rose right away
+    REQUIRE_THAT(lastVolForHandle(*h.mock, handle), WithinAbs(1.0f, 0.05f));
+}
+
+TEST_CASE("SoundManager - quantize:bar with no tempo set applies immediately", "[sound][unit][adaptive]") {
+    Harness h;   // no audio:tempo -> clock stopped -> nothing to wait for
+    { auto n = std::make_unique<JsonDataNode>("layer"); n->setString("id","rise"); n->setString("path","r.ogg"); n->setDouble("gainCalm",0.0); n->setDouble("gainPeak",1.0); h.publish("audio:layer", std::move(n)); }
+    h.pump(0.016);
+    const int handle = h.mock->playSoundCalls[0].handle;
+
+    { auto n = std::make_unique<JsonDataNode>("intent"); n->setDouble("tension",1.0); n->setString("quantize","bar"); h.publish("audio:intent", std::move(n)); }
+    for (int i = 0; i < 40; ++i) h.pump(0.05);
+    REQUIRE_THAT(lastVolForHandle(*h.mock, handle), WithinAbs(1.0f, 0.05f));
 }
