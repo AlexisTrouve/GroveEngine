@@ -1,6 +1,6 @@
 # Zone Navigation — design
 
-**Status:** design locked; slice 1 (pure helpers) shipped; slice 2 next (2026-06-20).
+**Status:** design locked; slices 1-2 shipped (helpers + `ZoneNavigator`); slice 3 next (2026-06-20).
 **One-line:** navigation as *entering nested spaces* — zoom descends into authored zones, the camera
 is soft-magnetized to frame the active zone, pan is bounded to it and scales with zoom.
 
@@ -90,7 +90,9 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 1. **Pure helpers** — `fitBounds` / `clampPanToBounds` / `worldPanForScreen` in `Scene/Camera.h`.
    ✅ shipped — locked by `ZoneNavUnit` (6 cases / 17 assertions, analytical oracles).
 2. **`ZoneNavigator` core** — tree + active zone + **soft magnet** (ease toward `fitBounds`) +
-   **elastic clamp** + **pan∝zoom**. Headless tests (input sequence → camera glides + stays bounded).
+   **elastic clamp** + **pan∝zoom**. ✅ shipped (`Scene/ZoneNavigator.h`) — `zoomBy` descends/ascends,
+   the magnet re-centers on enter, pan is clamped, `update(dt)` glides seamlessly. Locked by
+   `ZoneNavUnit` (+5 cases).
 3. **Dynamic + back-out** — add/remove at runtime; `removeZone(active)` → nearest live ancestor,
    seamless. Headless tests (delete active → glide to parent; parent also gone → grandparent).
 4. **Demo (showcase)** — a toy 3-level hierarchy: zoom to *enter*, pan locked+scaled, a key to delete
@@ -101,5 +103,6 @@ abstract `ZoomLadder` into real spaces. They compose (the ladder is still fine f
 ## Status
 
 - **Slice 1** — ✅ shipped (pure helpers, `ZoneNavUnit`).
-- **Slice 2** — next (`ZoneNavigator` core).
-- Slices 3-4 — pending.
+- **Slice 2** — ✅ shipped (`ZoneNavigator` core, `ZoneNavUnit`).
+- **Slice 3** — next (dynamic add/remove + deletion back-out).
+- **Slice 4** — pending (showcase demo).

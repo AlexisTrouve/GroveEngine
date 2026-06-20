@@ -11,9 +11,22 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include "Scene/Camera.h"
+#include "Scene/ZoneNavigator.h"
 #include <cmath>
 
 using namespace grove::camera;
+
+// A toy 2-level tree for the ZoneNavigator (slice 2): a 1000x1000 root with two 200x200 children
+// (A top-left, B bottom-right). 1000x1000 viewport, no margin -> clean analytical framings.
+static ZoneNavigator makeNav() {
+    ZoneNavigator n;
+    n.configure(1000.0f, 1000.0f, /*margin*/0.0f, /*magnetRate*/20.0f);
+    n.addZone("root", "",     WorldBounds{0.0f,   0.0f,   1000.0f, 1000.0f});
+    n.addZone("A",    "root", WorldBounds{100.0f, 100.0f, 300.0f,  300.0f});   // framing zoom 5
+    n.addZone("B",    "root", WorldBounds{600.0f, 600.0f, 800.0f,  800.0f});   // framing zoom 5
+    n.reset();
+    return n;
+}
 
 TEST_CASE("fitBounds frames a square zone exactly (no margin)", "[unit][zonenav]") {
     WorldBounds z{0.0f, 0.0f, 100.0f, 100.0f};
@@ -69,4 +82,63 @@ TEST_CASE("clampPanToBounds centers a zone smaller than the view", "[unit][zonen
 TEST_CASE("worldPanForScreen scales pan inversely with zoom", "[unit][zonenav]") {
     REQUIRE(std::fabs(worldPanForScreen(100.0f, 2.0f) - 50.0f)  < 1e-4f);  // zoomed in  -> slow
     REQUIRE(std::fabs(worldPanForScreen(100.0f, 0.5f) - 200.0f) < 1e-4f);  // zoomed out -> fast
+}
+
+// ============================================================================
+// Slice 2: ZoneNavigator — tree + active zone + soft magnet + elastic clamp + pan-speed.
+// ============================================================================
+
+TEST_CASE("ZoneNavigator: reset frames the root", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    REQUIRE(n.activeZone() == "root");
+    CameraView t = n.target();
+    REQUIRE(std::fabs(t.zoom - 1.0f) < 1e-3f);   // 1000/1000
+    REQUIRE(std::fabs(t.x - 0.0f) < 1e-2f);      // root centered: 500 - 500
+    REQUIRE(std::fabs(t.y - 0.0f) < 1e-2f);
+}
+
+TEST_CASE("ZoneNavigator: zooming over a child descends into it (magnet re-centers)", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    n.zoomBy(3.0f);                  // zoom 3: pan range opens, still root (A's framing 5 > 3)
+    REQUIRE(n.activeZone() == "root");
+    n.panScreen(-900.0f, -900.0f);   // pan focus toward A's center: -900/3 = -300 -> 500 -> 200
+    REQUIRE(std::fabs(n.focusX() - 200.0f) < 1e-2f);
+    n.zoomBy(2.0f);                  // zoom 6 >= A's framing 5 AND focus in A -> enter A
+    REQUIRE(n.activeZone() == "A");
+    REQUIRE(std::fabs(n.focusX() - 200.0f) < 1e-2f);  // re-centered on A (soft magnet)
+    REQUIRE(std::fabs(n.focusY() - 200.0f) < 1e-2f);
+}
+
+TEST_CASE("ZoneNavigator: pan stays clamped inside the active zone", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    n.setActive("A");                // frame A (zoom 5, focus 200,200)
+    REQUIRE(n.activeZone() == "A");
+    n.zoomBy(2.0f);                  // zoom 10 -> visible 100 < zone 200, so panning is now possible
+    n.panScreen(100000.0f, 0.0f);    // huge pan right -> hits A's right wall
+    REQUIRE(std::fabs(n.focusX() - 250.0f) < 1e-2f);  // maxX(300) - visW/2(50)
+    n.panScreen(-100000.0f, 0.0f);   // huge pan left -> hits A's left wall
+    REQUIRE(std::fabs(n.focusX() - 150.0f) < 1e-2f);  // minX(100) + visW/2(50)
+}
+
+TEST_CASE("ZoneNavigator: zooming out ascends to the parent", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    n.setActive("A");
+    REQUIRE(n.activeZone() == "A");
+    n.zoomBy(0.05f);                 // zoom 5*0.05 -> clamped to min 1 -> A's framing 5 > 1 -> root
+    REQUIRE(n.activeZone() == "root");
+    REQUIRE(std::fabs(n.focusX() - 500.0f) < 1e-2f);  // re-centered on root
+}
+
+TEST_CASE("ZoneNavigator: setActive frames the zone and update() glides to it", "[unit][zonenav]") {
+    ZoneNavigator n = makeNav();
+    n.setActive("B");
+    REQUIRE(n.activeZone() == "B");
+    CameraView t = n.target();
+    REQUIRE(std::fabs(t.zoom - 5.0f) < 1e-3f);   // B is 200x200 -> framing 5
+    REQUIRE(std::fabs(t.x - 600.0f) < 1e-2f);    // centerOn(700,5) = 700-100 = 600 = B.minX
+
+    for (int i = 0; i < 100; ++i) n.update(0.05f);   // the live view glides toward the target
+    CameraView v = n.view();
+    REQUIRE(std::fabs(v.zoom - 5.0f) < 0.05f);
+    REQUIRE(std::fabs(v.x - 600.0f) < 0.5f);
 }
