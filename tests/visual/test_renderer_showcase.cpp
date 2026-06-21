@@ -250,17 +250,16 @@ public:
             if (wy != 0.0f) {
                 const float factor = (wy > 0.0f) ? 1.25f : (1.0f / 1.25f);
                 if (m_zoneMode) m_nav.zoomBy(factor, m_mouseX, m_mouseY);   // zoom toward the cursor
-                else setZoomTarget(m_targetZoom * factor, 512.0f, 384.0f);  // free cam (1024x768 center)
+                else setZoomTarget(m_targetZoom * factor, m_mouseX, m_mouseY);  // free cam: toward the cursor too
             }
         }
     }
 
-    // Set a smooth zoom target anchored at a screen point. Remembers the WORLD point currently
-    // under that screen point so update() can keep it pinned as the zoom glides in/out.
+    // Set a smooth zoom target anchored at a SCREEN point. update() eases toward it with zoomAt around
+    // the CURRENT camera each frame, so the world point under this screen anchor stays pinned AND a
+    // simultaneous pan composes (no stored world anchor to freeze the pan).
     void setZoomTarget(float newZoom, float screenX, float screenY) {
         m_targetZoom = camera::clampZoom(newZoom, 0.2f, 6.0f);
-        camera::CameraView view{m_cameraX, m_cameraY, m_cameraZoom, 1024.0f, 768.0f};
-        camera::screenToWorld(view, screenX, screenY, m_zoomFocusWorldX, m_zoomFocusWorldY);
         m_zoomFocusScreenX = screenX;
         m_zoomFocusScreenY = screenY;
     }
@@ -314,16 +313,23 @@ public:
             if (m_actions.justPressed("snap_zoom")) setZoomTarget(m_ladder.snap(m_cameraZoom), 512.0f, 384.0f);
             if (m_actions.isActive("rot_left"))  m_cameraRotation -= 1.4f * dt;
             if (m_actions.isActive("rot_right")) m_cameraRotation += 1.4f * dt;
+
+            // Pan ALWAYS applies and COMPOSES with zoom. The old code only panned in the `else` (i.e.
+            // NOT while zooming) and recomputed the camera from a STORED world anchor during the zoom,
+            // which froze the pan — "scroll stops the pan, then it comes back". Pan in the camera frame
+            // (rotate the intent by the roll) so the arrows follow the screen.
+            const float c = std::cos(m_cameraRotation), s = std::sin(m_cameraRotation);
+            m_cameraX += (c * m_cameraVX + s * m_cameraVY) * dt;
+            m_cameraY += (-s * m_cameraVX + c * m_cameraVY) * dt;
+
+            // Ease the zoom (smooth, damp 16) anchored at the zoom SCREEN point, around the CURRENT
+            // (post-pan) camera — zoomAt re-derives the world point under the anchor from where the
+            // camera now is, so the zoom keeps gliding WHILE the pan keeps moving. Both at once.
             if (std::fabs(m_cameraZoom - m_targetZoom) > 0.0005f) {
-                m_cameraZoom = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
-                camera::CameraView v = camera::focusOn(m_zoomFocusWorldX, m_zoomFocusWorldY, m_cameraZoom,
-                                                       1024.0f, 768.0f, m_zoomFocusScreenX, m_zoomFocusScreenY);
-                m_cameraX = v.x; m_cameraY = v.y;
-            } else {
-                // Pan in the camera frame (rotate the intent by the roll), so arrows follow the screen.
-                const float c = std::cos(m_cameraRotation), s = std::sin(m_cameraRotation);
-                m_cameraX += (c * m_cameraVX + s * m_cameraVY) * dt;
-                m_cameraY += (-s * m_cameraVX + c * m_cameraVY) * dt;
+                const float nz = camera::damp(m_cameraZoom, m_targetZoom, 16.0f, dt);
+                const camera::CameraView cur{m_cameraX, m_cameraY, m_cameraZoom, 1024.0f, 768.0f, m_cameraRotation};
+                const camera::CameraView z = camera::zoomAt(cur, nz, m_zoomFocusScreenX, m_zoomFocusScreenY);
+                m_cameraX = z.x; m_cameraY = z.y; m_cameraZoom = nz;
             }
         }
 
@@ -490,6 +496,14 @@ private:
         tilemap->setString("fogData", fogData);
 
         m_gameIO->publish("render:tilemap:add", std::move(tilemap));
+
+        // Animated tiles demo: the "4" row cycles through 3 atlas layers (procedural palette colors)
+        // at 2 fps — proves render:tilemap:anim drives the GPU layer offset with no per-frame upload.
+        auto anim = std::make_unique<JsonDataNode>("tileanim");
+        anim->setInt("tileId", 4);
+        anim->setInt("frames", 3);
+        anim->setDouble("fps", 2.0);
+        m_gameIO->publish("render:tilemap:anim", std::move(anim));
     }
 
     void sendSprites() {
@@ -954,8 +968,7 @@ private:
 
     // Smooth-zoom state: glide m_cameraZoom toward m_targetZoom while pinning the focus point.
     float m_targetZoom = 1.0f;
-    float m_zoomFocusWorldX = 0.0f, m_zoomFocusWorldY = 0.0f;
-    float m_zoomFocusScreenX = 512.0f, m_zoomFocusScreenY = 384.0f;
+    float m_zoomFocusScreenX = 512.0f, m_zoomFocusScreenY = 384.0f;   // zoom screen anchor (for zoomAt)
 
     // Zoom strata (live ZoomLadder demo): readable plateaus within the [0.2, 6] zoom range. The HUD
     // shows the active strata + the inter-strata blend t as you zoom; 'L' snaps to the nearest one.
