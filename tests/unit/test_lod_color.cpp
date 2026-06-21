@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Passes/LodColor.h"
+#include "Resources/MipChain.h"
 
 #include <vector>
 
@@ -100,4 +101,53 @@ TEST_CASE("R8 fog mip: a uniform field keeps its exact value at every mip", "[lo
     int mips = 0;
     std::vector<uint8_t> chain = buildR8MipChain(vis.data(), W, H, mips);
     for (uint8_t v : chain) REQUIRE(v == 200);
+}
+
+// ============================================================================
+// Sprite mip box-filter (grove::tex::buildRgba8MipChain) — the same eye-free oracle as the LOD color,
+// but for ARBITRARY pixels (decoded sprite images): the coarsest mip of a 2-color checkerboard MUST be
+// the average of those colors. This is the anti-aliasing fix for free unit sprites at strong zoom-out.
+// ============================================================================
+
+TEST_CASE("Sprite mip: coarsest mip of a 2-color checkerboard = their average", "[mip][unit]") {
+    using namespace grove::tex;
+    const int W = 4, H = 4;
+    const uint32_t a = 0x10305070u, b = 0x90B0D0F0u;   // two distinct colors (all channels differ)
+    std::vector<uint32_t> px(static_cast<size_t>(W) * H);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x)
+            px[static_cast<size_t>(y) * W + x] = ((x + y) & 1) ? a : b;
+
+    int mips = 0;
+    std::vector<uint32_t> chain = buildRgba8MipChain(px.data(), W, H, mips);
+
+    REQUIRE(mips == 3);                       // 4 -> 2 -> 1
+    const uint32_t top = chain.back();        // 1x1 mip = global average
+    for (int shift = 0; shift < 32; shift += 8) {
+        const int expected = (byteOf(a, shift) + byteOf(b, shift)) / 2;
+        REQUIRE(byteOf(top, shift) >= expected - 1);   // ±1 box-filter cascade rounding
+        REQUIRE(byteOf(top, shift) <= expected + 1);
+    }
+}
+
+TEST_CASE("Sprite mip: a uniform image keeps its exact color at every mip", "[mip][unit]") {
+    using namespace grove::tex;
+    const int W = 8, H = 8;
+    const uint32_t c = 0xFF8040C0u;
+    std::vector<uint32_t> px(static_cast<size_t>(W) * H, c);
+    int mips = 0;
+    std::vector<uint32_t> chain = buildRgba8MipChain(px.data(), W, H, mips);
+    REQUIRE(mips == 4);                        // 8 -> 4 -> 2 -> 1
+    for (uint32_t texel : chain) REQUIRE(texel == c);   // averaging equal values must not drift
+}
+
+TEST_CASE("Sprite mip: NPOT image mips down by floor halving, chain length sums the levels", "[mip][unit]") {
+    using namespace grove::tex;
+    const int W = 6, H = 4;                    // NPOT (the real .jpg sprite is 1280x853)
+    std::vector<uint32_t> px(static_cast<size_t>(W) * H, 0xFF112233u);
+    int mips = 0;
+    std::vector<uint32_t> chain = buildRgba8MipChain(px.data(), W, H, mips);
+    REQUIRE(mips == 3);                        // max(6,4)=6 -> 3 -> 1
+    // levels: 6x4(24) + 3x2(6) + 1x1(1) = 31 texels (floor halving, odd dims clamp)
+    REQUIRE(chain.size() == 24u + 6u + 1u);
 }

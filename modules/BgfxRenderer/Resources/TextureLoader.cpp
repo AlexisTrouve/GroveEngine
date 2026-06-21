@@ -1,5 +1,6 @@
 #include "TextureLoader.h"
 #include "AtlasSlice.h"
+#include "MipChain.h"
 #include "../RHI/RHIDevice.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -71,15 +72,24 @@ TextureLoader::LoadResult TextureLoader::loadFromMemory(rhi::IRHIDevice& device,
             pixels[(width*height-1)*4 + 2], pixels[(width*height-1)*4 + 3]);
     }
 
+    // Build a MIPPED RGBA8 chain so the GPU trilinear-filters the sprite when minified — without mips
+    // free unit sprites shimmer/alias under strong zoom-out. Box-filter is pure + unit-tested
+    // (grove::tex, see test_lod_color [mip]); createTexture uploads the contiguous chain (hasMips) and
+    // the default sampler (Linear) trilinears it — same proven path as the tilemap LOD color.
+    int mips = 0;
+    std::vector<uint32_t> mipChain = tex::buildRgba8MipChain(
+        reinterpret_cast<const uint32_t*>(pixels), width, height, mips);
+
     // Create texture via RHI
     rhi::TextureDesc desc;
     desc.width = static_cast<uint16_t>(width);
     desc.height = static_cast<uint16_t>(height);
     desc.format = rhi::TextureDesc::RGBA8;
-    desc.data = pixels;
-    desc.dataSize = static_cast<uint32_t>(width * height * 4);
+    desc.mipLevels = static_cast<uint8_t>(mips);
+    desc.data = mipChain.data();
+    desc.dataSize = static_cast<uint32_t>(mipChain.size() * sizeof(uint32_t));
 
-    result.handle = device.createTexture(desc);
+    result.handle = device.createTexture(desc);   // bgfx::copy duplicates the chain
     result.width = desc.width;
     result.height = desc.height;
     result.success = result.handle.isValid();

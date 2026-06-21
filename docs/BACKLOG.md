@@ -64,12 +64,14 @@ camera items are above. The genuine engine gaps it surfaces:
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and
   update its pixels (paint). Mostly EXPOSING existing RHI (`createTexture`/`updateTexture`,
   `ResourceCache::registerTexture`) via a topic (`render:texture:create`/`:update` → textureId).
-- **Sprite mips / unit anti-aliasing at zoom-out** — units are free sprites (world-float coords,
-  any sub-tile position) layered over the tilemap — already supported. BUT `TextureLoader` creates
-  sprite textures with NO mips (mipLevels=1), so under strong zoom-out units can shimmer/alias.
-  Fix = generate + upload mips for sprite textures (the RHI already does mips — see the tilemap LOD)
-  + a readback test. Note: *semantic* LOD (detailed ship → blip/icon at system zoom) stays GAME-SIDE
-  — the engine gives zoom + culling; the game picks what to submit.
+- **Sprite mips / unit anti-aliasing at zoom-out — ✅ SHIPPED** (2026-06-21). `TextureLoader::loadFromMemory`
+  now builds a box-filtered RGBA8 mip chain (`grove::tex::buildRgba8MipChain`, `Resources/MipChain.h`,
+  NPOT-safe) and uploads it with `mipLevels`, so `createTexture` makes a mipped texture and the default
+  sampler trilinear-filters it — free unit sprites stop shimmering/aliasing under strong zoom-out. Locked
+  by an eye-free oracle (`test_lod_color [mip]`: coarsest mip of a checkerboard == the average) + the
+  existing tilemap LOD GPU test (same `createTexture(mipLevels)` + trilinear path) + eye-validated in the
+  showcase. **Scope:** sprite 2D textures only — the array-atlas/tilemap path has its own LOD band
+  (untouched). *semantic* LOD (detailed ship → blip/icon) stays GAME-SIDE.
 
 ## Animation (`grove::anim`)
 - **Clip blending** (slice 4) — crossfade two clips by weight. Advanced; not needed for "simple".
