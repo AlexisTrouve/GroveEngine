@@ -393,6 +393,42 @@ static nlohmann::json createUILayout() {
         {"style", {{"fontSize", 16}, {"color", "0xAAAAAAFF"}}}
     });
 
+    // Action wheel (radial menu) demo: a button shows it; selecting a wedge fires ui:action and the
+    // wheel AUTO-CLOSES (the ghost-rect fix purges its retained entries cleanly).
+    children.push_back({
+        {"type", "button"},
+        {"id", "btn_wheel"},
+        {"x", 340}, {"y", 470},
+        {"width", 260}, {"height", 45},
+        {"text", "Open Action Wheel"},
+        {"onClick", "open_wheel"},
+        {"style", {
+            {"normal",  {{"bgColor", "0x8e44adFF"}, {"textColor", "0xFFFFFFFF"}}},
+            {"hover",   {{"bgColor", "0x9b59b6FF"}, {"textColor", "0xFFFFFFFF"}}},
+            {"pressed", {{"bgColor", "0x6c3483FF"}, {"textColor", "0xFFFFFFFF"}}}
+        }}
+    });
+    children.push_back({
+        {"type", "radial"},
+        {"id", "wheel"},
+        {"x", 640}, {"y", 380},
+        {"innerRadius", 50}, {"outerRadius", 150},
+        {"visible", false},
+        {"items", nlohmann::json::array({
+            {{"action", "act:move"},   {"text", "Move"}},
+            {{"action", "act:attack"}, {"text", "Attack"}},
+            {{"action", "act:build"},  {"text", "Build"}},
+            {{"action", "act:scan"},   {"text", "Scan"}}
+        })},
+        {"style", {
+            {"bgColor", "0x000000C0"},
+            {"itemColor", "0x34495EFF"},
+            {"hoverColor", "0x2ECC71FF"},
+            {"textColor", "0xFFFFFFFF"},
+            {"fontSize", 16}
+        }}
+    });
+
     root["children"] = children;
     return root;
 }
@@ -480,6 +516,8 @@ public:
         // Convert SDL events to IIO input messages
         // IMPORTANT: Publish from m_gameIO (not m_inputIO or m_uiIO) because IIO doesn't deliver to self
         if (e.type == SDL_MOUSEMOTION) {
+            m_uiMouseX = static_cast<float>(e.motion.x);   // track cursor (open the wheel on it)
+            m_uiMouseY = static_cast<float>(e.motion.y);
             auto msg = std::make_unique<JsonDataNode>("mouse");
             msg->setDouble("x", static_cast<double>(e.motion.x));
             msg->setDouble("y", static_cast<double>(e.motion.y));
@@ -492,6 +530,13 @@ public:
             msg->setDouble("x", static_cast<double>(e.button.x));
             msg->setDouble("y", static_cast<double>(e.button.y));
             m_gameIO->publish("input:mouse:button", std::move(msg));
+
+            // RIGHT-click pops the action wheel CENTERED on the cursor (classic radial-menu UX). The
+            // radial only reacts to the LEFT button, so this open-click never selects; left-click +
+            // move then picks a wedge, and it auto-closes. Position first, then show.
+            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT) {
+                openWheelAt(static_cast<float>(e.button.x), static_cast<float>(e.button.y));
+            }
         }
         else if (e.type == SDL_MOUSEWHEEL) {
             auto msg = std::make_unique<JsonDataNode>("wheel");
@@ -585,6 +630,18 @@ private:
     // Each handler rebuilds the local logEntry exactly as the switch branch did and routes
     // it through addLogEntry() when non-empty, preserving identical observable behaviour.
 
+    // Pop the action wheel centered on (x,y): reposition it there, then show it. It auto-closes on
+    // selection (purging its entries), so re-opening always starts fresh.
+    void openWheelAt(float x, float y) {
+        auto pos = std::make_unique<grove::JsonDataNode>("d");
+        pos->setString("id", "wheel"); pos->setDouble("x", x); pos->setDouble("y", y);
+        m_gameIO->publish("ui:set_position", std::move(pos));
+        auto vis = std::make_unique<grove::JsonDataNode>("d");
+        vis->setString("id", "wheel"); vis->setBool("visible", true);
+        m_gameIO->publish("ui:set_visible", std::move(vis));
+        m_logger->info("🎯 Action wheel opened at ({:.0f},{:.0f}) — pick a wedge (auto-closes)", x, y);
+    }
+
     void onUiAction(const grove::Message& msg) {
         std::string action = msg.data->getString("action", "");
         std::string widgetId = msg.data->getString("widgetId", "");
@@ -605,6 +662,9 @@ private:
         }
         else if (action == "sprite_icon") {
             m_logger->info("🎨 Icon sprite button clicked! (Texture ID: 3)");
+        }
+        else if (action == "open_wheel") {
+            openWheelAt(m_uiMouseX, m_uiMouseY);   // open at the cursor (or right-click anywhere)
         }
 
         if (!logEntry.empty()) {
@@ -728,6 +788,7 @@ private:
     IIO* m_inputIO = nullptr;
     IIO* m_gameIO = nullptr;
 
+    float m_uiMouseX = 512.0f, m_uiMouseY = 384.0f;   // cursor (pops the action wheel on it)
     float m_time = 0.0f;
     int m_frameCount = 0;
 
