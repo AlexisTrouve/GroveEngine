@@ -48,6 +48,11 @@ TEST_CASE("IT_020: clicking a wedge emits ui:action for that DIRECTION", "[integ
         actions.push_back(m.data->getString("action", ""));
         indices.push_back(m.data->getInt("index", -1));
     });
+    // The wheel AUTO-CLOSES on selection: it hides AND purges its retained render entries (the
+    // ghost-rect fix). Rects publish as render:sprite (textureId 0), labels as render:text.
+    int removes = 0;
+    observer->subscribe("render:sprite:remove", [&](const Message&) { removes++; });
+    observer->subscribe("render:text:remove",   [&](const Message&) { removes++; });
 
     auto pump = [&] {
         JsonDataNode input("input");
@@ -67,21 +72,39 @@ TEST_CASE("IT_020: clicking a wedge emits ui:action for that DIRECTION", "[integ
         inputPub->publish("input:mouse:button", std::move(d));
     };
 
-    // Wheel center (400,300), band [40,160].
-    // RIGHT wedge: offset (+100, 0) -> index 1 -> "act:attack".
-    sendMove(500.0, 300.0);          pump();   // hover the right wedge
-    sendButton(true,  500.0, 300.0); pump();
-    sendButton(false, 500.0, 300.0); pump();   // confirm -> ui:action act:attack
+    auto setVisible = [&](const std::string& id, bool vis) {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setString("id", id); d->setBool("visible", vis);
+        inputPub->publish("ui:set_visible", std::move(d));
+    };
 
-    // TOP wedge: offset (0, -120) -> index 0 -> "act:move". Proves selection follows the
-    // DIRECTION (not a fixed rect): a different angle yields a different action.
+    // Wheel center (400,300), band [40,160]. First render registers the wheel's entries (bg + 4 rects
+    // + 4 labels = 9 retained entries).
+    // RIGHT wedge: offset (+100, 0) -> index 1 -> "act:attack", then the wheel AUTO-CLOSES.
+    sendMove(500.0, 300.0);          pump();   // hover the right wedge (renders -> registers entries)
+    sendButton(true,  500.0, 300.0); pump();
+    removes = 0;                               // count only the auto-close purge
+    sendButton(false, 500.0, 300.0); pump();   // confirm -> ui:action act:attack + auto-close
+
+    REQUIRE(actions.size() == 1);
+    REQUIRE(actions[0] == "act:attack"); REQUIRE(indices[0] == 1);
+    INFO("removes after auto-close=" << removes);
+    REQUIRE(removes >= 9);                      // bg + 4 item rects + 4 item labels purged (no ghosts)
+
+    // The wheel is now HIDDEN: a click where it used to be does nothing (not routed to a hidden widget).
+    sendButton(true,  400.0, 180.0); pump();
+    sendButton(false, 400.0, 180.0); pump();
+    REQUIRE(actions.size() == 1);              // still 1 -> the hidden wheel ignored the click
+
+    // Re-show it -> render() re-registers fresh entries; selection works again (no stale ids).
+    setVisible("wheel", true);       pump();
+    // TOP wedge: offset (0, -120) -> index 0 -> "act:move". Proves selection follows the DIRECTION.
     sendMove(400.0, 180.0);          pump();
     sendButton(true,  400.0, 180.0); pump();
-    sendButton(false, 400.0, 180.0); pump();   // confirm -> ui:action act:move
+    sendButton(false, 400.0, 180.0); pump();   // confirm -> ui:action act:move + auto-close again
 
     INFO("actions.size=" << actions.size());
     REQUIRE(actions.size() == 2);
-    REQUIRE(actions[0] == "act:attack"); REQUIRE(indices[0] == 1);
     REQUIRE(actions[1] == "act:move");   REQUIRE(indices[1] == 0);
 
     uiModule->shutdown();

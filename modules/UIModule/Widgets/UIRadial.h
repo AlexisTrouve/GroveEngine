@@ -17,11 +17,10 @@ namespace grove {
 //   modèle (un index de segment). On construit souris d'abord ; setSelectedIndex()
 //   est la couture pour brancher manette/clavier plus tard (hooks tôt, polish tard).
 // COMMENT : centré sur (x,y) — PAS coin haut-gauche comme les widgets rect. La géo et
-//   la sélection vivent dans RadialMath.h (pur, testé). Le widget reste une "vue bête"
-//   (principe UIModule) : il émet ui:action au release ; la FERMETURE est au jeu, via
-//   ui:set_visible (le retained-render ne nettoie pas les entrées d'un widget caché —
-//   limitation moteur pré-existante, donc on ne s'auto-cache pas pour éviter des rects
-//   fantômes).
+//   la sélection vivent dans RadialMath.h (pur, testé). Le widget émet ui:action au release ;
+//   UIModule l'AUTO-FERME ensuite (menu modal) en le cachant — sûr depuis que
+//   releaseRenderEntries() purge les entrées retained d'un widget caché (plus de rects
+//   fantômes). Le jeu le (re)positionne sur le curseur via ui:set_position.
 // ============================================================================
 
 // Un segment sélectionnable de la roue.
@@ -48,6 +47,10 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "radial"; }
+
+    // Release the bg + per-item retained entries on hide (so the wheel can auto-close without leaving
+    // ghost rects); resets so a re-show re-registers. Overrides the base to drop the item ids too.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     // Zone interactive = tout le disque (rayon <= outerRadius) : un clic n'importe où
     // sur la roue est routé ici ; la dead-zone centrale se résout en "annuler".

@@ -178,7 +178,30 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             bool visible = msg.data->getBool("visible", true);
             if (m_root) {
                 if (UIWidget* widget = m_root->findById(widgetId)) {
+                    const bool wasVisible = widget->visible;
                     widget->visible = visible;
+                    // Hiding it: purge its retained render entries so they don't linger ("ghost rects").
+                    // A hidden widget stops calling render(), so without this its last :add entries stay
+                    // on screen. Re-showing re-registers + re-publishes on the next render().
+                    if (wasVisible && !visible && m_renderer) {
+                        widget->releaseRenderEntries(*m_renderer);
+                    }
+                }
+            }
+        });
+
+        // Reposition a widget at runtime (e.g. pop the action wheel centered on the cursor). For the
+        // radial, x/y are its CENTRE; for rect widgets, the top-left. markGeometryDirty -> re-render.
+        m_io->subscribe("ui:set_position", [this](const Message& msg) {
+            std::string widgetId = msg.data->getString("id", "");
+            if (m_root) {
+                if (UIWidget* widget = m_root->findById(widgetId)) {
+                    widget->x = static_cast<float>(msg.data->getDouble("x", widget->x));
+                    widget->y = static_cast<float>(msg.data->getDouble("y", widget->y));
+                    // absX/absY (what render() uses) are computed at LOAD, not per frame — recompute
+                    // them from the parent chain now, or the widget would render at its OLD position.
+                    widget->computeAbsolutePosition();
+                    widget->markGeometryDirty();
                 }
             }
         });
@@ -388,9 +411,9 @@ void UIModule::updateUI(float deltaTime) {
                 // dead-zone centrale (selectedAction() == "").
                 // POURQUOI on émet sur ui:action (topic existant) : les jeux consomment
                 //   déjà ce topic pour les boutons -> zéro nouveau contrat à câbler.
-                // POURQUOI on NE se cache PAS ici : le retained-render ne purge pas les
-                //   entrées d'un widget invisible (limitation moteur pré-existante) ; la
-                //   fermeture est au jeu via ui:set_visible (widget = vue bête).
+                // AUTO-CLOSE : on se cache à la sélection (la roue est un menu modal). C'est
+                //   sûr maintenant que releaseRenderEntries() purge les entrées retained du
+                //   widget caché (plus de rects fantômes — l'ancienne limitation est levée).
                 UIRadial* radial = static_cast<UIRadial*>(clickedWidget);
                 if (m_context->mouseReleased) {
                     std::string action = radial->selectedAction();
@@ -403,6 +426,10 @@ void UIModule::updateUI(float deltaTime) {
                         m_logger->info("Radial '{}' selected '{}' (index {})",
                                        radial->id, action, radial->selectedIndex());
                     }
+                    // Close the wheel on ANY release (selection OR dead-zone cancel) and purge its
+                    // retained entries so nothing lingers. A modal action-wheel closes after one pick.
+                    radial->visible = false;
+                    if (m_renderer) radial->releaseRenderEntries(*m_renderer);
                 }
             }
         }

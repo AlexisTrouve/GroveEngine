@@ -6,11 +6,11 @@
 #include <cstdint>
 #include <functional>
 #include "UILayout.h"
+#include "../Rendering/UIRenderer.h"   // releaseRenderEntries() calls renderer.unregisterEntry()
 
 namespace grove {
 
 class UIContext;
-class UIRenderer;
 
 // Callback for when widget is destroyed (to notify renderer)
 using WidgetDestroyCallback = std::function<void(uint32_t renderId)>;
@@ -48,6 +48,24 @@ public:
      * @return Type string (e.g., "panel", "label", "button")
      */
     virtual std::string getType() const = 0;
+
+    /**
+     * @brief Publish render:*:remove for this widget's retained entries and RESET its registration,
+     *        so a later re-show re-registers and re-publishes :add.
+     *
+     * WHY: a widget set visible=false stops calling render(), so without this its last-published
+     *      retained entries linger on screen ("ghost rects"). Called when the widget becomes hidden
+     *      (ui:set_visible false, or a self-close like the radial). Recurses to children — hiding a
+     *      parent hides the whole subtree. Multi-entry widgets (button text, radial items) OVERRIDE
+     *      to release their EXTRA ids too, then call this base (which drops the primary m_renderId).
+     */
+    virtual void releaseRenderEntries(UIRenderer& renderer) {
+        if (m_renderId != 0) { renderer.unregisterEntry(m_renderId); m_renderId = 0; }
+        m_registered = false;
+        m_geometryDirty = true;   // re-show -> render() re-registers + re-publishes :add
+        m_appearanceDirty = true;
+        for (auto& child : children) child->releaseRenderEntries(renderer);
+    }
 
     // Identity
     std::string id;

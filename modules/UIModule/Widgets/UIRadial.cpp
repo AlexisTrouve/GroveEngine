@@ -119,4 +119,16 @@ void UIRadial::render(UIRenderer& renderer) {
     renderChildren(renderer);
 }
 
+void UIRadial::releaseRenderEntries(UIRenderer& renderer) {
+    // Drop our EXTRA entries (the per-item rects + texts), then let the base drop the bg (m_renderId)
+    // and reset the dirty/registered flags + recurse. Clearing the id vectors + m_entriesRegistered
+    // means the next render() (after a re-show) re-registers fresh entries and re-publishes :add.
+    for (uint32_t id : m_itemRectIds) if (id != 0) renderer.unregisterEntry(id);
+    for (uint32_t id : m_itemTextIds) if (id != 0) renderer.unregisterEntry(id);
+    m_itemRectIds.clear();
+    m_itemTextIds.clear();
+    m_entriesRegistered = false;
+    UIWidget::releaseRenderEntries(renderer);
+}
+
 } // namespace grove

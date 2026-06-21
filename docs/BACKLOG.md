@@ -38,17 +38,22 @@ camera items are above. The genuine engine gaps it surfaces:
   model is the device-agnostic seam — mouse angle today, gamepad-stick angle / keyboard step later
   via `setSelectedIndex`. Geometry is pure (`RadialMath.h`, objective unit test); locked E2E by
   `IT_020` (real click → right action per direction). Docs: [UI_WIDGETS](../docs/UI_WIDGETS.md#uiradial).
-  **Remaining (deferred):** true pie/wedge visuals (today = radial *layout* of rect+label tiles, no
-  arc primitive); auto-close on selection (blocked on the retained-hide ghost-rect limit below).
+  **Auto-close — ✅ SHIPPED** (2026-06-21): on selection the wheel hides itself AND purges its retained
+  entries (via the ghost-rect fix below), so it's a real modal pop-up. `ui:set_position {id,x,y}` lets
+  the game pop it CENTERED on the cursor (showcase: right-click anywhere). `IT_020` now locks auto-close
+  + the 9-entry purge + re-show. **Remaining (deferred):** true pie/wedge visuals (today = radial
+  *layout* of rect+label tiles, no arc primitive).
 - **Gamepad input — premature, parked.** `InputModule` feeds SDL keyboard/mouse → `input:*`; no
   gamepad. A controller path (→ controller-native, Steam Deck) is wanted *eventually* but **not a
   near-term need** — the radial's `setSelectedIndex` is the ready seam, but revisit only once a
   combat-command slice needs it. The enabling piece when it comes: SDL gamepad events as `input:*`
   + actions bound to several sources mapping one intent (pad/mouse/key interchangeable).
-- **Retained-mode hide leaves ghost rects** — a widget with `visible=false` stops calling `render()`,
-  so its last-published retained entries stay on screen (BgfxRenderer keeps drawing them). Affects
-  *any* `ui:set_visible` toggle, not just the radial. Fix = on hide, publish `render:*:remove` for the
-  widget's entries (or a per-widget "clear" hook). Pick up when a slice needs clean show/hide.
+- **Retained-mode hide ghost rects — ✅ FIXED** (2026-06-21). `UIWidget::releaseRenderEntries()`: on
+  hide (`ui:set_visible false` or a self-close), the widget publishes `render:*:remove` for ALL its
+  entries and resets so a re-show re-registers + re-publishes. Base drops the primary id + recurses to
+  children; multi-entry widgets (radial = bg + N items) override to drop their extras. *Remaining: only
+  the RADIAL overrides so far — other multi-entry widgets (UIButton text, slider, etc.) still ghost
+  their EXTRA entries on hide; give them the same override when a slice toggles them.*
 
 ## Rendering
 - **Tilemap high-perf — ✅ SHIPPED A → B** (2026-06-18/19). GPU index-texture (R16UI + texelFetch,
