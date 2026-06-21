@@ -62,6 +62,13 @@ public:
         bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xFF0000FF, 1.0f, 0);
         bgfx::setViewRect(0, 0, 0, width, height);
 
+        // Draw in SUBMIT order on the 2D views (world 0 + HUD 1). Default bgfx sorting groups draws by
+        // state/program to cut state changes — which reorders our manually-layered passes (e.g. the
+        // sector pass's wedges sank behind the sprite-pass UI). Sequential makes the pass order + the
+        // per-pass layer sort authoritative, as a 2D layered renderer needs.
+        bgfx::setViewMode(0, bgfx::ViewMode::Sequential);
+        bgfx::setViewMode(1, bgfx::ViewMode::Sequential);
+
         m_initialized = true;
         return true;
     }

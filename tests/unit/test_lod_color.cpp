@@ -18,8 +18,10 @@
 
 #include "Passes/LodColor.h"
 #include "Resources/MipChain.h"
+#include "Passes/SectorMesh.h"
 
 #include <vector>
+#include <cmath>
 
 using namespace grove::lod;
 
@@ -150,4 +152,68 @@ TEST_CASE("Sprite mip: NPOT image mips down by floor halving, chain length sums 
     REQUIRE(mips == 3);                        // max(6,4)=6 -> 3 -> 1
     // levels: 6x4(24) + 3x2(6) + 1x1(1) = 31 texels (floor halving, odd dims clamp)
     REQUIRE(chain.size() == 24u + 6u + 1u);
+}
+
+// ============================================================================
+// Ring-sector tessellation (grove::geom::appendSector) — the pie-wedge primitive's geometry, locked
+// with an analytical oracle: every vertex sits on circle r0 or r1, and the wedge spans exactly [a0,a1].
+// ============================================================================
+
+TEST_CASE("Sector mesh: a quarter ring tessellates to a triangle list on the two circles", "[sector][unit]") {
+    using namespace grove::geom;
+    const float cx = 10.0f, cy = 20.0f, r0 = 4.0f, r1 = 8.0f;
+    const float a0 = 0.0f, a1 = 1.5707963f;   // 0 .. pi/2
+    const int steps = 6;
+
+    std::vector<float> v;
+    appendSector(v, cx, cy, r0, r1, a0, a1, steps);
+
+    // Triangle LIST: 6 vertices per step, 2 floats per vertex.
+    REQUIRE(v.size() == static_cast<size_t>(steps) * 6u * 2u);
+
+    // Every vertex lies on the inner OR outer circle (distance to centre == r0 or r1).
+    for (size_t i = 0; i + 1 < v.size(); i += 2) {
+        const float dx = v[i] - cx, dy = v[i + 1] - cy;
+        const float d = std::sqrt(dx * dx + dy * dy);
+        const bool onR0 = std::fabs(d - r0) < 1e-3f;
+        const bool onR1 = std::fabs(d - r1) < 1e-3f;
+        REQUIRE((onR0 || onR1));
+    }
+
+    // The first quad starts exactly at a0 (+x axis here): inner (cx+r0, cy), outer (cx+r1, cy).
+    REQUIRE(std::fabs(v[0] - (cx + r0)) < 1e-3f);   // first vertex = inner @ a0
+    REQUIRE(std::fabs(v[1] - cy) < 1e-3f);
+    REQUIRE(std::fabs(v[2] - (cx + r1)) < 1e-3f);   // second vertex = outer @ a0
+    REQUIRE(std::fabs(v[3] - cy) < 1e-3f);
+}
+
+TEST_CASE("Sector mesh: a pie slice (r0=0) keeps the centre point, steps>=2", "[sector][unit]") {
+    using namespace grove::geom;
+    REQUIRE(sectorSteps(0.05f) == 2);              // thin wedge still gets 2 quads
+    REQUIRE(sectorSteps(3.14159f) >= 20);          // a half-turn is well tessellated
+
+    std::vector<float> v;
+    appendSector(v, 0.0f, 0.0f, 0.0f, 5.0f, 0.0f, 1.0f, 3);   // r0=0 -> centre at origin
+    REQUIRE(v.size() == 3u * 6u * 2u);
+    // With r0=0, the inner vertices collapse onto the centre (0,0).
+    REQUIRE(std::fabs(v[0]) < 1e-3f);   // inner @ a0 = centre
+    REQUIRE(std::fabs(v[1]) < 1e-3f);
+}
+
+TEST_CASE("Sector mesh: the pie cuts into N EQUAL wedges for any N (2,3,5,6,7,8)", "[sector][unit]") {
+    using namespace grove::geom;
+    const float kTwoPi = 6.2831853f;
+    const float r0 = 30.0f, r1 = 100.0f;
+    for (int N : {2, 3, 5, 6, 7, 8}) {
+        const float span = kTwoPi / static_cast<float>(N);     // each wedge = a 1/N slice
+        const int steps = sectorSteps(span);
+        std::vector<float> v;
+        appendSector(v, 0.0f, 0.0f, r0, r1, 0.0f, span, steps);
+        REQUIRE(v.size() == static_cast<size_t>(steps) * 6u * 2u);
+        for (size_t i = 0; i + 1 < v.size(); i += 2) {          // every vertex on the two circles
+            const float d = std::sqrt(v[i] * v[i] + v[i + 1] * v[i + 1]);
+            REQUIRE((std::fabs(d - r0) < 1e-3f || std::fabs(d - r1) < 1e-3f));
+        }
+        REQUIRE(std::fabs(static_cast<float>(N) * span - kTwoPi) < 1e-3f);   // N wedges tile the circle
+    }
 }

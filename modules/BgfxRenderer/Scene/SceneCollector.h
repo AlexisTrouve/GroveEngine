@@ -58,12 +58,14 @@ private:
     std::vector<ParticleInstance> m_particles;
     std::vector<DebugLine> m_debugLines;
     std::vector<DebugRect> m_debugRects;
+    std::vector<SectorCommand> m_sectors;       // render:sector (world), ephemeral
 
     // HUD / screen-space staging (filled when a command carries space:"screen"). Ephemeral
     // only — drawn on m_hudView so the HUD ignores the world camera's zoom/pan.
     std::vector<SpriteInstance> m_hudSprites;
     std::vector<TextCommand> m_hudTexts;
     std::vector<std::string> m_hudTextStrings;  // Owns HUD text data until finalize
+    std::vector<SectorCommand> m_hudSectors;    // render:sector with space:"screen"
 
     // View state
     ViewInfo m_mainView;
@@ -84,6 +86,7 @@ private:
     void parseClear(const IDataNode& data);
     void parseDebugLine(const IDataNode& data);
     void parseDebugRect(const IDataNode& data);
+    void parseSector(const IDataNode& data);
 
     // Message parsing helpers (retained mode - new)
     void parseSpriteAdd(const IDataNode& data);

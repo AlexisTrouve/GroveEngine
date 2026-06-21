@@ -114,6 +114,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:debug:rect") {
             parseDebugRect(*msg.data);
         }
+        else if (msg.topic == "render:sector") {
+            parseSector(*msg.data);
+        }
         // Filled rect via the LAYERED sprite path (engine help A2): unlike debug:rect
         // (always-on-top, no layer), render:rect honors `layer` and draws before text —
         // so HUD backgrounds sit under their labels.
@@ -329,6 +332,22 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.debugRectCount = 0;
     }
 
+    // Sectors (filled wedges), ephemeral. World bucket -> packet.sectors, stable_sort by layer; the
+    // HUD bucket is handled with the other screen-space buckets below.
+    if (!m_sectors.empty()) {
+        SectorCommand* sec = allocator.allocateArray<SectorCommand>(m_sectors.size());
+        if (sec) {
+            std::memcpy(sec, m_sectors.data(), m_sectors.size() * sizeof(SectorCommand));
+            std::stable_sort(sec, sec + m_sectors.size(),
+                [](const SectorCommand& a, const SectorCommand& b) { return a.layer < b.layer; });
+            packet.sectors = sec;
+            packet.sectorCount = m_sectors.size();
+        }
+    } else {
+        packet.sectors = nullptr;
+        packet.sectorCount = 0;
+    }
+
     // HUD sprites (screen-space). Ephemeral only (no retained HUD bucket). Same per-layer
     // stable_sort as the world bucket so HUD z-order is deterministic too.
     if (!m_hudSprites.empty()) {
@@ -371,6 +390,21 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.hudTextCount = 0;
     }
 
+    // HUD sectors (screen-space wedges, e.g. the action wheel). stable_sort by layer.
+    if (!m_hudSectors.empty()) {
+        SectorCommand* hud = allocator.allocateArray<SectorCommand>(m_hudSectors.size());
+        if (hud) {
+            std::memcpy(hud, m_hudSectors.data(), m_hudSectors.size() * sizeof(SectorCommand));
+            std::stable_sort(hud, hud + m_hudSectors.size(),
+                [](const SectorCommand& a, const SectorCommand& b) { return a.layer < b.layer; });
+            packet.hudSectors = hud;
+            packet.hudSectorCount = m_hudSectors.size();
+        }
+    } else {
+        packet.hudSectors = nullptr;
+        packet.hudSectorCount = 0;
+    }
+
     packet.hudView = m_hudView;
 
     return packet;
@@ -385,9 +419,11 @@ void SceneCollector::clear() {
     m_particles.clear();
     m_debugLines.clear();
     m_debugRects.clear();
+    m_sectors.clear();
     m_hudSprites.clear();
     m_hudTexts.clear();
     m_hudTextStrings.clear();
+    m_hudSectors.clear();
 }
 
 // ============================================================================
@@ -750,6 +786,20 @@ void SceneCollector::parseDebugRect(const IDataNode& data) {
     rect.filled = data.getBool("filled", false);
 
     m_debugRects.push_back(rect);
+}
+
+void SceneCollector::parseSector(const IDataNode& data) {
+    SectorCommand s;
+    s.cx = static_cast<float>(data.getDouble("cx", 0.0));
+    s.cy = static_cast<float>(data.getDouble("cy", 0.0));
+    s.r0 = static_cast<float>(data.getDouble("r0", 0.0));
+    s.r1 = static_cast<float>(data.getDouble("r1", 1.0));
+    s.a0 = static_cast<float>(data.getDouble("a0", 0.0));
+    s.a1 = static_cast<float>(data.getDouble("a1", 6.2831853));   // default = full circle
+    s.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    s.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+    // space:"screen" -> HUD (fixed view 1); else world (view 0). Same split as render:rect.
+    (isScreenSpace(data) ? m_hudSectors : m_sectors).push_back(s);
 }
 
 void SceneCollector::initDefaultView(uint16_t width, uint16_t height) {

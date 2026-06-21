@@ -14,6 +14,7 @@
 #include "Passes/TextPass.h"
 #include "Passes/ParticlePass.h"
 #include "Passes/DebugPass.h"
+#include "Passes/SectorPass.h"
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
@@ -158,6 +159,10 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 
     m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
     m_logger->info("Added DebugPass");
+
+    // Filled ring-sectors / pie wedges (render:sector) — same position+colour shader as debug.
+    m_renderGraph->addPass(std::make_unique<SectorPass>(debugShader));
+    m_logger->info("Added SectorPass");
     m_renderGraph->setup(*m_device);
     m_logger->info("RenderGraph setup complete");
     m_renderGraph->compile();

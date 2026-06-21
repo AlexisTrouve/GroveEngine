@@ -846,6 +846,7 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 |-------|---------|-------------|
 | `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?}` | Render single sprite (ephemeral). `x,y` = CENTER. `space:"screen"` → HUD overlay (see below) |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
+| `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
 
 #### Text

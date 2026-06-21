@@ -105,6 +105,20 @@ struct DebugRect {
 };
 
 // ============================================================================
+// Sector (filled ring-sector / pie wedge) — a colored-geometry primitive (render:sector). Drawn by
+// SectorPass as triangles (grove::geom::appendSector) with the plain color shader. (cx,cy) = centre;
+// r0/r1 = inner/outer radius (r0=0 => a pie slice); a0/a1 = angles (rad, screen y-down). Used by the
+// UIRadial action wheel (screen-space, layer 1000+) and reusable for rings/gauges/radars.
+// ============================================================================
+struct SectorCommand {
+    float cx, cy;
+    float r0, r1;
+    float a0, a1;
+    uint32_t color;
+    uint16_t layer;
+};
+
+// ============================================================================
 // Camera/View Info
 // ============================================================================
 
@@ -145,6 +159,13 @@ struct FramePacket {
 
     const DebugRect* debugRects = nullptr;
     size_t debugRectCount = 0;
+
+    // Sectors (filled wedges). World bucket -> view 0 (zooms with the camera); HUD bucket (space:
+    // "screen") -> view 1 (fixed). Ephemeral (re-sent each frame, like debug + render:rect).
+    const SectorCommand* sectors = nullptr;
+    size_t sectorCount = 0;
+    const SectorCommand* hudSectors = nullptr;
+    size_t hudSectorCount = 0;
 
     // HUD / screen-space buckets — sprites & texts published with space:"screen". Drawn on
     // hudView (a fixed screen-space transform), AFTER the world, so the HUD does NOT zoom or

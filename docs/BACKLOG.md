@@ -41,8 +41,15 @@ camera items are above. The genuine engine gaps it surfaces:
   **Auto-close — ✅ SHIPPED** (2026-06-21): on selection the wheel hides itself AND purges its retained
   entries (via the ghost-rect fix below), so it's a real modal pop-up. `ui:set_position {id,x,y}` lets
   the game pop it CENTERED on the cursor (showcase: right-click anywhere). `IT_020` now locks auto-close
-  + the 9-entry purge + re-show. **Remaining (deferred):** true pie/wedge visuals (today = radial
-  *layout* of rect+label tiles, no arc primitive).
+  + the 9-entry purge + re-show.
+  **Pie/wedge visuals — ✅ SHIPPED** (2026-06-21): real filled wedges via a new reusable renderer
+  primitive `render:sector {cx,cy,r0,r1,a0,a1,color,layer,space?}` (SectorPass tessellates ring-sectors
+  with `grove::geom::appendSector` — pure + oracle-locked — drawn with the colour shader; views set to
+  Sequential so the wedges layer right). The wheel draws a dark bg DISC + per-item wedges (hover-tinted)
+  + labels; configurable `gap` (angular) + `margin` (radial) between slices; any N (2..8+, oracle-locked
+  to tile the circle); `ui:radial:set_items {id,count}` reconfigures N at runtime. Reusable for cooldown
+  rings / gauges / radars. **Remaining (deferred):** other multi-entry widgets' ghost-rect override (the
+  general fix exists; only the radial is converted).
 - **Gamepad input — premature, parked.** `InputModule` feeds SDL keyboard/mouse → `input:*`; no
   gamepad. A controller path (→ controller-native, Steam Deck) is wanted *eventually* but **not a
   near-term need** — the radial's `setSelectedIndex` is the ready seam, but revisit only once a

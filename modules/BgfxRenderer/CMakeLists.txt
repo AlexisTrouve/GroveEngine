@@ -78,6 +78,7 @@ add_library(BgfxRenderer SHARED
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp
     Passes/DebugPass.cpp
+    Passes/SectorPass.cpp
 
     # Text
     Text/BitmapFont.cpp
@@ -173,6 +174,7 @@ add_library(BgfxRenderer_static STATIC
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp
     Passes/DebugPass.cpp
+    Passes/SectorPass.cpp
 
     # Text
     Text/BitmapFont.cpp
