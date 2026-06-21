@@ -56,9 +56,15 @@ camera items are above. The genuine engine gaps it surfaces:
   derivative detail↔LOD crossfade with a palette-driven mipped color band. Tested headless +
   `[gpu]` readback. Full status, commits, and learnings in
   [docs/design/tilemap-renderer.md](design/tilemap-renderer.md#implementation-status--shipped-a--b-20260618).
-  **Remaining (deferred):** **multi-layer** chunks (terrain + overlay), **animated tiles** (water/lava
-  via a per-tile-type frame table → layer offset), **partial-fog reveal** (`{id,x,y,w,h,fogData}` to
-  patch the fog sub-rect for cheap incremental reveal — today fog updates re-send the whole layer).
+  **Animated tiles — ✅ SHIPPED** (2026-06-21). `render:tilemap:anim {tileId, frames, fps}`: the shader
+  cycles a declared tile's atlas LAYER over time (`grove::tilemap::animFrame` = floor(t·fps) mod frames;
+  frames = CONSECUTIVE layers from the base id-1) — the index texture is unchanged, so water/lava flow
+  with ZERO per-frame upload. Clock = `FramePacket::elapsedTime`. Locked by an oracle (`[anim]`) + a
+  `[gpu]` readback (a tile's colour cycles with time). Capped at 4 animated types (the 16-float setUniform
+  command-buffer limit). *En passant: fixed `BgfxDevice::createUniform` — it dropped bgfx's `_num`
+  and mistyped arrays as Mat4 (never exercised until `u_tileAnim[4]`).*
+  **Remaining (deferred):** **multi-layer** chunks (terrain + overlay), **partial-fog reveal**
+  (`{id,x,y,w,h,fogData}` to patch the fog sub-rect — today fog updates re-send the whole layer).
 - **Render-side culling in passes** — SpritePass/TilemapPass skip instances outside the camera
   bounds before draw (same `visibleWorldBounds`). Couple with tilemap high-perf; measure first.
 - **Runtime textures / painting** — let the game create a texture from pixel data at runtime and

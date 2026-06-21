@@ -71,6 +71,7 @@ private:
     uint32_t m_clearColor = 0x303030FF;
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
+    float m_elapsedTime = 0.0f;   // accumulated dt (running clock for time-based shaders, e.g. animated tiles)
 
     // Message parsing helpers (ephemeral mode - legacy)
     void parseSprite(const IDataNode& data);

@@ -128,6 +128,7 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
 
 void SceneCollector::collect(IIO* io, float deltaTime) {
     m_deltaTime = deltaTime;
+    m_elapsedTime += deltaTime;   // running clock for time-based shaders (animated tiles)
     m_frameNumber++;
 
     // Pull and dispatch all pending messages (callbacks invoked automatically)
@@ -141,6 +142,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
 
     packet.frameNumber = m_frameNumber;
     packet.deltaTime = m_deltaTime;
+    packet.elapsedTime = m_elapsedTime;
     packet.clearColor = m_clearColor;
     packet.mainView = m_mainView;
     packet.allocator = &allocator;

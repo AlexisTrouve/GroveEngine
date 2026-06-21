@@ -125,6 +125,7 @@ struct ViewInfo {
 struct FramePacket {
     uint64_t frameNumber = 0;
     float deltaTime = 0.016f;
+    float elapsedTime = 0.0f;   // seconds since start (accumulated dt) — drives time-based shaders (animated tiles)
 
     // Collected data (read-only for passes)
     const SpriteInstance* sprites = nullptr;

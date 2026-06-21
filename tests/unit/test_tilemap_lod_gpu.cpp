@@ -29,6 +29,7 @@
 #include "Frame/FramePacket.h"
 #include "Passes/TilemapPass.h"
 #include "Passes/LodColor.h"
+#include "Passes/TileAnim.h"
 #include "Resources/AtlasSlice.h"
 #include "Shaders/ShaderManager.h"
 
@@ -39,6 +40,24 @@ using namespace grove;
 
 namespace {
 int byteOf(uint32_t c, int shift) { return static_cast<int>((c >> shift) & 0xFFu); }
+}
+
+// ============================================================================
+// Animated tiles — the frame-selection math (pure oracle, headless). The index texture stores the
+// tile's BASE id; the shader cycles the atlas LAYER by time. Lock the only custom bit here.
+// ============================================================================
+TEST_CASE("Tile anim: frame = floor(time*fps) mod count; layer = base + frame", "[unit][tilemap][anim]") {
+    using namespace grove::tilemap;
+    REQUIRE(animFrame(0.0f, 1.0f, 3) == 0);
+    REQUIRE(animFrame(0.5f, 1.0f, 3) == 0);   // floor(0.5) = 0
+    REQUIRE(animFrame(1.0f, 1.0f, 3) == 1);
+    REQUIRE(animFrame(2.0f, 1.0f, 3) == 2);
+    REQUIRE(animFrame(3.0f, 1.0f, 3) == 0);   // wraps at count
+    REQUIRE(animFrame(1.0f, 2.0f, 4) == 2);   // floor(1*2) = 2
+    REQUIRE(animFrame(10.0f, 0.0f, 3) == 0);  // stopped clock -> frame 0
+    REQUIRE(animFrame(10.0f, 1.0f, 1) == 0);  // single frame -> always 0
+    REQUIRE(animLayer(4, 0.0f, 1.0f, 3) == 4);   // base layer, frame 0
+    REQUIRE(animLayer(4, 2.0f, 1.0f, 3) == 6);   // base 4 + frame 2
 }
 
 TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[gpu][tilemap][lod]") {
@@ -71,7 +90,7 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
 
     // Render a chunk so its world rect [0,grid]x[0,grid] fills the whole FB -> tiles/pixel = grid/P.
     // Returns the center pixel as RGBA bytes packed 0xAABBGGRR-style via byteOf(shift).
-    auto renderCenter = [&](const TilemapChunk& chunk, int grid) -> uint32_t {
+    auto renderCenter = [&](const TilemapChunk& chunk, int grid, float elapsed = 0.0f) -> uint32_t {
         const float g = static_cast<float>(grid);
         // Column-major ortho mapping world [0,g] -> NDC [-1,1] on x and y (center symmetric, so the
         // Y convention doesn't matter for the center pixel).
@@ -88,6 +107,7 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         device->setViewTransform(0, view, proj);
 
         FramePacket frame;
+        frame.elapsedTime = elapsed;   // drives the animated-tile clock (u_tileAnimMeta.y)
         frame.tilemaps = &chunk;
         frame.tilemapCount = 1;
         // Wide visible bounds so the pass's chunk-level cull always keeps it.
@@ -205,6 +225,33 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
             CHECK(byteOf(got, shift) >= expected - 15);
             CHECK(byteOf(got, shift) <= expected + 15);
         }
+    }
+
+    // --- ANIMATED TILE (water/lava): id 1 declared as 3 frames @ 1 fps -> the atlas LAYER cycles
+    //     0,1,2 over time = the colors of ids 1,2,3. The index texture never changes; only the clock.
+    {
+        pass.setTileAnim(1, 3, 1.0f);   // tile id 1: 3 consecutive layers (0,1,2) at 1 fps
+
+        const int G = 8;                // zoomed in -> detail band (samples the atlas array)
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        TilemapChunk chunk{};
+        chunk.x = 0; chunk.y = 0; chunk.width = G; chunk.height = G;
+        chunk.tileWidth = 1; chunk.tileHeight = 1;
+        chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+        chunk.id = 200; chunk.dirty = true;
+
+        // time -> expected tile id whose palette color the frame shows (layer = id-1 + frame).
+        const float times[4]    = { 0.0f, 1.0f, 2.0f, 3.0f };
+        const uint16_t wantId[4] = { 1,    2,    3,    1    };   // frame 0,1,2, then wrap to 0
+        for (int s = 0; s < 4; ++s) {
+            const uint32_t got = renderCenter(chunk, G, times[s]);
+            const uint32_t want = lod::paletteColor(wantId[s]);
+            INFO("anim t=" << times[s] << " got=" << std::hex << got << " want=" << want);
+            CHECK(byteOf(got, 0)  == byteOf(want, 0));    // R
+            CHECK(byteOf(got, 8)  == byteOf(want, 8));    // G
+            CHECK(byteOf(got, 16) == byteOf(want, 16));   // B
+        }
+        pass.setTileAnim(1, 1, 0.0f);   // stop animating (hygiene)
     }
 
     device->destroy(fb);

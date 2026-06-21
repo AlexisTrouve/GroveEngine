@@ -911,6 +911,7 @@ Two modes:
 | `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?}` | Retained chunk by `id` (≠0) — upload-once |
 | `render:tilemap:update` | full: `{id, tileData, fogData?}` · partial: `{id, x, y, w, h, tileData}` | Update a retained chunk (see *Update semantics*) |
 | `render:tilemap:remove` | `{id}` | Drop a retained chunk |
+| `render:tilemap:anim` | `{tileId, frames, fps}` | Declare an **animated tile** (water/lava): `tileId` cycles through `frames` CONSECUTIVE atlas layers (from its base layer `id-1`) at `fps`. The index texture is unchanged — the shader offsets the layer by time, so animation costs **zero per-frame upload**. `frames ≤ 1` stops it. Up to 4 animated types. The game arranges the frames as consecutive layers in its tileset |
 
 **Fields**
 - `x, y` (double) — chunk origin in **world** coords (top-left corner). *Not* a chunk index.

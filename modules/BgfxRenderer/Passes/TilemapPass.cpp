@@ -105,6 +105,8 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_lodSampler    = device.createUniform("s_lod", 1);
     m_fogSampler    = device.createUniform("s_fog", 1);
     m_fogNoiseSampler = device.createUniform("s_fognoise", 1);
+    m_animUniform     = device.createUniform("u_tileAnim", kMaxTileAnims);  // vec4[16] anim table
+    m_animMetaUniform = device.createUniform("u_tileAnimMeta", 1);          // {count, time}
 
     // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
@@ -158,6 +160,8 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_lodSampler);
     device.destroy(m_fogSampler);
     device.destroy(m_fogNoiseSampler);
+    device.destroy(m_animUniform);
+    device.destroy(m_animMetaUniform);
     device.destroy(m_defaultAtlas);
     device.destroy(m_defaultFog);
     device.destroy(m_defaultFogNoise);
@@ -179,6 +183,18 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
     if (frame.tilemapCount == 0) {
         return;
     }
+
+    // Animated tiles: pack the declared table into the shader uniforms (zeroed — unused entries hold
+    // id 0, which never matches a real tile in the shader). The clock is frame.elapsedTime (owned by
+    // the frame, so the pass stays stateless and the GPU test can pin an exact time). Set per chunk.
+    float animData[kMaxTileAnims * 4] = {};
+    const int animCount = static_cast<int>(m_tileAnims.size());
+    for (int i = 0; i < animCount; ++i) {
+        animData[i * 4 + 0] = static_cast<float>(m_tileAnims[i].tileId);
+        animData[i * 4 + 1] = static_cast<float>(m_tileAnims[i].frames);
+        animData[i * 4 + 2] = m_tileAnims[i].fps;
+    }
+    const float animMeta[4] = { static_cast<float>(animCount), frame.elapsedTime, 0.0f, 0.0f };
 
     // Render state for tilemaps: alpha blend, no depth. Emitted PER chunk below — bgfx consumes the
     // state at each submit, so setting it once would only cover the first chunk.
@@ -310,6 +326,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                             static_cast<float>(m_tilesPerRow), static_cast<float>(m_tilesPerCol) };
         cmd.setUniform(m_paramsUniform, params, 1);
         cmd.setUniform(m_gridUniform, grid, 1);
+        cmd.setUniform(m_animUniform, animData, kMaxTileAnims);   // animated-tile table + clock
+        cmd.setUniform(m_animMetaUniform, animMeta, 1);
 
         cmd.setTexture(0, indexTex, m_indexSampler);
         cmd.setTexture(1, tileset, m_atlasSampler);

@@ -16,6 +16,7 @@
 #include "Passes/DebugPass.h"
 
 #include <grove/JsonDataNode.h>
+#include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
@@ -120,9 +121,23 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Create TilemapPass (renders before sprites) — uses the dedicated GPU tilemap shader
     auto tilemapPass = std::make_unique<TilemapPass>(tilemapShader);
     tilemapPass->setResourceCache(m_resourceCache.get());
-    m_tilemapPass = tilemapPass.get();   // non-owning ref (setTileset / setFogTexture)
+    m_tilemapPass = tilemapPass.get();   // non-owning ref (setTileset / setFogTexture / setTileAnim)
     m_renderGraph->addPass(std::move(tilemapPass));
     m_logger->info("Added TilemapPass");
+
+    // Runtime topic: declare an ANIMATED tile (water/lava). The game publishes render:tilemap:anim
+    // {tileId, frames, fps} once; the pass then cycles that tile's atlas LAYER by time (frames<=1
+    // stops it). SceneCollector's "render:.*" subscription has no case for this topic (ignored there),
+    // so we handle it here, where the pass pointer lives — it's pass config, like setTileset/setFog.
+    if (m_io) {
+        m_io->subscribe("render:tilemap:anim", [this](const Message& msg) {
+            if (!msg.data || !m_tilemapPass) return;
+            const IDataNode& d = *msg.data;
+            m_tilemapPass->setTileAnim(static_cast<uint16_t>(d.getInt("tileId", 0)),
+                                       static_cast<uint16_t>(d.getInt("frames", 0)),
+                                       static_cast<float>(d.getDouble("fps", 0.0)));
+        });
+    }
 
     // Create SpritePass and keep reference for texture binding
     auto spritePass = std::make_unique<SpritePass>(spriteShader);

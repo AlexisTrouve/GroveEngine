@@ -21,6 +21,8 @@ SAMPLER2D(s_fognoise, 4);      // tiled fog texture (wrap=Repeat); hidden tiles 
 
 uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w unused)
 uniform vec4 u_tilemapParams;  // x=originX, y=originY, z=tilePixW, w=tilePixH (world-space fog uv)
+uniform vec4 u_tileAnim[4];    // animated tiles: per entry x=tileId, y=frameCount, z=fps (w unused)
+uniform vec4 u_tileAnimMeta;   // x=animCount, y=time(seconds) (z,w unused)
 
 void main()
 {
@@ -34,8 +36,21 @@ void main()
     ivec2 cell = ivec2(floor(tc));
     cell = clamp(cell, ivec2(0, 0), ivec2(grid) - ivec2(1, 1));
     uint id = texelFetch(s_index, cell, 0).r;
+    // Animated tiles: the index stores the tile's BASE id (uploaded once); cycle the atlas LAYER over
+    // time for declared ids. frames are CONSECUTIVE layers from the base (id-1); frame = floor(time*fps)
+    // mod frameCount (mirror of grove::tilemap::animFrame). Constant 16 loop = shaderc-safe; unused
+    // entries are zeroed (won't match a real id). Guarded so the no-animation case stays free.
+    float layer = float(id - 1u);
+    if (id != 0u && u_tileAnimMeta.x > 0.5) {
+        for (int ai = 0; ai < 4; ai++) {
+            vec4 e = u_tileAnim[ai];
+            if (uint(e.x) == id) {
+                layer = float(id - 1u) + mod(floor(u_tileAnimMeta.y * e.z), e.y);
+            }
+        }
+    }
     vec4 detail = (id == 0u) ? vec4(0.0, 0.0, 0.0, 0.0)
-                             : texture2DArray(s_atlas, vec3(fract(tc), float(id - 1u)));
+                             : texture2DArray(s_atlas, vec3(fract(tc), layer));
 
     // LOD band: mipped color, hardware-selected mip from the normalized-uv derivatives.
     vec4 lod = texture2D(s_lod, tc / grid);

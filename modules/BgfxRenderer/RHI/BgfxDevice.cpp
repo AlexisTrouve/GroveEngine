@@ -208,11 +208,14 @@ public:
         // Detect sampler uniforms by name prefix (bgfx convention: s_*)
         bool isSampler = (name[0] == 's' && name[1] == '_');
 
+        // numVec4s = the array size for a `vec4 name[N]` uniform (1 = a plain vec4). MUST be passed to
+        // bgfx as `_num`, and the type stays Vec4 — a vec4[N] array, NOT a Mat4. (The old code dropped
+        // _num and mis-typed N>1 as Mat4; it was never exercised, since every uniform was num==1, and a
+        // mismatched array uniform corrupts/no-ops. The first real array uniform is u_tileAnim[4].)
         bgfx::UniformHandle uniform = bgfx::createUniform(
             name,
-            isSampler ? bgfx::UniformType::Sampler :
-                       (numVec4s == 1 ? bgfx::UniformType::Vec4 : bgfx::UniformType::Mat4)
-        );
+            isSampler ? bgfx::UniformType::Sampler : bgfx::UniformType::Vec4,
+            isSampler ? 1 : numVec4s);
 
         UniformHandle result;
         result.id = uniform.idx;
