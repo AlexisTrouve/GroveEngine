@@ -359,6 +359,8 @@ void UITree::registerDefaultWidgets() {
             radial->style.hoverColor = hex(style, "hoverColor", radial->style.hoverColor);
             radial->style.textColor  = hex(style, "textColor",  radial->style.textColor);
             radial->style.fontSize   = static_cast<float>(style->getDouble("fontSize", radial->style.fontSize));
+            radial->style.gap        = static_cast<float>(style->getDouble("gap",    radial->style.gap));
+            radial->style.margin     = static_cast<float>(style->getDouble("margin", radial->style.margin));
         }
 
         return radial;

@@ -62,56 +62,56 @@ bool UIRadial::onMouseButton(int button, bool pressed, float x, float y) {
 void UIRadial::render(UIRenderer& renderer) {
     const int n = static_cast<int>(items.size());
 
-    // Enregistre les entrées retained une fois le nombre d'items connu : 1 fond +
-    // n*(rect + texte). On câble m_renderId sur le fond pour que le destructeur de base
-    // (qui teste m_renderId != 0) déclenche notre callback de nettoyage groupé.
+    // RETAINED entries: the bg rect (m_renderId, also the base-destructor trigger) + one TEXT label per
+    // item. The wedges themselves are EPHEMERAL pie SECTORS (drawSector below), re-published each frame
+    // — they change with the hover and vanish on their own when the wheel hides, so no retained id.
     if (!m_entriesRegistered) {
         m_renderId = renderer.registerEntry();   // fond (sert aussi de déclencheur destroy)
-        m_itemRectIds.resize(n);
         m_itemTextIds.resize(n);
-        for (int i = 0; i < n; ++i) {
-            m_itemRectIds[i] = renderer.registerEntry();
-            m_itemTextIds[i] = renderer.registerEntry();
-        }
+        for (int i = 0; i < n; ++i) m_itemTextIds[i] = renderer.registerEntry();   // labels
         m_entriesRegistered = true;
 
-        // Désenregistre TOUTES nos entrées à la destruction (calque UIButton qui nettoie
-        // son bg + son texte). On capture les ids par valeur ; &renderer vit aussi
-        // longtemps que le module (comme pour UIButton).
-        std::vector<uint32_t> ids = m_itemRectIds;
-        ids.insert(ids.end(), m_itemTextIds.begin(), m_itemTextIds.end());
+        // Unregister our retained entries (bg + labels) on destruction.
+        std::vector<uint32_t> ids = m_itemTextIds;
         setDestroyCallback([&renderer, ids](uint32_t bgId) {
             renderer.unregisterEntry(bgId);                 // le fond (= m_renderId)
             for (uint32_t e : ids) renderer.unregisterEntry(e);
         });
     }
 
-    // Fond : un carré couvrant la bounding-box de la roue (render:rect est axis-aligned ;
-    // pas de primitive disque). absX/absY = centre -> coin haut-gauche = centre - rayon.
+    // Background DISC: a full ring-sector (r0=0) at bgColor — circular, no ugly square. Ephemeral like
+    // the wedges; drawn at the lowest layer so the wedges + labels sit on top, and the centre dead-zone
+    // shows the dark disc. (m_renderId is no longer drawn — it stays a registered phantom so the base
+    // destructor's `m_renderId != 0` trigger + the hide-purge still fire for the retained labels.)
     const int bgLayer = renderer.nextLayer();
-    const float diameter = outerRadius * 2.0f;
-    renderer.updateRect(m_renderId, absX - outerRadius, absY - outerRadius,
-                        diameter, diameter, style.bgColor, bgLayer);
+    renderer.drawSector(absX, absY, 0.0f, outerRadius, 0.0f, radial::kTwoPi, style.bgColor, bgLayer);
 
-    // Items sur l'anneau médian, item 0 en haut, sens horaire. Le segment survolé prend
-    // hoverColor (m_selectedIndex est rafraîchi chaque update()).
-    const float ring = (innerRadius + outerRadius) * 0.5f;
-    const float box  = (outerRadius - innerRadius) * 0.9f;   // tuile carrée du segment
+    // Items as pie WEDGES (filled ring-sectors), item 0 at top, clockwise. The hovered segment takes
+    // hoverColor (m_selectedIndex is refreshed every update()). The wedge for item i is the angular
+    // slice centred on item i's direction. selectIndex measures angle as "0 = top, clockwise"; the
+    // sector primitive measures cos/sin from +x, so the sector angle a = theta - pi/2.
+    const float ring   = (innerRadius + outerRadius) * 0.5f;
+    const float sector = radial::kTwoPi / static_cast<float>(n);
+    // Margins (configurable): RADIAL inset from the pie's inner/outer borders, and an ANGULAR gap
+    // between adjacent slices (a `gap`-pixel arc at the inner radius). The dark bg disc shows through
+    // both -> clean separators. Half the gap is shaved off EACH side of every wedge.
+    const float r0 = innerRadius + style.margin;
+    const float r1 = (outerRadius - style.margin > r0) ? (outerRadius - style.margin) : r0;
+    const float halfGap = (innerRadius > 1e-3f) ? (style.gap * 0.5f / innerRadius) : 0.0f;   // radians
     for (int i = 0; i < n; ++i) {
-        float ox, oy;
-        radial::itemOffset(i, n, ring, ox, oy);
-        const float cx = absX + ox;
-        const float cy = absY + oy;
+        const float aCenter = static_cast<float>(i) * sector - radial::kPi * 0.5f;
         const uint32_t col = (i == m_selectedIndex) ? style.hoverColor : style.itemColor;
+        const int wedgeLayer = renderer.nextLayer();
+        renderer.drawSector(absX, absY, r0, r1,
+                            aCenter - sector * 0.5f + halfGap, aCenter + sector * 0.5f - halfGap,
+                            col, wedgeLayer);
 
-        const int rectLayer = renderer.nextLayer();
-        renderer.updateRect(m_itemRectIds[i], cx - box * 0.5f, cy - box * 0.5f,
-                            box, box, col, rectLayer);
-
+        // Label at the segment's mid-ring anchor (same convention as the selection).
         if (!items[i].text.empty()) {
+            float ox, oy;
+            radial::itemOffset(i, n, ring, ox, oy);
             const int textLayer = renderer.nextLayer();
-            // Texte ancré au centre du segment (calque UIButton qui passe le centre).
-            renderer.updateText(m_itemTextIds[i], cx, cy, items[i].text,
+            renderer.updateText(m_itemTextIds[i], absX + ox, absY + oy, items[i].text,
                                 style.fontSize, style.textColor, textLayer);
         }
     }
@@ -123,12 +123,10 @@ void UIRadial::releaseRenderEntries(UIRenderer& renderer) {
     // Drop our EXTRA entries (the per-item rects + texts), then let the base drop the bg (m_renderId)
     // and reset the dirty/registered flags + recurse. Clearing the id vectors + m_entriesRegistered
     // means the next render() (after a re-show) re-registers fresh entries and re-publishes :add.
-    for (uint32_t id : m_itemRectIds) if (id != 0) renderer.unregisterEntry(id);
     for (uint32_t id : m_itemTextIds) if (id != 0) renderer.unregisterEntry(id);
-    m_itemRectIds.clear();
     m_itemTextIds.clear();
     m_entriesRegistered = false;
-    UIWidget::releaseRenderEntries(renderer);
+    UIWidget::releaseRenderEntries(renderer);   // bg (m_renderId) + reset + recurse
 }
 
 } // namespace grove

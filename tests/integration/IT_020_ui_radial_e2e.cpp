@@ -89,7 +89,8 @@ TEST_CASE("IT_020: clicking a wedge emits ui:action for that DIRECTION", "[integ
     REQUIRE(actions.size() == 1);
     REQUIRE(actions[0] == "act:attack"); REQUIRE(indices[0] == 1);
     INFO("removes after auto-close=" << removes);
-    REQUIRE(removes >= 9);                      // bg + 4 item rects + 4 item labels purged (no ghosts)
+    REQUIRE(removes >= 4);                      // the 4 retained item labels are purged (the bg disc +
+                                                // wedges are ephemeral sectors -> they vanish on their own)
 
     // The wheel is now HIDDEN: a click where it used to be does nothing (not routed to a hidden widget).
     sendButton(true,  400.0, 180.0); pump();

@@ -199,6 +199,19 @@ void UIRenderer::publishSpriteRemove(uint32_t renderId) {
     m_io->publish("render:sprite:remove", std::move(sprite));
 }
 
+void UIRenderer::drawSector(float cx, float cy, float r0, float r1, float a0, float a1, uint32_t color, int layer) {
+    auto s = std::make_unique<JsonDataNode>("sector");
+    s->setDouble("cx", static_cast<double>(cx));
+    s->setDouble("cy", static_cast<double>(cy));
+    s->setDouble("r0", static_cast<double>(r0));
+    s->setDouble("r1", static_cast<double>(r1));
+    s->setDouble("a0", static_cast<double>(a0));
+    s->setDouble("a1", static_cast<double>(a1));
+    s->setInt("color", static_cast<int>(color));
+    s->setInt("layer", layer);
+    m_io->publish("render:sector", std::move(s));
+}
+
 void UIRenderer::publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer) {
     auto textNode = std::make_unique<JsonDataNode>("text");
     textNode->setInt("renderId", static_cast<int>(renderId));

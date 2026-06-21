@@ -71,6 +71,14 @@ public:
     void drawSprite(float x, float y, float w, float h, int textureId, uint32_t color = 0xFFFFFFFF);
 
     /**
+     * @brief Draw a filled ring-sector / pie wedge (render:sector). IMMEDIATE (re-published each frame
+     *        — used for the radial wheel's wedges, which change with the hover). (cx,cy) = centre,
+     *        r0/r1 = inner/outer radius, a0/a1 = angles (radians). Same view/layer space as the rest of
+     *        the UI (drawn on the world view, layer 1000+).
+     */
+    void drawSector(float cx, float cy, float r0, float r1, float a0, float a1, uint32_t color, int layer);
+
+    /**
      * @brief Set the base layer for UI rendering
      * UI elements should render above game sprites (layer 1000+)
      */

@@ -544,6 +544,18 @@ public:
             m_gameIO->publish("input:mouse:wheel", std::move(msg));
         }
         else if (e.type == SDL_KEYDOWN) {
+            // Number keys 2..8 -> open the action wheel with that many slices (proves the pie cuts into
+            // any N). set_items reconfigures the wheel; then pop it on the cursor.
+            const int sym = e.key.keysym.sym;
+            if (sym >= SDLK_2 && sym <= SDLK_8) {
+                const int count = sym - SDLK_0;          // SDLK_2..SDLK_8 -> 2..8
+                auto items = std::make_unique<grove::JsonDataNode>("d");
+                items->setString("id", "wheel"); items->setInt("count", count);
+                m_gameIO->publish("ui:radial:set_items", std::move(items));
+                openWheelAt(m_uiMouseX, m_uiMouseY);
+                m_logger->info("🥧 Action wheel set to {} slices", count);
+                return;
+            }
             // Only publish special keys (non-printable), printable chars come from SDL_TEXTINPUT
             int keyCode = e.key.keysym.sym;
             bool isSpecialKey = (keyCode == SDLK_BACKSPACE || keyCode == SDLK_DELETE ||

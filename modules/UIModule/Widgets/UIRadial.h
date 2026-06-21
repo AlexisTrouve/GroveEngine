@@ -30,13 +30,18 @@ struct RadialItem {
     int textureId = 0;     // icône optionnelle (0 = aucune, texte seul)
 };
 
-// Palette de la roue (RGBA 0xRRGGBBAA).
+// Palette + géométrie fine de la roue (RGBA 0xRRGGBBAA).
 struct RadialStyle {
-    uint32_t bgColor    = 0x000000A0;  // fond derrière la roue (semi-transparent)
+    uint32_t bgColor    = 0x000000A0;  // disque de fond (semi-transparent, sert de "gaps" sombres)
     uint32_t itemColor  = 0x34495EFF;  // un segment au repos
     uint32_t hoverColor = 0x2ECC71FF;  // le segment sous le pointeur
     uint32_t textColor  = 0xFFFFFFFF;
     float    fontSize   = 16.0f;
+    // Marges des parts (en pixels) : `gap` = espace ANGULAIRE entre tranches voisines (mesuré comme
+    // une longueur d'arc au rayon intérieur) ; `margin` = retrait RADIAL de chaque part vis-à-vis des
+    // bords inner/outer de la tarte. Le disque de fond apparaît dans ces marges -> séparateurs sombres.
+    float    gap        = 4.0f;
+    float    margin     = 3.0f;
 };
 
 class UIRadial : public UIWidget {
@@ -81,8 +86,8 @@ private:
     int  m_selectedIndex = -1;   // recalculé chaque update() depuis l'angle du pointeur
     bool m_pressed = false;      // un press a démarré sur la roue dans cette interaction
 
-    // Entrées retained : fond + par item (rect + texte). Nombre connu au 1er render.
-    std::vector<uint32_t> m_itemRectIds;
+    // RETAINED entries: the bg rect (m_renderId) + one text label per item. The wedges are EPHEMERAL
+    // sectors (drawSector each frame), so no per-wedge id. Count known at first render.
     std::vector<uint32_t> m_itemTextIds;
     bool m_entriesRegistered = false;
 };

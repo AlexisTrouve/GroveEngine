@@ -206,6 +206,28 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             }
         });
 
+        // Reconfigure a radial wheel's item COUNT at runtime (demo: prove the pie cuts into any N). The
+        // geometry is general — sector = 2*pi/N + arbitrary wedge angles — so 2..8 (or more) all tile.
+        // Generates `count` generic items; releaseRenderEntries() resets so render() re-registers with
+        // the new count. (A game sets real items via the layout JSON; an items[] payload is a follow-on.)
+        m_io->subscribe("ui:radial:set_items", [this](const Message& msg) {
+            if (!msg.data || !m_root) return;
+            const std::string id = msg.data->getString("id", "");
+            const int count = msg.data->getInt("count", 0);
+            UIWidget* w = m_root->findById(id);
+            if (w && w->getType() == "radial" && count > 0) {
+                UIRadial* radial = static_cast<UIRadial*>(w);
+                radial->items.clear();
+                for (int i = 0; i < count; ++i) {
+                    RadialItem item;
+                    item.action = "wheel:opt" + std::to_string(i);
+                    item.text   = std::to_string(i + 1);
+                    radial->items.push_back(std::move(item));
+                }
+                if (m_renderer) radial->releaseRenderEntries(*m_renderer);   // re-register with the new N
+            }
+        });
+
         m_io->subscribe("ui:set_text", [this](const Message& msg) {
             // Timestamp on receive
             auto now = std::chrono::high_resolution_clock::now();
