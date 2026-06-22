@@ -459,10 +459,11 @@ emitting `ui:list:selected` on a click. Scroll with the mouse wheel; rows clip t
   must be json-backed** (IIO serializes only a node's JSON — see UI_TOPICS.md).
 - `ui:list:select {id, index}` - programmatic pre-selection (no event re-emit).
 
-**Scope (MVP):** wheel scroll + single-select + clip. Deliberate follow-ons: virtualization (render only
-visible rows — today it's O(N)/frame, fine for dozens of ships), a visual scrollbar + drag-to-scroll,
-custom row templates, multi-select. The container internals follow the standard pattern (opaque hit-test
-absorb, content clipped, retained row-id pool purged on repopulate) — see UI_ARCHITECTURE / the handoff.
+**Scope:** wheel scroll + single-select + clip + **virtualization** — only the on-screen rows get render
+entries (a recycled, viewport-bounded id-pool remapped to the scrolled window each frame), so a 10k-ship
+list registers ~viewport-many entries, not 10k. Deliberate follow-ons: a visual scrollbar + drag-to-scroll,
+custom row templates, multi-select, grid mode. The container internals follow the standard pattern (opaque
+hit-test absorb, content clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
 
 ## Creating Custom Widgets
 

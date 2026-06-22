@@ -38,7 +38,7 @@ The UIModule went from a flat widget set to a capable framework. Slices, each TD
 | **Tabs** | sectioned container, page switching, `ui:tab:changed` | IT_029 |
 | **Drawers** | edge-docked (4 edges) sliding collapsible panel, `ui:drawer:*` | IT_030 |
 | **Modal** | centered dialog + dim focus-trap, `ui:modal:*` | IT_031 |
-| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select, `ui:list:*` | IT_033 + `UIListUnit` |
+| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select / **virtualized**, `ui:list:*` | IT_033 + `UIListUnit` |
 | **Perf** | flow layout measures each child 1× (was 3×) — safe half | `UILayoutUnit` |
 
 New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order extensions to the base).
@@ -202,13 +202,14 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 
 From Alexi's original ask, still to build (all sit on the now-complete foundation):
 
-- **List / Grid view — the ship sidebar** (his marquee). ✅ **MVP SHIPPED** — `UIList` (`Widgets/UIList.{h,cpp}`):
-  data-driven (`items[{id,label,subtitle?,icon?}]`), wheel-scroll, clipped, single-select → `ui:list:selected`,
-  runtime `ui:list:set_items` / `ui:list:select`. Locked by `IT_033` + `UIListUnit`. **What's LEFT on it**
-  (deliberate follow-ons): **virtualization** (render only the visible row window — today O(N)/frame; ties to
-  the dirty-gate discussion), a **visual scrollbar + drag-to-scroll** (today wheel only), **custom row templates**
-  (today fixed icon+label+subtitle), **multi-select**, and a **grid mode** (today vertical rows only). A future
-  game using huge fleets wants virtualization first.
+- **List / Grid view — the ship sidebar** (his marquee). ✅ **SHIPPED + VIRTUALIZED** — `UIList`
+  (`Widgets/UIList.{h,cpp}`): data-driven (`items[{id,label,subtitle?,icon?}]`), wheel-scroll, clipped,
+  single-select → `ui:list:selected`, runtime `ui:list:set_items` / `ui:list:select`. **Virtualized** — a
+  recycled viewport-bounded id-pool (`ensurePool` grow-only + `visibleRange()`) registers entries for the
+  on-screen window only (1000 items → ~20 entries). Locked by `IT_033` + `UIListUnit` (incl. the
+  `entryCount() < 60` bound). **What's LEFT on it** (follow-ons): a **visual scrollbar + drag-to-scroll**
+  (today wheel only), **custom row templates** (today fixed icon+label+subtitle), **multi-select**, and a
+  **grid mode** (today vertical rows only).
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
 - **Rich content** (6): **animated panel** (host `grove::anim`/flipbook in a widget — the anim math exists,
   `include/grove/anim/`; small), **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*`

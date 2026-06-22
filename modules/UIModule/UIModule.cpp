@@ -292,15 +292,14 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         });
 
         // Repopulate a ship list at runtime: ui:list:set_items {id, items:[{id,label,subtitle?,icon?}]}.
-        // The game pushes its current fleet; the list rebuilds its rows. releaseRenderEntries() resets the
-        // retained row-id pool so render() re-registers at the new count (no ghost rows from the old set).
+        // The game pushes its current fleet; the list rebuilds its rows. No pool release needed — the list
+        // is VIRTUALIZED, so its recycled row-slots are simply remapped (rewritten or hidden) on the next
+        // render; setItems just swaps the data + resets scroll/selection.
         m_io->subscribe("ui:list:set_items", [this](const Message& msg) {
             if (!msg.data || !m_root) return;
             UIWidget* w = m_root->findById(msg.data->getString("id", ""));
             if (w && w->getType() == "list") {
-                UIList* list = static_cast<UIList*>(w);
-                list->setItems(UIList::parseItems(*msg.data));
-                if (m_renderer) list->releaseRenderEntries(*m_renderer);
+                static_cast<UIList*>(w)->setItems(UIList::parseItems(*msg.data));
             }
         });
 

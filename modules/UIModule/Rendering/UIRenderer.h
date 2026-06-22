@@ -143,6 +143,15 @@ public:
      */
     bool updateSprite(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer);
 
+    /**
+     * @brief Number of currently-registered retained entries (introspection).
+     *
+     * WHY: lets a test assert an invariant on registration count — e.g. a VIRTUALIZED list registers a
+     *      pool bounded by its viewport, NOT by its item count (a 10k-item list must not allocate 10k
+     *      entries). Pure read of the retained map; no side effects.
+     */
+    size_t entryCount() const { return m_entries.size(); }
+
 private:
     IIO* m_io;
     int m_baseLayer = 1000;  // UI renders above game content

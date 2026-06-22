@@ -62,6 +62,11 @@ public:
     int  rowAt(float screenY) const;          // item index at screen y (within bounds + range), or -1
     void handleMouseWheel(float wheelDelta);  // wheel scroll (routed by UIModule, like UIScrollPanel)
 
+    // The scroll-aware window of on-screen items: `firstItem` = first (possibly top-clipped) visible row,
+    // `count` = how many rows from there intersect the viewport. Bounded by ceil(height/rowHeight)+1
+    // REGARDLESS of item count — this is the basis of virtualization (only these rows get render entries).
+    void visibleRange(int& firstItem, int& count) const;
+
     // --- Data (data-driven via the UITree factory or ui:list:set_items). ---
     // Replace the whole item set; resets scroll + selection. The CALLER must follow with
     // releaseRenderEntries(renderer) so render() re-registers the row-id pool with the new count
@@ -97,12 +102,18 @@ private:
     void clampScroll();
     float contentHeight() const { return rowHeight * static_cast<float>(m_items.size()); }
 
+    // Grow the recycled render-id pool to at least `neededSlots` row-slots (and register the panel bg
+    // once). VIRTUALIZATION: the pool is sized to the VISIBLE window, not the item count — slots are
+    // remapped to whichever items are scrolled into view each frame. Grow-only (handles a viewport that
+    // enlarges, e.g. on resize); never shrinks the allocation (unused slots are just hidden in render()).
+    void ensurePool(UIRenderer& renderer, int neededSlots);
+
     std::vector<ListItem> m_items;
     int m_selectedIndex = -1;
     int m_hoverIndex = -1;
 
-    // Retained render-id pool: the panel background (m_renderId) + one set per row.
-    bool m_entriesRegistered = false;
+    // Recycled retained render-id pool: the panel background (m_renderId) + a viewport-bounded number of
+    // row id-sets {bg, icon, label, subtitle}. Slot s shows item (firstVisible + s) for the current frame.
     std::vector<uint32_t> m_rowBgIds;
     std::vector<uint32_t> m_rowIconIds;
     std::vector<uint32_t> m_rowLabelIds;

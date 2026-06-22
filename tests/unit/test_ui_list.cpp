@@ -11,7 +11,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <grove/JsonDataNode.h>
+#include <grove/IntraIOManager.h>
+#include <grove/IntraIO.h>
 #include "Widgets/UIList.h"
+#include "Rendering/UIRenderer.h"
 
 using namespace grove;
 
@@ -93,6 +96,56 @@ TEST_CASE("UIListUnit: setSelectedIndex clamps to a valid item", "[ui][list][uni
     UIList empty; fill(empty, 0);
     empty.setSelectedIndex(2);
     REQUIRE(empty.selectedIndex() == -1); // empty -> no selection
+}
+
+TEST_CASE("UIListUnit: VIRTUALIZED — registered entries are bounded by the viewport, not the item count",
+          "[ui][list][unit]") {
+    // The core virtualization invariant: rendering a HUGE list must register a pool sized to what fits on
+    // screen (a handful of rows), NOT one set of entries per item. A non-virtualized render would register
+    // ~itemCount*4 entries -> this asserts that does NOT happen.
+    auto& mgr = IntraIOManager::getInstance();
+    auto io = mgr.createInstance("ui_list_vtest");
+    UIRenderer renderer(io.get());
+
+    UIList list; fill(list, 1000);       // height 160, rowHeight 40 -> ~4 rows fit
+    const size_t hugeIfNotVirtual = 4 * 1000;   // bg+icon+label+subtitle per item if O(N)
+
+    renderer.beginFrame();
+    list.render(renderer);
+    REQUIRE(renderer.entryCount() < 60);                 // ~ (4 visible + buffer)*4 + 1 bg
+    REQUIRE(renderer.entryCount() < hugeIfNotVirtual / 10);
+
+    // Scrolling deep must NOT grow the pool unboundedly (the slots are recycled, not per-item).
+    list.handleMouseWheel(-100000.0f);   // slam to the bottom (clamped)
+    renderer.beginFrame();
+    list.render(renderer);
+    REQUIRE(renderer.entryCount() < 60);
+}
+
+TEST_CASE("UIListUnit: visibleRange is the scroll-aware window of on-screen items", "[ui][list][unit]") {
+    UIList list; fill(list, 1000);       // height 160, rowHeight 40
+
+    int first = -1, count = -1;
+    SECTION("top: rows 0..3 fit (4th starts at the bottom edge)") {
+        list.visibleRange(first, count);
+        REQUIRE(first == 0);
+        REQUIRE(count == 4);
+    }
+    SECTION("scrolled deep: window tracks the offset, still ~viewport-sized") {
+        list.handleMouseWheel(-100000.0f);  // slam to the bottom -> clamps to maxScroll = 1000*40-160 = 39840
+        REQUIRE(list.scrollOffsetY == 39840.0f);
+        list.visibleRange(first, count);
+        REQUIRE(first == 996);           // floor(39840/40)
+        REQUIRE(count == 4);             // items 996..999
+        // and the last row is still selectable via rowAt at its screen position
+        REQUIRE(list.rowAt(220) == 999); // (220-100+39840)/40 = 999
+    }
+    SECTION("empty list: no window") {
+        UIList empty; fill(empty, 0);
+        empty.visibleRange(first, count);
+        REQUIRE(first == 0);
+        REQUIRE(count == 0);
+    }
 }
 
 TEST_CASE("UIListUnit: parseItems reads an items[] array-of-objects", "[ui][list][unit]") {
