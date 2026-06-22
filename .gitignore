@@ -56,3 +56,7 @@ bimg/
 # Chaos / stress test scratch outputs
 chaos_*.txt
 
+
+# headless demo capture outputs
+demo_capture.png
+ship_capture.png

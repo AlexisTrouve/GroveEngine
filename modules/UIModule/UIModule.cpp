@@ -553,6 +553,9 @@ void UIModule::expandRepeaters() {
 void UIModule::refreshDataDriven() {
     expandRepeaters();      // (re)build instances against the current data
     resolveAllBindings();   // resolve every binding (incl. the new instances) against its scope
+    // Bound positional props (x/y/width/height — e.g. a ship "part" placed from data) only change the
+    // widget's relative coords; recompute absolute positions so they actually take effect on screen.
+    if (m_root) m_root->computeAbsolutePosition();
 }
 
 void UIModule::updateTemplateLists() {

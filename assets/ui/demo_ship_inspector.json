@@ -1,0 +1,51 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "style": { "bgColor": "0x0e1118FF" },
+  "children": [
+    {
+      "id": "inspector",
+      "type": "window",
+      "x": 230, "y": 70, "width": 620, "height": 540,
+      "title": "Inspecteur vaisseau",
+      "draggable": true, "resizable": true, "closable": true,
+      "style": { "bgColor": "0x161d2aFF", "titleBarColor": "0x2a3346FF" },
+      "children": [
+        { "type": "label", "x": 12, "y": 8, "width": 400, "height": 26, "text": "{{ship.name}}", "style": { "fontSize": 20, "color": "0xFFFFFFFF" } },
+
+        {
+          "id": "blueprint",
+          "type": "panel",
+          "x": 12, "y": 44, "width": 400, "height": 448,
+          "style": { "bgColor": "0x0b1018FF" },
+          "repeat": "{{ship.parts}}",
+          "template": {
+            "type": "button",
+            "x": "{{x}}", "y": "{{y}}", "width": "{{w}}", "height": "{{h}}",
+            "color": "{{color}}", "texture": "{{tex}}", "text": "",
+            "on": { "click": { "event": "ship:part", "args": { "id": "{{id}}", "label": "{{label}}", "stat": "{{stat}}" } } },
+            "style": {
+              "normal":  { "borderColor": "0x0b1018FF", "borderWidth": 1 },
+              "hover":   { "borderColor": "0xffd166FF", "borderWidth": 2 },
+              "pressed": { "borderColor": "0xffffffFF", "borderWidth": 2 }
+            }
+          }
+        },
+
+        {
+          "id": "info",
+          "type": "panel",
+          "x": 424, "y": 44, "width": 184, "height": 448,
+          "style": { "bgColor": "0x10182aFF" },
+          "children": [
+            { "type": "label", "x": 12, "y": 12, "width": 160, "height": 22, "text": "Pièce", "style": { "fontSize": 13, "color": "0x6f86a8FF" } },
+            { "type": "label", "x": 12, "y": 36, "width": 160, "height": 24, "text": "{{selectedPart.label}}", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
+            { "type": "label", "x": 12, "y": 72, "width": 160, "height": 60, "text": "{{selectedPart.stat}}", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } },
+            { "id": "partHint", "type": "label", "x": 12, "y": 130, "width": 160, "height": 40, "if": "{{noPart}}", "text": "Clique une piece de la maquette", "style": { "fontSize": 13, "color": "0xf2c94cFF" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

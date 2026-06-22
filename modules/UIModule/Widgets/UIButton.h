@@ -44,6 +44,25 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "button"; }
 
+    // Data-binding: a ship "part" is a clickable button bound to data — "color" (a "0xRRGGBBAA" block) and
+    // "texture" (a sprite texture id; >0 -> draw the sprite, 0 -> the colour block). Applied to all states
+    // (flat part). Other props fall through to the base (x/y/width/height/visible).
+    void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {
+        if (prop == "color" || prop == "bgColor") {
+            uint32_t c = 0;
+            if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+                try { c = static_cast<uint32_t>(std::stoul(s, nullptr, 16)); } catch (...) { c = 0; }
+            }
+            normalStyle.bgColor = hoverStyle.bgColor = pressedStyle.bgColor = c;
+        } else if (prop == "texture" || prop == "textureId") {
+            const int tex = static_cast<int>(n);
+            normalStyle.textureId = hoverStyle.textureId = pressedStyle.textureId = tex;
+            normalStyle.useTexture = hoverStyle.useTexture = pressedStyle.useTexture = (tex > 0);
+        } else {
+            UIWidget::applyBoundProp(prop, s, n, b);
+        }
+    }
+
     /**
      * @brief Check if a point is inside this button
      */

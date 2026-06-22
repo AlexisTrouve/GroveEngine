@@ -1996,6 +1996,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIFullDemoE2E IT_043_ui_full_demo_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_044: ship inspector — data-driven blueprint, sprites-as-UI (SVG->PNG textures), clickable parts.
+    add_executable(IT_044_ui_ship_inspector_e2e integration/IT_044_ui_ship_inspector_e2e.cpp)
+    target_link_libraries(IT_044_ui_ship_inspector_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIShipInspectorE2E IT_044_ui_ship_inspector_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
@@ -2297,6 +2303,26 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_ui_demo>")
     endif()
     message(STATUS "Demo capture tool 'capture_ui_demo' enabled")
+
+    # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
+    add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
+    target_include_directories(capture_ship_inspector PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(capture_ship_inspector PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_ship_inspector POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_ship_inspector>")
+    endif()
+    message(STATUS "Ship inspector capture 'capture_ship_inspector' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline
