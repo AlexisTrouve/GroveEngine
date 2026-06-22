@@ -1990,6 +1990,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIVListIdleGateE2E IT_042_ui_vlist_idlegate_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_043: the FULL demo composition (fleet-command) — everything together, headless verification.
+    add_executable(IT_043_ui_full_demo_e2e integration/IT_043_ui_full_demo_e2e.cpp)
+    target_link_libraries(IT_043_ui_full_demo_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIFullDemoE2E IT_043_ui_full_demo_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
@@ -2225,6 +2231,27 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         spdlog::spdlog
     )
     message(STATUS "UIModule showcase 'test_ui_showcase' enabled")
+endif()
+
+# FULL UI demo - "Fleet Command": the whole framework + JSON data-binding engine in one screen.
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILABLE)
+    add_executable(test_ui_full_demo WIN32
+        visual/test_ui_full_demo.cpp
+    )
+    target_include_directories(test_ui_full_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ui_full_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Full UI demo 'test_ui_full_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline

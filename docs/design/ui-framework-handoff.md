@@ -38,10 +38,13 @@ The UIModule went from a flat widget set to a capable framework. Slices, each TD
 | **Tabs** | sectioned container, page switching, `ui:tab:changed` | IT_029 |
 | **Drawers** | edge-docked (4 edges) sliding collapsible panel, `ui:drawer:*` | IT_030 |
 | **Modal** | centered dialog + dim focus-trap, `ui:modal:*` | IT_031 |
-| **List/Sidebar** | data-driven ship list — wheel + **scrollbar/drag-scroll** / clip / single-select / **virtualized** / **grouped** (collapsible wings), `ui:list:*` | IT_033/34/35 + `UIListUnit` |
-| **Perf** | flow layout measures each child 1× (was 3×) — safe half | `UILayoutUnit` |
+| **List/Sidebar** | data-driven ship list — wheel + **scrollbar/drag-scroll** / clip / single-select / **virtualized** / **grouped** (collapsible wings) / **virtualized TEMPLATE rows**, `ui:list:*` | IT_033/34/35/41/42 + `UIListUnit` |
+| **Input-capture** | `ui:capture {mouse,keyboard}` — anti-click-through (game skips world input under UI / during a UI grab) | IT_036 |
+| **JSON binding engine** | `grove::uibind` `{{path}}` resolver + scope-chain · binding-in (`applyBoundProp`) · declarative events-out (`on`) · reactivity (`ui:data`/`:set`/`:merge`, `setAtPath`) · repeater (`repeat`+`template`, per-item scope) · `if` · virtualized template list. NO expression language. Design: `docs/design/ui-binding.md` | `UIBindingUnit` + IT_037→042 |
+| **Full demo** | "Fleet Command" — the whole stack in one JSON screen (`assets/ui/demo_fleet_command.json`); visual `tests/visual/test_ui_full_demo.cpp` (run from repo root) | IT_043 |
+| **Perf** | flow layout measures each child 1× (was 3×); virtualized-list idle gate (no re-window on idle frames) | `UILayoutUnit` + IT_042 |
 
-New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order extensions to the base).
+New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order/binding extensions to the base + `grove::uibind`).
 
 ---
 
