@@ -59,6 +59,11 @@ re-resolve on every layout pass, so they track the parent automatically.
   of an **`absolute`-mode** parent (in flow layouts the flow positions the child, so the anchor is
   ignored). Ideal for HUD elements glued to a corner.
 
+A container can also use the **`grid`** layout mode — `"layout": { "type": "grid", "columns": N,
+"spacing": gap, "rowHeight": h }`. Cells share the content width across `N` columns (so the grid reflows
+on resize); `rowHeight` sets the cell height (omit / 0 = square cells). Children flow row-major. Good for
+rosters / inventories.
+
 ## UIButton
 
 Clickable button with hover/press states.

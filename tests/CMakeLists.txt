@@ -1841,6 +1841,19 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIAnchorReflowE2E IT_022_ui_anchor_reflow_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
+    # (UI framework slice 1.3).
+    add_executable(IT_023_ui_grid_reflow_e2e
+        integration/IT_023_ui_grid_reflow_e2e.cpp
+    )
+    target_link_libraries(IT_023_ui_grid_reflow_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIGridReflowE2E IT_023_ui_grid_reflow_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)

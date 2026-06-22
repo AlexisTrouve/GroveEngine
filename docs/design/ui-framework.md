@@ -161,9 +161,13 @@ Extends `Core/UILayout.{h,cpp}` + `UIWidget` sizing fields + `UITree` JSON + a r
   separate anchor — that's `widthPercent/heightPercent:1.0` from 1.1 (no redundant Stretch enum).
   **Proof:** oracle per anchor + offset + padded-box origin (`UILayoutUnit`) + `IT_022` E2E (a
   bottom-right-anchored button follows the corner across a resize — old spot empty, new corner hits).
-- **1.3 Grid** — `LayoutMode::Grid` (columns, gap, cell sizing). Pure
-  `gridCellRect(index, cols, cellW, cellH, gap) → rect`.
-  **Proof:** oracle + E2E (a button grid positioned correctly).
+- **1.3 Grid — ✅ SHIPPED** (2026-06-22). `LayoutMode::Grid` — `columns` + `spacing` (gap) + `rowHeight`
+  (cell height; 0 = square). Cells share the content width across the columns, so the grid **reflows** on
+  resize; children flow row-major via the pure `UILayout::gridCellRect(index, cols, cellW, cellH, gap)`.
+  **Proof:** oracle (cell placement + cells-fill-width reflow, `UILayoutUnit`) + `IT_023` E2E (a 2-col
+  grid's cells grow on resize — the same click hits the right cell before, the left one after).
+
+**Slice 1 (layout engine MVP) is COMPLETE** — reflow-on-resize + relative sizing + anchoring + grid.
 
 **Open question to resolve at 1.1:** where does the window-resize signal come from — InputModule/SDL
 or does BgfxRenderer already publish it? Verify at slice start; add the source cleanly if none exists.
@@ -199,4 +203,5 @@ them.
 |---|---|---|
 | 2026-06-22 | — | Design locked (this doc). Path A chosen. |
 | 2026-06-22 | 1.1 reflow-on-resize | ✅ SHIPPED. `ui:resize` → `relayoutRoot()` + `widthPercent`/`heightPercent` relative sizing. Locked by `UILayoutUnit` + `IT_021`. |
-| 2026-06-22 | 1.2 anchoring | ✅ SHIPPED. 9 positional anchors + `anchorOffset`, `resolveAnchor()` in the absolute branch. Locked by `UILayoutUnit` + `IT_022`. Grid (1.3) still pending to finish slice 1. |
+| 2026-06-22 | 1.2 anchoring | ✅ SHIPPED. 9 positional anchors + `anchorOffset`, `resolveAnchor()` in the absolute branch. Locked by `UILayoutUnit` + `IT_022`. |
+| 2026-06-22 | 1.3 grid | ✅ SHIPPED. `LayoutMode::Grid` (columns/gap/rowHeight), cells fill width → reflow, `gridCellRect()`. Locked by `UILayoutUnit` + `IT_023`. **Slice 1 (layout MVP) complete.** Next: slice 2 (clipping → window/z-order). |

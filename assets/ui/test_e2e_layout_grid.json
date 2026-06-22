@@ -1,0 +1,17 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "widthPercent": 1.0,
+  "heightPercent": 1.0,
+  "layout": { "type": "grid", "columns": 2, "spacing": 0, "rowHeight": 300 },
+  "children": [
+    { "type": "button", "id": "b0", "text": "0", "onClick": "test:b0" },
+    { "type": "button", "id": "b1", "text": "1", "onClick": "test:b1" },
+    { "type": "button", "id": "b2", "text": "2", "onClick": "test:b2" },
+    { "type": "button", "id": "b3", "text": "3", "onClick": "test:b3" }
+  ]
+}

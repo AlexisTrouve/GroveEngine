@@ -14,7 +14,8 @@ enum class LayoutMode {
     Vertical,   // Stack children vertically
     Horizontal, // Stack children horizontally
     Stack,      // Overlay children (superposed)
-    Absolute    // No automatic layout (manual positioning)
+    Absolute,   // No automatic layout (manual positioning)
+    Grid        // N-column uniform grid; cells fill the width (so it reflows on resize)
 };
 
 /**
@@ -70,6 +71,11 @@ struct LayoutProperties {
     float maxHeight = -1.0f;
 
     float flex = 0.0f;  // Flex grow factor (0 = fixed size)
+
+    // Grid (LayoutMode::Grid). columns = number of columns; cells share the content width minus
+    // gaps (gap = `spacing`, reused). rowHeight = cell height; 0 = square cells (height = width).
+    int columns = 1;
+    float rowHeight = 0.0f;
 
     /**
      * @brief Helper to get total horizontal padding
@@ -135,6 +141,16 @@ struct AnchorPos {
 };
 
 /**
+ * @brief A resolved rectangle (position relative to the grid content origin + cell size).
+ */
+struct CellRect {
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+};
+
+/**
  * @brief Layout engine - handles automatic positioning of widgets
  */
 class UILayout {
@@ -168,6 +184,13 @@ public:
                                    float boxX, float boxY, float boxW, float boxH,
                                    float w, float h, float offX, float offY);
 
+    /**
+     * @brief Position+size of cell `index` in a grid of `cols` columns. Pure — oracle-tested.
+     *        Row-major: col = index % cols, row = index / cols. Returns {x,y} relative to the grid
+     *        content origin (caller adds padding), plus the cell size {cellW, cellH}.
+     */
+    static CellRect gridCellRect(int index, int cols, float cellW, float cellH, float gap);
+
 private:
     /**
      * @brief Measure children for vertical layout
@@ -185,6 +208,11 @@ private:
     static LayoutMeasurement measureStack(UIWidget* widget);
 
     /**
+     * @brief Measure children for grid layout
+     */
+    static LayoutMeasurement measureGrid(UIWidget* widget);
+
+    /**
      * @brief Layout children vertically
      */
     static void layoutVertical(UIWidget* widget, float availableWidth, float availableHeight);
@@ -198,6 +226,11 @@ private:
      * @brief Layout children in stack mode (overlay)
      */
     static void layoutStack(UIWidget* widget, float availableWidth, float availableHeight);
+
+    /**
+     * @brief Layout children in grid mode (N columns, cells fill the content width)
+     */
+    static void layoutGrid(UIWidget* widget, float availableWidth, float availableHeight);
 
     /**
      * @brief Clamp size to min/max constraints

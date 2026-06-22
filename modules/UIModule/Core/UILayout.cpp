@@ -27,6 +27,9 @@ LayoutMeasurement UILayout::measure(UIWidget* widget) {
         case LayoutMode::Stack:
             result = measureStack(widget);
             break;
+        case LayoutMode::Grid:
+            result = measureGrid(widget);
+            break;
         case LayoutMode::Absolute:
         default:
             // For absolute layout, use explicit size or measure children
@@ -146,6 +149,9 @@ void UILayout::layout(UIWidget* widget, float availableWidth, float availableHei
             break;
         case LayoutMode::Stack:
             layoutStack(widget, contentWidth, contentHeight);
+            break;
+        case LayoutMode::Grid:
+            layoutGrid(widget, contentWidth, contentHeight);
             break;
         case LayoutMode::Absolute:
         default: {
@@ -398,6 +404,65 @@ void UILayout::layoutStack(UIWidget* widget, float availableWidth, float availab
 
         layout(child.get(), childWidth, childHeight);
     }
+}
+
+// =============================================================================
+// Grid
+// =============================================================================
+
+LayoutMeasurement UILayout::measureGrid(UIWidget* widget) {
+    const int cols = std::max(1, widget->layoutProps.columns);
+    int visible = 0;
+    for (auto& child : widget->children) {
+        if (child->visible) visible++;
+    }
+    const int rows = (visible + cols - 1) / cols;
+
+    LayoutMeasurement result{0.0f, 0.0f};
+    // Width is left to the container (cells fill it). Height = rows * rowHeight + inter-row gaps,
+    // or 0 when rowHeight is unset (the cell height then derives from the width at layout time).
+    const float gap = widget->layoutProps.spacing;
+    const float rowH = widget->layoutProps.rowHeight;
+    if (rows > 0) {
+        result.preferredHeight = rows * rowH + (rows - 1) * gap;
+    }
+    return result;
+}
+
+void UILayout::layoutGrid(UIWidget* widget, float availableWidth, float availableHeight) {
+    (void)availableHeight;  // rows grow downward; the container scrolls/clips if it overflows
+    const int cols = std::max(1, widget->layoutProps.columns);
+    const float gap = widget->layoutProps.spacing;
+    const float padL = widget->layoutProps.getLeftPadding();
+    const float padT = widget->layoutProps.getTopPadding();
+
+    // Cells share the content width minus inter-column gaps -> they grow/shrink with the container,
+    // so the grid REFLOWS on resize. Cell height = explicit rowHeight, else square (= cell width).
+    const float cellW = (availableWidth - (cols - 1) * gap) / static_cast<float>(cols);
+    const float rowH = widget->layoutProps.rowHeight;
+    const float cellH = rowH > 0.0f ? rowH : cellW;
+
+    int i = 0;
+    for (auto& child : widget->children) {
+        if (!child->visible) continue;
+        CellRect c = gridCellRect(i, cols, cellW, cellH, gap);
+        child->x = padL + c.x;
+        child->y = padT + c.y;
+        layout(child.get(), c.w, c.h);
+        ++i;
+    }
+}
+
+CellRect UILayout::gridCellRect(int index, int cols, float cellW, float cellH, float gap) {
+    const int c = (cols > 0) ? cols : 1;
+    const int col = index % c;
+    const int row = index / c;
+    CellRect r;
+    r.x = col * (cellW + gap);   // each column steps over the cell + one gap
+    r.y = row * (cellH + gap);
+    r.w = cellW;
+    r.h = cellH;
+    return r;
 }
 
 // =============================================================================

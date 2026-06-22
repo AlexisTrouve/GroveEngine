@@ -138,3 +138,39 @@ TEST_CASE("An anchored child in an absolute parent tracks the corner on reflow",
     CHECK(near(hud->x, 1090.0f));  // 1200-100-10
     CHECK(near(hud->y, 750.0f));   // 800-40-10
 }
+
+// ----------------------------------------------------------------------------
+// Slice 1.3 — grid
+// ----------------------------------------------------------------------------
+
+TEST_CASE("gridCellRect places cells row-major with gaps", "[ui][layout][grid]") {
+    // 3 columns, 100x80 cells, 10px gap. col = index%3, row = index/3.
+    auto c = [](int i) { return UILayout::gridCellRect(i, 3, 100.0f, 80.0f, 10.0f); };
+    CHECK(near(c(0).x, 0.0f));    CHECK(near(c(0).y, 0.0f));
+    CHECK(near(c(1).x, 110.0f));  CHECK(near(c(1).y, 0.0f));
+    CHECK(near(c(2).x, 220.0f));  CHECK(near(c(2).y, 0.0f));
+    CHECK(near(c(3).x, 0.0f));    CHECK(near(c(3).y, 90.0f));   // wraps to row 1
+    CHECK(near(c(4).x, 110.0f));  CHECK(near(c(4).y, 90.0f));
+    CHECK(near(c(0).w, 100.0f));  CHECK(near(c(0).h, 80.0f));
+}
+
+TEST_CASE("Grid cells fill the content width and reflow on resize", "[ui][layout][grid]") {
+    Box root;
+    root.layoutProps.mode = LayoutMode::Grid;
+    root.layoutProps.columns = 2;
+    root.layoutProps.spacing = 10.0f;     // gap
+    root.layoutProps.rowHeight = 80.0f;
+    Box* c0 = addBox(&root);
+    Box* c1 = addBox(&root);
+    Box* c2 = addBox(&root);
+
+    UILayout::layout(&root, 410.0f, 600.0f);   // content 410, 2 cols, gap 10 -> cellW 200
+    CHECK(near(c0->width, 200.0f));  CHECK(near(c0->x, 0.0f));   CHECK(near(c0->y, 0.0f));
+    CHECK(near(c1->x, 210.0f));      CHECK(near(c1->y, 0.0f));
+    CHECK(near(c2->x, 0.0f));        CHECK(near(c2->y, 90.0f));  // wraps to row 1 (80 + 10 gap)
+    CHECK(near(c0->height, 80.0f));
+
+    UILayout::layout(&root, 810.0f, 600.0f);   // wider -> cells grow to 400 (reflow)
+    CHECK(near(c0->width, 400.0f));
+    CHECK(near(c1->x, 410.0f));
+}

@@ -488,7 +488,8 @@ void UITree::parseLayoutProperties(UIWidget* widget, const IDataNode& layoutNode
         {"vertical", LayoutMode::Vertical},
         {"horizontal", LayoutMode::Horizontal},
         {"stack", LayoutMode::Stack},
-        {"absolute", LayoutMode::Absolute}
+        {"absolute", LayoutMode::Absolute},
+        {"grid", LayoutMode::Grid}
     };
     auto modeIt = modeMap.find(modeStr);
     if (modeIt != modeMap.end()) {
@@ -547,6 +548,10 @@ void UITree::parseLayoutProperties(UIWidget* widget, const IDataNode& layoutNode
 
     // Flex
     widget->layoutProps.flex = static_cast<float>(layoutNode.getDouble("flex", 0.0));
+
+    // Grid (slice 1.3): columns + cell height (gap reuses `spacing`).
+    widget->layoutProps.columns = layoutNode.getInt("columns", 1);
+    widget->layoutProps.rowHeight = static_cast<float>(layoutNode.getDouble("rowHeight", 0.0));
 }
 
 } // namespace grove
