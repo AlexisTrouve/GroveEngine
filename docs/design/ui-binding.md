@@ -120,5 +120,17 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
   **virtualized template list** (`IT_041`). A full "UI = JSON data-driven" engine: describe the UI in JSON
   (incl. virtualized templated lists), bind it to engine `IDataNode` data, repeat/condition/react, with
   declarative context-bound events — and NO expression language (logic stays game-side). Modes liste actuels
-  (simple/groupes/template) sont des fast-paths additifs. Follow-ons (perf/scope, non bloquants): re-résolution
-  versionnée/par-binding, repeaters imbriqués, layout flexible des instances, réconciliation par clé.
+  (simple/groupes/template) sont des fast-paths additifs.
+- 2026-06-22 — **Perf: template-list idle gate** ✅. `updateTemplateLists` skips a list's re-window + re-resolve
+  on frames where no input changed (scroll / data version / list geometry) — `UIList::windowDirty(version)`
+  latches a signature; `UIModule` bumps `m_dataVersion` on each push. Idle frames now do zero data-driven work
+  per list. Locked by `IT_042` (the `templateWindowOps` health-status counter: unchanged on idle, +1 on
+  scroll, +1 on data push) + `IT_041` (behaviour preserved). Honest note: at ~40-row scale this is HYGIENE/
+  headroom, not necessity — the bigger items below are deliberately DEFERRED as premature + correctness-
+  sensitive (do them only if profiling shows real cost):
+  - **dirty-gated layout** — `UIPanel::update` runs `UILayout` every frame for flow panels; gate on a layout-
+    dirty flag (risk: a missed invalidation = stale layout; needs a test that layout still updates on every
+    relevant change — resize / % / text-size / child add).
+  - **fine-grained re-resolve** (binding → dependency paths, re-resolve only affected bindings),
+  - **keyed reconciliation** of repeaters/template lists (diff instead of clear+rebuild on data change),
+  - **nested repeaters**, **flexible instance layout** (rows stack by index today).

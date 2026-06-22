@@ -121,6 +121,17 @@ public:
     bool isTemplateMode() const { return !repeatPath.empty() && !repeatTemplateJson.empty(); }
     void setTemplateRowCount(int n) { m_templateRowCount = n; }   // UIModule tells the list the data count
 
+    // PERF idle-gate: returns true (and latches the new signature) only when a window INPUT changed since
+    // last frame — scroll, the data version, or the list's geometry (so a moved/resized list re-windows).
+    // An idle frame (nothing changed) returns false -> UIModule skips the re-window + re-resolve.
+    bool windowDirty(uint64_t dataVersion) {
+        if (m_lwScroll == scrollOffsetY && m_lwVersion == dataVersion && m_lwAbsX == absX &&
+            m_lwAbsY == absY && m_lwW == width && m_lwH == height && m_lwRowH == rowHeight) return false;
+        m_lwScroll = scrollOffsetY; m_lwVersion = dataVersion; m_lwAbsX = absX; m_lwAbsY = absY;
+        m_lwW = width; m_lwH = height; m_lwRowH = rowHeight;
+        return true;
+    }
+
     // --- Data (data-driven via the UITree factory / ui:list:set_items / ui:list:set_groups). ---
     // Replace the whole item set (FLAT mode — one ungrouped sequence). Resets scroll + selection.
     // Virtualized: no renderer release needed — render() recycles the row-slot pool.
@@ -216,6 +227,10 @@ private:
     uint32_t m_thumbId = 0;            // scrollbar thumb render entry
 
     int m_templateRowCount = 0;        // template mode: the data-array length (set by UIModule each frame)
+
+    // Last-windowed signature (perf idle-gate, see windowDirty). Sentinels -> first call always re-windows.
+    float    m_lwScroll = -1e30f, m_lwAbsX = -1e30f, m_lwAbsY = -1e30f, m_lwW = -1e30f, m_lwH = -1e30f, m_lwRowH = -1e30f;
+    uint64_t m_lwVersion = static_cast<uint64_t>(-1);
 };
 
 } // namespace grove

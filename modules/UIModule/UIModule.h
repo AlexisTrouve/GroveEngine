@@ -93,6 +93,8 @@ private:
     // declarative events resolve against it. resolveAllBindings re-applies every widget binding (called at
     // load + on ui:data); fireWidgetEvent publishes a widget's declarative event with {{}}-resolved args.
     nlohmann::json m_uiData = nlohmann::json::object();
+    uint64_t m_dataVersion = 0;          // bumped on every data push — drives the template-list idle gate
+    uint64_t m_templateWindowCount = 0;  // perf introspection (reported in getHealthStatus): #re-windows
     void resolveAllBindings();
     void expandRepeaters();        // (re)instantiate every NON-list repeater's template per data-array element
     void updateTemplateLists();    // window+bind the VIRTUALIZED template lists (only visible rows) each frame

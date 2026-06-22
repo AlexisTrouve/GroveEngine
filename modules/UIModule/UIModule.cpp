@@ -324,6 +324,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
                 m_uiData = jn->getJsonData();
             }
+            ++m_dataVersion;
             refreshDataDriven();
         });
 
@@ -337,6 +338,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 const auto& j = jn->getJsonData();
                 if (j.contains("value")) {
                     uibind::setAtPath(m_uiData, path, j["value"]);
+                    ++m_dataVersion;
                     refreshDataDriven();
                 }
             }
@@ -348,6 +350,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (!msg.data) return;
             if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
                 m_uiData.merge_patch(jn->getJsonData());
+                ++m_dataVersion;
                 refreshDataDriven();
             }
         });
@@ -563,6 +566,10 @@ void UIModule::updateTemplateLists() {
         UIList* list = static_cast<UIList*>(w);
         const float rh = list->rowHeight;
         if (rh <= 0.0f) continue;
+
+        // PERF idle-gate: skip the re-window + re-resolve unless an input changed (scroll / data / geometry).
+        if (!list->windowDirty(m_dataVersion)) continue;
+        ++m_templateWindowCount;
 
         // The bound data array + its count (drives the scroll range via setTemplateRowCount).
         const uibind::json* arr = uibind::resolvePath(root, list->repeatPath);
@@ -1140,6 +1147,9 @@ std::unique_ptr<IDataNode> UIModule::getHealthStatus() {
     health->setString("status", "running");
     health->setInt("frameCount", static_cast<int>(m_frameCount));
     health->setBool("hasRoot", m_root != nullptr);
+    // Perf introspection: how many times a virtualized template list was actually re-windowed (idle frames
+    // skip it via the windowDirty gate). Lets a test prove the gate works without IIO-observable effects.
+    health->setInt("templateWindowOps", static_cast<int>(m_templateWindowCount));
     return health;
 }
 

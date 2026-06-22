@@ -1984,6 +1984,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIVListE2E IT_041_ui_vlist_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_042: virtualized-list idle gate (perf) — no re-window on idle frames; scroll/data re-window.
+    add_executable(IT_042_ui_vlist_idlegate_e2e integration/IT_042_ui_vlist_idlegate_e2e.cpp)
+    target_link_libraries(IT_042_ui_vlist_idlegate_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIVListIdleGateE2E IT_042_ui_vlist_idlegate_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
