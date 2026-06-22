@@ -540,12 +540,15 @@ static void parseWidgetBindings(UIWidget* widget, const IDataNode& node) {
     // Bindable props: any scalar STRING value containing a {{...}} placeholder.
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& key = it.key();
-        if (key == "on" || key == "children" || key == "template" || key == "repeat") continue;  // structural
+        if (key == "on" || key == "children" || key == "template" || key == "repeat" || key == "if") continue;
         if (it.value().is_string()) {
             const std::string v = it.value().get<std::string>();
             if (v.find("{{") != std::string::npos) widget->bindings.push_back({key, v});
         }
     }
+
+    // Conditional render: `"if":"{{flag}}"`.
+    if (j.contains("if") && j["if"].is_string()) widget->ifBinding = j["if"].get<std::string>();
 
     // Repeater: "repeat":"{{<path>}}" + "template":{...}. Record the data path + the template (serialized
     // as a json string, re-parsed per item at expand time — keeps UIWidget free of any IDataNode coupling).

@@ -464,22 +464,35 @@ static const uibind::Scope* scopeFor(UIWidget* w, const uibind::Scope& root, uib
 // Recurse the tree applying each widget's data-bindings against ITS scope (root, or its repeater item).
 // Each binding is resolved three ways — string (text), number (value/x/...), bool (visible) — and the
 // widget picks the form it needs in applyBoundProp.
-static void resolveWidgetBindings(UIWidget* w, const uibind::Scope& root) {
+static void resolveWidgetBindings(UIWidget* w, const uibind::Scope& root, UIRenderer* renderer) {
     uibind::Scope item;
     const uibind::Scope* scope = scopeFor(w, root, item);
+
+    // Conditional `if`: a FALSE condition hides the widget + purges its retained entries (release publishes
+    // render:*:remove -> no ghost), and skips resolving/recursing the hidden subtree.
+    if (!w->ifBinding.empty()) {
+        const bool show = uibind::resolveBool(*scope, w->ifBinding);
+        if (!show) {
+            if (w->visible && renderer) w->releaseRenderEntries(*renderer);
+            w->visible = false;
+            return;
+        }
+        w->visible = true;
+    }
+
     for (const auto& b : w->bindings) {
         w->applyBoundProp(b.first,
                           uibind::interpolate(*scope, b.second),
                           uibind::resolveNumber(*scope, b.second),
                           uibind::resolveBool(*scope, b.second));
     }
-    for (auto& child : w->children) resolveWidgetBindings(child.get(), root);
+    for (auto& child : w->children) resolveWidgetBindings(child.get(), root, renderer);
 }
 
 void UIModule::resolveAllBindings() {
     if (!m_root) return;
     uibind::Scope root{ &m_uiData, nullptr };
-    resolveWidgetBindings(m_root.get(), root);
+    resolveWidgetBindings(m_root.get(), root, m_renderer.get());
 }
 
 // Set the same scopePath on a whole template instance (all its widgets share one item scope).

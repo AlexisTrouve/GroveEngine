@@ -221,10 +221,12 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   (`IT_037`); (3) robust reactivity — `ui:data` (replace) / `ui:data:set {path,value}` (deep set via
   `uibind::setAtPath`) / `ui:data:merge` (RFC 7386), each re-resolves + preserves the rest (`IT_038`); (4)
   **repeater** — `"repeat":"{{path}}"`+`"template"` on any host instantiates the template per item, each
-  widget carrying a `scopePath` so bindings AND events resolve per-item (`expandRepeaters`, `IT_039`).
-  **Resume at step 5 (`if` show/hide)** then **step 6 (the LIST becomes a virtualized repeater** — fold the
-  rowTemplate + virtualization in; the UIScrollPanel de-scroll sharp edge). Deferred: nested repeaters,
-  flexible instance layout (rows stack by index today), keyed reconciliation (re-instantiate-all today). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
+  widget carrying a `scopePath` so bindings AND events resolve per-item (`expandRepeaters`, `IT_039`); (5)
+  **`if`** — `"if":"{{flag}}"` renders only while the bound bool is true, hiding + RELEASING the subtree's
+  retained entries when false (`IT_040`). The engine is feature-complete for general widgets.
+  **Resume at step 6 (the LIST becomes a virtualized repeater** — fold the rowTemplate + virtualization in;
+  the UIScrollPanel de-scroll sharp edge). Deferred: nested repeaters, flexible instance layout (rows stack
+  by index today), keyed reconciliation (re-instantiate-all today). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
   game-side. This SUBSUMES the list's "custom row templates" follow-on (a row template = a JSON widget subtree
   repeated + bound). Sharp edges still ahead: typed-prop set per widget (partly done — extend `applyBoundProp`);
   repeater × virtualization (step 6, the UIScrollPanel de-scroll trap).

@@ -1,0 +1,19 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "ifLbl",
+      "type": "label",
+      "x": 20,
+      "y": 20,
+      "text": "Hello",
+      "fontSize": 16,
+      "if": "{{showLabel}}"
+    }
+  ]
+}

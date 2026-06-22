@@ -149,6 +149,10 @@ public:
     std::string repeatTemplateJson;
     std::string scopePath;
 
+    // Conditional (step 5): `"if":"{{flag}}"` — the widget renders only when the bound bool is true. When
+    // it goes false the subtree is hidden AND its retained entries are released (no ghost). "" = no condition.
+    std::string ifBinding;
+
     // Apply a resolved bound value to property `prop`. UIModule passes it pre-resolved as string / number /
     // bool; the widget picks the form it needs. Base handles common geometry/visibility; widgets OVERRIDE
     // for their own props (label: text, progressbar: value), then call this base for the rest.

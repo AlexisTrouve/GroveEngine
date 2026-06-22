@@ -73,7 +73,11 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
    dispatch surfaces a button with a declarative `on:click` even without a legacy `onClick`. Locked by `IT_039`
    (per-item label binding + per-item button event + re-expansion). Deferred: nested repeaters (a `repeat`
    inside a template — only root-scope hosts expand for now).
-5. **Conditional** — `if`.
+5. **Conditional** — ✅ **SHIPPED**. `"if":"{{flag}}"` on any widget: it renders only while the bound bool is
+   true. When it goes false the subtree is hidden AND its retained entries are **released** (`render:*:remove`
+   — no ghost, unlike a plain `"visible":"{{}}"` binding), and the hidden subtree is skipped. Evaluated against
+   the widget's scope (so it works per-item in a repeater). Locked by `IT_040` (show → render / hide → purge /
+   re-show → re-register).
 6. **List = virtualized repeater** — fold the rowTemplate + in-row events + virtualization into the engine (the
    sharp edge: re-binding/positioning real widget subtrees on scroll without the UIScrollPanel "de-scroll" bug).
 
@@ -90,14 +94,17 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
   `fleet:recall {shipId: ...}` on click, args resolved against the scope.
 - **Repeat a template** over a data array: `"repeat":"{{fleet}}","template":{...}` on a host widget → one
   template instance per element, each element the row's scope (so `{{name}}` / the row's events are per-item).
+- **Conditionally render**: `"if":"{{flag}}"` on any widget → shown only while the bound bool is true (hides +
+  purges its retained entries when false). Negation is NOT supported (no expression language) — bind the game's
+  own boolean.
 - **Push the model** (3 ways, each re-resolves; each preserves the untouched rest):
   - `ui:data {<whole model>}` — replace the entire context.
   - `ui:data:set {path, value}` — set one deep path (e.g. `{"path":"ship.hp","value":0.5}`).
   - `ui:data:merge {<partial>}` — deep-merge a patch (RFC 7386; a `null` value deletes a key).
 
 ## Status
-- 2026-06-22 — **Steps 1-4 SHIPPED**: socle (`UIBindingUnit`) + binding-in/events-out (`IT_037`) + reactivity
-  (`IT_038`) + **repeater with per-item scope** (`IT_039`). The core data-driven vision (read/write/react +
-  template×data + per-item binding & events) is realised. **Next: step 5 (`if` show/hide)** then **step 6
-  (the LIST becomes a virtualized repeater** — fold rowTemplate + virtualization in; the sharp edge). Modes
-  liste actuels (simple/groupes) restent des fast-paths additifs.
+- 2026-06-22 — **Steps 1-5 SHIPPED**: socle (`UIBindingUnit`) + binding-in/events-out (`IT_037`) + reactivity
+  (`IT_038`) + **repeater** per-item scope (`IT_039`) + **`if`** show/hide+purge (`IT_040`). The data-driven
+  engine is feature-complete for general widgets. **Next: step 6 — the LIST becomes a virtualized repeater**
+  (fold rowTemplate + virtualization into the engine; the UIScrollPanel de-scroll sharp edge). Modes liste
+  actuels (simple/groupes) restent des fast-paths additifs.
