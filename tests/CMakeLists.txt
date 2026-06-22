@@ -2002,6 +2002,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIShipInspectorE2E IT_044_ui_ship_inspector_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_045: smart resize — a window lays out its content responsively (% + flex reflow on viewport resize).
+    add_executable(IT_045_ui_window_resize_smart_e2e integration/IT_045_ui_window_resize_smart_e2e.cpp)
+    target_link_libraries(IT_045_ui_window_resize_smart_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIWindowResizeSmartE2E IT_045_ui_window_resize_smart_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

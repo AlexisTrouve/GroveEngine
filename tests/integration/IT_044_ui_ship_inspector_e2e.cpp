@@ -40,7 +40,7 @@ TEST_CASE("IT_044: ship inspector blueprint — sprites-as-UI + clickable data-d
     JsonDataNode cfg("config");
     cfg.setInt("windowWidth", 1280);
     cfg.setInt("windowHeight", 720);
-    cfg.setString("layoutFile", "../../assets/ui/demo_ship_inspector.json");
+    cfg.setString("layoutFile", "../../assets/ui/test_e2e_blueprint.json");
     cfg.setInt("baseLayer", 1000);
     REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
 

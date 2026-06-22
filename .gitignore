@@ -60,3 +60,5 @@ chaos_*.txt
 # headless demo capture outputs
 demo_capture.png
 ship_capture.png
+ship_small.png
+ship_large.png

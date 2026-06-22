@@ -1,5 +1,6 @@
 #include "UIWindow.h"
 #include "../Core/UIContext.h"
+#include "../Core/UILayout.h"   // responsive content: lay out children against the content box on resize
 #include "../Rendering/UIRenderer.h"
 
 namespace grove {
@@ -62,10 +63,20 @@ void UIWindow::update(UIContext& ctx, float deltaTime) {
     // drag / close / raise — is driven centrally by UIModule in slice 3b-2.)
     float rx, ry, rw, rh;
     contentRect(rx, ry, rw, rh);
-    (void)rw; (void)rh;
+
+    // SMART RESIZE: lay the content out against the content box (rw x rh) every frame — this resolves
+    // relative `%` sizes, 9-point anchors and flow modes, so the content REFLOWS when the window is resized.
+    // (Absolute children with no anchor/percent keep their explicit x/y, so static windows are unchanged.)
+    // NOTE: UILayout::layout(w, aw, ah) sets w->width/height = the available box; that's meant for a parent
+    // sizing itself, but here `this` is the window and must KEEP its own size — so save + restore it.
+    const float selfW = width, selfH = height;
+    UILayout::measure(this);
+    UILayout::layout(this, rw, rh);
+    width = selfW; height = selfH;
+
     for (auto& child : children) {
         if (!child->visible) continue;
-        child->absX = rx + child->x;
+        child->absX = rx + child->x;   // offset the laid-out relative pos to the content origin
         child->absY = ry + child->y;
         for (auto& grandChild : child->children) {
             grandChild->computeAbsolutePosition();

@@ -18,6 +18,7 @@
 #include <grove/IntraIO.h>
 #include <nlohmann/json.hpp>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include <string>
 #include <memory>
@@ -48,7 +49,8 @@ static void svpng(FILE* fp, unsigned w, unsigned h, const unsigned char* img, in
 
 int main(int argc, char** argv) {
     const std::string out = argc > 1 ? argv[1] : "ship_capture.png";
-    const int W = 1280, H = 720;
+    const int W = argc > 2 ? std::atoi(argv[2]) : 1280;   // viewport size (the window is % of it)
+    const int H = argc > 3 ? std::atoi(argv[3]) : 720;
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { std::fprintf(stderr, "no SDL\n"); return 1; }
     SDL_Window* win = SDL_CreateWindow("cap", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
