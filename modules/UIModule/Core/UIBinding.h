@@ -43,4 +43,10 @@ bool   resolveBool(const Scope& scope, const std::string& tmpl, bool def = false
 /// null/absent -> ""). Exposed for reuse (e.g. event-arg payloads).
 std::string leafToString(const json& leaf);
 
+/// Write `value` at a dotted path in `root` — the WRITE side, symmetric to resolvePath (the read side).
+/// Creates intermediate OBJECTS as needed; descends into EXISTING array elements (numeric segment); on the
+/// FINAL segment of an array it extends with nulls to reach the index. An empty path replaces `root` whole.
+/// Returns false only on a malformed path (empty segment, or an index into a too-short intermediate array).
+bool setAtPath(json& root, const std::string& path, const json& value);
+
 } // namespace grove::uibind

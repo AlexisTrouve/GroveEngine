@@ -1,5 +1,6 @@
 #include "UIBinding.h"
 #include <cctype>
+#include <vector>
 
 namespace grove::uibind {
 
@@ -119,6 +120,49 @@ double resolveNumber(const Scope& scope, const std::string& tmpl, double def) {
         return def;
     }
     try { return std::stod(tmpl); } catch (...) { return def; }   // a literal number prop
+}
+
+static bool toIndex(const std::string& seg, size_t& out) {
+    if (seg.empty()) return false;
+    for (char c : seg) if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    try { out = std::stoul(seg); return true; } catch (...) { return false; }
+}
+
+bool setAtPath(json& root, const std::string& path, const json& value) {
+    if (path.empty()) { root = value; return true; }   // empty path -> replace the whole context
+
+    // Split the dotted path.
+    std::vector<std::string> segs;
+    size_t start = 0, dot;
+    while ((dot = path.find('.', start)) != std::string::npos) { segs.push_back(path.substr(start, dot - start)); start = dot + 1; }
+    segs.push_back(path.substr(start));
+    for (const auto& s : segs) if (s.empty()) return false;   // malformed (e.g. "a..b")
+
+    // Descend through the intermediate segments, creating objects on the way.
+    json* cur = &root;
+    for (size_t i = 0; i + 1 < segs.size(); ++i) {
+        if (cur->is_array()) {
+            size_t idx;
+            if (!toIndex(segs[i], idx) || idx >= cur->size()) return false;   // can't grow a mid-path array
+            cur = &(*cur)[idx];
+        } else {
+            if (!cur->is_object()) *cur = json::object();   // coerce null/scalar intermediate to an object
+            cur = &(*cur)[segs[i]];                         // operator[] creates a null child if missing
+        }
+    }
+
+    // Set the final segment.
+    const std::string& last = segs.back();
+    if (cur->is_array()) {
+        size_t idx;
+        if (!toIndex(last, idx)) return false;
+        while (cur->size() <= idx) cur->push_back(json(nullptr));   // extend to reach the index
+        (*cur)[idx] = value;
+    } else {
+        if (!cur->is_object()) *cur = json::object();
+        (*cur)[last] = value;
+    }
+    return true;
 }
 
 bool resolveBool(const Scope& scope, const std::string& tmpl, bool def) {

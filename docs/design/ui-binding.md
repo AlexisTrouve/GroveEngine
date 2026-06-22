@@ -58,7 +58,13 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
    with bound args). **Deferred to their steps**: repeater scopes (events use the ROOT scope for now);
    purely-declarative widgets (an `on` with no legacy handler isn't surfaced by dispatch yet — the button in
    IT_037 keeps an `onClick` so it's returned on release).
-3. **Reactivity** — `ui:data` topic + context version + re-resolve on change.
+3. **Reactivity** — ✅ **SHIPPED**. Partial, robust data updates so the game never re-sends the whole model:
+   **`ui:data {<model>}`** (replace), **`ui:data:set {path, value}`** (deep path set via the pure tested
+   `uibind::setAtPath` — creates intermediate objects, descends/extends arrays), **`ui:data:merge {<partial>}`**
+   (nlohmann `merge_patch`, RFC 7386 deep merge; null deletes). Each re-resolves all bindings; each preserves
+   the untouched rest of the model. Locked by `UIBindingUnit` (`setAtPath` edge cases) + `IT_038`
+   (set/merge/nested-merge each update one field, the others intact). Versioned / per-binding re-resolve is a
+   deferred PERF follow-on (re-resolve-all is fine for UI-sized data).
 4. **Repeater** — `repeat`+`template`+child scope on any widget (instantiate-all; small N). Events-with-scope fall
    out for free.
 5. **Conditional** — `if`.
@@ -76,11 +82,14 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
   (progressbar), `visible`/`x`/`y`/`width`/`height` (any). More props = extend `applyBoundProp` per widget.
 - **Declare events**: `"on":{"click":{"event":"fleet:recall","args":{"shipId":"{{id}}"}}}` → publishes
   `fleet:recall {shipId: ...}` on click, args resolved against the scope.
-- **Push the model**: `ui:data {<the whole view-model>}` (json-backed, like any IIO payload) → re-resolves all
-  bindings. (Reactivity is "re-resolve everything on push" for now — fine for UI-sized data.)
+- **Push the model** (3 ways, each re-resolves; each preserves the untouched rest):
+  - `ui:data {<whole model>}` — replace the entire context.
+  - `ui:data:set {path, value}` — set one deep path (e.g. `{"path":"ship.hp","value":0.5}`).
+  - `ui:data:merge {<partial>}` — deep-merge a patch (RFC 7386; a `null` value deletes a key).
 
 ## Status
-- 2026-06-22 — **Steps 1-2 SHIPPED**: the `grove::uibind` socle (`UIBindingUnit`) + binding-in/events-out wired
-  to widgets + `ui:data` (`IT_037`). **Next: step 3** (reactivity refinements — version / partial `ui:data:set`)
-  OR jump to **step 4 (repeater)** which is the higher-value unlock (the list folds in at step 6). Modes liste
-  actuels (simple/groupes) restent des fast-paths additifs.
+- 2026-06-22 — **Steps 1-3 SHIPPED**: the `grove::uibind` socle (`UIBindingUnit`) + binding-in/events-out
+  (`IT_037`) + robust reactivity (`ui:data` / `:set` / `:merge`, `setAtPath`, `IT_038`). **Next: step 4
+  (repeater)** — `repeat`+`template`+child scope on any widget; the higher-value unlock (events-with-scope fall
+  out for free), and the prerequisite for the list-as-virtualized-repeater (step 6). Modes liste actuels
+  (simple/groupes) restent des fast-paths additifs.

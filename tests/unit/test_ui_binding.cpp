@@ -65,6 +65,42 @@ TEST_CASE("UIBindingUnit: typed resolution for non-string props", "[ui][binding]
     REQUIRE(resolveBool(s, "false") == false);
 }
 
+TEST_CASE("UIBindingUnit: setAtPath writes deep paths (the write side)", "[ui][binding][unit]") {
+    SECTION("top-level key") {
+        json d = json::object();
+        REQUIRE(setAtPath(d, "credits", 1300));
+        REQUIRE(d["credits"] == 1300);
+    }
+    SECTION("nested — creates intermediate objects") {
+        json d = json::object();
+        REQUIRE(setAtPath(d, "ship.hp", 0.5));
+        REQUIRE(d["ship"]["hp"] == 0.5);
+    }
+    SECTION("existing array element") {
+        json d = { {"fleet", json::array({ {{"hp", 1.0}}, {{"hp", 1.0}} })} };
+        REQUIRE(setAtPath(d, "fleet.1.hp", 0.3));
+        REQUIRE(d["fleet"][1]["hp"] == 0.3);
+        REQUIRE(d["fleet"][0]["hp"] == 1.0);     // untouched
+    }
+    SECTION("empty path replaces the whole context") {
+        json d = { {"a", 1} };
+        REQUIRE(setAtPath(d, "", json{{"b", 2}}));
+        REQUIRE(d == json{{"b", 2}});
+    }
+    SECTION("type change + scalar intermediate coercion") {
+        json d = { {"x", "str"} };
+        REQUIRE(setAtPath(d, "x", 5));           // string -> number
+        REQUIRE(d["x"] == 5);
+        REQUIRE(setAtPath(d, "x.y", 1));         // scalar intermediate coerced to object
+        REQUIRE(d["x"] == json{{"y", 1}});
+    }
+    SECTION("malformed path / mid-path array out of range -> false") {
+        json d = { {"fleet", json::array()} };
+        REQUIRE_FALSE(setAtPath(d, "a..b", 1));          // empty segment
+        REQUIRE_FALSE(setAtPath(d, "fleet.0.hp", 1));    // index into an empty array, mid-path
+    }
+}
+
 TEST_CASE("UIBindingUnit: scope chain — local / $parent / $root", "[ui][binding][unit]") {
     json rootData = { {"credits", 1240}, {"activeFleet", "alpha"} };
     json itemData = { {"name", "Aurora"}, {"id", "ship-7a3"} };

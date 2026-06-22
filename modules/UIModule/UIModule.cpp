@@ -325,6 +325,31 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             resolveAllBindings();
         });
 
+        // Partial update — set ONE deep path: ui:data:set {path, value}. The game updates a single field
+        // (e.g. a ship's hp) without re-sending the whole model; only the bindings re-resolve.
+        m_io->subscribe("ui:data:set", [this](const Message& msg) {
+            if (!msg.data) return;
+            const std::string path = msg.data->getString("path", "");
+            if (path.empty()) return;
+            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+                const auto& j = jn->getJsonData();
+                if (j.contains("value")) {
+                    uibind::setAtPath(m_uiData, path, j["value"]);
+                    resolveAllBindings();
+                }
+            }
+        });
+
+        // Partial update — deep MERGE a patch object: ui:data:merge {<partial>}. RFC 7386 semantics
+        // (provided keys override deeply; a null value deletes a key). Update many fields without a full push.
+        m_io->subscribe("ui:data:merge", [this](const Message& msg) {
+            if (!msg.data) return;
+            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+                m_uiData.merge_patch(jn->getJsonData());
+                resolveAllBindings();
+            }
+        });
+
         // Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
         // it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
         m_io->subscribe("ui:list:select", [this](const Message& msg) {

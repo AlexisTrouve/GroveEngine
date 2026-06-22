@@ -17,7 +17,9 @@ Complete reference of all IIO topics consumed and published by UIModule.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `ui:data` | `{<the view-model>}` | **JSON-UI data context** (templating engine). The whole payload becomes the root data the UI binds to; every `{{path}}` prop re-resolves against it (no imperative `ui:set_text` needed). Json-backed payload. See `docs/design/ui-binding.md` |
+| `ui:data` | `{<the view-model>}` | **JSON-UI data context** (templating engine) — REPLACE the whole root data the UI binds to; every `{{path}}` prop re-resolves (no imperative `ui:set_text` needed). Json-backed payload. See `docs/design/ui-binding.md` |
+| `ui:data:set` | `{path, value}` | Partial update — set ONE deep path (e.g. `{"path":"ship.hp","value":0.5}`); creates intermediate objects, descends/extends arrays. The rest of the model is preserved; bindings re-resolve |
+| `ui:data:merge` | `{<partial>}` | Partial update — deep-MERGE a patch object (RFC 7386: provided keys override deeply, a `null` value deletes). Update many fields without a full push; bindings re-resolve |
 | `ui:set_text` | `{id, text}` | Update label text dynamically (imperative; the declarative alternative is a `{{}}` binding + `ui:data`) |
 | `ui:set_visible` | `{id, visible}` | Show/hide a widget. Hiding PURGES its retained render entries (no ghost rects); showing re-registers on the next render. Recurses to children |
 | `ui:set_position` | `{id, x, y}` | Move a widget at runtime (recomputes its absolute position). For the radial, x/y are its CENTRE — e.g. pop the action wheel centered on the cursor |

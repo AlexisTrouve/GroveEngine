@@ -218,9 +218,10 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   shared `{{}}` resolver + scope-chain (`Core/UIBinding.{h,cpp}`, `grove::uibind`, `UIBindingUnit`); (2)
   binding-IN (props ← `{{path}}`, recorded at parse by `UITree::parseWidgetBindings`, applied via
   `UIWidget::applyBoundProp`) + events-OUT (declarative `on` events, `fireWidgetEvent`) + `ui:data {<model>}`
-  (`IT_037`). **Resume at step 3** (reactivity refinements: version / partial `ui:data:set`) **or jump to
-  step 4 (repeater)** — the higher-value unlock; then `if` (5), and the LIST becomes a virtualized repeater
-  (6). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
+  (`IT_037`); (3) robust reactivity — `ui:data` (replace) / `ui:data:set {path,value}` (deep set via
+  `uibind::setAtPath`) / `ui:data:merge` (RFC 7386), each re-resolves + preserves the rest (`IT_038`).
+  **Resume at step 4 (repeater)** — `repeat`+`template`+child scope on any widget (the higher-value unlock;
+  events-with-scope fall out for free); then `if` (5), and the LIST becomes a virtualized repeater (6). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
   game-side. This SUBSUMES the list's "custom row templates" follow-on (a row template = a JSON widget subtree
   repeated + bound). Sharp edges still ahead: typed-prop set per widget (partly done — extend `applyBoundProp`);
   repeater × virtualization (step 6, the UIScrollPanel de-scroll trap).
