@@ -2,6 +2,7 @@
 #include "../RHI/RHIDevice.h"
 #include "../Frame/FramePacket.h"
 #include "../Text/Utf8.h"
+#include <cstring>   // std::memcpy into the transient glyph buffer
 
 namespace grove {
 
@@ -90,15 +91,54 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
     state.cull = rhi::CullMode::None;
     state.depthTest = false;
     state.depthWrite = false;
-    cmd.setState(state);
 
     m_glyphInstances.clear();
+
+    // Clip currently accumulated in m_glyphInstances. Glyphs from text commands that share a clip
+    // batch together; a clip change flushes first so each draw gets its own bgfx scissor.
+    float curClip[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    // Flush the accumulated glyphs as one scissored draw. Transient buffer so multiple flushes in a
+    // frame (a clipped scroll list, or a >MAX-glyph run) don't clobber one shared dynamic buffer.
+    auto flush = [&]() {
+        const uint32_t n = static_cast<uint32_t>(m_glyphInstances.size());
+        if (n == 0) return;
+        rhi::TransientInstanceBuffer tib = device.allocTransientInstanceBuffer(n);
+        cmd.setState(state);   // state is consumed per submit -> set it before EACH flush
+        if (curClip[2] > 0.0f) {
+            cmd.setScissor(static_cast<uint16_t>(curClip[0]), static_cast<uint16_t>(curClip[1]),
+                           static_cast<uint16_t>(curClip[2]), static_cast<uint16_t>(curClip[3]));
+        }
+        cmd.setVertexBuffer(m_quadVB);
+        cmd.setIndexBuffer(m_quadIB);
+        if (tib.isValid()) {
+            std::memcpy(tib.data, m_glyphInstances.data(), n * sizeof(SpriteInstance));
+            cmd.setTransientInstanceBuffer(tib, 0, n);
+        } else {
+            device.updateBuffer(m_instanceBuffer, m_glyphInstances.data(), n * sizeof(SpriteInstance));
+            cmd.setInstanceBuffer(m_instanceBuffer, 0, n);
+        }
+        cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
+        cmd.drawInstanced(6, n);
+        cmd.submit(viewId, m_shader, 0);
+        m_glyphInstances.clear();
+    };
 
     // Convert each TextCommand into glyph instances
     for (size_t i = 0; i < count; ++i) {
         const TextCommand& textCmd = texts[i];
 
         if (!textCmd.text) continue;
+
+        // A clip change between text commands ends the current batch (its glyphs flush under the
+        // previous clip); the new clip then applies to what follows.
+        const float clip[4] = {textCmd.clipX, textCmd.clipY, textCmd.clipW, textCmd.clipH};
+        if (!m_glyphInstances.empty() &&
+            (clip[0] != curClip[0] || clip[1] != curClip[1] ||
+             clip[2] != curClip[2] || clip[3] != curClip[3])) {
+            flush();
+        }
+        curClip[0] = clip[0]; curClip[1] = clip[1]; curClip[2] = clip[2]; curClip[3] = clip[3];
 
         // Calculate scale factor based on font size
         float scale = static_cast<float>(textCmd.fontSize) / m_font.getBaseSize();
@@ -172,36 +212,14 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
             // Advance cursor
             cursorX += glyph.advance * scale;
 
-            // Check batch limit
+            // Flush when the glyph batch is full (keeps within MAX per draw).
             if (m_glyphInstances.size() >= MAX_GLYPHS_PER_BATCH) {
-                // Flush current batch
-                device.updateBuffer(m_instanceBuffer, m_glyphInstances.data(),
-                                   static_cast<uint32_t>(m_glyphInstances.size() * sizeof(SpriteInstance)));
-
-                cmd.setVertexBuffer(m_quadVB);
-                cmd.setIndexBuffer(m_quadIB);
-                cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_glyphInstances.size()));
-                cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
-                cmd.drawInstanced(6, static_cast<uint32_t>(m_glyphInstances.size()));
-                cmd.submit(viewId, m_shader, 0);
-
-                m_glyphInstances.clear();
+                flush();
             }
         }
     }
 
-    // Submit remaining glyphs
-    if (!m_glyphInstances.empty()) {
-        device.updateBuffer(m_instanceBuffer, m_glyphInstances.data(),
-                           static_cast<uint32_t>(m_glyphInstances.size() * sizeof(SpriteInstance)));
-
-        cmd.setVertexBuffer(m_quadVB);
-        cmd.setIndexBuffer(m_quadIB);
-        cmd.setInstanceBuffer(m_instanceBuffer, 0, static_cast<uint32_t>(m_glyphInstances.size()));
-        cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
-        cmd.drawInstanced(6, static_cast<uint32_t>(m_glyphInstances.size()));
-        cmd.submit(viewId, m_shader, 0);
-    }
+    flush();  // remaining glyphs
 }
 
 } // namespace grove

@@ -76,6 +76,9 @@ struct TextCommand {
     uint16_t fontSize;
     uint32_t color;
     uint16_t layer;
+    // Optional clip rect {x,y,w,h} in framebuffer pixels (w<=0 = no clip). TextPass breaks the glyph
+    // batch on a clip change and applies a bgfx scissor — same UI-clipping mechanism as sprites.
+    float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
 };
 
 // ============================================================================
