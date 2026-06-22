@@ -386,6 +386,32 @@ void UIModule::processInput() {
     }
 }
 
+void UIModule::publishCaptureState(UIWidget* hovered) {
+    if (!m_io) return;
+
+    // A press that lands on an interactive/absorbing widget GRABS the pointer until release — capture then
+    // persists even if the cursor leaves the widget mid-drag (scrollbar / window / slider / content drag).
+    if (m_context->mousePressed && hovered) m_pointerGrabbed = true;
+    if (m_context->mouseReleased)           m_pointerGrabbed = false;
+
+    // Mouse captured = the pointer is over a UI widget (hitTest absorbs there — buttons, windows, lists,
+    // modals, drawers, tabs, the radial; NOT bare panels/labels) OR an active grab is in progress.
+    const int captureMouse    = (hovered != nullptr || m_pointerGrabbed) ? 1 : 0;
+    // Keyboard captured = a widget has focus (e.g. a text input is eating keystrokes).
+    const int captureKeyboard = m_context->focusedWidgetId.empty() ? 0 : 1;
+
+    // Publish only on change (retained-style) so the game keeps a simple latched flag. The game checks it
+    // before acting on input:mouse:* / input:keyboard:* for the world (camera, world clicks, shortcuts).
+    if (captureMouse != m_lastCaptureMouse || captureKeyboard != m_lastCaptureKeyboard) {
+        m_lastCaptureMouse = captureMouse;
+        m_lastCaptureKeyboard = captureKeyboard;
+        auto ev = std::make_unique<JsonDataNode>("capture");
+        ev->setBool("mouse", captureMouse != 0);
+        ev->setBool("keyboard", captureKeyboard != 0);
+        m_io->publish("ui:capture", std::move(ev));
+    }
+}
+
 void UIModule::updateUI(float deltaTime) {
     if (!m_root) return;
 
@@ -410,6 +436,10 @@ void UIModule::updateUI(float deltaTime) {
         hoverEvent->setBool("enter", !m_context->hoveredWidgetId.empty());
         m_io->publish("ui:hover", std::move(hoverEvent));
     }
+
+    // Anti-click-through: tell the game whether the UI is consuming the pointer/keyboard this frame, so it
+    // can skip world input (camera pan/zoom, world clicks) underneath the UI or during a UI drag.
+    publishCaptureState(hoveredWidget);
 
     // Handle mouse wheel for scroll panels AND lists (both scroll their content on the wheel).
     if (m_context->mouseWheelDelta != 0.0f && hoveredWidget) {

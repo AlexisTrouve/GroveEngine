@@ -80,6 +80,15 @@ private:
     float m_dragOffsetX = 0.0f, m_dragOffsetY = 0.0f;
     std::string m_resizingWindowId;   // window being resized by its bottom-right grip
 
+    // Input-capture ("WantCaptureMouse") — so the game does NOT also act on input the UI consumed (a click
+    // on a widget, or a drag that started on the UI, must not click-through to the world/camera behind it).
+    // m_pointerGrabbed = a press landed on the UI and the button is still held (capture persists off-widget
+    // for the whole drag). Published as ui:capture {mouse, keyboard} on change. -1 = nothing published yet.
+    bool m_pointerGrabbed = false;
+    int  m_lastCaptureMouse = -1;
+    int  m_lastCaptureKeyboard = -1;
+    void publishCaptureState(UIWidget* hovered);
+
     // Load layout from file path
     bool loadLayout(const std::string& layoutPath);
 

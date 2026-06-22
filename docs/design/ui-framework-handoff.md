@@ -100,6 +100,12 @@ Window drag/resize/close, tab switch, modal close, drawer toggle are driven by *
 - **Layout:** `UIPanel::update` runs `UILayout::measure/layout/computeAbsolutePosition` every frame for
   non-Absolute panels. The new container widgets override `update()` and do their own positioning (cheap),
   they do NOT use `UILayout`.
+- **Input-capture / anti-click-through:** `UIModule` publishes `ui:capture {mouse, keyboard}` (on change,
+  in `publishCaptureState`). `mouse` = `hitTest(cursor) != null` (the UI absorbs there) OR `m_pointerGrabbed`
+  (a press landed on the UI and is still held — capture persists for the whole drag, even off-widget). The
+  GAME latches this and skips world input (camera/world clicks/shortcuts) while captured. This is the
+  `WantCaptureMouse` pattern; it's general (every absorbing widget), so any new interactive widget gets
+  click-through protection for free as long as its `hitTest` returns itself. Locked by `IT_036`.
 
 ---
 

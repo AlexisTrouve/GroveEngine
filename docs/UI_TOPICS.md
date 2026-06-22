@@ -49,6 +49,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:modal:closed` | `{id}` | A modal dialog closed (its dim was clicked, or `ui:modal:close`). The modal hides itself + purges its entries |
 | `ui:list:selected` | `{id, groupId, index, itemId}` | A `list` ITEM row was clicked. `groupId` = its group (`""` for a flat/ungrouped list); `index` = its position WITHIN the group (flat: global); `itemId` = the item's stable `id` (survives a reorder, unlike the index). The list highlights the row on its own |
 | `ui:list:group:toggled` | `{id, groupId, collapsed}` | A grouped `list`'s header was clicked → the group folded/unfolded. `collapsed` = the NEW state. The list re-projects its rows on its own |
+| `ui:capture` | `{mouse, keyboard}` | **Input-capture / anti-click-through** (published on change). `mouse=true` while the pointer is over an interactive widget (the UI absorbs it there) OR a UI drag is in progress (a press that grabbed the UI, until release). `keyboard=true` while a widget has focus (a text input eating keystrokes). **The game MUST latch this and skip world input** (camera pan/zoom, world clicks, shortcuts) while the matching capture is true — otherwise a click/drag on the UI also acts on the world behind it. (The `WantCaptureMouse` pattern.) |
 
 > **⚠️ Array payloads must be json-backed.** IIO transports only a published node's JSON data
 > (`getJsonData()` / `m_data`) — child nodes assembled via `setChild()` are NOT serialized. So a payload
