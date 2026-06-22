@@ -10,6 +10,21 @@
 
 namespace grove {
 
+namespace {
+// QUOI : un clip-rect optionnel voyage dans SpriteInstance.reserved[] (i_data3) = {x,y,w,h}.
+// POURQUOI : ces 4 floats sont uploadés au GPU mais IGNORÉS par le shader sprite — on s'en sert
+//   uniquement côté CPU pour piloter un bgfx scissor par batch. Zéro changement de layout (80 o)
+//   ni de shader. w<=0 => pas de clip (cas par défaut, batching inchangé).
+// COMMENT : on casse le batch quand le clip change (sameClip) pour qu'un setScissor par draw
+//   couvre exactement ses instances ; le scissor bgfx est consommé par le submit, donc un batch
+//   non-clippé qui suit (pas de setScissor) revient à la vue pleine — aucun reset à gérer.
+inline bool spriteHasClip(const SpriteInstance& s) { return s.reserved[2] > 0.0f; }
+inline bool sameClip(const SpriteInstance& a, const SpriteInstance& b) {
+    return a.reserved[0] == b.reserved[0] && a.reserved[1] == b.reserved[1]
+        && a.reserved[2] == b.reserved[2] && a.reserved[3] == b.reserved[3];
+}
+} // namespace
+
 SpritePass::SpritePass(rhi::ShaderHandle shader)
     : m_shader(shader)
 {
@@ -169,14 +184,22 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
                 spriteLogCount++, spriteTexId, sprite.x, sprite.y, sprite.scaleX, sprite.scaleY, (int)sprite.layer);
         }
 
-        // Start new batch if texture changes
-        if (!firstBatch && spriteTexId != currentTextureId) {
+        // Start a new batch when the texture OR the clip-rect changes (one scissor per batch).
+        if (!firstBatch && (spriteTexId != currentTextureId ||
+                            (!batchSprites.empty() && !sameClip(sprite, batchSprites.back())))) {
             // Flush previous batch using TRANSIENT BUFFER (one per batch)
             uint32_t batchSize = static_cast<uint32_t>(batchSprites.size());
             rhi::TransientInstanceBuffer transientBuffer = device.allocTransientInstanceBuffer(batchSize);
 
             // CRITICAL: Set render state before EACH batch (consumed by submit)
             cmd.setState(state);
+            // Clip this batch to its shared scissor rect, if any (rides in reserved[]). Consumed by
+            // the submit below; the next unclipped batch omits it and draws against the full view.
+            if (!batchSprites.empty() && spriteHasClip(batchSprites.front())) {
+                const SpriteInstance& cl = batchSprites.front();
+                cmd.setScissor(static_cast<uint16_t>(cl.reserved[0]), static_cast<uint16_t>(cl.reserved[1]),
+                               static_cast<uint16_t>(cl.reserved[2]), static_cast<uint16_t>(cl.reserved[3]));
+            }
 
             // Get texture handle from ResourceCache
             rhi::TextureHandle texHandle = m_defaultTexture;
@@ -229,6 +252,12 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
 
         // CRITICAL: Set render state before EACH batch (consumed by submit)
         cmd.setState(state);
+        // Clip the final batch to its scissor rect, if any (same mechanism as above).
+        if (!batchSprites.empty() && spriteHasClip(batchSprites.front())) {
+            const SpriteInstance& cl = batchSprites.front();
+            cmd.setScissor(static_cast<uint16_t>(cl.reserved[0]), static_cast<uint16_t>(cl.reserved[1]),
+                           static_cast<uint16_t>(cl.reserved[2]), static_cast<uint16_t>(cl.reserved[3]));
+        }
 
         // Get texture handle from ResourceCache
         rhi::TextureHandle texHandle = m_defaultTexture;

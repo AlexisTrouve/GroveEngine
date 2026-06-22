@@ -29,8 +29,10 @@ struct SpriteInstance {
     float textureId;      // As float for GPU compatibility
     float layer;          // Z-order as float
     float padding0;
-    // i_data3
-    float reserved[4];    // Reserved for future use
+    // i_data3 — optional CPU-side clip rect {x,y,w,h} in framebuffer pixels (w<=0 = no clip).
+    // Uploaded to the GPU but IGNORED by the sprite shader; SpritePass reads it to drive a per-batch
+    // bgfx scissor (UI clipping — scroll panels, windows). Not a GPU input, just rides in this slot.
+    float reserved[4];
     // i_data4
     float r, g, b, a;     // Color as floats (0-1)
 };

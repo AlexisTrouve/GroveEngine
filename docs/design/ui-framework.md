@@ -205,3 +205,4 @@ them.
 | 2026-06-22 | 1.1 reflow-on-resize | ✅ SHIPPED. `ui:resize` → `relayoutRoot()` + `widthPercent`/`heightPercent` relative sizing. Locked by `UILayoutUnit` + `IT_021`. |
 | 2026-06-22 | 1.2 anchoring | ✅ SHIPPED. 9 positional anchors + `anchorOffset`, `resolveAnchor()` in the absolute branch. Locked by `UILayoutUnit` + `IT_022`. |
 | 2026-06-22 | 1.3 grid | ✅ SHIPPED. `LayoutMode::Grid` (columns/gap/rowHeight), cells fill width → reflow, `gridCellRect()`. Locked by `UILayoutUnit` + `IT_023`. **Slice 1 (layout MVP) complete.** Next: slice 2 (clipping → window/z-order). |
+| 2026-06-22 | 2a-1 sprite scissor | ✅ SHIPPED. Clip rect rides in `SpriteInstance.reserved[]`; `SpritePass` reads it → per-batch `bgfx::setScissor` (no GPU/shader change; non-clipped sprites = batching unchanged). Locked by `SpriteClipGpu` [gpu]. Next 2a-2: text + `UIRenderer` clip-stack + `UIScrollPanel`; then 2b hit-test clip. |

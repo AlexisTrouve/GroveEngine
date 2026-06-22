@@ -1997,13 +1997,27 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TilemapLodGpu test_tilemap_lod_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: SpritePass clips a sprite to its reserved[] scissor rect (UI clipping, slice 2a-1).
+    add_executable(test_sprite_clip_gpu unit/test_sprite_clip_gpu.cpp)
+    target_include_directories(test_sprite_clip_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_sprite_clip_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(SpriteClipGpu test_sprite_clip_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # ctest's per-test ENVIRONMENT mangles PATH (CMake splits it on ';', the same char Windows PATH
     # uses as a separator), so only the working_dir survives and SDL2.dll (in the toolchain) is lost
     # -> the GPU tests fail to load (0xc0000135). Copy SDL2.dll next to the exes so it's found in the
     # working_dir regardless of PATH.
     find_file(GROVE_SDL2_DLL NAMES SDL2.dll PATHS ENV PATH)
     if(GROVE_SDL2_DLL)
-        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu)
+        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu test_sprite_clip_gpu)
             add_custom_command(TARGET ${gpu_test} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:${gpu_test}>")
