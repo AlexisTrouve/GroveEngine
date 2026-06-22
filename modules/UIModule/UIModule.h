@@ -71,6 +71,14 @@ private:
     std::string m_draggingSliderId;
     float m_lastDragValue = 0.0f;
 
+    // --- In-app window interaction (slice 3b-2) ---
+    // QUOI : id de la fenêtre actuellement glissée par son titlebar + offset de saisie.
+    // POURQUOI : drag/raise/close se résolvent de façon CENTRALISÉE (la fenêtre topmost sous le
+    //   curseur), pas par fenêtre — sinon deux fenêtres qui se chevauchent se disputent le drag.
+    //   Le raise (bringToFront) mute root->children : on le fait AVANT la passe d'update enfants.
+    std::string m_draggingWindowId;
+    float m_dragOffsetX = 0.0f, m_dragOffsetY = 0.0f;
+
     // Load layout from file path
     bool loadLayout(const std::string& layoutPath);
 
@@ -82,6 +90,10 @@ private:
 
     // Update UI state
     void updateUI(float deltaTime);
+
+    // In-app window interaction (slice 3b-2): raise-on-click + title-bar drag + close button. Runs
+    // once per frame on the topmost window under the cursor, before the child-update pass.
+    void handleWindowInteraction();
 
     // Render UI
     void renderUI();

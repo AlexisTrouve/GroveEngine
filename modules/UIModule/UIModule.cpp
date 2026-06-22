@@ -12,6 +12,7 @@
 #include "Widgets/UIScrollPanel.h"
 #include "Widgets/UILabel.h"
 #include "Widgets/UIRadial.h"
+#include "Widgets/UIWindow.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -521,6 +522,12 @@ void UIModule::updateUI(float deltaTime) {
         }
     }
 
+    // In-app window interaction (raise / drag / close) — BEFORE the child-update pass, because a
+    // raise reorders root->children and must not mutate the vector mid-iteration. Runs after the
+    // click dispatch above, so a content-button click is delivered (and a close-click is absorbed
+    // by the still-visible window) before we hide/reorder.
+    handleWindowInteraction();
+
     // Update all widgets
     m_root->update(*m_context, deltaTime);
 
@@ -571,6 +578,59 @@ void UIModule::updateUI(float deltaTime) {
     // Update tooltips
     if (m_tooltipManager) {
         m_tooltipManager->update(hoveredWidget, *m_context, deltaTime);
+    }
+}
+
+void UIModule::handleWindowInteraction() {
+    if (!m_root || !m_context) return;
+
+    // 1. Continue / end an in-progress title-bar drag (move the window to follow the cursor).
+    if (!m_draggingWindowId.empty()) {
+        if (m_context->mouseDown) {
+            if (UIWidget* w = m_root->findById(m_draggingWindowId)) {
+                // New top-left (abs) = cursor - grab offset; store as parent-relative x/y.
+                const float parentAbsX = w->parent ? w->parent->absX : 0.0f;
+                const float parentAbsY = w->parent ? w->parent->absY : 0.0f;
+                w->x = (m_context->mouseX - m_dragOffsetX) - parentAbsX;
+                w->y = (m_context->mouseY - m_dragOffsetY) - parentAbsY;
+                w->computeAbsolutePosition();  // window.update() re-derives content children next
+            }
+        } else {
+            m_draggingWindowId.clear();  // released
+        }
+    }
+
+    // 2. Only a fresh press starts a raise / drag / close.
+    if (!m_context->mousePressed) return;
+
+    // Resolve the TOPMOST top-level window under the cursor (reverse = front-to-back).
+    UIWindow* win = nullptr;
+    for (auto it = m_root->children.rbegin(); it != m_root->children.rend(); ++it) {
+        if ((*it)->visible && (*it)->getType() == "window") {
+            UIWindow* w = static_cast<UIWindow*>(it->get());
+            if (w->pointInWindow(m_context->mouseX, m_context->mouseY)) { win = w; break; }
+        }
+    }
+    if (!win) return;
+
+    // Raise it (z-order). Safe here: we run before the child-update pass, so reordering
+    // root->children doesn't invalidate an in-progress iteration.
+    win->bringToFront();
+
+    if (win->pointInCloseButton(m_context->mouseX, m_context->mouseY)) {
+        // Close: hide + purge retained entries (no ghost rects) + notify the game.
+        win->visible = false;
+        if (m_renderer) win->releaseRenderEntries(*m_renderer);
+        if (m_io) {
+            auto ev = std::make_unique<JsonDataNode>("closed");
+            ev->setString("id", win->id);
+            m_io->publish("ui:window:closed", std::move(ev));
+        }
+    } else if (win->draggable && win->pointInTitleBar(m_context->mouseX, m_context->mouseY)) {
+        // Grab the title bar: remember the window + where on it we grabbed.
+        m_draggingWindowId = win->id;
+        m_dragOffsetX = m_context->mouseX - win->absX;
+        m_dragOffsetY = m_context->mouseY - win->absY;
     }
 }
 

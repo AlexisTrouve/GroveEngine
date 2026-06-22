@@ -37,6 +37,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:text_submitted` | `{widgetId, text}` | Text input submitted (Enter) |
 | `ui:hover` | `{widgetId, enter}` | Mouse entered/left widget |
 | `ui:scroll` | `{widgetId, scrollX, scrollY}` | Scroll panel scrolled |
+| `ui:window:closed` | `{id}` | An in-app window was closed (its close button clicked). The window hides itself + purges its retained entries; the game reacts (free state, etc.) |
 
 ### Rendering (Retained Mode)
 

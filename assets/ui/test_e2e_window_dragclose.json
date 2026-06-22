@@ -1,0 +1,17 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    { "id": "bg_btn", "type": "button", "x": 50, "y": 50, "width": 500, "height": 500, "text": "BG", "onClick": "background" },
+    {
+      "id": "w1", "type": "window", "x": 100, "y": 100, "width": 200, "height": 150, "title": "W1",
+      "children": [
+        { "id": "winbtn", "type": "button", "x": 50, "y": 50, "width": 60, "height": 30, "text": "W", "onClick": "winbtn" }
+      ]
+    }
+  ]
+}

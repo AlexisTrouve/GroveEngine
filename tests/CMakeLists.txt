@@ -1885,6 +1885,17 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(UIWindowE2E IT_026_ui_window_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_027 / IT_028: in-app window interaction E2E — raise-on-click, title-bar drag, close (3b-2).
+    add_executable(IT_027_ui_window_raise_e2e integration/IT_027_ui_window_raise_e2e.cpp)
+    target_link_libraries(IT_027_ui_window_raise_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIWindowRaiseE2E IT_027_ui_window_raise_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    add_executable(IT_028_ui_window_dragclose_e2e integration/IT_028_ui_window_dragclose_e2e.cpp)
+    target_link_libraries(IT_028_ui_window_dragclose_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIWindowDragCloseE2E IT_028_ui_window_dragclose_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

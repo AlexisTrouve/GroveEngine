@@ -1,0 +1,22 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "w1", "type": "window", "x": 100, "y": 100, "width": 200, "height": 150, "title": "W1",
+      "children": [
+        { "id": "btnA", "type": "button", "x": 50, "y": 50, "width": 60, "height": 30, "text": "A", "onClick": "winA" }
+      ]
+    },
+    {
+      "id": "w2", "type": "window", "x": 160, "y": 140, "width": 200, "height": 150, "title": "W2",
+      "children": [
+        { "id": "btnB", "type": "button", "x": 0, "y": 20, "width": 60, "height": 30, "text": "B", "onClick": "winB" }
+      ]
+    }
+  ]
+}
