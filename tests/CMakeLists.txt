@@ -2014,6 +2014,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIResourcesFoldScrollE2E IT_046_ui_resources_fold_scroll_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_047: off-screen fleet drawer — hidden -> slides in -> data-driven clickable ship vignettes.
+    add_executable(IT_047_ui_fleet_drawer_e2e integration/IT_047_ui_fleet_drawer_e2e.cpp)
+    target_link_libraries(IT_047_ui_fleet_drawer_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIFleetDrawerE2E IT_047_ui_fleet_drawer_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
@@ -2353,6 +2359,23 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         spdlog::spdlog
     )
     message(STATUS "Ship inspector demo 'test_ship_inspector_demo' enabled")
+
+    # Interactive VESSEL SCREEN demo: the off-screen fleet drawer + data-driven ship vignettes (slices 2+).
+    add_executable(test_vessel_screen_demo WIN32 visual/test_vessel_screen_demo.cpp)
+    target_include_directories(test_vessel_screen_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_vessel_screen_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Vessel screen demo 'test_vessel_screen_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline

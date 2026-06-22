@@ -58,6 +58,10 @@ public:
             const int tex = static_cast<int>(n);
             normalStyle.textureId = hoverStyle.textureId = pressedStyle.textureId = tex;
             normalStyle.useTexture = hoverStyle.useTexture = pressedStyle.useTexture = (tex > 0);
+        } else if (prop == "text") {
+            // Bindable label — e.g. a data-driven fleet vignette whose caption is {{name}}. The button
+            // already renders `text`; this just lets the repeater/binding write it from the item scope.
+            text = s;
         } else {
             UIWidget::applyBoundProp(prop, s, n, b);
         }

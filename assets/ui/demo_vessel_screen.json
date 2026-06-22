@@ -1,0 +1,56 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "widthPercent": 1.0, "heightPercent": 1.0,
+  "style": { "bgColor": "0x0a0e16FF" },
+  "children": [
+    {
+      "id": "hud",
+      "type": "panel",
+      "x": 0, "y": 0, "widthPercent": 1.0, "height": 44,
+      "style": { "bgColor": "0x121822FF" },
+      "children": [
+        {
+          "id": "btnFleet", "type": "button", "x": 1138, "y": 7, "width": 130, "height": 30, "text": "Flotte",
+          "on": { "click": { "event": "vessel:drawer" } },
+          "style": {
+            "normal":  { "bgColor": "0x2a3346FF", "textColor": "0xeaf0f8FF" },
+            "hover":   { "bgColor": "0x3a4a63FF", "textColor": "0xFFFFFFFF" },
+            "pressed": { "bgColor": "0x1f2736FF", "textColor": "0xFFFFFFFF" }
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "fleetDrawer",
+      "type": "drawer",
+      "edge": "left",
+      "openExtent": 300,
+      "open": false,
+      "style": { "bgColor": "0x121824F8" },
+      "children": [
+        { "type": "label", "x": 16, "y": 14, "width": 260, "height": 26, "text": "Flotte", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
+        {
+          "id": "vignettes",
+          "type": "panel",
+          "x": 0, "y": 48, "width": 300, "height": 1200,
+          "style": { "bgColor": "0x00000000" },
+          "repeat": "{{fleet}}",
+          "template": {
+            "type": "button",
+            "x": "{{vx}}", "y": "{{vy}}", "width": "{{vw}}", "height": "{{vh}}",
+            "text": "{{name}}",
+            "on": { "click": { "event": "vessel:open", "args": { "id": "{{id}}" } } },
+            "style": {
+              "normal":  { "bgColor": "0x1b2433FF", "textColor": "0xeaf0f8FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },
+              "hover":   { "bgColor": "0x243150FF", "textColor": "0xFFFFFFFF", "borderColor": "0xffd166FF", "borderWidth": 2 },
+              "pressed": { "bgColor": "0x161d2aFF", "textColor": "0xFFFFFFFF", "borderColor": "0xffffffFF", "borderWidth": 2 }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
