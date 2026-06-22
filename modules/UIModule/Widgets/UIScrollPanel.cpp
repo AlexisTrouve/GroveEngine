@@ -105,16 +105,18 @@ void UIScrollPanel::render(UIRenderer& renderer) {
         renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
     }
 
-    // Render children. Leur absX/absY reflètent DÉJÀ le scroll (posé dans update()),
-    // donc rendu et hit-test partagent les mêmes coordonnées — on ne décale/restaure
-    // plus rien ici.
-    // Note : pas encore de scissor/clipping ; on cull les enfants entièrement hors du
-    // rect visible, mais un enfant partiellement visible n'est pas découpé.
+    // Render children. Leur absX/absY reflètent DÉJÀ le scroll (posé dans update()), donc rendu et
+    // hit-test partagent les mêmes coordonnées — on ne décale/restaure plus rien ici.
+    // CLIPPING (slice 2a-2b) : on pousse le rect visible du panel sur la pile de clip du renderer
+    // AVANT de dessiner les enfants ; chaque entrée publiée pendant ce temps porte ce clip et le
+    // renderer la scissor au bord du panel — un enfant partiellement visible est donc DÉCOUPÉ
+    // (avant, on ne faisait qu'un cull grossier des enfants entièrement hors-rect). Le cull reste,
+    // en complément (zéro travail pour les enfants franchement hors-vue).
+    float visX, visY, visW, visH;
+    getVisibleRect(visX, visY, visW, visH);
+    renderer.pushClip(visX, visY, visW, visH);
     for (auto& child : children) {
         if (!child->visible) continue;
-
-        float visX, visY, visW, visH;
-        getVisibleRect(visX, visY, visW, visH);
 
         bool inBounds = (child->absX + child->width >= visX &&
                        child->absX <= visX + visW &&
@@ -125,6 +127,7 @@ void UIScrollPanel::render(UIRenderer& renderer) {
             child->render(renderer);
         }
     }
+    renderer.popClip();
 
     // Render scrollbar
     if (showScrollbar && scrollVertical && contentHeight > height) {

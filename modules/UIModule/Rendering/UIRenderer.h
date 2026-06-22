@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace grove {
 
@@ -23,6 +24,9 @@ struct RenderEntry {
     int layer;
     std::string text;
     float fontSize;
+    // Clip rect {x,y,w,h} in screen px applied to this entry (w<=0 = none). Captured from the clip
+    // stack at publish time so a container (scroll panel, window) can clip its descendants.
+    float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
 };
 
 /**
@@ -92,7 +96,18 @@ public:
     /**
      * @brief Reset layer offset for new frame
      */
-    void beginFrame() { m_layerOffset = 0; }
+    void beginFrame() { m_layerOffset = 0; m_clipStack.clear(); }
+
+    // ========================================================================
+    // Clip stack — a container pushes its content rect before rendering its children, so every
+    // render entry published while it's on the stack carries that clip (renderer scissors to it).
+    // QUOI : pile de rects de clip ; les entrées publiées prennent le sommet (ou aucun si vide).
+    // POURQUOI : le clipping est porté par chaque entrée (retained), pas par un état global — un
+    //   parent qui clippe (ScrollPanel, Window) entoure son rendu d'enfants par push/pop, et les
+    //   widgets n'ont rien à savoir du clipping. COMMENT : currentClip() = sommet, défaut {0,0,0,0}.
+    // ========================================================================
+    void pushClip(float x, float y, float w, float h) { m_clipStack.push_back({x, y, w, h}); }
+    void popClip() { if (!m_clipStack.empty()) m_clipStack.pop_back(); }
 
     // ========================================================================
     // Retained Mode API
@@ -136,6 +151,11 @@ private:
     // Retained mode state
     uint32_t m_nextRenderId = 1;
     std::unordered_map<uint32_t, RenderEntry> m_entries;
+
+    // Active clip stack (see pushClip/popClip). currentClip() returns the top, or {0,0,0,0} = none.
+    struct ClipRect { float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f; };
+    std::vector<ClipRect> m_clipStack;
+    ClipRect currentClip() const { return m_clipStack.empty() ? ClipRect{} : m_clipStack.back(); }
 
     // Publish helpers
     void publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer);

@@ -831,10 +831,11 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.textureId = static_cast<float>(data.getInt("textureId", 0));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = 0.0f;
-    sprite.reserved[0] = 0.0f;
-    sprite.reserved[1] = 0.0f;
-    sprite.reserved[2] = 0.0f;
-    sprite.reserved[3] = 0.0f;
+    // Optional UI clip rect rides in reserved[] (SpritePass reads it -> bgfx scissor). Absent = 0 = none.
+    sprite.reserved[0] = static_cast<float>(data.getDouble("clipX", 0.0));
+    sprite.reserved[1] = static_cast<float>(data.getDouble("clipY", 0.0));
+    sprite.reserved[2] = static_cast<float>(data.getDouble("clipW", 0.0));
+    sprite.reserved[3] = static_cast<float>(data.getDouble("clipH", 0.0));
 
     uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
     sprite.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
@@ -867,6 +868,13 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
     sprite.textureId = static_cast<float>(data.getInt("textureId", static_cast<int>(sprite.textureId)));
     sprite.layer = static_cast<float>(data.getInt("layer", static_cast<int>(sprite.layer)));
 
+    // Re-resolve the clip every update (full snapshot): absent -> 0 -> clip cleared. The UI
+    // includes it whenever a container clip is active, so a still-clipped sprite keeps its scissor.
+    sprite.reserved[0] = static_cast<float>(data.getDouble("clipX", 0.0));
+    sprite.reserved[1] = static_cast<float>(data.getDouble("clipY", 0.0));
+    sprite.reserved[2] = static_cast<float>(data.getDouble("clipW", 0.0));
+    sprite.reserved[3] = static_cast<float>(data.getDouble("clipH", 0.0));
+
     // Preserve the existing color when the update omits "color" — exactly like x/y/
     // scale/layer above, which default to the sprite's current value. The old code
     // defaulted to 0xFFFFFFFF, so a color-less update silently RESET the sprite to
@@ -898,6 +906,10 @@ void SceneCollector::parseTextAdd(const IDataNode& data) {
     text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", 16));
     text.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
     text.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+    text.clipX = static_cast<float>(data.getDouble("clipX", 0.0));
+    text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
+    text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
+    text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
     text.text = nullptr;  // Will be set from m_retainedTextStrings in finalize
 
     m_retainedTexts[renderId] = text;
@@ -922,6 +934,10 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", text.fontSize));
     text.color = static_cast<uint32_t>(data.getInt("color", text.color));
     text.layer = static_cast<uint16_t>(data.getInt("layer", text.layer));
+    text.clipX = static_cast<float>(data.getDouble("clipX", 0.0));   // full snapshot: absent -> cleared
+    text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
+    text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
+    text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
 
     // Update text string if provided
     std::string newText = data.getString("text", "");

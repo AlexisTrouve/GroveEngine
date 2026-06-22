@@ -1,0 +1,30 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "scroller",
+      "type": "scrollpanel",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 150,
+      "scrollVertical": true,
+      "children": [
+        {
+          "id": "item",
+          "type": "panel",
+          "x": 0,
+          "y": 0,
+          "width": 180,
+          "height": 400,
+          "style": { "bgColor": "0xFF0000FF" }
+        }
+      ]
+    }
+  ]
+}

@@ -42,7 +42,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Register new sprite |
+| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, clipX?, clipY?, clipW?, clipH?}` | Register new sprite. Optional `clip{X,Y,W,H}` (screen px, present only inside a clipping container like a scroll panel) → the renderer scissors it; absent = no clip |
 | `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Update existing sprite |
 | `render:sprite:remove` | `{renderId}` | Unregister sprite |
 | `render:text:add` | `{renderId, x, y, text, fontSize, color, layer}` | Register new text |

@@ -37,6 +37,7 @@ static bool floatEqual(float a, float b, float epsilon = 0.001f) {
 bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float h, uint32_t color, int layer) {
     if (!m_io) return false;
 
+    const ClipRect clip = currentClip();   // active container clip (the publish* below re-reads it)
     auto it = m_entries.find(renderId);
     if (it == m_entries.end()) {
         // New entry - add it
@@ -49,16 +50,20 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
         entry.color = color;
         entry.textureId = 0;
         entry.layer = layer;  // Store initial layer (stable)
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         m_entries[renderId] = entry;
         publishSpriteAdd(renderId, x, y, w, h, 0, color, layer);
         return true;
     }
 
-    // Check if changed (ignore layer - it's set once at registration)
+    // Check if changed (ignore layer - it's set once at registration). A clip change re-publishes
+    // too, so a child re-parented under a new container's clip updates its scissor.
     RenderEntry& entry = it->second;
     bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
                    !floatEqual(entry.w, w) || !floatEqual(entry.h, h) ||
-                   entry.color != color;
+                   entry.color != color ||
+                   !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
+                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h);
 
     if (changed) {
         entry.x = x;
@@ -66,6 +71,7 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
         entry.w = w;
         entry.h = h;
         entry.color = color;
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         // Keep original layer (don't update it)
         publishSpriteUpdate(renderId, x, y, w, h, 0, color, entry.layer);
         return true;
@@ -77,6 +83,7 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
 bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer) {
     if (!m_io) return false;
 
+    const ClipRect clip = currentClip();
     auto it = m_entries.find(renderId);
     if (it == m_entries.end()) {
         // New entry - add it
@@ -88,6 +95,7 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
         entry.fontSize = fontSize;
         entry.color = color;
         entry.layer = layer;  // Store initial layer (stable)
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         m_entries[renderId] = entry;
         publishTextAdd(renderId, x, y, text, fontSize, color, layer);
         return true;
@@ -97,7 +105,9 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
     RenderEntry& entry = it->second;
     bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
                    entry.text != text || !floatEqual(entry.fontSize, fontSize) ||
-                   entry.color != color;
+                   entry.color != color ||
+                   !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
+                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h);
 
     if (changed) {
         entry.x = x;
@@ -105,6 +115,7 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
         entry.text = text;
         entry.fontSize = fontSize;
         entry.color = color;
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         // Keep original layer (don't update it)
         publishTextUpdate(renderId, x, y, text, fontSize, color, entry.layer);
         return true;
@@ -116,6 +127,7 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
 bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer) {
     if (!m_io) return false;
 
+    const ClipRect clip = currentClip();
     auto it = m_entries.find(renderId);
     if (it == m_entries.end()) {
         // New entry - add it
@@ -128,6 +140,7 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
         entry.textureId = textureId;
         entry.color = color;
         entry.layer = layer;  // Store initial layer (stable)
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         m_entries[renderId] = entry;
         publishSpriteAdd(renderId, x, y, w, h, textureId, color, layer);
         return true;
@@ -137,7 +150,9 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
     RenderEntry& entry = it->second;
     bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
                    !floatEqual(entry.w, w) || !floatEqual(entry.h, h) ||
-                   entry.textureId != textureId || entry.color != color;
+                   entry.textureId != textureId || entry.color != color ||
+                   !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
+                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h);
 
     if (changed) {
         entry.x = x;
@@ -146,6 +161,7 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
         entry.h = h;
         entry.textureId = textureId;
         entry.color = color;
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         // Keep original layer (don't update it)
         publishSpriteUpdate(renderId, x, y, w, h, textureId, color, entry.layer);
         return true;
@@ -172,6 +188,13 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     sprite->setInt("layer", layer);
+    // Container clip (scroll panel / window). Emitted only when active; its absence reads as 0 =
+    // no clip on the renderer side, so an un-clip update naturally clears the scissor.
+    const ClipRect c = currentClip();
+    if (c.w > 0.0f) {
+        sprite->setDouble("clipX", c.x); sprite->setDouble("clipY", c.y);
+        sprite->setDouble("clipW", c.w); sprite->setDouble("clipH", c.h);
+    }
     m_io->publish("render:sprite:add", std::move(sprite));
 }
 
@@ -190,6 +213,11 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     sprite->setInt("layer", layer);
+    const ClipRect c = currentClip();
+    if (c.w > 0.0f) {
+        sprite->setDouble("clipX", c.x); sprite->setDouble("clipY", c.y);
+        sprite->setDouble("clipW", c.w); sprite->setDouble("clipH", c.h);
+    }
     m_io->publish("render:sprite:update", std::move(sprite));
 }
 
@@ -221,6 +249,11 @@ void UIRenderer::publishTextAdd(uint32_t renderId, float x, float y, const std::
     textNode->setDouble("fontSize", static_cast<double>(fontSize));
     textNode->setInt("color", static_cast<int>(color));
     textNode->setInt("layer", layer);
+    const ClipRect c = currentClip();
+    if (c.w > 0.0f) {
+        textNode->setDouble("clipX", c.x); textNode->setDouble("clipY", c.y);
+        textNode->setDouble("clipW", c.w); textNode->setDouble("clipH", c.h);
+    }
     m_io->publish("render:text:add", std::move(textNode));
 }
 
@@ -233,6 +266,11 @@ void UIRenderer::publishTextUpdate(uint32_t renderId, float x, float y, const st
     textNode->setDouble("fontSize", static_cast<double>(fontSize));
     textNode->setInt("color", static_cast<int>(color));
     textNode->setInt("layer", layer);
+    const ClipRect c = currentClip();
+    if (c.w > 0.0f) {
+        textNode->setDouble("clipX", c.x); textNode->setDouble("clipY", c.y);
+        textNode->setDouble("clipW", c.w); textNode->setDouble("clipH", c.h);
+    }
     m_io->publish("render:text:update", std::move(textNode));
 }
 
