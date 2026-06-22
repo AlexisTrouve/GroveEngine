@@ -16,6 +16,7 @@
 #include "Widgets/UITabs.h"
 #include "Widgets/UIDrawer.h"
 #include "Widgets/UIModal.h"
+#include "Widgets/UIList.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -290,6 +291,29 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             }
         });
 
+        // Repopulate a ship list at runtime: ui:list:set_items {id, items:[{id,label,subtitle?,icon?}]}.
+        // The game pushes its current fleet; the list rebuilds its rows. releaseRenderEntries() resets the
+        // retained row-id pool so render() re-registers at the new count (no ghost rows from the old set).
+        m_io->subscribe("ui:list:set_items", [this](const Message& msg) {
+            if (!msg.data || !m_root) return;
+            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+            if (w && w->getType() == "list") {
+                UIList* list = static_cast<UIList*>(w);
+                list->setItems(UIList::parseItems(*msg.data));
+                if (m_renderer) list->releaseRenderEntries(*m_renderer);
+            }
+        });
+
+        // Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
+        // it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
+        m_io->subscribe("ui:list:select", [this](const Message& msg) {
+            if (!msg.data || !m_root) return;
+            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+            if (w && w->getType() == "list") {
+                static_cast<UIList*>(w)->setSelectedIndex(msg.data->getInt("index", -1));
+            }
+        });
+
         m_io->subscribe("ui:set_text", [this](const Message& msg) {
             // Timestamp on receive
             auto now = std::chrono::high_resolution_clock::now();
@@ -378,14 +402,18 @@ void UIModule::updateUI(float deltaTime) {
         m_io->publish("ui:hover", std::move(hoverEvent));
     }
 
-    // Handle mouse wheel for scroll panels
+    // Handle mouse wheel for scroll panels AND lists (both scroll their content on the wheel).
     if (m_context->mouseWheelDelta != 0.0f && hoveredWidget) {
-        // Find the first scrollpanel parent or self
+        // Walk up from the hovered widget to the first scrollable ancestor (scrollpanel or list).
         UIWidget* widget = hoveredWidget;
         while (widget) {
-            if (widget->getType() == "scrollpanel") {
-                UIScrollPanel* scrollPanel = static_cast<UIScrollPanel*>(widget);
-                scrollPanel->handleMouseWheel(m_context->mouseWheelDelta);
+            const std::string wt = widget->getType();
+            if (wt == "scrollpanel") {
+                static_cast<UIScrollPanel*>(widget)->handleMouseWheel(m_context->mouseWheelDelta);
+                break;
+            }
+            if (wt == "list") {
+                static_cast<UIList*>(widget)->handleMouseWheel(m_context->mouseWheelDelta);
                 break;
             }
             widget = widget->parent;
@@ -539,6 +567,23 @@ void UIModule::updateUI(float deltaTime) {
                     auto closeEvent = std::make_unique<JsonDataNode>("closed");
                     closeEvent->setString("id", modal->id);
                     m_io->publish("ui:modal:closed", std::move(closeEvent));
+                }
+            }
+            else if (widgetType == "list") {
+                // A press on a row selects it + notifies the game (ui:list:selected). The row index is
+                // resolved from the cursor y (scroll-aware); rowAt returns -1 on empty gaps/out-of-range,
+                // in which case we select nothing (a click on padding doesn't change the selection).
+                UIList* list = static_cast<UIList*>(clickedWidget);
+                if (m_context->mousePressed) {
+                    int idx = list->rowAt(m_context->mouseY);
+                    if (idx >= 0) {
+                        list->setSelectedIndex(idx);
+                        auto sel = std::make_unique<JsonDataNode>("selected");
+                        sel->setString("id", list->id);
+                        sel->setInt("index", idx);
+                        sel->setString("itemId", list->items()[idx].id);
+                        m_io->publish("ui:list:selected", std::move(sel));
+                    }
                 }
             }
         }

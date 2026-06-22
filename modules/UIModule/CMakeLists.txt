@@ -34,6 +34,7 @@ add_library(UIModule SHARED
     Widgets/UITabs.cpp
     Widgets/UIDrawer.cpp
     Widgets/UIModal.cpp
+    Widgets/UIList.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp
@@ -106,6 +107,7 @@ add_library(UIModule_static STATIC
     Widgets/UITabs.cpp
     Widgets/UIDrawer.cpp
     Widgets/UIModal.cpp
+    Widgets/UIList.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp

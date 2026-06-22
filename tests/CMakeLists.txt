@@ -1808,6 +1808,11 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(test_ui_zorder PRIVATE UIModule_static Catch2::Catch2WithMain)
     grove_add_test(UIZOrderUnit test_ui_zorder ${CMAKE_CURRENT_BINARY_DIR})
 
+    # test_ui_list: pure UIList geometry/data oracle (rowAt / scroll clamp / parseItems / selection).
+    add_executable(test_ui_list unit/test_ui_list.cpp)
+    target_link_libraries(test_ui_list PRIVATE UIModule_static Catch2::Catch2WithMain)
+    grove_add_test(UIListUnit test_ui_list ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_020: action-wheel (radial) click E2E — confirm a wedge by direction, cancel in
     # the dead-zone, miss off-wheel. Locks the new UIRadial widget end-to-end.
     add_executable(IT_020_ui_radial_e2e
@@ -1919,6 +1924,12 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(IT_032_ui_window_resize_e2e PRIVATE
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIWindowResizeE2E IT_032_ui_window_resize_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_033: data-driven ship list E2E — select / scroll+clip click-flip / runtime repopulate (sidebar).
+    add_executable(IT_033_ui_list_e2e integration/IT_033_ui_list_e2e.cpp)
+    target_link_libraries(IT_033_ui_list_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIListE2E IT_033_ui_list_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).

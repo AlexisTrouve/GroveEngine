@@ -14,6 +14,7 @@
 #include "../Widgets/UITabs.h"
 #include "../Widgets/UIDrawer.h"
 #include "../Widgets/UIModal.h"
+#include "../Widgets/UIList.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -146,6 +147,39 @@ void UITree::registerDefaultWidgets() {
             modal->dialogColor = hexColor(style, "dialogColor", modal->dialogColor);
         }
         return modal;
+    });
+
+    // Register list factory (data-driven ship sidebar — scrollable/clipped/selectable repeater).
+    // Geometry props (rowHeight) + an items[] array-of-objects {id,label,subtitle?,icon?} parsed by
+    // the shared UIList::parseItems (same parser used by the runtime ui:list:set_items topic).
+    registerWidget("list", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto list = std::make_unique<UIList>();
+        list->rowHeight = static_cast<float>(node.getDouble("rowHeight", list->rowHeight));
+        list->padding   = static_cast<float>(node.getDouble("padding", list->padding));
+        list->iconSize  = static_cast<float>(node.getDouble("iconSize", list->iconSize));
+
+        list->setItems(UIList::parseItems(const_cast<IDataNode&>(node)));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+                std::string v = s->getString(key, "");
+                if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                    return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+                }
+                return def;
+            };
+            list->bgColor       = hexColor(style, "bgColor", list->bgColor);
+            list->rowColor      = hexColor(style, "rowColor", list->rowColor);
+            list->rowAltColor   = hexColor(style, "rowAltColor", list->rowAltColor);
+            list->hoverColor    = hexColor(style, "hoverColor", list->hoverColor);
+            list->selectedColor = hexColor(style, "selectedColor", list->selectedColor);
+            list->labelColor    = hexColor(style, "labelColor", list->labelColor);
+            list->subtitleColor = hexColor(style, "subtitleColor", list->subtitleColor);
+            list->fontSize      = static_cast<float>(style->getDouble("fontSize", list->fontSize));
+            list->subtitleFontSize = static_cast<float>(style->getDouble("subtitleFontSize", list->subtitleFontSize));
+        }
+        return list;
     });
 
     // Register label factory

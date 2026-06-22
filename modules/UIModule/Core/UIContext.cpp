@@ -9,6 +9,7 @@
 #include "../Widgets/UITabs.h"
 #include "../Widgets/UIDrawer.h"
 #include "../Widgets/UIModal.h"
+#include "../Widgets/UIList.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -113,6 +114,14 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         // above, clipped to the dialog); nothing behind the modal is reachable.
         UIModal* modal = static_cast<UIModal*>(widget);
         if (modal->pointInBounds(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "list") {
+        // Opaque: rows are a self-managed retained pool (not children), so a click anywhere in the list
+        // bounds is absorbed here; UIModule reads rowAt() to resolve + publish ui:list:selected.
+        UIList* list = static_cast<UIList*>(widget);
+        if (list->pointInBounds(x, y)) {
             return widget;
         }
     }
@@ -222,6 +231,10 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
     }
     else if (type == "modal") {
         // Surface the modal on PRESS so UIModule can close it on an outside-the-dialog click.
+        if (pressed) return target;
+    }
+    else if (type == "list") {
+        // Surface the list on PRESS; UIModule resolves the clicked row + publishes ui:list:selected.
         if (pressed) return target;
     }
 

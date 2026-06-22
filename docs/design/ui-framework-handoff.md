@@ -10,7 +10,7 @@
 
 1. Read this doc + `docs/design/ui-framework.md` (plan, slice catalog, status log, §8 risks).
 2. `git log --oneline -20` — confirm you're at/after `139e1bd` (perf measure-cache). Remote = **gitea**.
-3. Build + run the UI suite to confirm green baseline (commands in §4). Expect **23 UI tests pass**.
+3. Build + run the UI suite to confirm green baseline (commands in §4). Expect **25 UI tests pass**.
 4. Pick the next slice from §8. Each slice = **red test first → impl → green → commit** (TDD, non-negotiable per the project doctrine: "une UI non testée E2E n'existe pas").
 5. The repo is clean and pushed; the only uncommitted file is `Testing/Temporary/CTestCostData.txt` (a ctest junk artifact — ignore it, never stage it).
 
@@ -38,9 +38,10 @@ The UIModule went from a flat widget set to a capable framework. Slices, each TD
 | **Tabs** | sectioned container, page switching, `ui:tab:changed` | IT_029 |
 | **Drawers** | edge-docked (4 edges) sliding collapsible panel, `ui:drawer:*` | IT_030 |
 | **Modal** | centered dialog + dim focus-trap, `ui:modal:*` | IT_031 |
+| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select, `ui:list:*` | IT_033 + `UIListUnit` |
 | **Perf** | flow layout measures each child 1× (was 3×) — safe half | `UILayoutUnit` |
 
-New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal` (+ the layout/clip/z-order extensions to the base).
+New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order extensions to the base).
 
 ---
 
@@ -176,6 +177,12 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 - **Root-level scalar `"flex": N` on a child is SILENTLY DROPPED** — `UITree` gates it on `hasChild("flex")`,
   which returns false for scalars (only objects/arrays count; `JsonDataNode.cpp:121`). Use
   `"layout": { "flex": N }` (parsed via `getDouble`). Flag-and-don't-rely-on the root-level form.
+- **IIO messages transport ONLY a node's JSON (`m_data`), NOT child nodes built via `setChild()`.**
+  `IntraIO::publish` does `jsonDataCopy = node->getJsonData()` (m_data only) and the manager re-wraps that
+  json on delivery — so a payload with a nested array (e.g. `ui:list:set_items`'s `items[]`) must carry the
+  array IN the json: build via `JsonDataNode(name, json)` with the array in the `json`, like a layout file.
+  A `setChild`-assembled array (data in `m_children`, empty `m_data`) arrives EMPTY. Cost me a red on IT_033's
+  repopulate step. Scalar payloads (`{id, index}`, `{count}`) are unaffected. (`src/IntraIO.cpp:74`.)
 - **`computeAbsolutePosition()` doesn't know about content offsets** (titlebar/scroll/dialog-centering). Set
   content children's `absX/absY` manually in `update()` (§3.1). The one-load-frame mismatch is harmless.
 - **Mutating `root->children` (bringToFront/close) must happen OUTSIDE the child-update iteration** — do it in
@@ -195,11 +202,13 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 
 From Alexi's original ask, still to build (all sit on the now-complete foundation):
 
-- **List / Grid view — the ship sidebar** (his marquee). A scrollable, clipped, selectable list whose rows are
-  generated from item data (a data-driven repeater, e.g. `ui:list:set_items {id, items[]}` → row widgets) +
-  `ui:list:select`. Reuses `UIScrollPanel` (scroll+clip) + grid (1.3). **Virtualization** (only render visible
-  rows) is the perf optimization on top — ties to the dirty-gate discussion. **Bigger slice** (runtime widget
-  generation + selection); good for a fresh session.
+- **List / Grid view — the ship sidebar** (his marquee). ✅ **MVP SHIPPED** — `UIList` (`Widgets/UIList.{h,cpp}`):
+  data-driven (`items[{id,label,subtitle?,icon?}]`), wheel-scroll, clipped, single-select → `ui:list:selected`,
+  runtime `ui:list:set_items` / `ui:list:select`. Locked by `IT_033` + `UIListUnit`. **What's LEFT on it**
+  (deliberate follow-ons): **virtualization** (render only the visible row window — today O(N)/frame; ties to
+  the dirty-gate discussion), a **visual scrollbar + drag-to-scroll** (today wheel only), **custom row templates**
+  (today fixed icon+label+subtitle), **multi-select**, and a **grid mode** (today vertical rows only). A future
+  game using huge fleets wants virtualization first.
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
 - **Rich content** (6): **animated panel** (host `grove::anim`/flipbook in a widget — the anim math exists,
   `include/grove/anim/`; small), **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*`
@@ -226,8 +235,8 @@ park the stale "ThreadedModuleSystem Phase 2" plan). The repo + `ui-framework.md
   `UILayout.{h,cpp}` (flow/grid + percent + anchor + measure-cache), `UIContext.cpp` (hit-test + dispatch +
   per-type absorb cases), `UITree.cpp` (JSON factories), `UIModule.{h,cpp}` (topics, interaction, window/modal
   handling).
-- **Widgets:** `modules/UIModule/Widgets/` — `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIScrollPanel`
-  (the clip/scroll reference), `UIRadial`, plus the basic ones.
+- **Widgets:** `modules/UIModule/Widgets/` — `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList`
+  (data-driven ship sidebar), `UIScrollPanel` (the clip/scroll reference), `UIRadial`, plus the basic ones.
 - **Rendering:** `modules/UIModule/Rendering/UIRenderer.{h,cpp}` (retained publish + clip stack).
 - **Renderer side of clipping:** `modules/BgfxRenderer/Frame/FramePacket.h` (SpriteInstance.reserved =
   clip; TextCommand.clip), `Passes/SpritePass.cpp` + `Passes/TextPass.cpp` (setScissor), `Scene/SceneCollector.cpp`

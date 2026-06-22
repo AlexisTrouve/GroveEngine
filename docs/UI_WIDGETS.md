@@ -17,6 +17,7 @@ Complete reference for all available widgets and their properties.
 | **UIScrollPanel** | Scrollable container | `ui:scroll` |
 | **UITooltip** | Hover tooltip | - |
 | **UIRadial** | Action wheel / radial menu (angular selection) | `ui:action` |
+| **UIList** | Data-driven scrollable selectable list (the ship sidebar) | `ui:list:selected` |
 
 ## Common Properties
 
@@ -414,6 +415,54 @@ later through the same model.
 (`ui:set_visible` → true, e.g. on right-click) and closes it on `ui:action`. (Retained-mode
 rendering doesn't purge a hidden widget's render entries — a known engine limitation — so the
 widget never hides itself, to avoid leaving ghost rects.)
+
+## UIList
+
+The **ship sidebar**: a scrollable, clipped, selectable list whose rows are GENERATED from item data
+(a data-driven repeater). The game pushes a fleet of `items`; the list builds one row each, single-select,
+emitting `ui:list:selected` on a click. Scroll with the mouse wheel; rows clip to the list bounds.
+
+```json
+{
+  "type": "list",
+  "id": "fleet",
+  "x": 20, "y": 60, "width": 220, "height": 400,
+  "rowHeight": 44,
+  "items": [
+    { "id": "ship-7a3", "label": "Aurora",   "subtitle": "Frigate · idle",   "icon": 12 },
+    { "id": "ship-9c1", "label": "Borealis", "subtitle": "Hauler · mining",   "icon": 13 }
+  ],
+  "style": {
+    "bgColor": "0x1d2430FF", "rowColor": "0x232c3aFF", "rowAltColor": "0x202836FF",
+    "hoverColor": "0x2c3a4eFF", "selectedColor": "0x3a6ea5FF",
+    "labelColor": "0xFFFFFFFF", "subtitleColor": "0x9fb0c4FF",
+    "fontSize": 14, "subtitleFontSize": 11
+  }
+}
+```
+
+**Properties:**
+- `rowHeight` - height of each row (px).
+- `padding` - inner left padding + icon/text gap.
+- `iconSize` - square icon size when a row has an `icon`.
+- `items[]` - the data. Each: `id` (stable id echoed in the event — use a uuid, not the index),
+  `label` (primary text), `subtitle` (optional 2nd line, `""`/absent = none), `icon` (optional
+  texture id, `0` = none).
+- `style` - `bgColor`, `rowColor`/`rowAltColor` (zebra), `hoverColor`, `selectedColor`, `labelColor`,
+  `subtitleColor`, `fontSize`, `subtitleFontSize`.
+
+**Events:**
+- `ui:list:selected` - `{id, index, itemId}` when a row is clicked (the list highlights it).
+
+**Runtime:**
+- `ui:list:set_items {id, items:[...]}` - repopulate (resets scroll + selection). **The `items` array
+  must be json-backed** (IIO serializes only a node's JSON — see UI_TOPICS.md).
+- `ui:list:select {id, index}` - programmatic pre-selection (no event re-emit).
+
+**Scope (MVP):** wheel scroll + single-select + clip. Deliberate follow-ons: virtualization (render only
+visible rows — today it's O(N)/frame, fine for dozens of ships), a visual scrollbar + drag-to-scroll,
+custom row templates, multi-select. The container internals follow the standard pattern (opaque hit-test
+absorb, content clipped, retained row-id pool purged on repopulate) — see UI_ARCHITECTURE / the handoff.
 
 ## Creating Custom Widgets
 

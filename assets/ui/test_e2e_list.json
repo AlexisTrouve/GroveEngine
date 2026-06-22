@@ -1,0 +1,29 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "ships",
+      "type": "list",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 160,
+      "rowHeight": 40,
+      "items": [
+        { "id": "ship0", "label": "Aurora" },
+        { "id": "ship1", "label": "Borealis" },
+        { "id": "ship2", "label": "Cygnus" },
+        { "id": "ship3", "label": "Draco" },
+        { "id": "ship4", "label": "Equinox" },
+        { "id": "ship5", "label": "Falcon" },
+        { "id": "ship6", "label": "Gemini" },
+        { "id": "ship7", "label": "Helios" }
+      ]
+    }
+  ]
+}
