@@ -20,6 +20,12 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "label"; }
 
+    // Data-binding: the label's text is the bindable prop ("text":"{{...}}"); colour falls through to base.
+    void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {
+        if (prop == "text") text = s;
+        else UIWidget::applyBoundProp(prop, s, n, b);
+    }
+
     // Text content
     std::string text;
 

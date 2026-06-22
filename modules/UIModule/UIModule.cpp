@@ -4,6 +4,7 @@
 #include "Core/UIWidget.h"
 #include "Core/UILayout.h"   // relayoutRoot() drives measure/layout on viewport resize
 #include "Core/UITooltip.h"
+#include "Core/UIBinding.h"   // {{path}} resolver + Scope (data-binding in / events out)
 #include "Rendering/UIRenderer.h"
 #include "Widgets/UIButton.h"
 #include "Widgets/UISlider.h"
@@ -313,6 +314,17 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             }
         });
 
+        // JSON-UI data context: ui:data {<the model>}. The game pushes its view-model; the whole payload
+        // BECOMES the root data context, and every {{path}} binding re-resolves against it (the inbound
+        // half of the data-driven loop — no imperative set_text needed). Reactivity = re-resolve on push.
+        m_io->subscribe("ui:data", [this](const Message& msg) {
+            if (!msg.data) return;
+            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+                m_uiData = jn->getJsonData();
+            }
+            resolveAllBindings();
+        });
+
         // Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
         // it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
         m_io->subscribe("ui:list:select", [this](const Message& msg) {
@@ -412,6 +424,40 @@ void UIModule::publishCaptureState(UIWidget* hovered) {
     }
 }
 
+// Recurse the widget tree applying each widget's data-bindings against `scope`. (Step 2: every widget uses
+// the ROOT scope; repeater child scopes arrive at step 4.) For each binding we resolve the template three
+// ways — string (text), number (value/x/...), bool (visible) — and let the widget pick the form it needs.
+static void resolveWidgetBindings(UIWidget* w, const uibind::Scope& scope) {
+    for (const auto& b : w->bindings) {
+        w->applyBoundProp(b.first,
+                          uibind::interpolate(scope, b.second),
+                          uibind::resolveNumber(scope, b.second),
+                          uibind::resolveBool(scope, b.second));
+    }
+    for (auto& child : w->children) resolveWidgetBindings(child.get(), scope);
+}
+
+void UIModule::resolveAllBindings() {
+    if (!m_root) return;
+    uibind::Scope root{ &m_uiData, nullptr };
+    resolveWidgetBindings(m_root.get(), root);
+}
+
+void UIModule::fireWidgetEvent(UIWidget* w, const std::string& signal) {
+    if (!w || !m_io) return;
+    auto it = w->eventBindings.find(signal);
+    if (it == w->eventBindings.end()) return;
+
+    // Build the payload by interpolating each declared arg against the widget's data scope (step 2: root),
+    // then publish on the declared topic. This is the OUTBOUND half — view -> game, context-carrying.
+    uibind::Scope scope{ &m_uiData, nullptr };
+    auto payload = std::make_unique<JsonDataNode>("event");
+    for (const auto& arg : it->second.args) {
+        payload->setString(arg.first, uibind::interpolate(scope, arg.second));
+    }
+    m_io->publish(it->second.eventName, std::move(payload));
+}
+
 void UIModule::updateUI(float deltaTime) {
     if (!m_root) return;
 
@@ -474,6 +520,10 @@ void UIModule::updateUI(float deltaTime) {
             clickEvent->setDouble("x", m_context->mouseX);
             clickEvent->setDouble("y", m_context->mouseY);
             m_io->publish("ui:click", std::move(clickEvent));
+
+            // Declarative events (on:click): publish the widget's bound event with {{}}-resolved args.
+            // General — any returned widget; fires on the real click (release).
+            if (m_context->mouseReleased) fireWidgetEvent(clickedWidget, "click");
 
             // Publish type-specific events
             std::string widgetType = clickedWidget->getType();
@@ -866,6 +916,7 @@ bool UIModule::loadLayoutData(const IDataNode& layoutData) {
         // relative size against the config viewport and positions the whole tree immediately,
         // so a freshly-loaded UI is correct before the first frame (and % sizing is honored).
         relayoutRoot();
+        resolveAllBindings();   // resolve {{}} props against the (possibly empty) data context now
         m_logger->info("Layout loaded: root id='{}', type='{}'",
                        m_root->id, m_root->getType());
         return true;

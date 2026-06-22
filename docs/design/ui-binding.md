@@ -48,9 +48,16 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
 1. **Context + `{{}}` resolver + scope-chain** (the shared socle) — ✅ **SHIPPED** (`Core/UIBinding.{h,cpp}`,
    `grove::uibind`: `Scope`, `resolvePath`, `interpolate`, `resolveNumber/Bool`, `hasBindings`, `leafToString`).
    Pure, locked by `UIBindingUnit`. Built to serve BOTH directions.
-2. **Binding-in + Events-out** (peers on the socle) — bind scalar props (`text`/`value`/`visible`/`color`) at
-   parse time (record bind points) + resolve; declarative `on` events with `{{}}`-resolved args. E2E: push data →
-   a label updates without `set_text`; a button's declared event fires with its args.
+2. **Binding-in + Events-out** (peers on the socle) — ✅ **SHIPPED**. At parse, `UITree::parseWidgetBindings`
+   records (a) `bindings` = any scalar prop whose value contains `{{}}`, (b) `eventBindings` = the `on` block.
+   `UIModule` holds the data context (`m_uiData`), `resolveAllBindings()` walks the tree applying each binding
+   via `UIWidget::applyBoundProp` (base: visible/x/y/w/h; `UILabel` text; `UIProgressBar` value), and
+   `fireWidgetEvent` publishes a widget's declared event with `{{}}`-resolved args. The game pushes the model
+   via **`ui:data {<model>}`** (the whole payload becomes the root context → re-resolve). Locked by `IT_037`
+   (push data → label renders the bound value on `render:text:*`; click a button → its declared event fires
+   with bound args). **Deferred to their steps**: repeater scopes (events use the ROOT scope for now);
+   purely-declarative widgets (an `on` with no legacy handler isn't surfaced by dispatch yet — the button in
+   IT_037 keeps an `onClick` so it's returned on release).
 3. **Reactivity** — `ui:data` topic + context version + re-resolve on change.
 4. **Repeater** — `repeat`+`template`+child scope on any widget (instantiate-all; small N). Events-with-scope fall
    out for free.
@@ -63,6 +70,17 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
 - **Repeater × virtualization** (step 6): re-instantiate/re-bind subtrees on scroll → the UIScrollPanel
   child-de-scroll trap returns; handled in isolation at step 6.
 
+## Wire (what's usable now, steps 1-2)
+- **Bind any prop** in the layout JSON: `"text":"Credits: {{credits}}"`, `"value":"{{ship.hp}}"`. String props
+  interpolate; numeric/bool props take the single `{{path}}`. Currently applied: `text` (label), `value`
+  (progressbar), `visible`/`x`/`y`/`width`/`height` (any). More props = extend `applyBoundProp` per widget.
+- **Declare events**: `"on":{"click":{"event":"fleet:recall","args":{"shipId":"{{id}}"}}}` → publishes
+  `fleet:recall {shipId: ...}` on click, args resolved against the scope.
+- **Push the model**: `ui:data {<the whole view-model>}` (json-backed, like any IIO payload) → re-resolves all
+  bindings. (Reactivity is "re-resolve everything on push" for now — fine for UI-sized data.)
+
 ## Status
-- 2026-06-22 — **Step 1 SHIPPED**: `grove::uibind` socle, locked by `UIBindingUnit`. Next: step 2 (binding-in +
-  events-out wired to widgets, E2E). Modes liste actuels (simple/groupes/template) restent des fast-paths additifs.
+- 2026-06-22 — **Steps 1-2 SHIPPED**: the `grove::uibind` socle (`UIBindingUnit`) + binding-in/events-out wired
+  to widgets + `ui:data` (`IT_037`). **Next: step 3** (reactivity refinements — version / partial `ui:data:set`)
+  OR jump to **step 4 (repeater)** which is the higher-value unlock (the list folds in at step 6). Modes liste
+  actuels (simple/groupes) restent des fast-paths additifs.

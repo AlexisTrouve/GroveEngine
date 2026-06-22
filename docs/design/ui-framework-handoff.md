@@ -214,13 +214,16 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 From Alexi's original ask, still to build (all sit on the now-complete foundation):
 
 - **JSON-UI templating & data-binding engine — 🚧 ACTIVE THRUST** (decided with Alexi, the "UI = JSON
-  data-driven" vision). Design + roadmap: **`docs/design/ui-binding.md`**. ✅ **Step 1 SHIPPED** — the shared
-  `{{}}` resolver + scope-chain (`Core/UIBinding.{h,cpp}`, `grove::uibind`, locked by `UIBindingUnit`).
-  **Resume at step 2**: wire binding-IN (props ← `{{path}}`, recorded at parse, re-resolved) + events-OUT
-  (declarative `on` events with `{{}}`-resolved args) to widgets, E2E. Then reactivity (3), repeater (4),
-  `if` (5), and the LIST becomes a virtualized repeater (6). **Hard guardrail: no expression language** —
-  paths + interpolation + boolean `if` only; logic stays game-side. This SUBSUMES the list's "custom row
-  templates" follow-on below (a row template = a JSON widget subtree repeated + bound).
+  data-driven" vision). Design + roadmap: **`docs/design/ui-binding.md`**. ✅ **Steps 1-2 SHIPPED** — (1) the
+  shared `{{}}` resolver + scope-chain (`Core/UIBinding.{h,cpp}`, `grove::uibind`, `UIBindingUnit`); (2)
+  binding-IN (props ← `{{path}}`, recorded at parse by `UITree::parseWidgetBindings`, applied via
+  `UIWidget::applyBoundProp`) + events-OUT (declarative `on` events, `fireWidgetEvent`) + `ui:data {<model>}`
+  (`IT_037`). **Resume at step 3** (reactivity refinements: version / partial `ui:data:set`) **or jump to
+  step 4 (repeater)** — the higher-value unlock; then `if` (5), and the LIST becomes a virtualized repeater
+  (6). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
+  game-side. This SUBSUMES the list's "custom row templates" follow-on (a row template = a JSON widget subtree
+  repeated + bound). Sharp edges still ahead: typed-prop set per widget (partly done — extend `applyBoundProp`);
+  repeater × virtualization (step 6, the UIScrollPanel de-scroll trap).
 
 - **List / Grid view — the ship sidebar** (his marquee). ✅ **SHIPPED + VIRTUALIZED + GROUPED** — `UIList`
   (`Widgets/UIList.{h,cpp}`): data-driven, wheel-scroll, clipped, single-select → `ui:list:selected`,

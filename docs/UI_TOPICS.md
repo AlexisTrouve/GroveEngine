@@ -17,7 +17,8 @@ Complete reference of all IIO topics consumed and published by UIModule.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `ui:set_text` | `{id, text}` | Update label text dynamically |
+| `ui:data` | `{<the view-model>}` | **JSON-UI data context** (templating engine). The whole payload becomes the root data the UI binds to; every `{{path}}` prop re-resolves against it (no imperative `ui:set_text` needed). Json-backed payload. See `docs/design/ui-binding.md` |
+| `ui:set_text` | `{id, text}` | Update label text dynamically (imperative; the declarative alternative is a `{{}}` binding + `ui:data`) |
 | `ui:set_visible` | `{id, visible}` | Show/hide a widget. Hiding PURGES its retained render entries (no ghost rects); showing re-registers on the next render. Recurses to children |
 | `ui:set_position` | `{id, x, y}` | Move a widget at runtime (recomputes its absolute position). For the radial, x/y are its CENTRE — e.g. pop the action wheel centered on the cursor |
 | `ui:radial:set_items` | `{id, count}` | Reconfigure a radial wheel to `count` slices at runtime (the pie tiles into ANY N: 2..8+). Generates generic items; a game normally sets real items via the layout JSON (`items[]`, `style.gap`/`style.margin` for the inter-slice gaps) |
@@ -50,6 +51,11 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:list:selected` | `{id, groupId, index, itemId}` | A `list` ITEM row was clicked. `groupId` = its group (`""` for a flat/ungrouped list); `index` = its position WITHIN the group (flat: global); `itemId` = the item's stable `id` (survives a reorder, unlike the index). The list highlights the row on its own |
 | `ui:list:group:toggled` | `{id, groupId, collapsed}` | A grouped `list`'s header was clicked → the group folded/unfolded. `collapsed` = the NEW state. The list re-projects its rows on its own |
 | `ui:capture` | `{mouse, keyboard}` | **Input-capture / anti-click-through** (published on change). `mouse=true` while the pointer is over an interactive widget (the UI absorbs it there) OR a UI drag is in progress (a press that grabbed the UI, until release). `keyboard=true` while a widget has focus (a text input eating keystrokes). **The game MUST latch this and skip world input** (camera pan/zoom, world clicks, shortcuts) while the matching capture is true — otherwise a click/drag on the UI also acts on the world behind it. (The `WantCaptureMouse` pattern.) |
+
+> **Declarative events (templating engine).** Beyond the fixed events above, any widget can declare its own
+> outbound event in the layout JSON: `"on":{"click":{"event":"<topic>","args":{"k":"{{path}}"}}}` → on click
+> it publishes `<topic>` with the args resolved against the widget's data scope. Generalises `onClick → ui:action`.
+> See `docs/design/ui-binding.md`.
 
 > **⚠️ Array payloads must be json-backed.** IIO transports only a published node's JSON data
 > (`getJsonData()` / `m_data`) — child nodes assembled via `setChild()` are NOT serialized. So a payload

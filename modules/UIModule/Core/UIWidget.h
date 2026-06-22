@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>   // std::next in bringToFront()
+#include <map>        // eventBindings (signal -> binding)
+#include <utility>    // std::pair (binding templates)
 #include "UILayout.h"
 #include "../Rendering/UIRenderer.h"   // releaseRenderEntries() calls renderer.unregisterEntry()
 
@@ -123,6 +125,31 @@ public:
 
     // Layout properties (Phase 2)
     LayoutProperties layoutProps;
+
+    // ---- Data-binding & declarative events (JSON-UI templating engine — grove::uibind) ----
+    // QUOI : bindings = props liées à des chemins de données par {{path}} ; eventBindings = events
+    //   déclaratifs (signal -> {nom, args}). POURQUOI : c'est la moitié WIDGET du moteur data-driven —
+    //   UIModule résout les bindings contre le scope du widget et applique via applyBoundProp ; il publie
+    //   un eventBinding (args interpolés au scope) quand le signal arrive. COMMENT : remplis au parse
+    //   (UITree::parseBindings) ; aucun couplage json ici (juste des chaînes de template).
+    struct EventBinding {
+        std::string eventName;                                  // IIO topic to publish (e.g. "fleet:recall")
+        std::vector<std::pair<std::string, std::string>> args;  // arg key -> {{}} template
+    };
+    std::vector<std::pair<std::string, std::string>> bindings;  // property name -> {{}} template
+    std::map<std::string, EventBinding> eventBindings;          // signal ("click") -> binding
+
+    // Apply a resolved bound value to property `prop`. UIModule passes it pre-resolved as string / number /
+    // bool; the widget picks the form it needs. Base handles common geometry/visibility; widgets OVERRIDE
+    // for their own props (label: text, progressbar: value), then call this base for the rest.
+    virtual void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) {
+        if (prop == "visible")     visible = b;
+        else if (prop == "x")      x = static_cast<float>(n);
+        else if (prop == "y")      y = static_cast<float>(n);
+        else if (prop == "width")  width = static_cast<float>(n);
+        else if (prop == "height") height = static_cast<float>(n);
+        (void)s;
+    }
 
     // Hierarchy
     UIWidget* parent = nullptr;

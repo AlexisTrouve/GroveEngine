@@ -15,6 +15,7 @@
 #include "../Widgets/UIDrawer.h"
 #include "../Widgets/UIModal.h"
 #include "../Widgets/UIList.h"
+#include <grove/JsonDataNode.h>   // parseWidgetBindings reads the raw json to find {{}} props + the `on` block
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -527,6 +528,42 @@ UIWidget* UITree::findById(const std::string& id) {
     return m_root->findById(id);
 }
 
+// Record a widget's DATA BINDINGS (props whose value contains {{}}) and DECLARATIVE EVENTS (the `on`
+// block) from its raw json — the widget half of the templating engine. Pure string capture; UIModule
+// resolves them against the data scope later. Structural keys (children/template/on) are not props.
+static void parseWidgetBindings(UIWidget* widget, const IDataNode& node) {
+    const auto* jn = dynamic_cast<const JsonDataNode*>(&node);
+    if (!jn) return;
+    const auto& j = jn->getJsonData();
+    if (!j.is_object()) return;
+
+    // Bindable props: any scalar STRING value containing a {{...}} placeholder.
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        const std::string& key = it.key();
+        if (key == "on" || key == "children" || key == "template") continue;   // structural, not a prop
+        if (it.value().is_string()) {
+            const std::string v = it.value().get<std::string>();
+            if (v.find("{{") != std::string::npos) widget->bindings.push_back({key, v});
+        }
+    }
+
+    // Declarative events: "on": { "<signal>": { "event": "<topic>", "args": { "<k>": "{{...}}" } } }.
+    if (j.contains("on") && j["on"].is_object()) {
+        for (auto sit = j["on"].begin(); sit != j["on"].end(); ++sit) {
+            const auto& spec = sit.value();
+            if (!spec.is_object() || !spec.contains("event") || !spec["event"].is_string()) continue;
+            UIWidget::EventBinding eb;
+            eb.eventName = spec["event"].get<std::string>();
+            if (spec.contains("args") && spec["args"].is_object()) {
+                for (auto ait = spec["args"].begin(); ait != spec["args"].end(); ++ait) {
+                    if (ait.value().is_string()) eb.args.push_back({ait.key(), ait.value().get<std::string>()});
+                }
+            }
+            widget->eventBindings[sit.key()] = std::move(eb);
+        }
+    }
+}
+
 std::unique_ptr<UIWidget> UITree::parseWidget(const IDataNode& node) {
     std::string type = node.getString("type", "");
     if (type.empty()) {
@@ -549,6 +586,9 @@ std::unique_ptr<UIWidget> UITree::parseWidget(const IDataNode& node) {
 
     // Parse common properties
     parseCommonProperties(widget.get(), node);
+
+    // Record data-bindings ({{}} props) + declarative events (`on`) for the templating engine.
+    parseWidgetBindings(widget.get(), node);
 
     // Parse children recursively (const_cast safe for read-only operations)
     auto& mutableNode = const_cast<IDataNode&>(node);

@@ -89,6 +89,13 @@ private:
     int  m_lastCaptureKeyboard = -1;
     void publishCaptureState(UIWidget* hovered);
 
+    // JSON-UI data context (the "model" the game pushes via ui:data). Data-bindings ({{path}} props) and
+    // declarative events resolve against it. resolveAllBindings re-applies every widget binding (called at
+    // load + on ui:data); fireWidgetEvent publishes a widget's declarative event with {{}}-resolved args.
+    nlohmann::json m_uiData = nlohmann::json::object();
+    void resolveAllBindings();
+    void fireWidgetEvent(UIWidget* w, const std::string& signal);
+
     // Load layout from file path
     bool loadLayout(const std::string& layoutPath);
 

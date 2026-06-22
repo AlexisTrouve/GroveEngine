@@ -21,6 +21,12 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "progressbar"; }
 
+    // Data-binding: "value":"{{...}}" drives the progress (clamped); other props fall through to base.
+    void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {
+        if (prop == "value") setProgress(static_cast<float>(n));
+        else UIWidget::applyBoundProp(prop, s, n, b);
+    }
+
     /**
      * @brief Set progress value (clamped to 0-1)
      */
