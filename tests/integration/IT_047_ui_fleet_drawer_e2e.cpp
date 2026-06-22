@@ -1,16 +1,17 @@
 /**
- * Integration Test IT_047: off-screen fleet drawer — "le menu de vaisseau caché hors screen".
+ * Integration Test IT_047: fleet menu — "le menu de vaisseau caché hors screen", small top-left panel.
  *
- * The vessel screen's ship menu is an edge DRAWER that is hidden off-screen and slides in. It holds a
- * data-driven repeater of ship VIGNETTES (one clickable button per ship, caption bound to {{name}}). Verified
- * headlessly:
+ * The fleet menu is a compact panel anchored top-left, hidden by default (visible:false -> entries purged).
+ * Inside it, control groups are stacked VERTICALLY; each group is a small label over a HORIZONTAL row of ship
+ * ICONS (no names). Verified headlessly:
  *
- *   A. HIDDEN — at rest the drawer is fully closed / off-screen, so NO vignette renders (purged).
- *   B. SLIDES IN — ui:drawer:set{open:true} -> after the slide, the vignettes render (bound names appear).
- *   C. CLICKABLE — clicking a vignette fires vessel:open carrying that ship's id (from the repeater scope),
- *      which is what slice 4 will use to open the big inspector.
+ *   A. HIDDEN — visible:false -> no ship icon renders (entries purged).
+ *   B. SHOWN — ui:set_visible{true} -> the group labels render and every ship icon draws a sprite.
+ *   C. CLICKABLE — clicking an icon fires vessel:open carrying that ship's id (from the repeater scope),
+ *      which slice 4 will use to open the big inspector.
  *
- * Accumulate-and-check: a name absent before the open and present after proves it was hidden then revealed.
+ * (Both content lists are data-driven single repeaters — `groups` -> stacked labels, `slots` -> the icon grid,
+ * each slot's ix/iy host-computed so the icons form a horizontal row under their group label.)
  */
 
 #include <catch2/catch_test_macros.hpp>
@@ -23,7 +24,7 @@
 
 using namespace grove;
 
-TEST_CASE("IT_047: fleet drawer is hidden off-screen, slides in, vignettes are clickable", "[integration][ui][e2e]") {
+TEST_CASE("IT_047: fleet menu hidden top-left panel, shows stacked control groups of horizontal ship icons", "[integration][ui][e2e]") {
     auto& mgr = IntraIOManager::getInstance();
     auto hostPub  = mgr.createInstance("fd_host");
     auto uiIO     = mgr.createInstance("fd_ui");
@@ -45,45 +46,57 @@ TEST_CASE("IT_047: fleet drawer is hidden off-screen, slides in, vignettes are c
     cfg.setInt("baseLayer", 1000);
     REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
 
-    std::set<std::string> seen;
+    int spriteAdds = 0;
+    std::set<std::string> texts;
     std::string openedId;
-    observer->subscribe("render:text:add",    [&](const Message& m){ seen.insert(m.data->getString("text","")); });
-    observer->subscribe("render:text:update", [&](const Message& m){ seen.insert(m.data->getString("text","")); });
-    observer->subscribe("vessel:open",        [&](const Message& m){ openedId = m.data->getString("id",""); });
+    observer->subscribe("render:sprite:add",   [&](const Message&){ ++spriteAdds; });
+    observer->subscribe("render:text:add",     [&](const Message& m){ texts.insert(m.data->getString("text","")); });
+    observer->subscribe("render:text:update",  [&](const Message& m){ texts.insert(m.data->getString("text","")); });
+    observer->subscribe("vessel:open",         [&](const Message& m){ openedId = m.data->getString("id",""); });
 
     auto pump = [&]{
         JsonDataNode input("input"); input.setDouble("deltaTime", 0.016);
         uiModule->process(input);
         while (observer->hasMessages() > 0) observer->pullAndDispatch();
     };
-    auto has = [&](const std::string& t){ return seen.count(t) > 0; };
     auto move = [&](double x,double y){ auto d=std::make_unique<JsonDataNode>("d"); d->setDouble("x",x); d->setDouble("y",y); hostPub->publish("input:mouse:move", std::move(d)); pump(); };
     auto btn  = [&](bool p){ auto d=std::make_unique<JsonDataNode>("d"); d->setInt("button",0); d->setBool("pressed",p); hostPub->publish("input:mouse:button", std::move(d)); pump(); };
-    auto drawer = [&](bool open){ auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","fleetDrawer"); d->setBool("open",open); hostPub->publish("ui:drawer:set", std::move(d)); pump(); };
+    auto show = [&](bool v){ auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","fleetPanel"); d->setBool("visible",v); hostPub->publish("ui:set_visible", std::move(d)); pump(); };
 
-    // Push the fleet — each ship a vignette with an explicit slot position (host-computed, like blueprint parts).
+    // Push the fleet: 3 control groups (5/4/3) stacked; each group a horizontal row of icons.
     {
-        const char* names[6] = {"S.S. Aurora","S.S. Borealis","S.S. Cygnus","S.S. Draco","S.S. Equinox","S.S. Falcon"};
-        json fleet = json::array();
-        for (int i = 0; i < 6; ++i)
-            fleet.push_back({ {"id", "ship" + std::to_string(i)}, {"name", names[i]},
-                              {"vx", 14}, {"vy", 8 + i*120}, {"vw", 272}, {"vh", 110} });
-        hostPub->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"fleet", fleet} }));
+        const int sizes[3] = {5, 4, 3};
+        const char* names[3] = {"Alpha", "Bravo", "Reserve"};
+        json groups = json::array();
+        json slots  = json::array();
+        int idx = 0;
+        for (int g = 0; g < 3; ++g) {
+            groups.push_back({ {"name", names[g]}, {"ly", g * 64} });
+            for (int k = 0; k < sizes[g]; ++k) {
+                slots.push_back({ {"id", "ship" + std::to_string(idx)}, {"ix", k * 46}, {"iy", g * 64 + 20}, {"icon", 1 + (idx % 4)} });
+                ++idx;
+            }
+        }
+        hostPub->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"groups", groups}, {"slots", slots} }));
     }
     pump(); pump();
 
-    // --- A. HIDDEN: drawer closed -> the vignette is off-screen, not rendered. ---
-    REQUIRE_FALSE(has("S.S. Aurora"));
+    // --- A. HIDDEN: visible:false -> no SHIP icon renders. (Discount the always-on baseline panels first.) ---
+    spriteAdds = 0;
+    pump(); pump();
+    REQUIRE(spriteAdds == 0);
 
-    // --- B. SLIDES IN: open the drawer + let it slide (slideDuration 0.22 / 0.016 ~ 14 frames). ---
-    drawer(true);
-    for (int i = 0; i < 25; ++i) pump();
-    REQUIRE(has("S.S. Aurora"));          // vignette name (bound {{name}}) now visible
-    REQUIRE(has("S.S. Falcon"));          // ...the whole repeater rendered
+    // --- B. SHOWN: reveal the panel -> stacked group labels + every ship icon render. ---
+    show(true);
+    pump(); pump();
+    INFO("sprite adds after show = " << spriteAdds);
+    REQUIRE(spriteAdds >= 12);                       // 12 ship icons drew sprites (+ panel bg)
+    REQUIRE(texts.count("Alpha") > 0);               // a stacked control-group label rendered
+    REQUIRE(texts.count("Reserve") > 0);             // ...the last group too (vertical stacking)
 
-    // --- C. CLICKABLE: vignette 0 abs rect = drawer(0,0) + panel(0,48) + slot(14,8) -> (14,56) 272x110.
-    //     center ~ (150, 111). Click it -> vessel:open{id:"ship0"}. ---
-    move(150, 111); btn(true); btn(false);
+    // --- C. CLICKABLE: fleetPanel(12,52) + icons child(10,8) -> (22,60); group 0 icon 0 at (0,20) -> (22,80)
+    //     40x40, center ~ (42,100). Click it -> vessel:open{id:"ship0"}. ---
+    move(42, 100); btn(true); btn(false);
     INFO("opened id = " << openedId);
     REQUIRE(openedId == "ship0");
 

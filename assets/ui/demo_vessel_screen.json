@@ -12,7 +12,7 @@
       "style": { "bgColor": "0x121822FF" },
       "children": [
         {
-          "id": "btnFleet", "type": "button", "x": 1138, "y": 7, "width": 130, "height": 30, "text": "Flotte",
+          "id": "btnFleet", "type": "button", "x": 12, "y": 7, "width": 120, "height": 30, "text": "Flotte",
           "on": { "click": { "event": "vessel:drawer" } },
           "style": {
             "normal":  { "bgColor": "0x2a3346FF", "textColor": "0xeaf0f8FF" },
@@ -24,29 +24,38 @@
     },
 
     {
-      "id": "fleetDrawer",
-      "type": "drawer",
-      "edge": "left",
-      "openExtent": 300,
-      "open": false,
+      "id": "fleetPanel",
+      "type": "panel",
+      "x": 12, "y": 52, "width": 252, "height": 214,
+      "visible": false,
       "style": { "bgColor": "0x121824F8" },
       "children": [
-        { "type": "label", "x": 16, "y": 14, "width": 260, "height": 26, "text": "Flotte", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
         {
-          "id": "vignettes",
+          "id": "grpLabels",
           "type": "panel",
-          "x": 0, "y": 48, "width": 300, "height": 1200,
+          "x": 10, "y": 8, "width": 234, "height": 200,
           "style": { "bgColor": "0x00000000" },
-          "repeat": "{{fleet}}",
+          "repeat": "{{groups}}",
+          "template": {
+            "type": "label", "x": 0, "y": "{{ly}}", "width": 200, "height": 16,
+            "text": "{{name}}", "style": { "fontSize": 12, "color": "0x8fa6c8FF" }
+          }
+        },
+        {
+          "id": "fleetIcons",
+          "type": "panel",
+          "x": 10, "y": 8, "width": 234, "height": 200,
+          "style": { "bgColor": "0x00000000" },
+          "repeat": "{{slots}}",
           "template": {
             "type": "button",
-            "x": "{{vx}}", "y": "{{vy}}", "width": "{{vw}}", "height": "{{vh}}",
-            "text": "{{name}}",
+            "x": "{{ix}}", "y": "{{iy}}", "width": 40, "height": 40,
+            "texture": "{{icon}}", "text": "",
             "on": { "click": { "event": "vessel:open", "args": { "id": "{{id}}" } } },
             "style": {
-              "normal":  { "bgColor": "0x1b2433FF", "textColor": "0xeaf0f8FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },
-              "hover":   { "bgColor": "0x243150FF", "textColor": "0xFFFFFFFF", "borderColor": "0xffd166FF", "borderWidth": 2 },
-              "pressed": { "bgColor": "0x161d2aFF", "textColor": "0xFFFFFFFF", "borderColor": "0xffffffFF", "borderWidth": 2 }
+              "normal":  { "bgColor": "0x1b2433FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },
+              "hover":   { "bgColor": "0x243150FF", "borderColor": "0xffd166FF", "borderWidth": 2 },
+              "pressed": { "bgColor": "0x161d2aFF", "borderColor": "0xffffffFF", "borderWidth": 2 }
             }
           }
         }

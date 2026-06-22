@@ -2342,6 +2342,26 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Ship inspector capture 'capture_ship_inspector' enabled")
 
+    # Vessel-screen capture: proves the off-screen fleet drawer opened (horizontal bar of ship icons).
+    add_executable(capture_vessel_screen visual/capture_vessel_screen.cpp)
+    target_include_directories(capture_vessel_screen PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(capture_vessel_screen PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_vessel_screen POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_vessel_screen>")
+    endif()
+    message(STATUS "Vessel screen capture 'capture_vessel_screen' enabled")
+
     # Interactive SMART-RESIZE demo: the SAME responsive demo_ship_inspector.json in a real RESIZABLE
     # window. Etire un coin -> tout reflow ; clic une piece -> info live. WIN32 GUI app + SDL2main.
     add_executable(test_ship_inspector_demo WIN32 visual/test_ship_inspector_demo.cpp)

@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <cstdio>
+#include <algorithm>
 
 #include "BgfxRendererModule.h"
 #include "UIModule.h"
@@ -60,14 +61,15 @@ public:
             m_uiModule->setConfiguration(c, m_uIO, nullptr);
         }
 
-        // The HUD "Flotte" button emits vessel:drawer -> toggle the drawer. A vignette click emits vessel:open.
-        m_gIO->subscribe("vessel:drawer", [this](const Message&){ toggleDrawer(); });
+        // The HUD "Flotte" button emits vessel:drawer -> toggle the fleet panel. Clicking a ship ICON emits
+        // vessel:open -> slice 4 will open the inspector for that ship.
+        m_gIO->subscribe("vessel:drawer", [this](const Message&){ toggleFleet(); });
         m_gIO->subscribe("vessel:open",   [this](const Message& m){
             std::cout << "vessel:open " << m.data->getString("id","") << " (slice 4: ouvrira l'inspector)\n";
         });
 
         pushFleet();
-        std::cout << "=== Vessel screen — bouton 'Flotte' (ou F) ouvre le drawer, clic une vignette, ESC quitte ===\n";
+        std::cout << "=== Vessel screen — bouton 'Flotte' (ou F) ouvre le menu (slide), clic une icone, ESC quitte ===\n";
         return true;
     }
 
@@ -79,7 +81,7 @@ public:
             publishCamera();
             { auto d=std::make_unique<JsonDataNode>("d"); d->setInt("width",m_w); d->setInt("height",m_h); m_gIO->publish("ui:resize", std::move(d)); }
         } else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_f) {
-            toggleDrawer();                                  // F toggles (coordinate-free, handy for capture)
+            toggleFleet();                                   // F toggles (coordinate-free, handy for capture)
         } else if (e.type == SDL_MOUSEMOTION) {
             auto d=std::make_unique<JsonDataNode>("d"); d->setDouble("x",e.motion.x); d->setDouble("y",e.motion.y);
             m_gIO->publish("input:mouse:move", std::move(d));
@@ -93,6 +95,7 @@ public:
 
     void frame(float dt) {
         while (m_gIO->hasMessages() > 0) m_gIO->pullAndDispatch();
+        animateFleetSlide(dt);
         publishCamera();
         JsonDataNode input("input"); input.setDouble("deltaTime", dt);
         m_uiModule->process(input);
@@ -111,20 +114,49 @@ private:
         cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",m_w); cam->setInt("viewportH",m_h);
         m_gIO->publish("render:camera", std::move(cam));
     }
-    void toggleDrawer() {
-        auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","fleetDrawer");
-        m_gIO->publish("ui:drawer:toggle", std::move(d));
+    // QUOI : ouvre/ferme le menu flotte. POURQUOI : "caché hors-écran -> slide depuis la gauche". COMMENT :
+    //   on bascule la cible m_fleetOpen ; à l'ouverture on rend le panneau visible tout de suite (il glisse
+    //   depuis le bord gauche) ; animateFleetSlide lerpe sa position chaque frame et le cache à la fermeture.
+    void toggleFleet() {
+        m_fleetOpen = !m_fleetOpen;
+        if (m_fleetOpen && !m_fleetShown) setFleetVisible(true);
+    }
+    void setFleetVisible(bool v) {
+        m_fleetShown = v;
+        auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","fleetPanel"); d->setBool("visible", v);
+        m_gIO->publish("ui:set_visible", std::move(d));
+    }
+    // Slide the top-left panel between off-screen-left (closed) and its docked x (open), host-driven.
+    void animateFleetSlide(float dt) {
+        const float kOpenX = 12.0f, kClosedX = -260.0f;   // panel width 252 -> fully off the left edge
+        const float target = m_fleetOpen ? kOpenX : kClosedX;
+        m_fleetX += (target - m_fleetX) * std::min(1.0f, dt * 12.0f);
+        if (m_fleetShown) {
+            auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","fleetPanel");
+            d->setDouble("x", m_fleetX); d->setDouble("y", 52.0);
+            m_gIO->publish("ui:set_position", std::move(d));
+        }
+        if (!m_fleetOpen && m_fleetShown && m_fleetX < kClosedX + 3.0f) setFleetVisible(false);  // fully closed
     }
 
-    // QUOI : la flotte — chaque ship une vignette avec sa position de slot (host-calculée, comme les parts).
+    // QUOI : la flotte = 3 groupes de contrôle EMPILÉS verticalement ; chaque groupe = un label + une rangée
+    //   d'ICÔNES horizontale (pas de noms). COMMENT : `groups` -> les labels empilés (ly = ligne du groupe) ;
+    //   `slots` -> la grille d'icônes (ix horizontal dans la rangée, iy = ligne du groupe + 20). Deux repeaters
+    //   à plat (positions host-calculées), pas d'imbrication.
     void pushFleet() {
-        static const char* kNames[8] = {"S.S. Aurora","S.S. Borealis","S.S. Cygnus","S.S. Draco",
-                                        "S.S. Equinox","S.S. Falcon","S.S. Gemini","S.S. Helios"};
-        json fleet = json::array();
-        for (int i = 0; i < 8; ++i)
-            fleet.push_back({ {"id", "ship" + std::to_string(i)}, {"name", kNames[i]},
-                              {"vx", 14}, {"vy", 8 + i*120}, {"vw", 272}, {"vh", 110} });
-        m_gIO->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"fleet", fleet} }));
+        const int sizes[3] = {5, 4, 3};
+        const char* names[3] = {"Alpha", "Bravo", "Reserve"};
+        json groups = json::array();
+        json slots  = json::array();
+        int idx = 0;
+        for (int g = 0; g < 3; ++g) {
+            groups.push_back({ {"name", names[g]}, {"ly", g * 64} });
+            for (int k = 0; k < sizes[g]; ++k) {
+                slots.push_back({ {"id", "ship" + std::to_string(idx)}, {"ix", k * 46}, {"iy", g * 64 + 20}, {"icon", 1 + (idx % 4)} });
+                ++idx;
+            }
+        }
+        m_gIO->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"groups", groups}, {"slots", slots} }));
     }
 
     std::unique_ptr<BgfxRendererModule> m_renderer;
@@ -132,6 +164,8 @@ private:
     std::shared_ptr<IntraIO> m_rIOPtr, m_uIOPtr, m_gIOPtr;
     IIO* m_rIO=nullptr; IIO* m_uIO=nullptr; IIO* m_gIO=nullptr;
     int m_w=1280, m_h=720;
+    bool m_fleetOpen=false, m_fleetShown=false;   // fleet-menu slide state
+    float m_fleetX=-260.0f;                        // current slide x (off-screen left = closed)
 };
 
 int main(int, char**) {
