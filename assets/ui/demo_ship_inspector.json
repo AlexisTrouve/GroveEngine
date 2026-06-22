@@ -51,14 +51,37 @@
                 {
                   "id": "side",
                   "type": "panel",
-                  "width": 220, "heightPercent": 1.0,
-                  "layout": { "flex": 0 },
+                  "width": 240, "heightPercent": 1.0,
+                  "layout": { "type": "vertical", "spacing": 8, "padding": 8, "flex": 0 },
                   "style": { "bgColor": "0x10182aFF" },
                   "children": [
-                    { "type": "label", "x": 12, "y": 12, "width": 196, "height": 22, "text": "Piece", "style": { "fontSize": 13, "color": "0x6f86a8FF" } },
-                    { "type": "label", "x": 12, "y": 36, "width": 196, "height": 24, "text": "{{selectedPart.label}}", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
-                    { "type": "label", "x": 12, "y": 72, "width": 196, "height": 60, "text": "{{selectedPart.stat}}", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } },
-                    { "id": "partHint", "type": "label", "x": 12, "y": 130, "width": 196, "height": 40, "if": "{{noPart}}", "text": "Clique une piece de la maquette", "style": { "fontSize": 13, "color": "0xf2c94cFF" } }
+                    {
+                      "id": "info",
+                      "type": "panel",
+                      "widthPercent": 1.0, "height": 150,
+                      "style": { "bgColor": "0x00000000" },
+                      "children": [
+                        { "type": "label", "x": 6, "y": 4,   "width": 210, "height": 22, "text": "Piece", "style": { "fontSize": 13, "color": "0x6f86a8FF" } },
+                        { "type": "label", "x": 6, "y": 28,  "width": 210, "height": 24, "text": "{{selectedPart.label}}", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
+                        { "type": "label", "x": 6, "y": 64,  "width": 210, "height": 60, "text": "{{selectedPart.stat}}", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } },
+                        { "id": "partHint", "type": "label", "x": 6, "y": 118, "width": 210, "height": 40, "if": "{{noPart}}", "text": "Clique une piece", "style": { "fontSize": 13, "color": "0xf2c94cFF" } }
+                      ]
+                    },
+                    {
+                      "id": "resources",
+                      "type": "list",
+                      "widthPercent": 1.0,
+                      "layout": { "flex": 1 },
+                      "rowHeight": 32,
+                      "style": {
+                        "bgColor": "0x0b1220FF",
+                        "headerColor": "0x24314aFF", "headerLabelColor": "0xFFFFFFFF",
+                        "rowColor": "0x161f2eFF", "rowAltColor": "0x121a27FF",
+                        "labelColor": "0xeaf0f8FF", "subtitleColor": "0x8fa0b8FF",
+                        "fontSize": 13, "subtitleFontSize": 10,
+                        "scrollbarColor": "0x5a6b80FF", "scrollbarTrackColor": "0x10141cFF"
+                      }
+                    }
                   ]
                 }
               ]

@@ -105,6 +105,24 @@ int main(int argc, char** argv) {
         {"noPart", false},
         {"selectedPart", {{"label","Reacteur"},{"stat","Energie +60  PV 90"}}}
     }));
+
+    // The 50-resource foldable menu — pushed UNFOLDED here (collapsed:false) so the static PNG shows the
+    // overflowing rows + the scrollbar (visual proof of scroll-on-overflow). The interactive demo pushes it
+    // folded so you can fold/unfold it yourself.
+    {
+        static const char* kNames[50] = {
+            "Fer","Cuivre","Or","Argent","Titane","Aluminium","Nickel","Cobalt","Lithium","Uranium",
+            "Platine","Tungstene","Silicium","Carbone","Hydrogene","Helium","Oxygene","Azote","Methane","Ammoniac",
+            "Glace","Eau","Deuterium","Tritium","Antimatiere","Plasma","Cristaux","Quartz","Diamant","Graphene",
+            "Polymere","Composite","Acier","Bronze","Circuits","Processeurs","Capteurs","Alliage","Ceramique","Isotopes",
+            "Catalyseur","Solvant","Carburant","Oxydant","Munitions","Vivres","Medicaments","Semences","Pieces","Outils"
+        };
+        json items = json::array();
+        for (int i=0;i<50;++i){ const int stock=(i*37+12)%980+7; char id[16]; std::snprintf(id,sizeof id,"r%02d",i);
+            items.push_back({ {"id",id},{"label",kNames[i]},{"subtitle","x"+std::to_string(stock)} }); }
+        json groups = json::array({ { {"id","stock"},{"label","Ressources (50)"},{"collapsed",false},{"items",items} } });
+        gIO->publish("ui:list:set_groups", std::make_unique<JsonDataNode>("d", json{ {"id","resources"},{"groups",groups} }));
+    }
     for (int i=0;i<8;i++) frame();
 
     rhi::IRHIDevice* dev = renderer->getDevice();

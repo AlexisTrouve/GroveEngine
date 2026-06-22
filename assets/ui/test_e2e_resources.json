@@ -1,0 +1,31 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "style": { "bgColor": "0x0e1118FF" },
+  "children": [
+    {
+      "id": "vessel",
+      "type": "window",
+      "x": 300, "y": 100, "width": 360, "height": 480,
+      "title": "Vaisseau",
+      "draggable": false, "resizable": false, "closable": false,
+      "style": { "bgColor": "0x161d2aFF", "titleBarColor": "0x2a3346FF" },
+      "children": [
+        {
+          "id": "resources",
+          "type": "list",
+          "x": 10, "y": 10, "width": 320, "height": 420,
+          "rowHeight": 36,
+          "style": {
+            "bgColor": "0x10182aFF",
+            "headerColor": "0x24314aFF", "headerLabelColor": "0xFFFFFFFF",
+            "rowColor": "0x18202eFF", "rowAltColor": "0x141b27FF",
+            "labelColor": "0xFFFFFFFF", "subtitleColor": "0x8fa0b8FF",
+            "scrollbarColor": "0x5a6b80FF", "scrollbarTrackColor": "0x10141cFF"
+          }
+        }
+      ]
+    }
+  ]
+}

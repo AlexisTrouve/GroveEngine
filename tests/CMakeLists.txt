@@ -2008,6 +2008,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIWindowResizeSmartE2E IT_045_ui_window_resize_smart_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_046: foldable 50-resource panel — fold/unfold (collapsible group) + scroll-on-overflow inside a window.
+    add_executable(IT_046_ui_resources_fold_scroll_e2e integration/IT_046_ui_resources_fold_scroll_e2e.cpp)
+    target_link_libraries(IT_046_ui_resources_fold_scroll_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIResourcesFoldScrollE2E IT_046_ui_resources_fold_scroll_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
@@ -2329,6 +2335,24 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_ship_inspector>")
     endif()
     message(STATUS "Ship inspector capture 'capture_ship_inspector' enabled")
+
+    # Interactive SMART-RESIZE demo: the SAME responsive demo_ship_inspector.json in a real RESIZABLE
+    # window. Etire un coin -> tout reflow ; clic une piece -> info live. WIN32 GUI app + SDL2main.
+    add_executable(test_ship_inspector_demo WIN32 visual/test_ship_inspector_demo.cpp)
+    target_include_directories(test_ship_inspector_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_ship_inspector_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "Ship inspector demo 'test_ship_inspector_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline
