@@ -88,7 +88,7 @@ TEST_CASE("IT_043: full fleet-command demo composition works end to end", "[inte
     texts.clear(); pump(); pump();
 
     // --- A. binding renders the model. ---
-    REQUIRE(saw("Crédits: 1240"));
+    REQUIRE(saw("Credits: 1240"));
     REQUIRE(saw("Tour 3"));
     REQUIRE(saw("Aurora"));                 // a fleet row label
 
@@ -98,7 +98,7 @@ TEST_CASE("IT_043: full fleet-command demo composition works end to end", "[inte
     REQUIRE(selectId == "s0");
 
     // --- C. reactive loop: relay the selection (game) -> detail updates + `if`s flip. ---
-    REQUIRE(saw("← Sélectionne un vaisseau dans la flotte"));   // hint shown while noSelection
+    REQUIRE(saw("Choisis un vaisseau dans la flotte"));   // hint shown while noSelection
     {
         json patch = { {"hasSelection",true},{"noSelection",false},
                        {"selected", {{"id","s0"},{"name","Aurora"},{"cls","Frigate"},{"hp",0.9}}} };
@@ -108,8 +108,8 @@ TEST_CASE("IT_043: full fleet-command demo composition works end to end", "[inte
     REQUIRE(saw("Classe: Frigate"));        // detail bound to selected.cls
     REQUIRE(saw("Saborder"));               // if {{hasSelection}} now true -> button shown
 
-    // --- D. turn reactivity: "Tour +" button (abs ~905,23) -> event -> relay -> re-render. ---
-    turnAdvanced = false; click(905, 23);
+    // --- D. turn reactivity: "Tour +" button (x950 w90 -> centre ~995,23) -> event -> relay -> re-render. ---
+    turnAdvanced = false; click(995, 23);
     REQUIRE(turnAdvanced);
     {
         json patch = { {"turn",4} };
@@ -118,8 +118,8 @@ TEST_CASE("IT_043: full fleet-command demo composition works end to end", "[inte
     texts.clear(); pump();
     REQUIRE(saw("Tour 4"));
 
-    // --- E. UI-control event: "Journal" button (abs ~1010,23) -> demo:drawer {journal}. ---
-    drawerId.clear(); click(1010, 23);
+    // --- E. UI-control event: "Journal" button (x1050 w110 -> centre ~1105,23) -> demo:drawer {journal}. ---
+    drawerId.clear(); click(1105, 23);
     INFO("drawer='" << drawerId << "'");
     REQUIRE(drawerId == "journal");
 

@@ -2276,6 +2276,27 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         spdlog::spdlog
     )
     message(STATUS "Full UI demo 'test_ui_full_demo' enabled")
+
+    # Headless CAPTURE of the demo to a PNG (offscreen framebuffer readback). Console exe (own main()),
+    # so SDL2 WITHOUT SDL2main. Needs SDL2.dll next to it to run (like the [gpu] tests).
+    add_executable(capture_ui_demo visual/capture_ui_demo.cpp)
+    target_include_directories(capture_ui_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(capture_ui_demo PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_ui_demo POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_ui_demo>")
+    endif()
+    message(STATUS "Demo capture tool 'capture_ui_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline

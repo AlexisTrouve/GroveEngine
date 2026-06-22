@@ -11,14 +11,14 @@
       "x": 0, "y": 0, "width": 1280, "height": 44,
       "style": { "bgColor": "0x1b2230FF" },
       "children": [
-        { "type": "label", "x": 16, "y": 12, "width": 320, "height": 24, "text": "GROVE — Fleet Command", "style": { "fontSize": 18, "color": "0xFFFFFFFF" } },
-        { "type": "label", "x": 380, "y": 14, "width": 160, "height": 20, "text": "Crédits: {{credits}}", "style": { "fontSize": 15, "color": "0x9fe6a0FF" } },
-        { "type": "label", "x": 560, "y": 14, "width": 110, "height": 20, "text": "Tour {{turn}}", "style": { "fontSize": 15, "color": "0xbcd0ffFF" } },
-        { "type": "label", "x": 680, "y": 14, "width": 150, "height": 20, "text": "Vaisseaux: {{fleetCount}}", "style": { "fontSize": 15, "color": "0xbcd0ffFF" } },
-        { "id": "btnTurn", "type": "button", "x": 860, "y": 8, "width": 90, "height": 30, "text": "Tour +",
+        { "type": "label", "x": 16, "y": 13, "width": 300, "height": 24, "text": "GROVE - Fleet Command", "style": { "fontSize": 16, "color": "0xFFFFFFFF" } },
+        { "type": "label", "x": 430, "y": 14, "width": 170, "height": 20, "text": "Credits: {{credits}}", "style": { "fontSize": 15, "color": "0x9fe6a0FF" } },
+        { "type": "label", "x": 630, "y": 14, "width": 110, "height": 20, "text": "Tour {{turn}}", "style": { "fontSize": 15, "color": "0xbcd0ffFF" } },
+        { "type": "label", "x": 750, "y": 14, "width": 170, "height": 20, "text": "Vaisseaux: {{fleetCount}}", "style": { "fontSize": 15, "color": "0xbcd0ffFF" } },
+        { "id": "btnTurn", "type": "button", "x": 950, "y": 8, "width": 90, "height": 30, "text": "Tour +",
           "on": { "click": { "event": "turn:advance" } },
           "style": { "normal": {"bgColor":"0x2e7d32FF","textColor":"0xFFFFFFFF"}, "hover": {"bgColor":"0x388e3cFF","textColor":"0xFFFFFFFF"}, "pressed": {"bgColor":"0x1b5e20FF","textColor":"0xFFFFFFFF"} } },
-        { "id": "btnJournal", "type": "button", "x": 960, "y": 8, "width": 100, "height": 30, "text": "Journal",
+        { "id": "btnJournal", "type": "button", "x": 1050, "y": 8, "width": 110, "height": 30, "text": "Journal",
           "on": { "click": { "event": "demo:drawer", "args": { "id": "journal" } } },
           "style": { "normal": {"bgColor":"0x37474fFF","textColor":"0xFFFFFFFF"}, "hover": {"bgColor":"0x455a64FF","textColor":"0xFFFFFFFF"}, "pressed": {"bgColor":"0x263238FF","textColor":"0xFFFFFFFF"} } }
       ]
@@ -58,7 +58,7 @@
         { "type": "label", "x": 16, "y": 46, "width": 360, "height": 20, "text": "Classe: {{selected.cls}}", "style": { "fontSize": 14, "color": "0x9fb0c4FF" } },
         { "type": "label", "x": 16, "y": 78, "width": 80, "height": 20, "text": "Coque", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } },
         { "type": "progressbar", "x": 16, "y": 100, "width": 360, "height": 16, "value": "{{selected.hp}}", "style": { "bgColor": "0x0c0f16FF", "fillColor": "0x39b54aFF" } },
-        { "id": "hintNone", "type": "label", "x": 16, "y": 150, "width": 360, "height": 24, "if": "{{noSelection}}", "text": "← Sélectionne un vaisseau dans la flotte", "style": { "fontSize": 14, "color": "0xf2c94cFF" } },
+        { "id": "hintNone", "type": "label", "x": 16, "y": 150, "width": 360, "height": 24, "if": "{{noSelection}}", "text": "Choisis un vaisseau dans la flotte", "style": { "fontSize": 14, "color": "0xf2c94cFF" } },
         { "id": "scuttleBtn", "type": "button", "x": 16, "y": 150, "width": 160, "height": 34, "if": "{{hasSelection}}", "text": "Saborder",
           "on": { "click": { "event": "demo:modalOpen", "args": { "id": "scuttleModal" } } },
           "style": { "normal": {"bgColor":"0xb23b3bFF","textColor":"0xFFFFFFFF"}, "hover": {"bgColor":"0xcf4b4bFF","textColor":"0xFFFFFFFF"}, "pressed": {"bgColor":"0x8e2e2eFF","textColor":"0xFFFFFFFF"} } }
@@ -75,8 +75,9 @@
       "children": [
         { "type": "panel", "x": 0, "y": 0, "width": 464, "height": 288, "style": { "bgColor": "0x00000000" },
           "children": [
-            { "type": "label", "x": 16, "y": 16, "width": 420, "height": 24, "text": "Flotte: {{fleetCount}} vaisseaux, {{credits}} crédits", "style": { "fontSize": 15, "color": "0xFFFFFFFF" } },
-            { "type": "label", "x": 16, "y": 50, "width": 420, "height": 60, "text": "Liaison données ↔ UI : tout ce panneau est bindé.\nClique un vaisseau, avance le tour : ça suit.", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } }
+            { "type": "label", "x": 16, "y": 16, "width": 430, "height": 24, "text": "Flotte: {{fleetCount}} navires", "style": { "fontSize": 15, "color": "0xFFFFFFFF" } },
+            { "type": "label", "x": 16, "y": 48, "width": 430, "height": 24, "text": "Tresor: {{credits}} credits", "style": { "fontSize": 15, "color": "0x9fe6a0FF" } },
+            { "type": "label", "x": 16, "y": 90, "width": 430, "height": 80, "text": "Tout ce panneau est lie aux donnees.\nClique un vaisseau, avance le tour.", "style": { "fontSize": 13, "color": "0x9fb0c4FF" } }
           ] },
         { "type": "panel", "x": 0, "y": 0, "width": 464, "height": 288, "style": { "bgColor": "0x00000000" },
           "children": [

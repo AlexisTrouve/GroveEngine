@@ -143,7 +143,7 @@ private:
                               {"hp", 0.4 + 0.04*(i%15)} });
         m_model = { {"credits",1240},{"turn",1},{"fleetCount",(int)fleet.size()},
                     {"hasSelection",false},{"noSelection",true},
-                    {"selected",{{"id",""},{"name","—"},{"cls","—"},{"hp",0}}},{"fleet",fleet} };
+                    {"selected",{{"id",""},{"name","-"},{"cls","-"},{"hp",0}}},{"fleet",fleet} };
     }
     void pushFull()  { m_gameIO->publish("ui:data", std::make_unique<JsonDataNode>("d", m_model)); }
     void pushMerge(json patch) { m_gameIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", std::move(patch))); }
@@ -170,7 +170,7 @@ private:
         for (auto& s : m_model["fleet"]) if (s.value("id","") != id) kept.push_back(s);
         m_model["fleet"] = kept; m_model["fleetCount"] = (int)kept.size();
         m_model["hasSelection"] = false; m_model["noSelection"] = true;
-        m_model["selected"] = {{"id",""},{"name","—"},{"cls","—"},{"hp",0}};
+        m_model["selected"] = {{"id",""},{"name","-"},{"cls","-"},{"hp",0}};
         pushFull();
         relay("ui:modal:close", "scuttleModal");
     }
