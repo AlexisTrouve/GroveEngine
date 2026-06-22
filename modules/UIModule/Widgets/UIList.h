@@ -97,6 +97,17 @@ public:
     int  rowAt(float screenY) const;          // item index at screen y (within bounds + range), or -1
     void handleMouseWheel(float wheelDelta);  // wheel scroll (routed by UIModule, like UIScrollPanel)
 
+    // --- Scrollbar + drag-to-scroll. ---
+    bool isScrollable() const { return contentHeight() > height; }   // content taller than the viewport
+    // The scrollbar thumb rect (screen px). Only meaningful when isScrollable(); the track is the right
+    // `scrollbarWidth` column over the full height.
+    void scrollbarThumbRect(float& x, float& y, float& w, float& h) const;
+    bool pointInScrollbar(float x, float y) const;   // in the right scrollbar column (the grab zone)
+    // True if the CURRENT press is a scroll interaction (thumb grab, or a content drag past the threshold)
+    // and so must NOT be treated as a click-select. UIModule reads this on release. Stays valid through the
+    // release frame; resets on the next press.
+    bool suppressClick() const { return m_dragged; }
+
     // The scroll-aware window of on-screen items: `firstItem` = first (possibly top-clipped) visible row,
     // `count` = how many rows from there intersect the viewport. Bounded by ceil(height/rowHeight)+1
     // REGARDLESS of item count — this is the basis of virtualization (only these rows get render entries).
@@ -145,6 +156,10 @@ public:
     uint32_t subtitleColor = 0x9fb0c4FF;
     uint32_t headerColor = 0x2c3540FF;        // group header row background (distinct from item rows)
     uint32_t headerLabelColor = 0xFFFFFFFF;   // group header label
+    float scrollbarWidth = 8.0f;              // right scrollbar column width (0 = no visual scrollbar)
+    uint32_t scrollbarColor = 0x5a6b80FF;     // thumb
+    uint32_t scrollbarTrackColor = 0x161b24FF;// track
+    float dragThreshold = 5.0f;               // px a content press must move before it becomes a scroll-drag
 
     // --- Scroll state. ---
     float scrollOffsetY = 0.0f;
@@ -169,12 +184,23 @@ private:
     std::string m_selectedItemId;       // selected item's id — so the highlight follows it across a rebuild
     int m_hoverIndex = -1;              // hovered ROW index
 
+    // Scroll-drag state (driven in update() from the UIContext mouse). A press grabs either the THUMB
+    // (proportional drag) or the CONTENT (drag-to-scroll past dragThreshold). m_dragged stays set through
+    // the release frame so UIModule's release-select can skip a drag; it resets on the next press.
+    enum class Grab { None, Thumb, Content };
+    Grab  m_grab = Grab::None;
+    bool  m_dragged = false;            // current press became a scroll interaction (suppresses click-select)
+    float m_pressY = 0.0f;             // mouse y at press
+    float m_pressScroll = 0.0f;        // scrollOffsetY at press
+
     // Recycled retained render-id pool: the panel background (m_renderId) + a viewport-bounded number of
     // row id-sets {bg, icon, label, subtitle}. Slot s shows item (firstVisible + s) for the current frame.
     std::vector<uint32_t> m_rowBgIds;
     std::vector<uint32_t> m_rowIconIds;
     std::vector<uint32_t> m_rowLabelIds;
     std::vector<uint32_t> m_rowSubtitleIds;
+    uint32_t m_trackId = 0;            // scrollbar track render entry
+    uint32_t m_thumbId = 0;            // scrollbar thumb render entry
 };
 
 } // namespace grove

@@ -38,7 +38,7 @@ The UIModule went from a flat widget set to a capable framework. Slices, each TD
 | **Tabs** | sectioned container, page switching, `ui:tab:changed` | IT_029 |
 | **Drawers** | edge-docked (4 edges) sliding collapsible panel, `ui:drawer:*` | IT_030 |
 | **Modal** | centered dialog + dim focus-trap, `ui:modal:*` | IT_031 |
-| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select / **virtualized** / **grouped** (collapsible wings), `ui:list:*` | IT_033 + IT_034 + `UIListUnit` |
+| **List/Sidebar** | data-driven ship list — wheel + **scrollbar/drag-scroll** / clip / single-select / **virtualized** / **grouped** (collapsible wings), `ui:list:*` | IT_033/34/35 + `UIListUnit` |
 | **Perf** | flow layout measures each child 1× (was 3×) — safe half | `UILayoutUnit` |
 
 New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order extensions to the base).
@@ -214,9 +214,9 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   (`setItems`) or GROUPED warship wings (`setGroups`, collapsible headers); both project onto a flat
   `ListRow` (header\|item) sequence (`rebuildRows`) so everything downstream is group-agnostic; header click
   → `ui:list:group:toggled`, item carries its `groupId`. Locked by `IT_033` + `IT_034` + `UIListUnit`.
-  **What's LEFT on it** (follow-ons): **visual scrollbar + drag-to-scroll** (today wheel only), **custom row
-  templates** (today fixed icon+label+subtitle), **multi-select**, **grid mode**, **multi-level tree** (today
-  one level: groups → items).
+  **Scroll**: wheel + visual scrollbar (draggable thumb) + content drag-to-scroll (threshold; select moved
+  to release, suppressed on drag). **What's LEFT on it** (follow-ons): **custom row templates** (today fixed
+  icon+label+subtitle), **multi-select**, **grid mode**, **multi-level tree** (today one level: groups → items).
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
 - **Rich content** (6): **animated panel** (host `grove::anim`/flipbook in a widget — the anim math exists,
   `include/grove/anim/`; small), **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*`

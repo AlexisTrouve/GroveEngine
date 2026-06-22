@@ -1937,6 +1937,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIListGroupsE2E IT_034_ui_list_groups_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_035: UIList scrollbar + content drag-to-scroll E2E — click-flips + plain-click-still-selects.
+    add_executable(IT_035_ui_list_dragscroll_e2e integration/IT_035_ui_list_dragscroll_e2e.cpp)
+    target_link_libraries(IT_035_ui_list_dragscroll_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIListDragScrollE2E IT_035_ui_list_dragscroll_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

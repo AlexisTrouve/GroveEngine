@@ -234,8 +234,9 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
         if (pressed) return target;
     }
     else if (type == "list") {
-        // Surface the list on PRESS; UIModule resolves the clicked row + publishes ui:list:selected.
-        if (pressed) return target;
+        // Surface the list on BOTH press and release: the press starts a possible scroll-drag (handled in
+        // UIList::update), and UIModule resolves the row select/toggle on RELEASE (only if it wasn't a drag).
+        return target;
     }
 
     return handled ? target : nullptr;

@@ -58,6 +58,26 @@ void UIList::clampScroll() {
     scrollOffsetY = std::clamp(scrollOffsetY, 0.0f, maxScroll);
 }
 
+void UIList::scrollbarThumbRect(float& x, float& y, float& w, float& h) const {
+    // QUOI : rect du thumb. COMMENT : largeur = colonne droite ; hauteur ∝ (viewport/contenu) avec un
+    //   minimum ; position ∝ (scroll / scrollable). Identique au UIScrollPanel (cohérence).
+    const float ch = contentHeight();
+    const float thumbH = std::max(height * (height / ch), 20.0f);
+    const float maxScroll = std::max(1.0f, ch - height);             // avoid /0 (only called when scrollable)
+    const float ratio = std::clamp(scrollOffsetY / maxScroll, 0.0f, 1.0f);
+    x = absX + width - scrollbarWidth;
+    y = absY + ratio * (height - thumbH);
+    w = scrollbarWidth;
+    h = thumbH;
+}
+
+bool UIList::pointInScrollbar(float x, float y) const {
+    // The whole right `scrollbarWidth` column (over the list height) is the scrollbar grab zone — a press
+    // there is a scroll interaction, never a row select (even off the thumb itself).
+    return isScrollable() && x >= absX + width - scrollbarWidth && x <= absX + width &&
+           y >= absY && y <= absY + height;
+}
+
 // ============================================================================
 // Data
 // ============================================================================
@@ -200,11 +220,48 @@ void UIList::update(UIContext& ctx, float deltaTime) {
     (void)deltaTime;
     if (!visible) return;
 
+    // --- Scroll-drag (thumb + content). Runs AFTER UIModule's click dispatch in the frame, so the
+    //     release-select reads m_dragged from prior frames before we clear the grab here. ---
+    const float mx = ctx.mouseX, my = ctx.mouseY;
+
+    if (ctx.mousePressed && pointInBounds(mx, my)) {
+        m_pressY = my;
+        m_pressScroll = scrollOffsetY;
+        if (pointInScrollbar(mx, my)) {
+            // Grab the scrollbar: any press in the bar column is a scroll interaction (never a select).
+            m_grab = Grab::Thumb;
+            m_dragged = true;
+        } else {
+            // Content press: a CLICK until/unless it moves past the threshold (then it's a drag-scroll).
+            m_grab = Grab::Content;
+            m_dragged = false;
+        }
+    }
+
+    if (ctx.mouseDown && m_grab == Grab::Thumb && isScrollable()) {
+        // Map the mouse delta along the track to a scroll delta (proportional to content/track ratio).
+        float tx, ty, tw, th; scrollbarThumbRect(tx, ty, tw, th);
+        const float trackSpan = std::max(1.0f, height - th);
+        const float scrollSpan = std::max(0.0f, contentHeight() - height);
+        scrollOffsetY = m_pressScroll + (my - m_pressY) / trackSpan * scrollSpan;
+        clampScroll();
+    } else if (ctx.mouseDown && m_grab == Grab::Content) {
+        if (std::abs(my - m_pressY) > dragThreshold) m_dragged = true;
+        if (m_dragged) {                                // drag the content 1:1 (grab-and-pull)
+            scrollOffsetY = m_pressScroll - (my - m_pressY);
+            clampScroll();
+        }
+    }
+
+    if (ctx.mouseReleased) {
+        m_grab = Grab::None;        // end the grab; m_dragged stays for UIModule's release-select THIS frame
+    }
+
     // Keep the scroll valid (a shrink via setItems can leave a stale offset past the new max).
     clampScroll();
 
     // Hover row (cosmetic highlight); -1 when the cursor is off the list.
-    m_hoverIndex = pointInBounds(ctx.mouseX, ctx.mouseY) ? rowAt(ctx.mouseY) : -1;
+    m_hoverIndex = pointInBounds(mx, my) ? rowAt(my) : -1;
 }
 
 // ============================================================================
@@ -212,28 +269,40 @@ void UIList::update(UIContext& ctx, float deltaTime) {
 // ============================================================================
 
 void UIList::ensurePool(UIRenderer& renderer, int neededSlots) {
-    if (m_renderId == 0) m_renderId = renderer.registerEntry();   // panel background, once
+    bool changed = false;
+    if (m_renderId == 0) {
+        m_renderId = renderer.registerEntry();   // panel background
+        m_trackId  = renderer.registerEntry();   // scrollbar track
+        m_thumbId  = renderer.registerEntry();   // scrollbar thumb
+        changed = true;
+    }
 
     const int have = static_cast<int>(m_rowBgIds.size());
-    if (neededSlots <= have) return;   // pool already big enough — recycle existing slots
-
-    for (int i = have; i < neededSlots; ++i) {
-        m_rowBgIds.push_back(renderer.registerEntry());
-        m_rowIconIds.push_back(renderer.registerEntry());
-        m_rowLabelIds.push_back(renderer.registerEntry());
-        m_rowSubtitleIds.push_back(renderer.registerEntry());
+    if (neededSlots > have) {
+        for (int i = have; i < neededSlots; ++i) {
+            m_rowBgIds.push_back(renderer.registerEntry());
+            m_rowIconIds.push_back(renderer.registerEntry());
+            m_rowLabelIds.push_back(renderer.registerEntry());
+            m_rowSubtitleIds.push_back(renderer.registerEntry());
+        }
+        changed = true;
     }
-    m_registered = true;
-    // Re-set the destroy callback to capture the GROWN pools by value (renderer outlives the widget —
-    // shutdown resets m_root before m_renderer — so &renderer stays valid). `id` = m_renderId (the bg).
-    setDestroyCallback([&renderer, bgs = m_rowBgIds, icons = m_rowIconIds,
-                        labels = m_rowLabelIds, subs = m_rowSubtitleIds](uint32_t id) {
-        renderer.unregisterEntry(id);
-        for (uint32_t e : bgs)    renderer.unregisterEntry(e);
-        for (uint32_t e : icons)  renderer.unregisterEntry(e);
-        for (uint32_t e : labels) renderer.unregisterEntry(e);
-        for (uint32_t e : subs)   renderer.unregisterEntry(e);
-    });
+
+    if (changed) {
+        m_registered = true;
+        // (Re)set the destroy callback to capture the current ids by value (renderer outlives the widget —
+        // shutdown resets m_root before m_renderer — so &renderer stays valid). `id` = m_renderId (the bg).
+        setDestroyCallback([&renderer, track = m_trackId, thumb = m_thumbId, bgs = m_rowBgIds,
+                            icons = m_rowIconIds, labels = m_rowLabelIds, subs = m_rowSubtitleIds](uint32_t id) {
+            renderer.unregisterEntry(id);
+            renderer.unregisterEntry(track);
+            renderer.unregisterEntry(thumb);
+            for (uint32_t e : bgs)    renderer.unregisterEntry(e);
+            for (uint32_t e : icons)  renderer.unregisterEntry(e);
+            for (uint32_t e : labels) renderer.unregisterEntry(e);
+            for (uint32_t e : subs)   renderer.unregisterEntry(e);
+        });
+    }
 }
 
 void UIList::render(UIRenderer& renderer) {
@@ -316,6 +385,19 @@ void UIList::render(UIRenderer& renderer) {
         }
     }
     renderer.popClip();
+
+    // Scrollbar (track + thumb), drawn ON TOP of the rows at the right edge — outside the row clip so it's
+    // always fully visible. Shown only when the content overflows; hidden (zero-size) otherwise.
+    if (scrollbarWidth > 0.0f && isScrollable()) {
+        const int sbLayer = renderer.nextLayer();
+        const float trackX = absX + width - scrollbarWidth;
+        renderer.updateRect(m_trackId, trackX, absY, scrollbarWidth, height, scrollbarTrackColor, sbLayer);
+        float tx, ty, tw, th; scrollbarThumbRect(tx, ty, tw, th);
+        renderer.updateRect(m_thumbId, tx, ty, tw, th, scrollbarColor, renderer.nextLayer());
+    } else {
+        renderer.updateRect(m_trackId, 0, 0, 0, 0, 0, renderer.nextLayer());
+        renderer.updateRect(m_thumbId, 0, 0, 0, 0, 0, renderer.nextLayer());
+    }
 }
 
 void UIList::releaseRenderEntries(UIRenderer& renderer) {
@@ -326,6 +408,8 @@ void UIList::releaseRenderEntries(UIRenderer& renderer) {
     for (uint32_t e : m_rowIconIds)     if (e != 0) renderer.unregisterEntry(e);
     for (uint32_t e : m_rowLabelIds)    if (e != 0) renderer.unregisterEntry(e);
     for (uint32_t e : m_rowSubtitleIds) if (e != 0) renderer.unregisterEntry(e);
+    if (m_trackId != 0) { renderer.unregisterEntry(m_trackId); m_trackId = 0; }
+    if (m_thumbId != 0) { renderer.unregisterEntry(m_thumbId); m_thumbId = 0; }
     m_rowBgIds.clear();
     m_rowIconIds.clear();
     m_rowLabelIds.clear();

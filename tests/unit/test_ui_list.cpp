@@ -171,6 +171,25 @@ TEST_CASE("UIListUnit: parseItems reads an items[] array-of-objects", "[ui][list
     }
 }
 
+TEST_CASE("UIListUnit: scrollbar thumb geometry (proportional, scroll-positioned)", "[ui][list][unit]") {
+    UIList list; fill(list, 8);          // h160 rowHeight40 -> contentH 320 -> scrollable
+    REQUIRE(list.isScrollable());
+
+    float x, y, w, h;
+    list.scrollbarThumbRect(x, y, w, h);
+    REQUIRE(w == list.scrollbarWidth);
+    REQUIRE(x == 100.0f + 200.0f - list.scrollbarWidth);  // right column (absX+width-sbW)
+    REQUIRE(h == 80.0f);                 // height * (height/contentH) = 160 * (160/320)
+    REQUIRE(y == 100.0f);                // scroll 0 -> thumb at the top
+
+    list.handleMouseWheel(-100.0f);      // slam to the bottom -> scroll clamps to 160
+    list.scrollbarThumbRect(x, y, w, h);
+    REQUIRE(y == 180.0f);                // absY + ratio(1.0) * (height - thumbH) = 100 + 80
+
+    UIList small; fill(small, 3);        // contentH 120 < 160 -> no scrollbar
+    REQUIRE_FALSE(small.isScrollable());
+}
+
 TEST_CASE("UIListUnit: parseGroups reads groups[] each with its own items[]", "[ui][list][unit]") {
     json j;
     j["groups"] = json::array();

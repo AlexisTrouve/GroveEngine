@@ -583,7 +583,9 @@ void UIModule::updateUI(float deltaTime) {
                 // group's collapse (ui:list:group:toggled); an ITEM row selects it (ui:list:selected,
                 // carrying its groupId). rowAt returns -1 on empty gaps/out-of-range -> nothing happens.
                 UIList* list = static_cast<UIList*>(clickedWidget);
-                if (m_context->mousePressed) {
+                // Select/toggle on RELEASE, and only if the press didn't turn into a scroll-drag (the list
+                // owns scrolling: scrollbar-thumb drag + content drag-to-scroll, driven in its update()).
+                if (m_context->mouseReleased && !list->suppressClick()) {
                     int row = list->rowAt(m_context->mouseY);
                     const ListRow* r = (row >= 0) ? list->rowPtr(row) : nullptr;
                     if (r && r->isHeader) {

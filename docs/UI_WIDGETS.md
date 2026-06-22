@@ -480,13 +480,18 @@ its ships. Clicking a header folds/unfolds the group; clicking a ship selects it
   (IIO serializes only a node's JSON — see UI_TOPICS.md).
 - `ui:list:select {id, index}` - programmatic pre-selection by row index (no event re-emit).
 
-**Scope:** wheel scroll + single-select + clip + **virtualization** (only on-screen rows get render
-entries — a recycled, viewport-bounded id-pool remapped to the scrolled window, so a 10k-row list registers
-~viewport-many entries) + **collapsible groups** (warship wings). Internally everything is a flat sequence
-of `ListRow` (header | item) that both flat and grouped data project onto, so virtualization/scroll/clip
-operate the same way. Deliberate follow-ons: a visual scrollbar + drag-to-scroll, custom row templates,
-multi-select, grid mode, multi-level tree. The container follows the standard pattern (opaque hit-test
-absorb, content clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
+**Scroll & select:** mouse **wheel**, a **visual scrollbar** (track + draggable thumb, shown only when the
+content overflows), and **content drag-to-scroll** (grab a row and pull — past a small threshold it becomes
+a scroll, so it doesn't fire a select). Selection happens on **release** and only if the press wasn't a
+drag. Style: `scrollbarColor` / `scrollbarTrackColor` / `scrollbarWidth` (0 = no visual bar).
+
+**Scope:** wheel + scrollbar + drag-to-scroll + single-select + clip + **virtualization** (only on-screen
+rows get render entries — a recycled, viewport-bounded id-pool remapped to the scrolled window, so a 10k-row
+list registers ~viewport-many entries) + **collapsible groups** (warship wings). Internally everything is a
+flat sequence of `ListRow` (header | item) that both flat and grouped data project onto, so
+virtualization/scroll/clip operate the same way. Deliberate follow-ons: custom row templates, multi-select,
+grid mode, multi-level tree. The container follows the standard pattern (opaque hit-test absorb, content
+clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
 
 ## Creating Custom Widgets
 
