@@ -18,6 +18,7 @@ add_library(UIModule SHARED
     Core/UIContext.cpp
     Core/UIStyle.cpp
     Core/UITooltip.cpp
+    Core/UIBinding.cpp
 
     # Widgets
     Widgets/UIPanel.cpp
@@ -91,6 +92,7 @@ add_library(UIModule_static STATIC
     Core/UIContext.cpp
     Core/UIStyle.cpp
     Core/UITooltip.cpp
+    Core/UIBinding.cpp
 
     # Widgets
     Widgets/UIPanel.cpp

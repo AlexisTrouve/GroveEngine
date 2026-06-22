@@ -1813,6 +1813,11 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(test_ui_list PRIVATE UIModule_static Catch2::Catch2WithMain)
     grove_add_test(UIListUnit test_ui_list ${CMAKE_CURRENT_BINARY_DIR})
 
+    # test_ui_binding: pure {{path}} resolver + scope-chain oracle (the JSON-UI binding socle).
+    add_executable(test_ui_binding unit/test_ui_binding.cpp)
+    target_link_libraries(test_ui_binding PRIVATE UIModule_static Catch2::Catch2WithMain)
+    grove_add_test(UIBindingUnit test_ui_binding ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_020: action-wheel (radial) click E2E — confirm a wedge by direction, cancel in
     # the dead-zone, miss off-wheel. Locks the new UIRadial widget end-to-end.
     add_executable(IT_020_ui_radial_e2e

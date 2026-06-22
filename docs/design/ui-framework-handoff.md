@@ -213,6 +213,15 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 
 From Alexi's original ask, still to build (all sit on the now-complete foundation):
 
+- **JSON-UI templating & data-binding engine — 🚧 ACTIVE THRUST** (decided with Alexi, the "UI = JSON
+  data-driven" vision). Design + roadmap: **`docs/design/ui-binding.md`**. ✅ **Step 1 SHIPPED** — the shared
+  `{{}}` resolver + scope-chain (`Core/UIBinding.{h,cpp}`, `grove::uibind`, locked by `UIBindingUnit`).
+  **Resume at step 2**: wire binding-IN (props ← `{{path}}`, recorded at parse, re-resolved) + events-OUT
+  (declarative `on` events with `{{}}`-resolved args) to widgets, E2E. Then reactivity (3), repeater (4),
+  `if` (5), and the LIST becomes a virtualized repeater (6). **Hard guardrail: no expression language** —
+  paths + interpolation + boolean `if` only; logic stays game-side. This SUBSUMES the list's "custom row
+  templates" follow-on below (a row template = a JSON widget subtree repeated + bound).
+
 - **List / Grid view — the ship sidebar** (his marquee). ✅ **SHIPPED + VIRTUALIZED + GROUPED** — `UIList`
   (`Widgets/UIList.{h,cpp}`): data-driven, wheel-scroll, clipped, single-select → `ui:list:selected`,
   runtime `ui:list:set_items` / `ui:list:set_groups` / `ui:list:select`. **Virtualized** — recycled
