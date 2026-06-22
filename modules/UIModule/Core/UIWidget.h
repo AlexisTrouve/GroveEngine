@@ -61,6 +61,17 @@ public:
     virtual bool clipsHitTest() const { return false; }
 
     /**
+     * @brief The rect (screen px) a clipping widget clips its CHILDREN's hit-test to.
+     *
+     * WHY: a scroll panel clips to its full bounds, but a window clips to the area BELOW its
+     *      titlebar (the content region). Default = full bounds; clippers that differ override it.
+     *      Only consulted when clipsHitTest() is true. Mirrors the visual clip pushed in render().
+     */
+    virtual void hitClipRect(float& outX, float& outY, float& outW, float& outH) const {
+        outX = absX; outY = absY; outW = width; outH = height;
+    }
+
+    /**
      * @brief Publish render:*:remove for this widget's retained entries and RESET its registration,
      *        so a later re-show re-registers and re-publishes :add.
      *

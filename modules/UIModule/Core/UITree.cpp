@@ -10,6 +10,7 @@
 #include "../Widgets/UITextInput.h"
 #include "../Widgets/UIScrollPanel.h"
 #include "../Widgets/UIRadial.h"
+#include "../Widgets/UIWindow.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -40,6 +41,33 @@ void UITree::registerDefaultWidgets() {
         }
 
         return panel;
+    });
+
+    // Register window factory (in-app window — slice 3b). Children are added by the loader and
+    // rendered in the clipped content area below the title bar.
+    registerWidget("window", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto win = std::make_unique<UIWindow>();
+        win->title = node.getString("title", "");
+        win->titleBarHeight = static_cast<float>(node.getDouble("titleBarHeight", 28.0));
+        win->closable = node.getBool("closable", true);
+        win->draggable = node.getBool("draggable", true);
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+                std::string v = s->getString(key, "");
+                if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                    return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+                }
+                return def;
+            };
+            win->bgColor = hexColor(style, "bgColor", win->bgColor);
+            win->titleBarColor = hexColor(style, "titleBarColor", win->titleBarColor);
+            win->titleColor = hexColor(style, "titleColor", win->titleColor);
+            win->closeColor = hexColor(style, "closeColor", win->closeColor);
+            win->fontSize = static_cast<float>(style->getDouble("fontSize", win->fontSize));
+        }
+        return win;
     });
 
     // Register label factory

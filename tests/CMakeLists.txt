@@ -1873,6 +1873,18 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(UIScrollPanelHitClipE2E IT_025_ui_scrollpanel_hitclip_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_026: in-app Window E2E — opaque (absorbs clicks) + clips its content (UI slice 3b-1).
+    add_executable(IT_026_ui_window_e2e
+        integration/IT_026_ui_window_e2e.cpp
+    )
+    target_link_libraries(IT_026_ui_window_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIWindowE2E IT_026_ui_window_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

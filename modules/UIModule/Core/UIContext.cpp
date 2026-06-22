@@ -5,6 +5,7 @@
 #include "../Widgets/UICheckbox.h"
 #include "../Widgets/UITextInput.h"
 #include "../Widgets/UIRadial.h"
+#include "../Widgets/UIWindow.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -25,11 +26,15 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         return nullptr;
     }
 
-    // A clipping container (scroll panel, window) hides its children outside its own rect — a point
-    // outside the clip can't hit them, so skip the whole subtree. Mirrors the visual scissor (2a).
-    const bool descend = !widget->clipsHitTest() ||
-        (x >= widget->absX && x <= widget->absX + widget->width &&
-         y >= widget->absY && y <= widget->absY + widget->height);
+    // A clipping container (scroll panel, window) hides its children outside its clip rect — a point
+    // outside it can't hit them, so skip the whole subtree. Mirrors the visual scissor (2a). The clip
+    // rect is the widget's bounds by default, or a custom region (a window clips below its titlebar).
+    bool descend = true;
+    if (widget->clipsHitTest()) {
+        float cx, cy, cw, ch;
+        widget->hitClipRect(cx, cy, cw, ch);
+        descend = (x >= cx && x <= cx + cw && y >= cy && y <= cy + ch);
+    }
 
     // Check children first (front to back = reverse order for hit testing)
     if (descend) {
@@ -72,6 +77,15 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         // Disque interactif (jusqu'à outerRadius) ; la dead-zone se résout en "annuler".
         UIRadial* radial = static_cast<UIRadial*>(widget);
         if (radial->containsPoint(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "window") {
+        // Opaque: a click anywhere in the window's bounds is absorbed, so it never leaks to a
+        // widget behind it. Content children were already tested above (clipped to the content
+        // rect); reaching here means the title bar / chrome / empty content was clicked.
+        UIWindow* window = static_cast<UIWindow*>(widget);
+        if (window->pointInWindow(x, y)) {
             return widget;
         }
     }

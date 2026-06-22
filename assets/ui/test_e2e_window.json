@@ -1,0 +1,24 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    { "id": "bg_btn", "type": "button", "x": 100, "y": 100, "width": 300, "height": 300, "text": "BG", "onClick": "background" },
+    {
+      "id": "win",
+      "type": "window",
+      "x": 150,
+      "y": 150,
+      "width": 200,
+      "height": 150,
+      "title": "Win",
+      "children": [
+        { "id": "content_btn", "type": "button", "x": 0, "y": 0,   "width": 120, "height": 30, "text": "C", "onClick": "content" },
+        { "id": "below_btn",   "type": "button", "x": 0, "y": 200, "width": 120, "height": 30, "text": "X", "onClick": "below" }
+      ]
+    }
+  ]
+}
