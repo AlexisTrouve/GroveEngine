@@ -21,6 +21,8 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:set_visible` | `{id, visible}` | Show/hide a widget. Hiding PURGES its retained render entries (no ghost rects); showing re-registers on the next render. Recurses to children |
 | `ui:set_position` | `{id, x, y}` | Move a widget at runtime (recomputes its absolute position). For the radial, x/y are its CENTRE — e.g. pop the action wheel centered on the cursor |
 | `ui:radial:set_items` | `{id, count}` | Reconfigure a radial wheel to `count` slices at runtime (the pie tiles into ANY N: 2..8+). Generates generic items; a game normally sets real items via the layout JSON (`items[]`, `style.gap`/`style.margin` for the inter-slice gaps) |
+| `ui:drawer:toggle` | `{id}` | Open/close an edge drawer (it animates the slide itself) |
+| `ui:drawer:set` | `{id, open}` | Force an edge drawer open (`true`) or closed (`false`) |
 | `ui:set_value` | `{id, value}` | Set slider/progressbar value |
 | `ui:load` | `{layoutPath}` | Load new UI layout from file |
 | `ui:resize` | `{width, height}` | Viewport resized — re-lays-out the whole UI against the new size. The **host** (which owns the window) publishes this on a window-resize event; UIModule stays decoupled from SDL. Widgets with `widthPercent`/`heightPercent` (a fraction `0..1` of the parent content box; the root's parent = the viewport, so `1.0` = fill the window) re-resolve and track the new size. Partial payloads tolerated (only a provided/positive dimension is applied) |

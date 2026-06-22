@@ -7,6 +7,7 @@
 #include "../Widgets/UIRadial.h"
 #include "../Widgets/UIWindow.h"
 #include "../Widgets/UITabs.h"
+#include "../Widgets/UIDrawer.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -95,6 +96,14 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         // tested above, clipped to the content area). UIModule reads tabAt() to switch the page.
         UITabs* tabs = static_cast<UITabs*>(widget);
         if (tabs->pointInBounds(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "drawer") {
+        // Opaque while on screen: absorb clicks in the (sliding) drawer rect; off-screen when
+        // closed -> pointInBounds is false -> the click passes through.
+        UIDrawer* drawer = static_cast<UIDrawer*>(widget);
+        if (drawer->pointInBounds(x, y)) {
             return widget;
         }
     }

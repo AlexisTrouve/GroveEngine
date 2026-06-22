@@ -14,6 +14,7 @@
 #include "Widgets/UIRadial.h"
 #include "Widgets/UIWindow.h"
 #include "Widgets/UITabs.h"
+#include "Widgets/UIDrawer.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -189,6 +190,27 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (w > 0.0f) m_context->screenWidth = w;
             if (h > 0.0f) m_context->screenHeight = h;
             relayoutRoot();
+        });
+
+        // Edge drawer open/close (slice 5b). toggle flips it; set forces a state. The drawer
+        // animates the slide itself; closing purges its entries when fully off-screen.
+        m_io->subscribe("ui:drawer:toggle", [this](const Message& msg) {
+            if (!m_root) return;
+            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+                if (w->getType() == "drawer") {
+                    UIDrawer* d = static_cast<UIDrawer*>(w);
+                    d->setOpen(!d->isOpen());
+                }
+            }
+        });
+        m_io->subscribe("ui:drawer:set", [this](const Message& msg) {
+            if (!m_root) return;
+            const bool open = msg.data->getBool("open", true);
+            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+                if (w->getType() == "drawer") {
+                    static_cast<UIDrawer*>(w)->setOpen(open);
+                }
+            }
         });
 
         m_io->subscribe("ui:set_visible", [this](const Message& msg) {

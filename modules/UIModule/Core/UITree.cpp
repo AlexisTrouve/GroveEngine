@@ -12,6 +12,7 @@
 #include "../Widgets/UIRadial.h"
 #include "../Widgets/UIWindow.h"
 #include "../Widgets/UITabs.h"
+#include "../Widgets/UIDrawer.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -100,6 +101,28 @@ void UITree::registerDefaultWidgets() {
             tabs->fontSize = static_cast<float>(style->getDouble("fontSize", tabs->fontSize));
         }
         return tabs;
+    });
+
+    // Register drawer factory (edge-docked sliding panel — slice 5b).
+    registerWidget("drawer", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto drawer = std::make_unique<UIDrawer>();
+        std::string edgeStr = node.getString("edge", "left");
+        if (edgeStr == "right")       drawer->edge = UIDrawer::Edge::Right;
+        else if (edgeStr == "top")    drawer->edge = UIDrawer::Edge::Top;
+        else if (edgeStr == "bottom") drawer->edge = UIDrawer::Edge::Bottom;
+        else                          drawer->edge = UIDrawer::Edge::Left;
+        drawer->openExtent = static_cast<float>(node.getDouble("openExtent", 250.0));
+        drawer->slideDuration = static_cast<float>(node.getDouble("slideDuration", 0.22));
+        drawer->setOpen(node.getBool("open", false));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            std::string v = style->getString("bgColor", "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                drawer->bgColor = static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+        }
+        return drawer;
     });
 
     // Register label factory

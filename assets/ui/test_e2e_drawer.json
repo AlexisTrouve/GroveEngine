@@ -1,0 +1,21 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "drawer",
+      "type": "drawer",
+      "edge": "left",
+      "openExtent": 200,
+      "slideDuration": 0.5,
+      "open": false,
+      "children": [
+        { "id": "drawer_btn", "type": "button", "x": 20, "y": 20, "width": 120, "height": 30, "text": "D", "onClick": "draweritem" }
+      ]
+    }
+  ]
+}

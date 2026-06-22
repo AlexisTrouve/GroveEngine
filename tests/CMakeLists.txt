@@ -1902,6 +1902,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITabsE2E IT_029_ui_tabs_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_030: edge drawer E2E — slides open/closed; content reachable only when open (UI slice 5b).
+    add_executable(IT_030_ui_drawer_e2e integration/IT_030_ui_drawer_e2e.cpp)
+    target_link_libraries(IT_030_ui_drawer_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIDrawerE2E IT_030_ui_drawer_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
