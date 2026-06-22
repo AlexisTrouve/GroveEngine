@@ -35,6 +35,30 @@ All widgets support these base properties:
 }
 ```
 
+### Responsive sizing & anchoring
+
+Widgets can size and position themselves *relative to their parent* so the UI **reflows** when the
+window resizes (the host publishes `ui:resize {width,height}` — see [UI_TOPICS](UI_TOPICS.md)). Both
+re-resolve on every layout pass, so they track the parent automatically.
+
+```json
+{
+  "type": "panel",
+  "widthPercent": 1.0,        // fraction 0..1 of the parent content box (root's parent = the viewport)
+  "heightPercent": 1.0,       // 1.0 = fill. Omit / 0 = use the absolute width/height above.
+  "anchor": "bottom-right",   // pin to a parent point: top-left|top|top-right|left|center|right|
+                              //   bottom-left|bottom|bottom-right (default none = keep x/y)
+  "anchorOffset": { "x": -10, "y": -10 }   // pixel nudge after anchoring (+x right, +y down)
+}
+```
+
+- **`widthPercent`/`heightPercent`** — relative size. On the main axis of a flex container the percent
+  is a fixed reservation taken before flex shares the rest; on the cross axis / `stack` / `absolute`
+  it's a direct fraction.
+- **`anchor`** — positional only (use `widthPercent/heightPercent:1.0` to *fill*). Resolved for children
+  of an **`absolute`-mode** parent (in flow layouts the flow positions the child, so the anchor is
+  ignored). Ideal for HUD elements glued to a corner.
+
 ## UIButton
 
 Clickable button with hover/press states.

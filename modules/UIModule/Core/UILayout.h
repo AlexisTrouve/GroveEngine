@@ -103,11 +103,35 @@ struct LayoutProperties {
 };
 
 /**
+ * @brief Anchor — pins an absolutely-positioned widget to a point of its parent content box.
+ *
+ * WHY: so a HUD element stays glued to a corner/edge when the window (parent) resizes — the
+ *      position is derived from the parent box each layout pass, not a frozen x/y. "Fill" is
+ *      NOT here: that's widthPercent/heightPercent=1 (slice 1.1); Anchor is positional only.
+ * SCOPE: resolved for children of an ABSOLUTE-mode parent (flow modes position by the flow).
+ *        Anchor::None = legacy behavior (use the explicit x/y).
+ */
+enum class Anchor {
+    None,
+    TopLeft,    Top,    TopRight,
+    Left,       Center, Right,
+    BottomLeft, Bottom, BottomRight
+};
+
+/**
  * @brief Result of layout measurement pass
  */
 struct LayoutMeasurement {
     float preferredWidth = 0.0f;
     float preferredHeight = 0.0f;
+};
+
+/**
+ * @brief A resolved top-left position (relative to the parent origin).
+ */
+struct AnchorPos {
+    float x = 0.0f;
+    float y = 0.0f;
 };
 
 /**
@@ -129,6 +153,20 @@ public:
      * @param availableHeight Available height for the widget
      */
     static void layout(UIWidget* widget, float availableWidth, float availableHeight);
+
+    /**
+     * @brief Resolve a widget's top-left position so its anchor point sits at the matching point
+     *        of the parent content box, then apply the offset. Pure — oracle-tested.
+     * @param anchor       Which point of the box the widget pins to
+     * @param boxX,boxY    Content box origin (relative to the parent origin — includes padding)
+     * @param boxW,boxH    Content box size
+     * @param w,h          The widget's own size
+     * @param offX,offY    Pixel nudge applied after anchoring (+x right, +y down)
+     * @return Top-left {x,y} relative to the parent origin. Anchor::None -> {offX, offY} pass-through.
+     */
+    static AnchorPos resolveAnchor(Anchor anchor,
+                                   float boxX, float boxY, float boxW, float boxH,
+                                   float w, float h, float offX, float offY);
 
 private:
     /**

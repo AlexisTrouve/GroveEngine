@@ -148,18 +148,27 @@ void UILayout::layout(UIWidget* widget, float availableWidth, float availableHei
             layoutStack(widget, contentWidth, contentHeight);
             break;
         case LayoutMode::Absolute:
-        default:
-            // For absolute layout, lay out children at their preferred size — but a child with
-            // percent sizing takes that fraction of THIS widget's content box (so e.g. a full-bleed
-            // background panel with widthPercent=1 tracks its parent on reflow).
+        default: {
+            // Absolute children keep their explicit x/y — UNLESS anchored, in which case the
+            // position is derived from this widget's content box, so it tracks the box on reflow
+            // (e.g. a HUD button glued to the bottom-right corner). Percent sizing still applies.
+            const float padL = widget->layoutProps.getLeftPadding();
+            const float padT = widget->layoutProps.getTopPadding();
             for (auto& child : widget->children) {
                 if (!child->visible) continue;
                 auto childMeasure = measure(child.get());
                 float cw = child->widthPercent  > 0.0f ? child->widthPercent  * contentWidth  : childMeasure.preferredWidth;
                 float ch = child->heightPercent > 0.0f ? child->heightPercent * contentHeight : childMeasure.preferredHeight;
+                if (child->anchor != Anchor::None) {
+                    AnchorPos p = resolveAnchor(child->anchor, padL, padT, contentWidth, contentHeight,
+                                                cw, ch, child->anchorOffsetX, child->anchorOffsetY);
+                    child->x = p.x;
+                    child->y = p.y;
+                }
                 layout(child.get(), cw, ch);
             }
             break;
+        }
     }
 }
 
@@ -403,6 +412,37 @@ float UILayout::clampSize(float size, float minSize, float maxSize) {
         size = std::min(size, maxSize);
     }
     return size;
+}
+
+AnchorPos UILayout::resolveAnchor(Anchor anchor,
+                                  float boxX, float boxY, float boxW, float boxH,
+                                  float w, float h, float offX, float offY) {
+    // None = no anchoring: the offset passes straight through (the caller keeps explicit x/y).
+    if (anchor == Anchor::None) {
+        return { offX, offY };
+    }
+
+    // Horizontal: left edge (default) / centered / right-aligned, per the anchor's column.
+    float x = boxX;
+    switch (anchor) {
+        case Anchor::Top: case Anchor::Center: case Anchor::Bottom:
+            x = boxX + (boxW - w) * 0.5f; break;
+        case Anchor::TopRight: case Anchor::Right: case Anchor::BottomRight:
+            x = boxX + boxW - w; break;
+        default: break;  // TopLeft / Left / BottomLeft -> left edge
+    }
+
+    // Vertical: top edge (default) / centered / bottom-aligned, per the anchor's row.
+    float y = boxY;
+    switch (anchor) {
+        case Anchor::Left: case Anchor::Center: case Anchor::Right:
+            y = boxY + (boxH - h) * 0.5f; break;
+        case Anchor::BottomLeft: case Anchor::Bottom: case Anchor::BottomRight:
+            y = boxY + boxH - h; break;
+        default: break;  // TopLeft / Top / TopRight -> top edge
+    }
+
+    return { x + offX, y + offY };
 }
 
 } // namespace grove

@@ -155,9 +155,12 @@ Extends `Core/UILayout.{h,cpp}` + `UIWidget` sizing fields + `UITree` JSON + a r
   `relayoutRoot()`. The host publishes `ui:resize` on window resize; UIModule stays SDL-decoupled.
   **Proof:** `UILayoutUnit` oracle (reflow + percent re-resolution) + `IT_021` E2E (the SAME click hits
   the right button before the resize, the left one after — geometry provably moved).
-- **1.2 Anchoring** — `anchor` (9 anchors + `StretchH`/`StretchV`/`Fill`) + offset, resolved against
-  the parent rect. Pure `resolveAnchor(parentRect, size, anchor, offset) → pos`.
-  **Proof:** oracle per anchor + E2E (a bottom-right-anchored widget stays bottom-right after resize).
+- **1.2 Anchoring — ✅ SHIPPED** (2026-06-22). `anchor` (9 positional anchors: corners/edges/center)
+  + `anchorOffset {x,y}`, resolved by the pure `UILayout::resolveAnchor(...)` against the parent content
+  box. Applied in the **Absolute** branch of layout (flow modes position by the flow). *Fill* is NOT a
+  separate anchor — that's `widthPercent/heightPercent:1.0` from 1.1 (no redundant Stretch enum).
+  **Proof:** oracle per anchor + offset + padded-box origin (`UILayoutUnit`) + `IT_022` E2E (a
+  bottom-right-anchored button follows the corner across a resize — old spot empty, new corner hits).
 - **1.3 Grid** — `LayoutMode::Grid` (columns, gap, cell sizing). Pure
   `gridCellRect(index, cols, cellW, cellH, gap) → rect`.
   **Proof:** oracle + E2E (a button grid positioned correctly).
@@ -195,4 +198,5 @@ them.
 | Date | Slice | State |
 |---|---|---|
 | 2026-06-22 | — | Design locked (this doc). Path A chosen. |
-| 2026-06-22 | 1.1 reflow-on-resize | ✅ SHIPPED. `ui:resize` → `relayoutRoot()` + `widthPercent`/`heightPercent` relative sizing. Locked by `UILayoutUnit` + `IT_021`. Anchoring (1.2) + grid (1.3) still pending. |
+| 2026-06-22 | 1.1 reflow-on-resize | ✅ SHIPPED. `ui:resize` → `relayoutRoot()` + `widthPercent`/`heightPercent` relative sizing. Locked by `UILayoutUnit` + `IT_021`. |
+| 2026-06-22 | 1.2 anchoring | ✅ SHIPPED. 9 positional anchors + `anchorOffset`, `resolveAnchor()` in the absolute branch. Locked by `UILayoutUnit` + `IT_022`. Grid (1.3) still pending to finish slice 1. |

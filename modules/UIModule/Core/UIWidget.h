@@ -89,6 +89,16 @@ public:
     float widthPercent = 0.0f;
     float heightPercent = 0.0f;
 
+    // Anchoring — UI framework slice 1.2.
+    // QUOI : épingle ce widget à un point du content-box parent (coin/bord/centre) + un offset px.
+    // POURQUOI : un élément de HUD reste collé à son coin quand la fenêtre (le parent) est
+    //   redimensionnée — la position est dérivée du box parent à chaque passe, pas figée en x/y.
+    // COMMENT : résolu dans la branche ABSOLUTE de UILayout via resolveAnchor() ; None = legacy
+    //   (on garde x/y explicites). En flow (vertical/horizontal) l'ancre est ignorée (le flux place).
+    Anchor anchor = Anchor::None;
+    float anchorOffsetX = 0.0f;
+    float anchorOffsetY = 0.0f;
+
     // Layout properties (Phase 2)
     LayoutProperties layoutProps;
 

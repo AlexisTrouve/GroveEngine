@@ -88,3 +88,53 @@ TEST_CASE("UILayout resolves width/heightPercent on both axes in stack mode", "[
     CHECK(near(child->width, 400.0f));
     CHECK(near(child->height, 300.0f));
 }
+
+// ----------------------------------------------------------------------------
+// Slice 1.2 — anchoring
+// ----------------------------------------------------------------------------
+
+TEST_CASE("resolveAnchor pins the widget to each point of the parent box", "[ui][layout][anchor]") {
+    // Box 800x600 at the origin; widget 100x50; no offset. Expected top-left per anchor.
+    const float bx = 0.0f, by = 0.0f, bw = 800.0f, bh = 600.0f, w = 100.0f, h = 50.0f;
+    auto at = [&](Anchor a) { return UILayout::resolveAnchor(a, bx, by, bw, bh, w, h, 0.0f, 0.0f); };
+
+    CHECK(near(at(Anchor::TopLeft).x, 0.0f));      CHECK(near(at(Anchor::TopLeft).y, 0.0f));
+    CHECK(near(at(Anchor::Top).x, 350.0f));        CHECK(near(at(Anchor::Top).y, 0.0f));
+    CHECK(near(at(Anchor::TopRight).x, 700.0f));   CHECK(near(at(Anchor::TopRight).y, 0.0f));
+    CHECK(near(at(Anchor::Left).x, 0.0f));         CHECK(near(at(Anchor::Left).y, 275.0f));
+    CHECK(near(at(Anchor::Center).x, 350.0f));     CHECK(near(at(Anchor::Center).y, 275.0f));
+    CHECK(near(at(Anchor::Right).x, 700.0f));      CHECK(near(at(Anchor::Right).y, 275.0f));
+    CHECK(near(at(Anchor::BottomLeft).x, 0.0f));   CHECK(near(at(Anchor::BottomLeft).y, 550.0f));
+    CHECK(near(at(Anchor::Bottom).x, 350.0f));     CHECK(near(at(Anchor::Bottom).y, 550.0f));
+    CHECK(near(at(Anchor::BottomRight).x, 700.0f));CHECK(near(at(Anchor::BottomRight).y, 550.0f));
+}
+
+TEST_CASE("resolveAnchor applies the offset and honors a padded box origin", "[ui][layout][anchor]") {
+    // Box origin (20,30) (e.g. padding), size 760x540; widget 100x40; offset (-10,-10).
+    AnchorPos br = UILayout::resolveAnchor(Anchor::BottomRight, 20.0f, 30.0f, 760.0f, 540.0f, 100.0f, 40.0f, -10.0f, -10.0f);
+    CHECK(near(br.x, 20.0f + 760.0f - 100.0f - 10.0f));   // 670
+    CHECK(near(br.y, 30.0f + 540.0f - 40.0f - 10.0f));    // 520
+
+    // Anchor::None is a pass-through to the offset (legacy x/y handling lives in the caller).
+    AnchorPos none = UILayout::resolveAnchor(Anchor::None, 0.0f, 0.0f, 800.0f, 600.0f, 100.0f, 40.0f, 5.0f, 7.0f);
+    CHECK(near(none.x, 5.0f));
+    CHECK(near(none.y, 7.0f));
+}
+
+TEST_CASE("An anchored child in an absolute parent tracks the corner on reflow", "[ui][layout][anchor]") {
+    Box root;
+    root.layoutProps.mode = LayoutMode::Absolute;
+    Box* hud = addBox(&root);
+    hud->width = 100.0f; hud->height = 40.0f;
+    hud->anchor = Anchor::BottomRight;
+    hud->anchorOffsetX = -10.0f; hud->anchorOffsetY = -10.0f;
+
+    UILayout::layout(&root, 800.0f, 600.0f);
+    CHECK(near(hud->x, 690.0f));   // 800-100-10
+    CHECK(near(hud->y, 550.0f));   // 600-40-10
+
+    // Reflow to a bigger viewport: the HUD follows the bottom-right corner.
+    UILayout::layout(&root, 1200.0f, 800.0f);
+    CHECK(near(hud->x, 1090.0f));  // 1200-100-10
+    CHECK(near(hud->y, 750.0f));   // 800-40-10
+}

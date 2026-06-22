@@ -460,6 +460,25 @@ void UITree::parseCommonProperties(UIWidget* widget, const IDataNode& node) {
     if (node.hasChild("flex")) {
         widget->layoutProps.flex = static_cast<float>(node.getDouble("flex", 0.0));
     }
+
+    // Anchoring (slice 1.2): pins an absolutely-positioned widget to a point of the parent box.
+    // Hyphenated names match the documented format; unknown/absent -> None (legacy x/y).
+    std::string anchorStr = node.getString("anchor", "none");
+    static const std::unordered_map<std::string, Anchor> anchorMap = {
+        {"none", Anchor::None},
+        {"top-left", Anchor::TopLeft},       {"top", Anchor::Top},       {"top-right", Anchor::TopRight},
+        {"left", Anchor::Left},              {"center", Anchor::Center}, {"right", Anchor::Right},
+        {"bottom-left", Anchor::BottomLeft}, {"bottom", Anchor::Bottom}, {"bottom-right", Anchor::BottomRight}
+    };
+    auto anchorIt = anchorMap.find(anchorStr);
+    if (anchorIt != anchorMap.end()) {
+        widget->anchor = anchorIt->second;
+    }
+    // Anchor offset: a pixel nudge applied after anchoring. Object {x,y}.
+    if (auto* offsetNode = mutableNode.getChildReadOnly("anchorOffset")) {
+        widget->anchorOffsetX = static_cast<float>(offsetNode->getDouble("x", 0.0));
+        widget->anchorOffsetY = static_cast<float>(offsetNode->getDouble("y", 0.0));
+    }
 }
 
 void UITree::parseLayoutProperties(UIWidget* widget, const IDataNode& layoutNode) {

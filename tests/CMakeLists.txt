@@ -1828,6 +1828,19 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIResizeReflowE2E IT_021_ui_resize_reflow_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_022: anchoring reflow E2E — a corner-anchored widget follows the corner across a resize
+    # (UI framework slice 1.2).
+    add_executable(IT_022_ui_anchor_reflow_e2e
+        integration/IT_022_ui_anchor_reflow_e2e.cpp
+    )
+    target_link_libraries(IT_022_ui_anchor_reflow_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIAnchorReflowE2E IT_022_ui_anchor_reflow_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)
