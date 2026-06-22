@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 #include <functional>
+#include <iterator>   // std::next in bringToFront()
 #include "UILayout.h"
 #include "../Rendering/UIRenderer.h"   // releaseRenderEntries() calls renderer.unregisterEntry()
 
@@ -143,6 +144,30 @@ public:
     void addChild(std::unique_ptr<UIWidget> child) {
         child->parent = this;
         children.push_back(std::move(child));
+    }
+
+    /**
+     * @brief Raise this widget above its siblings (z-order — UI framework slice 3a).
+     *
+     * WHY: an in-app window clicked should come to the FRONT. We model z-order by sibling ORDER —
+     *      a widget rendered last gets the highest layers (drawn on top) and the reverse-order
+     *      hit-test finds it first (topmost wins input). So "bring to front" = move to the END of
+     *      the parent's children. One move covers both render order and hit-test priority.
+     * HOW: find self in parent->children, move the owning unique_ptr to the back (preserving the
+     *      others' relative order). No-op if there's no parent or it's already last.
+     */
+    void bringToFront() {
+        if (!parent) return;
+        auto& sibs = parent->children;
+        for (auto it = sibs.begin(); it != sibs.end(); ++it) {
+            if (it->get() == this) {
+                if (std::next(it) == sibs.end()) return;  // already frontmost
+                std::unique_ptr<UIWidget> self = std::move(*it);
+                sibs.erase(it);
+                sibs.push_back(std::move(self));
+                return;
+            }
+        }
     }
 
     /**

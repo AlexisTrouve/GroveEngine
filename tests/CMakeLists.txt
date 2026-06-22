@@ -1803,6 +1803,11 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(test_ui_layout PRIVATE UIModule_static Catch2::Catch2WithMain)
     grove_add_test(UILayoutUnit test_ui_layout ${CMAKE_CURRENT_BINARY_DIR})
 
+    # test_ui_zorder: pure bringToFront() z-order primitive (UI slice 3a). Links UIModule_static.
+    add_executable(test_ui_zorder unit/test_ui_zorder.cpp)
+    target_link_libraries(test_ui_zorder PRIVATE UIModule_static Catch2::Catch2WithMain)
+    grove_add_test(UIZOrderUnit test_ui_zorder ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_020: action-wheel (radial) click E2E — confirm a wedge by direction, cancel in
     # the dead-zone, miss off-wheel. Locks the new UIRadial widget end-to-end.
     add_executable(IT_020_ui_radial_e2e
