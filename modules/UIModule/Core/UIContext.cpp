@@ -6,6 +6,7 @@
 #include "../Widgets/UITextInput.h"
 #include "../Widgets/UIRadial.h"
 #include "../Widgets/UIWindow.h"
+#include "../Widgets/UITabs.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -86,6 +87,14 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         // rect); reaching here means the title bar / chrome / empty content was clicked.
         UIWindow* window = static_cast<UIWindow*>(widget);
         if (window->pointInWindow(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "tabs") {
+        // Opaque too: clicks in the tab bar / chrome are absorbed (the active page's children were
+        // tested above, clipped to the content area). UIModule reads tabAt() to switch the page.
+        UITabs* tabs = static_cast<UITabs*>(widget);
+        if (tabs->pointInBounds(x, y)) {
             return widget;
         }
     }
@@ -187,6 +196,11 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
         if (handled && !pressed) {
             return target;  // release sur la roue -> UIModule résout action vs annuler
         }
+    }
+    else if (type == "tabs") {
+        // Surface the tabs as the click target on PRESS; UIModule resolves the tab switch (it needs
+        // to publish ui:tab:changed). On release / content, nothing extra.
+        if (pressed) return target;
     }
 
     return handled ? target : nullptr;

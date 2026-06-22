@@ -38,6 +38,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:hover` | `{widgetId, enter}` | Mouse entered/left widget |
 | `ui:scroll` | `{widgetId, scrollX, scrollY}` | Scroll panel scrolled |
 | `ui:window:closed` | `{id}` | An in-app window was closed (its close button clicked). The window hides itself + purges its retained entries; the game reacts (free state, etc.) |
+| `ui:tab:changed` | `{widgetId, index}` | A tabbed container switched to page `index` (a tab was clicked). The tabs widget shows that page + hides/purges the others on its own |
 
 ### Rendering (Retained Mode)
 

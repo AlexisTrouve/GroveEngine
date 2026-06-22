@@ -11,6 +11,7 @@
 #include "../Widgets/UIScrollPanel.h"
 #include "../Widgets/UIRadial.h"
 #include "../Widgets/UIWindow.h"
+#include "../Widgets/UITabs.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -68,6 +69,37 @@ void UITree::registerDefaultWidgets() {
             win->fontSize = static_cast<float>(style->getDouble("fontSize", win->fontSize));
         }
         return win;
+    });
+
+    // Register tabs factory (sectioned container — slice 5c). Pages are the children (one shown at a
+    // time); "tabs":[{label}] gives the tab-bar labels in order. Same array-of-objects pattern as radial.
+    registerWidget("tabs", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto tabs = std::make_unique<UITabs>();
+        tabs->tabBarHeight = static_cast<float>(node.getDouble("tabBarHeight", 30.0));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* tabsNode = mutableNode.getChildReadOnly("tabs")) {
+            int i = 0;
+            while (auto* t = tabsNode->getChildReadOnly(std::to_string(i))) {
+                tabs->tabLabels.push_back(t->getString("label", std::to_string(i + 1)));
+                ++i;
+            }
+        }
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+                std::string v = s->getString(key, "");
+                if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                    return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+                }
+                return def;
+            };
+            tabs->bgColor = hexColor(style, "bgColor", tabs->bgColor);
+            tabs->activeTabColor = hexColor(style, "activeTabColor", tabs->activeTabColor);
+            tabs->inactiveTabColor = hexColor(style, "inactiveTabColor", tabs->inactiveTabColor);
+            tabs->labelColor = hexColor(style, "labelColor", tabs->labelColor);
+            tabs->fontSize = static_cast<float>(style->getDouble("fontSize", tabs->fontSize));
+        }
+        return tabs;
     });
 
     // Register label factory

@@ -13,6 +13,7 @@
 #include "Widgets/UILabel.h"
 #include "Widgets/UIRadial.h"
 #include "Widgets/UIWindow.h"
+#include "Widgets/UITabs.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -469,6 +470,20 @@ void UIModule::updateUI(float deltaTime) {
                     // retained entries so nothing lingers. A modal action-wheel closes after one pick.
                     radial->visible = false;
                     if (m_renderer) radial->releaseRenderEntries(*m_renderer);
+                }
+            }
+            else if (widgetType == "tabs") {
+                // A press in the tab bar switches the active page + notifies the game.
+                UITabs* tabs = static_cast<UITabs*>(clickedWidget);
+                if (m_context->mousePressed && tabs->pointInTabBar(m_context->mouseX, m_context->mouseY)) {
+                    int idx = tabs->tabAt(m_context->mouseX);
+                    if (idx >= 0 && idx != tabs->activeIndex()) {
+                        tabs->setActiveIndex(idx);
+                        auto tabEvent = std::make_unique<JsonDataNode>("tab");
+                        tabEvent->setString("widgetId", tabs->id);
+                        tabEvent->setInt("index", idx);
+                        m_io->publish("ui:tab:changed", std::move(tabEvent));
+                    }
                 }
             }
         }

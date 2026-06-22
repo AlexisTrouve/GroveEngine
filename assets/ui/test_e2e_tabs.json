@@ -1,0 +1,30 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "tabs",
+      "type": "tabs",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 200,
+      "tabBarHeight": 30,
+      "tabs": [ { "label": "One" }, { "label": "Two" } ],
+      "children": [
+        {
+          "id": "page0", "type": "panel", "x": 0, "y": 0, "width": 300, "height": 170,
+          "children": [ { "id": "btn0", "type": "button", "x": 10, "y": 10, "width": 100, "height": 30, "text": "P0", "onClick": "page0" } ]
+        },
+        {
+          "id": "page1", "type": "panel", "x": 0, "y": 0, "width": 300, "height": 170,
+          "children": [ { "id": "btn1", "type": "button", "x": 10, "y": 10, "width": 100, "height": 30, "text": "P1", "onClick": "page1" } ]
+        }
+      ]
+    }
+  ]
+}

@@ -31,6 +31,7 @@ add_library(UIModule SHARED
     Widgets/UIScrollPanel.cpp
     Widgets/UIRadial.cpp
     Widgets/UIWindow.cpp
+    Widgets/UITabs.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp
@@ -100,6 +101,7 @@ add_library(UIModule_static STATIC
     Widgets/UIScrollPanel.cpp
     Widgets/UIRadial.cpp
     Widgets/UIWindow.cpp
+    Widgets/UITabs.cpp
 
     # Rendering
     Rendering/UIRenderer.cpp

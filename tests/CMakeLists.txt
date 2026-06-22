@@ -1896,6 +1896,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIWindowDragCloseE2E IT_028_ui_window_dragclose_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_029: tabbed container E2E — clicking a tab switches the active page (UI slice 5c).
+    add_executable(IT_029_ui_tabs_e2e integration/IT_029_ui_tabs_e2e.cpp)
+    target_link_libraries(IT_029_ui_tabs_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITabsE2E IT_029_ui_tabs_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
