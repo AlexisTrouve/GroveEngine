@@ -1,0 +1,24 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "scroller",
+      "type": "scrollpanel",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 150,
+      "scrollVertical": true,
+      "dragToScroll": false,
+      "children": [
+        { "id": "btn_in",  "type": "button", "x": 0, "y": 0,   "width": 100, "height": 30, "text": "IN",  "onClick": "test:in" },
+        { "id": "btn_out", "type": "button", "x": 0, "y": 200, "width": 100, "height": 30, "text": "OUT", "onClick": "test:out" }
+      ]
+    }
+  ]
+}

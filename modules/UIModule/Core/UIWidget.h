@@ -50,6 +50,16 @@ public:
     virtual std::string getType() const = 0;
 
     /**
+     * @brief Does this widget clip its children to its own bounds for HIT-TESTING?
+     *
+     * WHY: a clipping container (scroll panel, window) hides children outside its rect — a click
+     *      outside the container must not reach them, mirroring the visual scissor (slice 2a). Base
+     *      = false (no clip). The hit-test skips a clipper's whole subtree when the point is outside
+     *      [absX, absY, width, height]. Pairs with the visual clip pushed in render().
+     */
+    virtual bool clipsHitTest() const { return false; }
+
+    /**
      * @brief Publish render:*:remove for this widget's retained entries and RESET its registration,
      *        so a later re-show re-registers and re-publishes :add.
      *

@@ -25,11 +25,19 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         return nullptr;
     }
 
+    // A clipping container (scroll panel, window) hides its children outside its own rect — a point
+    // outside the clip can't hit them, so skip the whole subtree. Mirrors the visual scissor (2a).
+    const bool descend = !widget->clipsHitTest() ||
+        (x >= widget->absX && x <= widget->absX + widget->width &&
+         y >= widget->absY && y <= widget->absY + widget->height);
+
     // Check children first (front to back = reverse order for hit testing)
-    for (auto it = widget->children.rbegin(); it != widget->children.rend(); ++it) {
-        UIWidget* hit = hitTest(it->get(), x, y);
-        if (hit) {
-            return hit;
+    if (descend) {
+        for (auto it = widget->children.rbegin(); it != widget->children.rend(); ++it) {
+            UIWidget* hit = hitTest(it->get(), x, y);
+            if (hit) {
+                return hit;
+            }
         }
     }
 

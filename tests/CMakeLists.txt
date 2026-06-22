@@ -1855,6 +1855,19 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(UIScrollPanelClipE2E IT_024_ui_scrollpanel_clip_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_025: ScrollPanel hit-test clipping E2E — a child below the panel's visible rect is not
+    # clickable (UI framework slice 2b).
+    add_executable(IT_025_ui_scrollpanel_hitclip_e2e
+        integration/IT_025_ui_scrollpanel_hitclip_e2e.cpp
+    )
+    target_link_libraries(IT_025_ui_scrollpanel_hitclip_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIScrollPanelHitClipE2E IT_025_ui_scrollpanel_hitclip_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

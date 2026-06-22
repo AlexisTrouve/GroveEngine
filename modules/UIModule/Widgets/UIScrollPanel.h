@@ -23,6 +23,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "scrollpanel"; }
+    // Clip the hit-test to the panel bounds (slice 2b): a click outside the panel never reaches a
+    // scrolled-out child, mirroring the visual scissor pushed in render().
+    bool clipsHitTest() const override { return true; }
 
     // Scroll configuration
     bool scrollVertical = true;
