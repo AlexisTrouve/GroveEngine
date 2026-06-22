@@ -158,9 +158,14 @@ void UITree::registerDefaultWidgets() {
         list->padding   = static_cast<float>(node.getDouble("padding", list->padding));
         list->iconSize  = static_cast<float>(node.getDouble("iconSize", list->iconSize));
 
-        list->setItems(UIList::parseItems(const_cast<IDataNode&>(node)));
-
+        // GROUPED (warship wings) if a `groups` array is present, else FLAT `items`.
         auto& mutableNode = const_cast<IDataNode&>(node);
+        if (mutableNode.getChildReadOnly("groups")) {
+            list->setGroups(UIList::parseGroups(mutableNode));
+        } else {
+            list->setItems(UIList::parseItems(mutableNode));
+        }
+
         if (auto* style = mutableNode.getChildReadOnly("style")) {
             auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
                 std::string v = s->getString(key, "");
@@ -176,6 +181,8 @@ void UITree::registerDefaultWidgets() {
             list->selectedColor = hexColor(style, "selectedColor", list->selectedColor);
             list->labelColor    = hexColor(style, "labelColor", list->labelColor);
             list->subtitleColor = hexColor(style, "subtitleColor", list->subtitleColor);
+            list->headerColor   = hexColor(style, "headerColor", list->headerColor);
+            list->headerLabelColor = hexColor(style, "headerLabelColor", list->headerLabelColor);
             list->fontSize      = static_cast<float>(style->getDouble("fontSize", list->fontSize));
             list->subtitleFontSize = static_cast<float>(style->getDouble("subtitleFontSize", list->subtitleFontSize));
         }

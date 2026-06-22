@@ -1931,6 +1931,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIListE2E IT_033_ui_list_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_034: collapsible warship GROUPS E2E — select-with-group / expand click-flip / collapse-hides.
+    add_executable(IT_034_ui_list_groups_e2e integration/IT_034_ui_list_groups_e2e.cpp)
+    target_link_libraries(IT_034_ui_list_groups_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIListGroupsE2E IT_034_ui_list_groups_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

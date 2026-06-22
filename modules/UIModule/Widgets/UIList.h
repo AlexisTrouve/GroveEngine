@@ -25,6 +25,41 @@ struct ListItem {
 };
 
 /**
+ * @brief A named, collapsible GROUP of items — a warship wing/squadron in the fleet sidebar.
+ *
+ * QUOI : un groupe = un id + un libellé d'en-tête + un état replié + ses items. POURQUOI : une flotte
+ *   s'organise en groupes (escadrons) ; la liste affiche un en-tête cliquable par groupe au-dessus de ses
+ *   vaisseaux, repliable. Le moteur fournit le SYSTÈME (modèle + repli + events) ; Drifterra fait l'UI.
+ */
+struct ListGroup {
+    std::string id;                 // stable group id, echoed in ui:list:group:toggled / ui:list:selected
+    std::string label;              // header text (wing name)
+    bool collapsed = false;         // header folded? (items hidden from the row projection)
+    std::vector<ListItem> items;    // the group's items (ships)
+};
+
+/**
+ * @brief One PROJECTED row of the list — either a group header or an item. Internal flat sequence.
+ *
+ * QUOI : la liste rend une SÉQUENCE PLATE de lignes ; chaque ligne est soit un en-tête de groupe, soit un
+ *   item. POURQUOI : projeter groupes+repli → lignes plates laisse la virtualisation/scroll/clip/hit-test
+ *   opérer sans rien savoir des groupes (le mode plat = un seul groupe anonyme sans en-tête). COMMENT :
+ *   rebuildRows() (re)construit ce vecteur depuis m_items (plat) ou m_groups (groupé, repli honoré).
+ */
+struct ListRow {
+    bool isHeader = false;          // true = group header row; false = item row
+    std::string groupId;            // group this row belongs to ("" for an ungrouped flat item)
+    // Item payload (item rows):
+    std::string itemId;             // -> ui:list:selected.itemId
+    std::string label;              // header: the group label; item: the item label
+    std::string subtitle;           // item only
+    int iconTextureId = 0;          // item only
+    int itemIndex = -1;             // item's index within its group (flat: global) -> ui:list:selected.index
+    // Header payload:
+    bool collapsed = false;         // header only: the group's current collapse state (for the marker)
+};
+
+/**
  * @brief Scrollable, clipped, selectable data-driven list — the "sidebar partiel avec des vaisseaux".
  *
  * QUOI : une liste verticale de lignes GÉNÉRÉES depuis des données (ListItem), scrollable à la molette,
@@ -33,16 +68,16 @@ struct ListItem {
  *   sélectionne. On la fait "à la main" (path A) pour rester cohérent avec le reste du framework UI :
  *   tout passe par des render:* via le UIRenderer, tout est E2E-testable.
  * COMMENT : suit le PATTERN CONTENEUR (cf. UITabs/UIWindow) — les lignes ne sont PAS des UIWidget enfants
- *   mais un POOL d'entrées retained gérées en interne (un set {bg,icon,label,subtitle} par item), ce qui
- *   évite la limite connue de UIScrollPanel (un enfant panel se "dé-scrolle" en se re-layoutant). Le scroll
- *   est un simple offset appliqué à la position des lignes au rendu ; pushClip(bornes) scissore le débord.
- *   L'interaction (résoudre la ligne cliquée, publier l'event, router la molette) est centralisée dans
- *   UIModule, comme pour les autres conteneurs. La sélection/scroll sont remis à zéro à chaque setItems().
+ *   mais un POOL RECYCLÉ d'entrées retained géré en interne, dimensionné au VIEWPORT (virtualisation : un
+ *   set {bg,icon,label,subtitle} par ligne VISIBLE, remappé au scroll), ce qui évite la limite connue de
+ *   UIScrollPanel et scale à des milliers d'items. Le scroll est un offset appliqué au rendu ; pushClip
+ *   scissore le débord. Les données peuvent être PLATES (setItems) ou GROUPÉES (setGroups : des wings
+ *   repliables) — les deux se projettent en une séquence plate de ListRow (rebuildRows), sur laquelle tout
+ *   le reste opère sans rien savoir des groupes. L'interaction (ligne cliquée → sélection OU repli, event,
+ *   molette) est centralisée dans UIModule. Sélection/scroll remis à zéro à chaque setItems/setGroups.
  *
- * LIMITES (suivi documenté, hors-scope MVP) : non VIRTUALISÉ (O(N) updateRect/frame pendant le scroll, ok
- *   pour ~dizaines de lignes ; la virtualisation = render des seules lignes visibles est le follow-on perf),
- *   pas de scrollbar visuelle ni de drag-to-scroll (molette seule), pas de template de ligne personnalisé,
- *   sélection unique uniquement.
+ * LIMITES (suivi documenté) : pas de scrollbar visuelle ni de drag-to-scroll (molette seule), pas de
+ *   template de ligne personnalisé, sélection unique, hiérarchie à UN niveau (groupes → items, pas d'arbre).
  */
 class UIList : public UIWidget {
 public:
@@ -67,19 +102,33 @@ public:
     // REGARDLESS of item count — this is the basis of virtualization (only these rows get render entries).
     void visibleRange(int& firstItem, int& count) const;
 
-    // --- Data (data-driven via the UITree factory or ui:list:set_items). ---
-    // Replace the whole item set; resets scroll + selection. The CALLER must follow with
-    // releaseRenderEntries(renderer) so render() re-registers the row-id pool with the new count
-    // (mirrors ui:radial:set_items) — the widget has no renderer handle of its own.
+    // --- Data (data-driven via the UITree factory / ui:list:set_items / ui:list:set_groups). ---
+    // Replace the whole item set (FLAT mode — one ungrouped sequence). Resets scroll + selection.
+    // Virtualized: no renderer release needed — render() recycles the row-slot pool.
     void setItems(std::vector<ListItem> newItems);
     const std::vector<ListItem>& items() const { return m_items; }
 
-    int  selectedIndex() const { return m_selectedIndex; }
-    void setSelectedIndex(int i);             // clamped to a valid item (or -1 if empty)
+    // Replace the data as GROUPED (warship wings). Resets scroll + selection. Each group renders a
+    // collapsible header over its items. Toggle a group via toggleGroup() (UIModule wires the header click).
+    void setGroups(std::vector<ListGroup> newGroups);
+    bool isGrouped() const { return m_grouped; }
 
-    // Parse an `items` array-of-objects child off `containerNode` (the factory node OR a set_items
-    // message). Each entry: {id, label, subtitle?, icon?}. Shared by UITree + UIModule (no dup).
+    // Flip a group's collapsed state (rebuilds the row projection + clamps scroll). Returns the NEW
+    // collapsed state (for ui:list:group:toggled). No-op (returns false) if the id isn't found.
+    bool toggleGroup(const std::string& groupId);
+
+    // --- Projected rows (what the renderer/hit-test see; UIModule reads these to act on a click). ---
+    int rowCount() const { return static_cast<int>(m_rows.size()); }
+    const ListRow* rowPtr(int rowIndex) const;   // nullptr if out of range
+
+    int  selectedIndex() const { return m_selectedIndex; }   // selected ROW index (flat: == item index)
+    void setSelectedIndex(int i);             // clamped to a valid row (or -1 if empty); tracks the itemId
+
+    // Parse an `items` array-of-objects child off `containerNode` (factory node OR set_items message).
+    // Each entry: {id, label, subtitle?, icon?}. Shared by UITree + UIModule + parseGroups (no dup).
     static std::vector<ListItem> parseItems(IDataNode& containerNode);
+    // Parse a `groups` array-of-objects: each {id, label, collapsed?, items:[...]} (items via parseItems).
+    static std::vector<ListGroup> parseGroups(IDataNode& containerNode);
 
     // --- Properties (data-driven). ---
     float rowHeight = 36.0f;
@@ -94,13 +143,16 @@ public:
     uint32_t selectedColor = 0x3a6ea5FF;
     uint32_t labelColor = 0xFFFFFFFF;
     uint32_t subtitleColor = 0x9fb0c4FF;
+    uint32_t headerColor = 0x2c3540FF;        // group header row background (distinct from item rows)
+    uint32_t headerLabelColor = 0xFFFFFFFF;   // group header label
 
     // --- Scroll state. ---
     float scrollOffsetY = 0.0f;
 
 private:
     void clampScroll();
-    float contentHeight() const { return rowHeight * static_cast<float>(m_items.size()); }
+    void rebuildRows();   // project m_items (flat) or m_groups (grouped, collapse-honoured) -> m_rows
+    float contentHeight() const { return rowHeight * static_cast<float>(m_rows.size()); }
 
     // Grow the recycled render-id pool to at least `neededSlots` row-slots (and register the panel bg
     // once). VIRTUALIZATION: the pool is sized to the VISIBLE window, not the item count — slots are
@@ -108,9 +160,14 @@ private:
     // enlarges, e.g. on resize); never shrinks the allocation (unused slots are just hidden in render()).
     void ensurePool(UIRenderer& renderer, int neededSlots);
 
-    std::vector<ListItem> m_items;
-    int m_selectedIndex = -1;
-    int m_hoverIndex = -1;
+    std::vector<ListItem> m_items;      // FLAT-mode source (empty when grouped)
+    std::vector<ListGroup> m_groups;    // GROUPED-mode source (empty when flat)
+    bool m_grouped = false;
+    std::vector<ListRow> m_rows;        // projected visible sequence (renderer / hit-test / virtualization)
+
+    int m_selectedIndex = -1;           // selected ROW index (for the highlight)
+    std::string m_selectedItemId;       // selected item's id — so the highlight follows it across a rebuild
+    int m_hoverIndex = -1;              // hovered ROW index
 
     // Recycled retained render-id pool: the panel background (m_renderId) + a viewport-bounded number of
     // row id-sets {bg, icon, label, subtitle}. Slot s shows item (firstVisible + s) for the current frame.

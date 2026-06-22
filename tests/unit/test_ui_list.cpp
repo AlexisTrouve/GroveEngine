@@ -170,3 +170,55 @@ TEST_CASE("UIListUnit: parseItems reads an items[] array-of-objects", "[ui][list
         REQUIRE(UIList::parseItems(empty).empty());
     }
 }
+
+TEST_CASE("UIListUnit: parseGroups reads groups[] each with its own items[]", "[ui][list][unit]") {
+    json j;
+    j["groups"] = json::array();
+    j["groups"].push_back({ {"id", "alpha"}, {"label", "Alpha"},
+                            {"items", json::array({ {{"id","a0"},{"label","A0"}}, {{"id","a1"},{"label","A1"}} })} });
+    j["groups"].push_back({ {"id", "bravo"}, {"label", "Bravo"}, {"collapsed", true},
+                            {"items", json::array({ {{"id","b0"},{"label","B0"}} })} });
+    JsonDataNode node("payload", j);
+
+    auto groups = UIList::parseGroups(node);
+    REQUIRE(groups.size() == 2);
+    REQUIRE(groups[0].id == "alpha");
+    REQUIRE(groups[0].collapsed == false);
+    REQUIRE(groups[0].items.size() == 2);
+    REQUIRE(groups[0].items[1].id == "a1");
+    REQUIRE(groups[1].id == "bravo");
+    REQUIRE(groups[1].collapsed == true);
+    REQUIRE(groups[1].items.size() == 1);
+    REQUIRE(groups[1].items[0].id == "b0");
+}
+
+TEST_CASE("UIListUnit: grouped projection + collapse (rebuildRows via setGroups/toggleGroup)", "[ui][list][unit]") {
+    UIList list; list.absX=100; list.absY=100; list.width=200; list.height=240; list.rowHeight=40;
+    std::vector<ListGroup> groups = {
+        { "alpha", "Alpha", false, { {"a0","A0","",0}, {"a1","A1","",0} } },
+        { "bravo", "Bravo", true,  { {"b0","B0","",0}, {"b1","B1","",0} } },
+    };
+    list.setGroups(std::move(groups));
+
+    // alpha expanded (header + 2 items) + bravo collapsed (header only) -> 4 rows.
+    REQUIRE(list.rowCount() == 4);
+    REQUIRE(list.rowPtr(0)->isHeader);
+    REQUIRE(list.rowPtr(0)->groupId == "alpha");
+    REQUIRE_FALSE(list.rowPtr(1)->isHeader);
+    REQUIRE(list.rowPtr(1)->itemId == "a0");
+    REQUIRE(list.rowPtr(1)->itemIndex == 0);
+    REQUIRE(list.rowPtr(3)->isHeader);
+    REQUIRE(list.rowPtr(3)->groupId == "bravo");
+    REQUIRE(list.rowPtr(3)->collapsed == true);
+
+    // Expand bravo -> its 2 items appear (6 rows).
+    REQUIRE(list.toggleGroup("bravo") == false);   // new collapsed state = false (expanded)
+    REQUIRE(list.rowCount() == 6);
+    REQUIRE(list.rowPtr(4)->itemId == "b0");
+
+    // Collapse alpha -> its items vanish (rows: Halpha, Hbravo, b0, b1).
+    REQUIRE(list.toggleGroup("alpha") == true);
+    REQUIRE(list.rowCount() == 4);
+    REQUIRE(list.rowPtr(1)->isHeader);
+    REQUIRE(list.rowPtr(1)->groupId == "bravo");
+}

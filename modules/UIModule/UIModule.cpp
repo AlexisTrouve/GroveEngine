@@ -303,6 +303,16 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             }
         });
 
+        // Repopulate a list as GROUPED warship wings at runtime: ui:list:set_groups {id, groups:[...]}.
+        // Same virtualized recycle as set_items — no pool release. (json-backed payload, see UI_TOPICS.)
+        m_io->subscribe("ui:list:set_groups", [this](const Message& msg) {
+            if (!msg.data || !m_root) return;
+            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+            if (w && w->getType() == "list") {
+                static_cast<UIList*>(w)->setGroups(UIList::parseGroups(*msg.data));
+            }
+        });
+
         // Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
         // it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
         m_io->subscribe("ui:list:select", [this](const Message& msg) {
@@ -569,18 +579,35 @@ void UIModule::updateUI(float deltaTime) {
                 }
             }
             else if (widgetType == "list") {
-                // A press on a row selects it + notifies the game (ui:list:selected). The row index is
-                // resolved from the cursor y (scroll-aware); rowAt returns -1 on empty gaps/out-of-range,
-                // in which case we select nothing (a click on padding doesn't change the selection).
+                // A press resolves the row under the cursor (scroll-aware). A HEADER row toggles its
+                // group's collapse (ui:list:group:toggled); an ITEM row selects it (ui:list:selected,
+                // carrying its groupId). rowAt returns -1 on empty gaps/out-of-range -> nothing happens.
                 UIList* list = static_cast<UIList*>(clickedWidget);
                 if (m_context->mousePressed) {
-                    int idx = list->rowAt(m_context->mouseY);
-                    if (idx >= 0) {
-                        list->setSelectedIndex(idx);
+                    int row = list->rowAt(m_context->mouseY);
+                    const ListRow* r = (row >= 0) ? list->rowPtr(row) : nullptr;
+                    if (r && r->isHeader) {
+                        // COPY the group id BEFORE toggleGroup() — it calls rebuildRows() which clears
+                        // m_rows, so `r` (a pointer INTO m_rows) dangles right after. (Use-after-free
+                        // otherwise: the event would carry a freed/empty groupId.)
+                        const std::string gid = r->groupId;
+                        bool collapsed = list->toggleGroup(gid);
+                        auto ev = std::make_unique<JsonDataNode>("toggled");
+                        ev->setString("id", list->id);
+                        ev->setString("groupId", gid);
+                        ev->setBool("collapsed", collapsed);
+                        m_io->publish("ui:list:group:toggled", std::move(ev));
+                    } else if (r) {
+                        // Snapshot the row's fields before mutating (setSelectedIndex doesn't rebuild today,
+                        // but copying keeps this robust if it ever does).
+                        const std::string gid = r->groupId, iid = r->itemId;
+                        const int itemIdx = r->itemIndex;
+                        list->setSelectedIndex(row);
                         auto sel = std::make_unique<JsonDataNode>("selected");
                         sel->setString("id", list->id);
-                        sel->setInt("index", idx);
-                        sel->setString("itemId", list->items()[idx].id);
+                        sel->setString("groupId", gid);     // "" for a flat (ungrouped) list
+                        sel->setInt("index", itemIdx);      // index WITHIN the group (flat: global)
+                        sel->setString("itemId", iid);
                         m_io->publish("ui:list:selected", std::move(sel));
                     }
                 }

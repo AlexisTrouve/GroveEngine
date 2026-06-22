@@ -1,0 +1,38 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "fleet",
+      "type": "list",
+      "x": 100,
+      "y": 100,
+      "width": 200,
+      "height": 240,
+      "rowHeight": 40,
+      "groups": [
+        {
+          "id": "alpha",
+          "label": "Alpha Wing",
+          "items": [
+            { "id": "a0ship", "label": "Aegis" },
+            { "id": "a1ship", "label": "Anvil" }
+          ]
+        },
+        {
+          "id": "bravo",
+          "label": "Bravo Wing",
+          "collapsed": true,
+          "items": [
+            { "id": "b0ship", "label": "Bastion" },
+            { "id": "b1ship", "label": "Blade" }
+          ]
+        }
+      ]
+    }
+  ]
+}

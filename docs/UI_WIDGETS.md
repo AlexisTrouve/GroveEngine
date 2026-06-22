@@ -451,19 +451,42 @@ emitting `ui:list:selected` on a click. Scroll with the mouse wheel; rows clip t
 - `style` - `bgColor`, `rowColor`/`rowAltColor` (zebra), `hoverColor`, `selectedColor`, `labelColor`,
   `subtitleColor`, `fontSize`, `subtitleFontSize`.
 
+**Grouped (warship wings).** Instead of `items`, give the list `groups` — each a collapsible header over
+its ships. Clicking a header folds/unfolds the group; clicking a ship selects it (the event carries its
+`groupId`). One-level grouping (groups → items); not a full tree.
+
+```json
+{
+  "type": "list", "id": "fleet", "x": 20, "y": 60, "width": 240, "height": 460, "rowHeight": 40,
+  "groups": [
+    { "id": "alpha", "label": "Alpha Wing", "items": [
+      { "id": "ship-7a3", "label": "Aurora",  "subtitle": "Frigate" },
+      { "id": "ship-9c1", "label": "Borealis", "subtitle": "Hauler" } ] },
+    { "id": "bravo", "label": "Bravo Wing", "collapsed": true, "items": [
+      { "id": "ship-1f8", "label": "Cygnus", "subtitle": "Scout" } ] }
+  ],
+  "style": { "headerColor": "0x2c3540FF", "headerLabelColor": "0xFFFFFFFF" }
+}
+```
+
 **Events:**
-- `ui:list:selected` - `{id, index, itemId}` when a row is clicked (the list highlights it).
+- `ui:list:selected` - `{id, groupId, index, itemId}` when an ITEM row is clicked (`groupId` is `""` for a
+  flat list; `index` is within the group). The list highlights the row.
+- `ui:list:group:toggled` - `{id, groupId, collapsed}` when a group header is clicked (the new state).
 
 **Runtime:**
-- `ui:list:set_items {id, items:[...]}` - repopulate (resets scroll + selection). **The `items` array
-  must be json-backed** (IIO serializes only a node's JSON — see UI_TOPICS.md).
-- `ui:list:select {id, index}` - programmatic pre-selection (no event re-emit).
+- `ui:list:set_items {id, items:[...]}` - repopulate as a FLAT list (resets scroll + selection).
+- `ui:list:set_groups {id, groups:[...]}` - repopulate as GROUPED wings. **The arrays must be json-backed**
+  (IIO serializes only a node's JSON — see UI_TOPICS.md).
+- `ui:list:select {id, index}` - programmatic pre-selection by row index (no event re-emit).
 
-**Scope:** wheel scroll + single-select + clip + **virtualization** — only the on-screen rows get render
-entries (a recycled, viewport-bounded id-pool remapped to the scrolled window each frame), so a 10k-ship
-list registers ~viewport-many entries, not 10k. Deliberate follow-ons: a visual scrollbar + drag-to-scroll,
-custom row templates, multi-select, grid mode. The container internals follow the standard pattern (opaque
-hit-test absorb, content clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
+**Scope:** wheel scroll + single-select + clip + **virtualization** (only on-screen rows get render
+entries — a recycled, viewport-bounded id-pool remapped to the scrolled window, so a 10k-row list registers
+~viewport-many entries) + **collapsible groups** (warship wings). Internally everything is a flat sequence
+of `ListRow` (header | item) that both flat and grouped data project onto, so virtualization/scroll/clip
+operate the same way. Deliberate follow-ons: a visual scrollbar + drag-to-scroll, custom row templates,
+multi-select, grid mode, multi-level tree. The container follows the standard pattern (opaque hit-test
+absorb, content clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
 
 ## Creating Custom Widgets
 

@@ -21,8 +21,9 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:set_visible` | `{id, visible}` | Show/hide a widget. Hiding PURGES its retained render entries (no ghost rects); showing re-registers on the next render. Recurses to children |
 | `ui:set_position` | `{id, x, y}` | Move a widget at runtime (recomputes its absolute position). For the radial, x/y are its CENTRE — e.g. pop the action wheel centered on the cursor |
 | `ui:radial:set_items` | `{id, count}` | Reconfigure a radial wheel to `count` slices at runtime (the pie tiles into ANY N: 2..8+). Generates generic items; a game normally sets real items via the layout JSON (`items[]`, `style.gap`/`style.margin` for the inter-slice gaps) |
-| `ui:list:set_items` | `{id, items:[{id,label,subtitle?,icon?}]}` | Repopulate a `list` (the ship sidebar) at runtime — the game pushes its current fleet, the list rebuilds its rows (resets scroll + selection, purges the old rows). **The `items` array MUST be json-backed** (see note below) |
-| `ui:list:select` | `{id, index}` | Programmatically select a list row (e.g. pre-select a ship). Sets state only — does NOT re-emit `ui:list:selected` (that topic is reserved for the user's click, to avoid feedback loops) |
+| `ui:list:set_items` | `{id, items:[{id,label,subtitle?,icon?}]}` | Repopulate a `list` (the ship sidebar) at runtime as a FLAT list — the game pushes its current fleet, the list rebuilds its rows (resets scroll + selection). **The `items` array MUST be json-backed** (see note below) |
+| `ui:list:set_groups` | `{id, groups:[{id,label,collapsed?,items:[{id,label,subtitle?,icon?}]}]}` | Repopulate a `list` as GROUPED warship wings — each group renders a collapsible header over its ships. Same json-backed constraint (the nested arrays must live in the node's JSON) |
+| `ui:list:select` | `{id, index}` | Programmatically select a list ROW (e.g. pre-select a ship). Sets state only — does NOT re-emit `ui:list:selected` (that topic is reserved for the user's click, to avoid feedback loops) |
 | `ui:drawer:toggle` | `{id}` | Open/close an edge drawer (it animates the slide itself) |
 | `ui:drawer:set` | `{id, open}` | Force an edge drawer open (`true`) or closed (`false`) |
 | `ui:modal:open` | `{id}` | Open a modal dialog (raises it on top; its dim traps all input behind) |
@@ -46,7 +47,8 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:window:closed` | `{id}` | An in-app window was closed (its close button clicked). The window hides itself + purges its retained entries; the game reacts (free state, etc.) |
 | `ui:tab:changed` | `{widgetId, index}` | A tabbed container switched to page `index` (a tab was clicked). The tabs widget shows that page + hides/purges the others on its own |
 | `ui:modal:closed` | `{id}` | A modal dialog closed (its dim was clicked, or `ui:modal:close`). The modal hides itself + purges its entries |
-| `ui:list:selected` | `{id, index, itemId}` | A `list` row was clicked. `index` = row position; `itemId` = the clicked item's stable `id` (echoed from the data — survives a reorder, unlike the index). The list highlights the row on its own |
+| `ui:list:selected` | `{id, groupId, index, itemId}` | A `list` ITEM row was clicked. `groupId` = its group (`""` for a flat/ungrouped list); `index` = its position WITHIN the group (flat: global); `itemId` = the item's stable `id` (survives a reorder, unlike the index). The list highlights the row on its own |
+| `ui:list:group:toggled` | `{id, groupId, collapsed}` | A grouped `list`'s header was clicked → the group folded/unfolded. `collapsed` = the NEW state. The list re-projects its rows on its own |
 
 > **⚠️ Array payloads must be json-backed.** IIO transports only a published node's JSON data
 > (`getJsonData()` / `m_data`) — child nodes assembled via `setChild()` are NOT serialized. So a payload

@@ -38,7 +38,7 @@ The UIModule went from a flat widget set to a capable framework. Slices, each TD
 | **Tabs** | sectioned container, page switching, `ui:tab:changed` | IT_029 |
 | **Drawers** | edge-docked (4 edges) sliding collapsible panel, `ui:drawer:*` | IT_030 |
 | **Modal** | centered dialog + dim focus-trap, `ui:modal:*` | IT_031 |
-| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select / **virtualized**, `ui:list:*` | IT_033 + `UIListUnit` |
+| **List/Sidebar** | data-driven ship list — wheel-scroll / clip / single-select / **virtualized** / **grouped** (collapsible wings), `ui:list:*` | IT_033 + IT_034 + `UIListUnit` |
 | **Perf** | flow layout measures each child 1× (was 3×) — safe half | `UILayoutUnit` |
 
 New widgets: `UIWindow`, `UITabs`, `UIDrawer`, `UIModal`, `UIList` (+ the layout/clip/z-order extensions to the base).
@@ -187,6 +187,11 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
   content children's `absX/absY` manually in `update()` (§3.1). The one-load-frame mismatch is harmless.
 - **Mutating `root->children` (bringToFront/close) must happen OUTSIDE the child-update iteration** — do it in
   `handleWindowInteraction()` (before `m_root->update()`) or in a topic handler (in `processInput`). §3.2.
+- **A `const ListRow*` / any pointer INTO a widget's internal vector dangles after a mutator that rebuilds it.**
+  `UIList::toggleGroup()` rebuilds `m_rows`, so the header-click handler must COPY `r->groupId` to a local
+  BEFORE calling `toggleGroup` — else the published event reads freed memory (cost an IT_034 red: the
+  `toggled` event carried an empty groupId while the toggle itself worked). Snapshot row fields before any
+  list mutator. Same shape lurks anywhere you hold a pointer across a `setItems`/`setGroups`/`toggleGroup`.
 - **`SpriteInstance.reserved[]` is now the clip rect** (CPU-read). Don't repurpose it for the sprite shader
   without coordinating the clipping path.
 - **Editing a `.sc` shader does nothing** until you regen its `.bin.h` by hand (`shaderc --bin2c`) — the build
@@ -202,14 +207,16 @@ ctest --test-dir build -R "UI|Radial|InputUI" --output-on-failure
 
 From Alexi's original ask, still to build (all sit on the now-complete foundation):
 
-- **List / Grid view — the ship sidebar** (his marquee). ✅ **SHIPPED + VIRTUALIZED** — `UIList`
-  (`Widgets/UIList.{h,cpp}`): data-driven (`items[{id,label,subtitle?,icon?}]`), wheel-scroll, clipped,
-  single-select → `ui:list:selected`, runtime `ui:list:set_items` / `ui:list:select`. **Virtualized** — a
-  recycled viewport-bounded id-pool (`ensurePool` grow-only + `visibleRange()`) registers entries for the
-  on-screen window only (1000 items → ~20 entries). Locked by `IT_033` + `UIListUnit` (incl. the
-  `entryCount() < 60` bound). **What's LEFT on it** (follow-ons): a **visual scrollbar + drag-to-scroll**
-  (today wheel only), **custom row templates** (today fixed icon+label+subtitle), **multi-select**, and a
-  **grid mode** (today vertical rows only).
+- **List / Grid view — the ship sidebar** (his marquee). ✅ **SHIPPED + VIRTUALIZED + GROUPED** — `UIList`
+  (`Widgets/UIList.{h,cpp}`): data-driven, wheel-scroll, clipped, single-select → `ui:list:selected`,
+  runtime `ui:list:set_items` / `ui:list:set_groups` / `ui:list:select`. **Virtualized** — recycled
+  viewport-bounded id-pool (`ensurePool` + `visibleRange()`); 1000 rows → ~20 entries. **Grouped** — FLAT
+  (`setItems`) or GROUPED warship wings (`setGroups`, collapsible headers); both project onto a flat
+  `ListRow` (header\|item) sequence (`rebuildRows`) so everything downstream is group-agnostic; header click
+  → `ui:list:group:toggled`, item carries its `groupId`. Locked by `IT_033` + `IT_034` + `UIListUnit`.
+  **What's LEFT on it** (follow-ons): **visual scrollbar + drag-to-scroll** (today wheel only), **custom row
+  templates** (today fixed icon+label+subtitle), **multi-select**, **grid mode**, **multi-level tree** (today
+  one level: groups → items).
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
 - **Rich content** (6): **animated panel** (host `grove::anim`/flipbook in a widget — the anim math exists,
   `include/grove/anim/`; small), **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*`
