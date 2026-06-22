@@ -5,6 +5,8 @@
 #include "Core/UILayout.h"   // relayoutRoot() drives measure/layout on viewport resize
 #include "Core/UITooltip.h"
 #include "Core/UIBinding.h"   // {{path}} resolver + Scope (data-binding in / events out)
+#include <cmath>              // std::ceil (template-list windowing)
+#include <vector>            // repeater / template-list host collection
 #include "Rendering/UIRenderer.h"
 #include "Widgets/UIButton.h"
 #include "Widgets/UISlider.h"
@@ -501,11 +503,19 @@ static void setScopePathRecursive(UIWidget* w, const std::string& path) {
     for (auto& c : w->children) setScopePathRecursive(c.get(), path);
 }
 
-// Collect the ROOT-scope repeater hosts (scopePath empty) — nested repeaters (inside an item scope) are a
-// deferred follow-on. Collected up-front so expansion (which adds children) doesn't disturb the walk.
+// Collect the ROOT-scope repeater hosts (scopePath empty). A `list` with repeat+template is SKIPPED here —
+// it virtualizes its own template (only the visible rows) in updateTemplateLists. Nested repeaters (inside
+// an item scope) are a deferred follow-on. Collected up-front so expansion doesn't disturb the walk.
 static void collectRepeaters(UIWidget* w, std::vector<UIWidget*>& out) {
-    if (!w->repeatPath.empty() && w->scopePath.empty()) out.push_back(w);
+    if (!w->repeatPath.empty() && w->scopePath.empty() && w->getType() != "list") out.push_back(w);
     for (auto& c : w->children) collectRepeaters(c.get(), out);
+}
+
+// Collect the VIRTUALIZED template lists (a `list` with repeat+template at the root scope).
+static void collectTemplateLists(UIWidget* w, std::vector<UIWidget*>& out) {
+    if (w->getType() == "list" && !w->repeatPath.empty() && !w->repeatTemplateJson.empty() && w->scopePath.empty())
+        out.push_back(w);
+    for (auto& c : w->children) collectTemplateLists(c.get(), out);
 }
 
 void UIModule::expandRepeaters() {
@@ -540,6 +550,55 @@ void UIModule::expandRepeaters() {
 void UIModule::refreshDataDriven() {
     expandRepeaters();      // (re)build instances against the current data
     resolveAllBindings();   // resolve every binding (incl. the new instances) against its scope
+}
+
+void UIModule::updateTemplateLists() {
+    if (!m_root || !m_tree) return;
+    uibind::Scope root{ &m_uiData, nullptr };
+
+    std::vector<UIWidget*> lists;
+    collectTemplateLists(m_root.get(), lists);
+
+    for (UIWidget* w : lists) {
+        UIList* list = static_cast<UIList*>(w);
+        const float rh = list->rowHeight;
+        if (rh <= 0.0f) continue;
+
+        // The bound data array + its count (drives the scroll range via setTemplateRowCount).
+        const uibind::json* arr = uibind::resolvePath(root, list->repeatPath);
+        const int dataCount = (arr && arr->is_array()) ? static_cast<int>(arr->size()) : 0;
+        list->setTemplateRowCount(dataCount);
+
+        // The visible window: only this many template instances ever exist (VIRTUALIZATION).
+        const int firstVisible = std::max(0, static_cast<int>(list->scrollOffsetY / rh));
+        const int fit = static_cast<int>(std::ceil(list->height / rh)) + 1;   // viewport rows + 1 buffer
+
+        // Grow the instance pool (list children) to `fit` — re-parsed from the template, grow-only.
+        while (static_cast<int>(list->children.size()) < fit) {
+            uibind::json tj = uibind::json::parse(list->repeatTemplateJson);
+            JsonDataNode tnode("tpl", tj);
+            auto inst = m_tree->parseWidget(tnode);
+            if (!inst) break;
+            list->addChild(std::move(inst));
+        }
+
+        // Map each pool slot to the item now scrolled into it: set its scope + y, resolve; hide the rest.
+        const int poolSize = static_cast<int>(list->children.size());
+        for (int s = 0; s < poolSize; ++s) {
+            UIWidget* inst = list->children[s].get();
+            const int itemIndex = firstVisible + s;
+            if (s < fit && itemIndex < dataCount) {
+                inst->y = static_cast<float>(itemIndex) * rh - list->scrollOffsetY;
+                inst->visible = true;
+                setScopePathRecursive(inst, list->repeatPath + "." + std::to_string(itemIndex));
+                inst->computeAbsolutePosition();
+                resolveWidgetBindings(inst, root, m_renderer.get());
+            } else {
+                if (inst->visible && m_renderer) inst->releaseRenderEntries(*m_renderer);
+                inst->visible = false;
+            }
+        }
+    }
 }
 
 void UIModule::fireWidgetEvent(UIWidget* w, const std::string& signal) {
@@ -854,6 +913,11 @@ void UIModule::updateUI(float deltaTime) {
 
     // Update all widgets
     m_root->update(*m_context, deltaTime);
+
+    // Virtualized template lists: now that scroll is current (the list updated above), window each list's
+    // pool to the visible items + bind them. Runs every frame (cheap — O(visible)); positions the rows for
+    // this frame's render and the next frame's hit-test.
+    updateTemplateLists();
 
     // --- Live slider value emission (audit H2) ---
     // QUOI : si un slider est en cours de drag, émettre ui:value_changed (+ l'action

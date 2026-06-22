@@ -223,10 +223,11 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   **repeater** — `"repeat":"{{path}}"`+`"template"` on any host instantiates the template per item, each
   widget carrying a `scopePath` so bindings AND events resolve per-item (`expandRepeaters`, `IT_039`); (5)
   **`if`** — `"if":"{{flag}}"` renders only while the bound bool is true, hiding + RELEASING the subtree's
-  retained entries when false (`IT_040`). The engine is feature-complete for general widgets.
-  **Resume at step 6 (the LIST becomes a virtualized repeater** — fold the rowTemplate + virtualization in;
-  the UIScrollPanel de-scroll sharp edge). Deferred: nested repeaters, flexible instance layout (rows stack
-  by index today), keyed reconciliation (re-instantiate-all today). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
+  retained entries when false (`IT_040`); (6) **virtualized template list** — a `list` with `"repeat"`+
+  `"template"` renders only the visible rows as a pooled, scroll-recycled set of template instances
+  (`UIModule::updateTemplateLists`, `UIList::renderTemplate`), per-item binding & events, scales to thousands
+  (`IT_041`). **🎉 THE ENGINE IS COMPLETE** (all 6 steps). Remaining = non-blocking follow-ons: versioned/
+  per-binding re-resolve (perf), nested repeaters, flexible instance layout, keyed reconciliation. **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
   game-side. This SUBSUMES the list's "custom row templates" follow-on (a row template = a JSON widget subtree
   repeated + bound). Sharp edges still ahead: typed-prop set per widget (partly done — extend `applyBoundProp`);
   repeater × virtualization (step 6, the UIScrollPanel de-scroll trap).

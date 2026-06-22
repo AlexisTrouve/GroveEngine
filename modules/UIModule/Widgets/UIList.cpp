@@ -305,8 +305,31 @@ void UIList::ensurePool(UIRenderer& renderer, int neededSlots) {
     }
 }
 
+void UIList::renderTemplate(UIRenderer& renderer) {
+    // Template mode: the rows are POOLED WIDGET SUBTREES (the list's children), positioned + bound by
+    // UIModule::updateTemplateLists. The list draws its bg, clips, renders its children, then the scrollbar.
+    ensurePool(renderer, 0);   // registers bg + track + thumb (no fixed row-id pool in template mode)
+
+    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
+
+    renderer.pushClip(absX, absY, width, height);
+    renderChildren(renderer);   // only visible (windowed) instances render; others were hidden
+    renderer.popClip();
+
+    if (scrollbarWidth > 0.0f && isScrollable()) {
+        const float trackX = absX + width - scrollbarWidth;
+        renderer.updateRect(m_trackId, trackX, absY, scrollbarWidth, height, scrollbarTrackColor, renderer.nextLayer());
+        float tx, ty, tw, th; scrollbarThumbRect(tx, ty, tw, th);
+        renderer.updateRect(m_thumbId, tx, ty, tw, th, scrollbarColor, renderer.nextLayer());
+    } else {
+        renderer.updateRect(m_trackId, 0, 0, 0, 0, 0, renderer.nextLayer());
+        renderer.updateRect(m_thumbId, 0, 0, 0, 0, 0, renderer.nextLayer());
+    }
+}
+
 void UIList::render(UIRenderer& renderer) {
     if (!visible) return;
+    if (isTemplateMode()) { renderTemplate(renderer); return; }
 
     const int n = static_cast<int>(m_rows.size());
 

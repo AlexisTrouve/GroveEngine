@@ -113,6 +113,14 @@ public:
     // REGARDLESS of item count — this is the basis of virtualization (only these rows get render entries).
     void visibleRange(int& firstItem, int& count) const;
 
+    // --- Template mode (step 6): a list with `repeat`+`template` VIRTUALIZES a widget-subtree row template.
+    //     UIModule drives the pool (it has the data context): each frame it windows the data array, maps a
+    //     viewport-bounded pool of template instances (the list's CHILDREN) to the visible items, sets each
+    //     instance's scopePath + y, and resolves it. The list just provides the viewport + scroll + scrollbar
+    //     + clip and renders its pooled children. Rows are real widgets -> per-item binding/events for free. ---
+    bool isTemplateMode() const { return !repeatPath.empty() && !repeatTemplateJson.empty(); }
+    void setTemplateRowCount(int n) { m_templateRowCount = n; }   // UIModule tells the list the data count
+
     // --- Data (data-driven via the UITree factory / ui:list:set_items / ui:list:set_groups). ---
     // Replace the whole item set (FLAT mode — one ungrouped sequence). Resets scroll + selection.
     // Virtualized: no renderer release needed — render() recycles the row-slot pool.
@@ -167,7 +175,12 @@ public:
 private:
     void clampScroll();
     void rebuildRows();   // project m_items (flat) or m_groups (grouped, collapse-honoured) -> m_rows
-    float contentHeight() const { return rowHeight * static_cast<float>(m_rows.size()); }
+    void renderTemplate(UIRenderer& renderer);   // template mode: bg + clipped pooled children + scrollbar
+    // Content height = rowHeight x (template data count in template mode, else the projected row count).
+    float contentHeight() const {
+        const int n = isTemplateMode() ? m_templateRowCount : static_cast<int>(m_rows.size());
+        return rowHeight * static_cast<float>(n);
+    }
 
     // Grow the recycled render-id pool to at least `neededSlots` row-slots (and register the panel bg
     // once). VIRTUALIZATION: the pool is sized to the VISIBLE window, not the item count — slots are
@@ -201,6 +214,8 @@ private:
     std::vector<uint32_t> m_rowSubtitleIds;
     uint32_t m_trackId = 0;            // scrollbar track render entry
     uint32_t m_thumbId = 0;            // scrollbar thumb render entry
+
+    int m_templateRowCount = 0;        // template mode: the data-array length (set by UIModule each frame)
 };
 
 } // namespace grove

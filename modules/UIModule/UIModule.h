@@ -94,7 +94,8 @@ private:
     // load + on ui:data); fireWidgetEvent publishes a widget's declarative event with {{}}-resolved args.
     nlohmann::json m_uiData = nlohmann::json::object();
     void resolveAllBindings();
-    void expandRepeaters();        // (re)instantiate every repeater's template per data-array element
+    void expandRepeaters();        // (re)instantiate every NON-list repeater's template per data-array element
+    void updateTemplateLists();    // window+bind the VIRTUALIZED template lists (only visible rows) each frame
     void refreshDataDriven();      // expandRepeaters() + resolveAllBindings() — call on load + each data push
     void fireWidgetEvent(UIWidget* w, const std::string& signal);
 

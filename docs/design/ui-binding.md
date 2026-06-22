@@ -78,13 +78,22 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
    — no ghost, unlike a plain `"visible":"{{}}"` binding), and the hidden subtree is skipped. Evaluated against
    the widget's scope (so it works per-item in a repeater). Locked by `IT_040` (show → render / hide → purge /
    re-show → re-register).
-6. **List = virtualized repeater** — fold the rowTemplate + in-row events + virtualization into the engine (the
-   sharp edge: re-binding/positioning real widget subtrees on scroll without the UIScrollPanel "de-scroll" bug).
+6. **List = virtualized repeater** — ✅ **SHIPPED**. A `list` with `"repeat":"{{fleet}}"` + a widget-subtree
+   `"template"` renders ONLY the visible rows as POOLED template instances (the list's children), recycled on
+   scroll. `UIModule::updateTemplateLists` (each frame, after the list's scroll update) windows the data array
+   to a viewport-bounded pool (`ceil(height/rowHeight)+1`), maps each slot to its item (sets `scopePath` + y),
+   resolves it, hides+purges the rest. The list provides the viewport/scroll/scrollbar/clip and renders its
+   pooled children (`UIList::renderTemplate`); `expandRepeaters` SKIPS lists (they self-virtualize). Rows are
+   real widgets → per-item binding & events for free; hit-test/clip are normal. Locked by `IT_041` (100-ship
+   fleet → ~6 rows instantiated not 100 / per-item click / scroll re-binds the pool to the far rows). The
+   de-scroll trap is avoided: the list owns positioning (sets each instance's `y` = `i*rh - scroll` + recomputes
+   abs), instances are Absolute panels that don't self-relayout.
 
-## Two sharp edges (known, deferred to their step)
-- **Typed property set in C++** (step 2): no reflection → a per-widget bindable-prop setter (bounded vocabulary).
-- **Repeater × virtualization** (step 6): re-instantiate/re-bind subtrees on scroll → the UIScrollPanel
-  child-de-scroll trap returns; handled in isolation at step 6.
+## Two sharp edges (both RESOLVED)
+- **Typed property set in C++** (step 2): no reflection → a per-widget `applyBoundProp` (bounded vocabulary:
+  visible/x/y/w/h on the base; text on label; value on progressbar; extend per widget as needed). ✅
+- **Repeater × virtualization** (step 6): handled — the list owns row positioning (`y = i*rh - scroll` +
+  recompute abs) and instances are Absolute panels, so the UIScrollPanel child-de-scroll trap is avoided. ✅
 
 ## Wire (what's usable now, steps 1-2)
 - **Bind any prop** in the layout JSON: `"text":"Credits: {{credits}}"`, `"value":"{{ship.hp}}"`. String props
@@ -97,14 +106,19 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
 - **Conditionally render**: `"if":"{{flag}}"` on any widget → shown only while the bound bool is true (hides +
   purges its retained entries when false). Negation is NOT supported (no expression language) — bind the game's
   own boolean.
+- **Virtualized templated list**: a `"type":"list"` with `"repeat":"{{fleet}}"` + `"rowHeight"` + a `"template"`
+  → a scrollable list that renders ONLY the visible rows (pooled, recycled on scroll) — arbitrary widget rows,
+  per-item binding & events, scales to thousands. The plain/grouped list modes still work without a template.
 - **Push the model** (3 ways, each re-resolves; each preserves the untouched rest):
   - `ui:data {<whole model>}` — replace the entire context.
   - `ui:data:set {path, value}` — set one deep path (e.g. `{"path":"ship.hp","value":0.5}`).
   - `ui:data:merge {<partial>}` — deep-merge a patch (RFC 7386; a `null` value deletes a key).
 
 ## Status
-- 2026-06-22 — **Steps 1-5 SHIPPED**: socle (`UIBindingUnit`) + binding-in/events-out (`IT_037`) + reactivity
-  (`IT_038`) + **repeater** per-item scope (`IT_039`) + **`if`** show/hide+purge (`IT_040`). The data-driven
-  engine is feature-complete for general widgets. **Next: step 6 — the LIST becomes a virtualized repeater**
-  (fold rowTemplate + virtualization into the engine; the UIScrollPanel de-scroll sharp edge). Modes liste
-  actuels (simple/groupes) restent des fast-paths additifs.
+- 2026-06-22 — **🎉 ALL 6 STEPS SHIPPED — the engine is COMPLETE.** socle (`UIBindingUnit`) + binding-in/
+  events-out (`IT_037`) + reactivity (`IT_038`) + repeater per-item scope (`IT_039`) + `if` (`IT_040`) +
+  **virtualized template list** (`IT_041`). A full "UI = JSON data-driven" engine: describe the UI in JSON
+  (incl. virtualized templated lists), bind it to engine `IDataNode` data, repeat/condition/react, with
+  declarative context-bound events — and NO expression language (logic stays game-side). Modes liste actuels
+  (simple/groupes/template) sont des fast-paths additifs. Follow-ons (perf/scope, non bloquants): re-résolution
+  versionnée/par-binding, repeaters imbriqués, layout flexible des instances, réconciliation par clé.

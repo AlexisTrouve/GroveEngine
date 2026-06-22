@@ -1,0 +1,33 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "vlist",
+      "type": "list",
+      "x": 100,
+      "y": 100,
+      "width": 220,
+      "height": 200,
+      "rowHeight": 40,
+      "repeat": "{{fleet}}",
+      "template": {
+        "type": "panel",
+        "x": 0, "y": 0, "width": 220, "height": 40,
+        "children": [
+          { "type": "label", "x": 8, "y": 12, "text": "{{name}}", "fontSize": 14 },
+          {
+            "type": "button",
+            "x": 0, "y": 0, "width": 220, "height": 40,
+            "text": "",
+            "on": { "click": { "event": "fleet:pick", "args": { "id": "{{id}}" } } }
+          }
+        ]
+      }
+    }
+  ]
+}
