@@ -2179,6 +2179,25 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TextClipGpu test_text_clip_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU end-to-end: the full "Fleet Command" demo renders on real bgfx (UIModule + BgfxRendererModule,
+    # hidden window). Needs the UI module too.
+    if(GROVE_BUILD_UI_MODULE)
+        add_executable(test_ui_demo_gpu unit/test_ui_demo_gpu.cpp)
+        target_include_directories(test_ui_demo_gpu PRIVATE
+            ${CMAKE_SOURCE_DIR}/modules
+            ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+            ${CMAKE_SOURCE_DIR}/modules/UIModule
+            ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(test_ui_demo_gpu PRIVATE
+            SDL2::SDL2
+            GroveEngine::impl
+            BgfxRenderer_static
+            UIModule_static
+            spdlog::spdlog
+            Catch2::Catch2WithMain)
+        grove_add_test(UIDemoGpu test_ui_demo_gpu ${CMAKE_CURRENT_BINARY_DIR})
+    endif()
+
     # ctest's per-test ENVIRONMENT mangles PATH (CMake splits it on ';', the same char Windows PATH
     # uses as a separator), so only the working_dir survives and SDL2.dll (in the toolchain) is lost
     # -> the GPU tests fail to load (0xc0000135). Copy SDL2.dll next to the exes so it's found in the
@@ -2190,6 +2209,11 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:${gpu_test}>")
         endforeach()
+        if(TARGET test_ui_demo_gpu)
+            add_custom_command(TARGET test_ui_demo_gpu POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_ui_demo_gpu>")
+        endif()
     else()
         message(WARNING "SDL2.dll not found on PATH; GPU tests may fail under ctest (0xc0000135)")
     endif()
