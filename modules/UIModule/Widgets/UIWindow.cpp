@@ -11,6 +11,13 @@ void closeRect(const UIWindow& w, float& x, float& y, float& cw, float& ch) {
     x = w.absX + w.width - w.closeButtonSize - w.padding;
     y = w.absY + (w.titleBarHeight - w.closeButtonSize) * 0.5f;
 }
+
+// The resize grip rect (screen px): a square at the bottom-right corner.
+void gripRect(const UIWindow& w, float& x, float& y, float& gw, float& gh) {
+    gw = gh = w.resizeGripSize;
+    x = w.absX + w.width - w.resizeGripSize;
+    y = w.absY + w.height - w.resizeGripSize;
+}
 } // namespace
 
 void UIWindow::contentRect(float& outX, float& outY, float& outW, float& outH) const {
@@ -38,6 +45,13 @@ bool UIWindow::pointInCloseButton(float x, float y) const {
     float cx, cy, cw, ch;
     closeRect(*this, cx, cy, cw, ch);
     return x >= cx && x <= cx + cw && y >= cy && y <= cy + ch;
+}
+
+bool UIWindow::pointInResizeGrip(float x, float y) const {
+    if (!resizable) return false;
+    float gx, gy, gw, gh;
+    gripRect(*this, gx, gy, gw, gh);
+    return x >= gx && x <= gx + gw && y >= gy && y <= gy + gh;
 }
 
 void UIWindow::update(UIContext& ctx, float deltaTime) {
@@ -68,12 +82,15 @@ void UIWindow::render(UIRenderer& renderer) {
         m_titleBarId = renderer.registerEntry();   // title bar strip
         m_titleTextId = renderer.registerEntry();  // title text
         m_closeId    = renderer.registerEntry();   // close button
+        m_resizeGripId = renderer.registerEntry(); // resize grip (bottom-right)
         m_registered = true;
-        setDestroyCallback([&renderer, tb = m_titleBarId, tt = m_titleTextId, cl = m_closeId](uint32_t id) {
+        setDestroyCallback([&renderer, tb = m_titleBarId, tt = m_titleTextId, cl = m_closeId,
+                            gr = m_resizeGripId](uint32_t id) {
             renderer.unregisterEntry(id);
             renderer.unregisterEntry(tb);
             renderer.unregisterEntry(tt);
             renderer.unregisterEntry(cl);
+            renderer.unregisterEntry(gr);
         });
     }
 
@@ -95,6 +112,16 @@ void UIWindow::render(UIRenderer& renderer) {
         renderer.updateRect(m_closeId, 0, 0, 0, 0, 0, closeLayer);
     }
 
+    // Resize grip (bottom-right), or hidden when not resizable.
+    int gripLayer = renderer.nextLayer();
+    if (resizable) {
+        float gx, gy, gw, gh;
+        gripRect(*this, gx, gy, gw, gh);
+        renderer.updateRect(m_resizeGripId, gx, gy, gw, gh, titleBarColor, gripLayer);
+    } else {
+        renderer.updateRect(m_resizeGripId, 0, 0, 0, 0, 0, gripLayer);
+    }
+
     // Content children, clipped to the area below the title bar (the slice-2 clip stack).
     float rx, ry, rw, rh;
     contentRect(rx, ry, rw, rh);
@@ -105,9 +132,10 @@ void UIWindow::render(UIRenderer& renderer) {
 
 void UIWindow::releaseRenderEntries(UIRenderer& renderer) {
     // Drop our EXTRA entries (the base drops m_renderId + recurses to children).
-    if (m_titleBarId != 0)  { renderer.unregisterEntry(m_titleBarId);  m_titleBarId = 0; }
-    if (m_titleTextId != 0) { renderer.unregisterEntry(m_titleTextId); m_titleTextId = 0; }
-    if (m_closeId != 0)     { renderer.unregisterEntry(m_closeId);     m_closeId = 0; }
+    if (m_titleBarId != 0)   { renderer.unregisterEntry(m_titleBarId);   m_titleBarId = 0; }
+    if (m_titleTextId != 0)  { renderer.unregisterEntry(m_titleTextId);  m_titleTextId = 0; }
+    if (m_closeId != 0)      { renderer.unregisterEntry(m_closeId);      m_closeId = 0; }
+    if (m_resizeGripId != 0) { renderer.unregisterEntry(m_resizeGripId); m_resizeGripId = 0; }
     UIWidget::releaseRenderEntries(renderer);
 }
 

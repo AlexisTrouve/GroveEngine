@@ -670,7 +670,24 @@ void UIModule::handleWindowInteraction() {
         }
     }
 
-    // 2. Only a fresh press starts a raise / drag / close.
+    // 1b. Continue / end an in-progress corner resize (grow the window to the cursor, min-clamped).
+    if (!m_resizingWindowId.empty()) {
+        if (m_context->mouseDown) {
+            if (UIWidget* w = m_root->findById(m_resizingWindowId)) {
+                if (w->getType() == "window") {
+                    UIWindow* win = static_cast<UIWindow*>(w);
+                    const float newW = m_context->mouseX - win->absX;
+                    const float newH = m_context->mouseY - win->absY;
+                    win->width  = (newW > win->minWidth)  ? newW : win->minWidth;
+                    win->height = (newH > win->minHeight) ? newH : win->minHeight;
+                }
+            }
+        } else {
+            m_resizingWindowId.clear();
+        }
+    }
+
+    // 2. Only a fresh press starts a raise / drag / close / resize.
     if (!m_context->mousePressed) return;
 
     // Resolve the TOPMOST top-level window under the cursor (reverse = front-to-back).
@@ -696,6 +713,9 @@ void UIModule::handleWindowInteraction() {
             ev->setString("id", win->id);
             m_io->publish("ui:window:closed", std::move(ev));
         }
+    } else if (win->resizable && win->pointInResizeGrip(m_context->mouseX, m_context->mouseY)) {
+        // Grab the bottom-right grip: the resize-continue block above grows the window each frame.
+        m_resizingWindowId = win->id;
     } else if (win->draggable && win->pointInTitleBar(m_context->mouseX, m_context->mouseY)) {
         // Grab the title bar: remember the window + where on it we grabbed.
         m_draggingWindowId = win->id;

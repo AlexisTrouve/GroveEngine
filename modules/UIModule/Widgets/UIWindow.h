@@ -33,6 +33,7 @@ public:
     bool pointInWindow(float x, float y) const;
     bool pointInTitleBar(float x, float y) const;
     bool pointInCloseButton(float x, float y) const;
+    bool pointInResizeGrip(float x, float y) const;   // bottom-right corner grip (resize)
     void contentRect(float& outX, float& outY, float& outW, float& outH) const;
 
     // Properties (data-driven via UITree).
@@ -40,6 +41,10 @@ public:
     float titleBarHeight = 28.0f;
     bool closable = true;
     bool draggable = true;
+    bool resizable = true;
+    float resizeGripSize = 14.0f;
+    float minWidth = 120.0f;
+    float minHeight = 70.0f;
     uint32_t bgColor = 0x222a33F0;        // content background (semi-transparent)
     uint32_t titleBarColor = 0x3a6ea5FF;
     uint32_t titleColor = 0xFFFFFFFF;
@@ -53,6 +58,7 @@ private:
     uint32_t m_titleBarId = 0;
     uint32_t m_titleTextId = 0;
     uint32_t m_closeId = 0;
+    uint32_t m_resizeGripId = 0;
 };
 
 } // namespace grove

@@ -1,0 +1,16 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "w1", "type": "window", "x": 100, "y": 100, "width": 200, "height": 150, "title": "W",
+      "children": [
+        { "id": "deepbtn", "type": "button", "x": 50, "y": 150, "width": 100, "height": 30, "text": "D", "onClick": "deep" }
+      ]
+    }
+  ]
+}

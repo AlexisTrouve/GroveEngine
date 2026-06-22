@@ -1914,6 +1914,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIModalE2E IT_031_ui_modal_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_032: in-app window resize via the bottom-right grip (UI slice 3b-3).
+    add_executable(IT_032_ui_window_resize_e2e integration/IT_032_ui_window_resize_e2e.cpp)
+    target_link_libraries(IT_032_ui_window_resize_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIWindowResizeE2E IT_032_ui_window_resize_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

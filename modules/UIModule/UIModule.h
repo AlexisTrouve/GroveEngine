@@ -78,6 +78,7 @@ private:
     //   Le raise (bringToFront) mute root->children : on le fait AVANT la passe d'update enfants.
     std::string m_draggingWindowId;
     float m_dragOffsetX = 0.0f, m_dragOffsetY = 0.0f;
+    std::string m_resizingWindowId;   // window being resized by its bottom-right grip
 
     // Load layout from file path
     bool loadLayout(const std::string& layoutPath);
