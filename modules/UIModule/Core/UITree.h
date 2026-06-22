@@ -58,14 +58,15 @@ public:
      */
     void setRoot(std::unique_ptr<UIWidget> root) { m_root = std::move(root); }
 
+    /**
+     * @brief Parse a widget and its children recursively (factory + common props + bindings + children).
+     * Public so the repeater can INSTANTIATE a template subtree per data item (UIModule::expandRepeaters).
+     */
+    std::unique_ptr<UIWidget> parseWidget(const IDataNode& node);
+
 private:
     std::unique_ptr<UIWidget> m_root;
     std::unordered_map<std::string, WidgetFactory> m_factories;
-
-    /**
-     * @brief Parse a widget and its children recursively
-     */
-    std::unique_ptr<UIWidget> parseWidget(const IDataNode& node);
 
     /**
      * @brief Parse common widget properties

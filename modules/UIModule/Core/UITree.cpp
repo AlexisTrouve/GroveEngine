@@ -540,11 +540,24 @@ static void parseWidgetBindings(UIWidget* widget, const IDataNode& node) {
     // Bindable props: any scalar STRING value containing a {{...}} placeholder.
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& key = it.key();
-        if (key == "on" || key == "children" || key == "template") continue;   // structural, not a prop
+        if (key == "on" || key == "children" || key == "template" || key == "repeat") continue;  // structural
         if (it.value().is_string()) {
             const std::string v = it.value().get<std::string>();
             if (v.find("{{") != std::string::npos) widget->bindings.push_back({key, v});
         }
+    }
+
+    // Repeater: "repeat":"{{<path>}}" + "template":{...}. Record the data path + the template (serialized
+    // as a json string, re-parsed per item at expand time — keeps UIWidget free of any IDataNode coupling).
+    if (j.contains("repeat") && j["repeat"].is_string() && j.contains("template") && j["template"].is_object()) {
+        std::string rp = j["repeat"].get<std::string>();
+        const size_t o = rp.find("{{"), c = rp.find("}}");
+        if (o != std::string::npos && c != std::string::npos && c > o + 2) {
+            std::string inner = rp.substr(o + 2, c - (o + 2));
+            size_t a = inner.find_first_not_of(" \t"), b = inner.find_last_not_of(" \t");
+            widget->repeatPath = (a == std::string::npos) ? "" : inner.substr(a, b - a + 1);
+        }
+        widget->repeatTemplateJson = j["template"].dump();
     }
 
     // Declarative events: "on": { "<signal>": { "event": "<topic>", "args": { "<k>": "{{...}}" } } }.

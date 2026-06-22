@@ -322,7 +322,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
                 m_uiData = jn->getJsonData();
             }
-            resolveAllBindings();
+            refreshDataDriven();
         });
 
         // Partial update — set ONE deep path: ui:data:set {path, value}. The game updates a single field
@@ -335,7 +335,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 const auto& j = jn->getJsonData();
                 if (j.contains("value")) {
                     uibind::setAtPath(m_uiData, path, j["value"]);
-                    resolveAllBindings();
+                    refreshDataDriven();
                 }
             }
         });
@@ -346,7 +346,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (!msg.data) return;
             if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
                 m_uiData.merge_patch(jn->getJsonData());
-                resolveAllBindings();
+                refreshDataDriven();
             }
         });
 
@@ -449,17 +449,31 @@ void UIModule::publishCaptureState(UIWidget* hovered) {
     }
 }
 
-// Recurse the widget tree applying each widget's data-bindings against `scope`. (Step 2: every widget uses
-// the ROOT scope; repeater child scopes arrive at step 4.) For each binding we resolve the template three
-// ways — string (text), number (value/x/...), bool (visible) — and let the widget pick the form it needs.
-static void resolveWidgetBindings(UIWidget* w, const uibind::Scope& scope) {
+// A widget's data SCOPE: the root scope, or — if it carries a scopePath (a repeater item, e.g. "fleet.0")
+// — the item's data with the root as parent (so `{{name}}` is the item's, `{{$root.x}}` climbs out). The
+// returned Scope's `item` out-param must outlive the returned pointer (it backs the non-root case).
+static const uibind::Scope* scopeFor(UIWidget* w, const uibind::Scope& root, uibind::Scope& item) {
+    if (w->scopePath.empty()) return &root;
+    if (const uibind::json* d = uibind::resolvePath(root, w->scopePath)) {
+        item = uibind::Scope{ d, &root };
+        return &item;
+    }
+    return &root;   // stale/missing scope path -> fall back to root (don't crash)
+}
+
+// Recurse the tree applying each widget's data-bindings against ITS scope (root, or its repeater item).
+// Each binding is resolved three ways — string (text), number (value/x/...), bool (visible) — and the
+// widget picks the form it needs in applyBoundProp.
+static void resolveWidgetBindings(UIWidget* w, const uibind::Scope& root) {
+    uibind::Scope item;
+    const uibind::Scope* scope = scopeFor(w, root, item);
     for (const auto& b : w->bindings) {
         w->applyBoundProp(b.first,
-                          uibind::interpolate(scope, b.second),
-                          uibind::resolveNumber(scope, b.second),
-                          uibind::resolveBool(scope, b.second));
+                          uibind::interpolate(*scope, b.second),
+                          uibind::resolveNumber(*scope, b.second),
+                          uibind::resolveBool(*scope, b.second));
     }
-    for (auto& child : w->children) resolveWidgetBindings(child.get(), scope);
+    for (auto& child : w->children) resolveWidgetBindings(child.get(), root);
 }
 
 void UIModule::resolveAllBindings() {
@@ -468,17 +482,66 @@ void UIModule::resolveAllBindings() {
     resolveWidgetBindings(m_root.get(), root);
 }
 
+// Set the same scopePath on a whole template instance (all its widgets share one item scope).
+static void setScopePathRecursive(UIWidget* w, const std::string& path) {
+    w->scopePath = path;
+    for (auto& c : w->children) setScopePathRecursive(c.get(), path);
+}
+
+// Collect the ROOT-scope repeater hosts (scopePath empty) — nested repeaters (inside an item scope) are a
+// deferred follow-on. Collected up-front so expansion (which adds children) doesn't disturb the walk.
+static void collectRepeaters(UIWidget* w, std::vector<UIWidget*>& out) {
+    if (!w->repeatPath.empty() && w->scopePath.empty()) out.push_back(w);
+    for (auto& c : w->children) collectRepeaters(c.get(), out);
+}
+
+void UIModule::expandRepeaters() {
+    if (!m_root || !m_tree) return;
+    uibind::Scope root{ &m_uiData, nullptr };
+
+    std::vector<UIWidget*> hosts;
+    collectRepeaters(m_root.get(), hosts);
+
+    for (UIWidget* host : hosts) {
+        // Purge + drop the previous instances (release publishes render:*:remove -> no ghosts).
+        if (m_renderer) for (auto& c : host->children) c->releaseRenderEntries(*m_renderer);
+        host->children.clear();
+
+        const uibind::json* arr = uibind::resolvePath(root, host->repeatPath);
+        if (!arr || !arr->is_array()) continue;
+
+        for (size_t i = 0; i < arr->size(); ++i) {
+            // Re-parse the template per item (factory + bindings + events recorded on the instance).
+            uibind::json tj = uibind::json::parse(host->repeatTemplateJson);
+            JsonDataNode tnode("tpl", tj);
+            auto inst = m_tree->parseWidget(tnode);
+            if (!inst) continue;
+            setScopePathRecursive(inst.get(), host->repeatPath + "." + std::to_string(i));
+            inst->y = static_cast<float>(i) * inst->height;   // vertical stack by index (step 4)
+            host->addChild(std::move(inst));
+        }
+    }
+    m_root->computeAbsolutePosition();
+}
+
+void UIModule::refreshDataDriven() {
+    expandRepeaters();      // (re)build instances against the current data
+    resolveAllBindings();   // resolve every binding (incl. the new instances) against its scope
+}
+
 void UIModule::fireWidgetEvent(UIWidget* w, const std::string& signal) {
     if (!w || !m_io) return;
     auto it = w->eventBindings.find(signal);
     if (it == w->eventBindings.end()) return;
 
-    // Build the payload by interpolating each declared arg against the widget's data scope (step 2: root),
-    // then publish on the declared topic. This is the OUTBOUND half — view -> game, context-carrying.
-    uibind::Scope scope{ &m_uiData, nullptr };
+    // Resolve the args against the widget's scope (a repeater row carries its item) and publish. The
+    // OUTBOUND half — view -> game, context-carrying, the symmetry of binding-in.
+    uibind::Scope root{ &m_uiData, nullptr };
+    uibind::Scope item;
+    const uibind::Scope* scope = scopeFor(w, root, item);
     auto payload = std::make_unique<JsonDataNode>("event");
     for (const auto& arg : it->second.args) {
-        payload->setString(arg.first, uibind::interpolate(scope, arg.second));
+        payload->setString(arg.first, uibind::interpolate(*scope, arg.second));
     }
     m_io->publish(it->second.eventName, std::move(payload));
 }
@@ -941,7 +1004,7 @@ bool UIModule::loadLayoutData(const IDataNode& layoutData) {
         // relative size against the config viewport and positions the whole tree immediately,
         // so a freshly-loaded UI is correct before the first frame (and % sizing is honored).
         relayoutRoot();
-        resolveAllBindings();   // resolve {{}} props against the (possibly empty) data context now
+        refreshDataDriven();    // expand repeaters + resolve {{}} props against the (possibly empty) context
         m_logger->info("Layout loaded: root id='{}', type='{}'",
                        m_root->id, m_root->getType());
         return true;

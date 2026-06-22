@@ -188,8 +188,10 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
         UIButton* btn = static_cast<UIButton*>(target);
         handled = btn->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
 
-        if (handled && !pressed && !btn->onClick.empty()) {
-            return target;  // Return for action publishing
+        // Surface on release if the button has a legacy onClick OR a declarative on:click event (so a
+        // purely-declarative button — e.g. a repeater row button — is clickable without a dummy onClick).
+        if (handled && !pressed && (!btn->onClick.empty() || target->eventBindings.count("click"))) {
+            return target;  // Return for action / declarative-event publishing
         }
     }
     else if (type == "slider") {

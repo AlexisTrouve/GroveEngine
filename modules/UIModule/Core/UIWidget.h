@@ -139,6 +139,16 @@ public:
     std::vector<std::pair<std::string, std::string>> bindings;  // property name -> {{}} template
     std::map<std::string, EventBinding> eventBindings;          // signal ("click") -> binding
 
+    // Repeater (step 4): a host with `repeat`+`template` instantiates the template per data-array element.
+    //   repeatPath        = the data path the host repeats over (e.g. "fleet"; "" = not a repeater).
+    //   repeatTemplateJson= the template subtree serialized as a json string (re-parsed per item at expand).
+    //   scopePath         = THIS widget's data scope (e.g. "fleet.0"); "" = the root scope. Bindings AND
+    //                       declarative events resolve {{path}} against this scope — so a row's widgets see
+    //                       their item's data, and a row button's event carries that item for free.
+    std::string repeatPath;
+    std::string repeatTemplateJson;
+    std::string scopePath;
+
     // Apply a resolved bound value to property `prop`. UIModule passes it pre-resolved as string / number /
     // bool; the widget picks the form it needs. Base handles common geometry/visibility; widgets OVERRIDE
     // for their own props (label: text, progressbar: value), then call this base for the rest.

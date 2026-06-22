@@ -65,8 +65,14 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
    the untouched rest of the model. Locked by `UIBindingUnit` (`setAtPath` edge cases) + `IT_038`
    (set/merge/nested-merge each update one field, the others intact). Versioned / per-binding re-resolve is a
    deferred PERF follow-on (re-resolve-all is fine for UI-sized data).
-4. **Repeater** — `repeat`+`template`+child scope on any widget (instantiate-all; small N). Events-with-scope fall
-   out for free.
+4. **Repeater** — ✅ **SHIPPED**. A host with `"repeat":"{{path}}"` + `"template":{...}` instantiates the
+   template once per data-array element (`UIModule::expandRepeaters`, re-parsed via `UITree::parseWidget`).
+   Each widget carries a `scopePath` (e.g. `"fleet.0"`) → bindings AND declarative events resolve against the
+   ITEM (the "in-row routing", now general + free). Re-expands on every data push (instantiate-all; small N —
+   virtualization = step 6). Rows stack by index (`y = i*height`; flexible layout = follow-on). Also fixed:
+   dispatch surfaces a button with a declarative `on:click` even without a legacy `onClick`. Locked by `IT_039`
+   (per-item label binding + per-item button event + re-expansion). Deferred: nested repeaters (a `repeat`
+   inside a template — only root-scope hosts expand for now).
 5. **Conditional** — `if`.
 6. **List = virtualized repeater** — fold the rowTemplate + in-row events + virtualization into the engine (the
    sharp edge: re-binding/positioning real widget subtrees on scroll without the UIScrollPanel "de-scroll" bug).
@@ -82,14 +88,16 @@ data). A mini-language in JSON is a bottomless pit (parsing/security/debug/maint
   (progressbar), `visible`/`x`/`y`/`width`/`height` (any). More props = extend `applyBoundProp` per widget.
 - **Declare events**: `"on":{"click":{"event":"fleet:recall","args":{"shipId":"{{id}}"}}}` → publishes
   `fleet:recall {shipId: ...}` on click, args resolved against the scope.
+- **Repeat a template** over a data array: `"repeat":"{{fleet}}","template":{...}` on a host widget → one
+  template instance per element, each element the row's scope (so `{{name}}` / the row's events are per-item).
 - **Push the model** (3 ways, each re-resolves; each preserves the untouched rest):
   - `ui:data {<whole model>}` — replace the entire context.
   - `ui:data:set {path, value}` — set one deep path (e.g. `{"path":"ship.hp","value":0.5}`).
   - `ui:data:merge {<partial>}` — deep-merge a patch (RFC 7386; a `null` value deletes a key).
 
 ## Status
-- 2026-06-22 — **Steps 1-3 SHIPPED**: the `grove::uibind` socle (`UIBindingUnit`) + binding-in/events-out
-  (`IT_037`) + robust reactivity (`ui:data` / `:set` / `:merge`, `setAtPath`, `IT_038`). **Next: step 4
-  (repeater)** — `repeat`+`template`+child scope on any widget; the higher-value unlock (events-with-scope fall
-  out for free), and the prerequisite for the list-as-virtualized-repeater (step 6). Modes liste actuels
-  (simple/groupes) restent des fast-paths additifs.
+- 2026-06-22 — **Steps 1-4 SHIPPED**: socle (`UIBindingUnit`) + binding-in/events-out (`IT_037`) + reactivity
+  (`IT_038`) + **repeater with per-item scope** (`IT_039`). The core data-driven vision (read/write/react +
+  template×data + per-item binding & events) is realised. **Next: step 5 (`if` show/hide)** then **step 6
+  (the LIST becomes a virtualized repeater** — fold rowTemplate + virtualization in; the sharp edge). Modes
+  liste actuels (simple/groupes) restent des fast-paths additifs.

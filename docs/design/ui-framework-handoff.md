@@ -219,9 +219,12 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   binding-IN (props ← `{{path}}`, recorded at parse by `UITree::parseWidgetBindings`, applied via
   `UIWidget::applyBoundProp`) + events-OUT (declarative `on` events, `fireWidgetEvent`) + `ui:data {<model>}`
   (`IT_037`); (3) robust reactivity — `ui:data` (replace) / `ui:data:set {path,value}` (deep set via
-  `uibind::setAtPath`) / `ui:data:merge` (RFC 7386), each re-resolves + preserves the rest (`IT_038`).
-  **Resume at step 4 (repeater)** — `repeat`+`template`+child scope on any widget (the higher-value unlock;
-  events-with-scope fall out for free); then `if` (5), and the LIST becomes a virtualized repeater (6). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
+  `uibind::setAtPath`) / `ui:data:merge` (RFC 7386), each re-resolves + preserves the rest (`IT_038`); (4)
+  **repeater** — `"repeat":"{{path}}"`+`"template"` on any host instantiates the template per item, each
+  widget carrying a `scopePath` so bindings AND events resolve per-item (`expandRepeaters`, `IT_039`).
+  **Resume at step 5 (`if` show/hide)** then **step 6 (the LIST becomes a virtualized repeater** — fold the
+  rowTemplate + virtualization in; the UIScrollPanel de-scroll sharp edge). Deferred: nested repeaters,
+  flexible instance layout (rows stack by index today), keyed reconciliation (re-instantiate-all today). **Hard guardrail: no expression language** — paths + interpolation + boolean `if` only; logic stays
   game-side. This SUBSUMES the list's "custom row templates" follow-on (a row template = a JSON widget subtree
   repeated + bound). Sharp edges still ahead: typed-prop set per widget (partly done — extend `applyBoundProp`);
   repeater × virtualization (step 6, the UIScrollPanel de-scroll trap).
