@@ -1797,6 +1797,12 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(test_radial_math PRIVATE Catch2::Catch2WithMain)
     grove_add_test(RadialMathUnit test_radial_math ${CMAKE_CURRENT_BINARY_DIR})
 
+    # test_ui_layout: pure UILayout oracle (reflow + relative/percent sizing) — UI slice 1.1.
+    # Links UIModule_static (UILayout lives in a .cpp); no IIO/window/renderer touched.
+    add_executable(test_ui_layout unit/test_ui_layout.cpp)
+    target_link_libraries(test_ui_layout PRIVATE UIModule_static Catch2::Catch2WithMain)
+    grove_add_test(UILayoutUnit test_ui_layout ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_020: action-wheel (radial) click E2E — confirm a wedge by direction, cancel in
     # the dead-zone, miss off-wheel. Locks the new UIRadial widget end-to-end.
     add_executable(IT_020_ui_radial_e2e
@@ -1809,6 +1815,19 @@ if(GROVE_BUILD_UI_MODULE)
         Catch2::Catch2WithMain
     )
     grove_add_test(UIRadialE2E IT_020_ui_radial_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_021: reflow-on-resize E2E — ui:resize re-lays-out the tree; a click that hit the
+    # right button before the resize hits the left one after it (UI framework slice 1.1).
+    add_executable(IT_021_ui_resize_reflow_e2e
+        integration/IT_021_ui_resize_reflow_e2e.cpp
+    )
+    target_link_libraries(IT_021_ui_resize_reflow_e2e PRIVATE
+        test_helpers
+        GroveEngine::core
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIResizeReflowE2E IT_021_ui_resize_reflow_e2e ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # IT_015_Minimal: IIO-only integration test (no module loading, no DLL issues)

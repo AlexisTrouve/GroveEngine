@@ -85,6 +85,15 @@ private:
 
     // Render UI
     void renderUI();
+
+    // Re-layout the whole tree against the current viewport (screenWidth/Height) and recompute
+    // absolute positions. QUOI : résout d'abord le sizing relatif de la RACINE (widthPercent/
+    //   heightPercent → fraction du viewport, 1.0 = plein écran), puis measure+layout+absPos.
+    // POURQUOI : c'est le point d'entrée du reflow — appelé au chargement (layout initial correct,
+    //   % résolu tout de suite) ET à chaque ui:resize. Sans lui, la racine garde sa taille JSON et
+    //   rien ne se réagence quand la fenêtre change. (Les panels relayoutent déjà par frame dans
+    //   UIPanel::update, mais sur LEUR taille — ils ne savent pas suivre le viewport.)
+    void relayoutRoot();
 };
 
 } // namespace grove

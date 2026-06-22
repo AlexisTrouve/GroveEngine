@@ -78,6 +78,17 @@ public:
     float height = 0.0f;
     bool visible = true;
 
+    // Relative (percent) sizing — UI framework slice 1.1.
+    // QUOI : taille exprimée en FRACTION du conteneur parent sur un axe (0 = inactif, on
+    //   utilise width/height absolus ; >0 = fraction du content-box parent). La racine a pour
+    //   "parent" le viewport (screenWidth/Height), d'où "widthPercent:1.0" = remplir l'écran.
+    // POURQUOI : c'est la brique du reflow — résolue À CHAQUE passe de layout, donc un widget
+    //   en % suit automatiquement son parent quand la fenêtre est redimensionnée (ui:resize).
+    // COMMENT : résolu dans UILayout (axe principal = fixe prélevé avant le flex ; axe croisé /
+    //   stack / absolute = fraction directe) et, pour la racine, dans UIModule::relayoutRoot().
+    float widthPercent = 0.0f;
+    float heightPercent = 0.0f;
+
     // Layout properties (Phase 2)
     LayoutProperties layoutProps;
 

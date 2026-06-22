@@ -149,11 +149,15 @@ void UILayout::layout(UIWidget* widget, float availableWidth, float availableHei
             break;
         case LayoutMode::Absolute:
         default:
-            // For absolute layout, just layout children with their preferred sizes
+            // For absolute layout, lay out children at their preferred size — but a child with
+            // percent sizing takes that fraction of THIS widget's content box (so e.g. a full-bleed
+            // background panel with widthPercent=1 tracks its parent on reflow).
             for (auto& child : widget->children) {
                 if (!child->visible) continue;
                 auto childMeasure = measure(child.get());
-                layout(child.get(), childMeasure.preferredWidth, childMeasure.preferredHeight);
+                float cw = child->widthPercent  > 0.0f ? child->widthPercent  * contentWidth  : childMeasure.preferredWidth;
+                float ch = child->heightPercent > 0.0f ? child->heightPercent * contentHeight : childMeasure.preferredHeight;
+                layout(child.get(), cw, ch);
             }
             break;
     }
@@ -168,6 +172,14 @@ void UILayout::layoutVertical(UIWidget* widget, float availableWidth, float avai
     for (auto& child : widget->children) {
         if (!child->visible) continue;
         visibleCount++;
+
+        // Percent on the MAIN axis (height here) acts as a FIXED reservation — a fraction of the
+        // content box taken before flex shares out the remainder. It is not flex, not measured.
+        if (child->heightPercent > 0.0f) {
+            fixedHeight += child->heightPercent * availableHeight;
+            continue;
+        }
+
         totalFlex += child->layoutProps.flex;
 
         if (child->layoutProps.flex == 0.0f) {
@@ -191,7 +203,9 @@ void UILayout::layoutVertical(UIWidget* widget, float availableWidth, float avai
         }
 
         float childHeight;
-        if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
+        if (child->heightPercent > 0.0f) {
+            childHeight = child->heightPercent * availableHeight;            // main-axis percent
+        } else if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
             childHeight = (child->layoutProps.flex / totalFlex) * remainingHeight;
         } else {
             auto childMeasure = measure(child.get());
@@ -211,8 +225,10 @@ void UILayout::layoutVertical(UIWidget* widget, float availableWidth, float avai
         float childHeight = childHeights[i];
         float childWidth;
 
-        // Handle alignment
-        if (widget->layoutProps.align == Alignment::Stretch) {
+        // Cross-axis (width): percent wins, else Stretch fills, else measured preferred width.
+        if (child->widthPercent > 0.0f) {
+            childWidth = child->widthPercent * availableWidth;
+        } else if (widget->layoutProps.align == Alignment::Stretch) {
             childWidth = availableWidth;
         } else {
             auto childMeasure = measure(child.get());
@@ -250,6 +266,13 @@ void UILayout::layoutHorizontal(UIWidget* widget, float availableWidth, float av
     for (auto& child : widget->children) {
         if (!child->visible) continue;
         visibleCount++;
+
+        // Percent on the MAIN axis (width here) acts as a FIXED reservation, taken before flex.
+        if (child->widthPercent > 0.0f) {
+            fixedWidth += child->widthPercent * availableWidth;
+            continue;
+        }
+
         totalFlex += child->layoutProps.flex;
 
         if (child->layoutProps.flex == 0.0f) {
@@ -273,7 +296,9 @@ void UILayout::layoutHorizontal(UIWidget* widget, float availableWidth, float av
         }
 
         float childWidth;
-        if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
+        if (child->widthPercent > 0.0f) {
+            childWidth = child->widthPercent * availableWidth;              // main-axis percent
+        } else if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
             childWidth = (child->layoutProps.flex / totalFlex) * remainingWidth;
         } else {
             auto childMeasure = measure(child.get());
@@ -293,8 +318,10 @@ void UILayout::layoutHorizontal(UIWidget* widget, float availableWidth, float av
         float childWidth = childWidths[i];
         float childHeight;
 
-        // Handle alignment
-        if (widget->layoutProps.align == Alignment::Stretch) {
+        // Cross-axis (height): percent wins, else Stretch fills, else measured preferred height.
+        if (child->heightPercent > 0.0f) {
+            childHeight = child->heightPercent * availableHeight;
+        } else if (widget->layoutProps.align == Alignment::Stretch) {
             childHeight = availableHeight;
         } else {
             auto childMeasure = measure(child.get());
@@ -332,15 +359,13 @@ void UILayout::layoutStack(UIWidget* widget, float availableWidth, float availab
 
         float childWidth, childHeight;
 
-        // Handle alignment
-        if (widget->layoutProps.align == Alignment::Stretch) {
-            childWidth = availableWidth;
-            childHeight = availableHeight;
-        } else {
-            auto childMeasure = measure(child.get());
-            childWidth = childMeasure.preferredWidth;
-            childHeight = childMeasure.preferredHeight;
-        }
+        // Per axis: percent wins (fraction of the content box), else Stretch fills, else measured.
+        auto childMeasure = measure(child.get());
+        const bool stretch = (widget->layoutProps.align == Alignment::Stretch);
+        childWidth  = child->widthPercent  > 0.0f ? child->widthPercent  * availableWidth
+                    : (stretch ? availableWidth  : childMeasure.preferredWidth);
+        childHeight = child->heightPercent > 0.0f ? child->heightPercent * availableHeight
+                    : (stretch ? availableHeight : childMeasure.preferredHeight);
 
         // Position based on alignment
         float childX = offsetX;

@@ -2,6 +2,7 @@
 #include "Core/UIContext.h"
 #include "Core/UITree.h"
 #include "Core/UIWidget.h"
+#include "Core/UILayout.h"   // relayoutRoot() drives measure/layout on viewport resize
 #include "Core/UITooltip.h"
 #include "Rendering/UIRenderer.h"
 #include "Widgets/UIButton.h"
@@ -171,6 +172,21 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (!layoutPath.empty()) {
                 loadLayout(layoutPath);
             }
+        });
+
+        // Viewport resize → reflow the UI (UI framework slice 1.1).
+        // QUOI : met à jour la taille d'écran connue puis relayoute tout l'arbre depuis la racine.
+        // POURQUOI : aucun signal de resize n'existait — screenWidth/Height étaient figés au config.
+        //   Le HOST (qui possède la fenêtre SDL) publie ui:resize {width,height} sur un
+        //   SDL_WINDOWEVENT_RESIZED ; l'UIModule reste découplé de SDL et ne fait que consommer.
+        // COMMENT : on n'écrase une dimension que si elle est fournie/positive (payload partiel
+        //   toléré), puis relayoutRoot() résout le % de la racine contre le nouveau viewport.
+        m_io->subscribe("ui:resize", [this](const Message& msg) {
+            const float w = static_cast<float>(msg.data->getDouble("width", 0.0));
+            const float h = static_cast<float>(msg.data->getDouble("height", 0.0));
+            if (w > 0.0f) m_context->screenWidth = w;
+            if (h > 0.0f) m_context->screenHeight = h;
+            relayoutRoot();
         });
 
         m_io->subscribe("ui:set_visible", [this](const Message& msg) {
@@ -593,12 +609,32 @@ bool UIModule::loadLayout(const std::string& layoutPath) {
 bool UIModule::loadLayoutData(const IDataNode& layoutData) {
     m_root = m_tree->loadFromJson(layoutData);
     if (m_root) {
-        m_root->computeAbsolutePosition();
+        // Run a full layout pass NOW (not just computeAbsolutePosition): resolves the root's
+        // relative size against the config viewport and positions the whole tree immediately,
+        // so a freshly-loaded UI is correct before the first frame (and % sizing is honored).
+        relayoutRoot();
         m_logger->info("Layout loaded: root id='{}', type='{}'",
                        m_root->id, m_root->getType());
         return true;
     }
     return false;
+}
+
+void UIModule::relayoutRoot() {
+    if (!m_root || !m_context) return;
+
+    // The root tracks the viewport: a root with widthPercent/heightPercent > 0 fills that
+    // fraction of the window (1.0 = full screen). Without percent, the root keeps its explicit
+    // JSON size. Child percents are resolved deeper, inside UILayout, against their own parent.
+    if (m_root->widthPercent  > 0.0f) m_root->width  = m_root->widthPercent  * m_context->screenWidth;
+    if (m_root->heightPercent > 0.0f) m_root->height = m_root->heightPercent * m_context->screenHeight;
+
+    // measure (bottom-up) then layout (top-down) against the root's resolved size, then derive
+    // absolute positions used by both render and hit-test. Mirrors UIPanel::update's per-frame
+    // pass, but seeded from the viewport — so it also handles an Absolute-mode root.
+    UILayout::measure(m_root.get());
+    UILayout::layout(m_root.get(), m_root->width, m_root->height);
+    m_root->computeAbsolutePosition();
 }
 
 void UIModule::shutdown() {

@@ -444,6 +444,10 @@ void UITree::parseCommonProperties(UIWidget* widget, const IDataNode& node) {
     widget->y = static_cast<float>(node.getDouble("y", 0.0));
     widget->width = static_cast<float>(node.getDouble("width", 0.0));
     widget->height = static_cast<float>(node.getDouble("height", 0.0));
+    // Relative (percent) sizing — slice 1.1. Fraction of the parent content box on each axis
+    // (root's parent = viewport). 0 = use the absolute width/height above. Resolved in UILayout.
+    widget->widthPercent = static_cast<float>(node.getDouble("widthPercent", 0.0));
+    widget->heightPercent = static_cast<float>(node.getDouble("heightPercent", 0.0));
     widget->visible = node.getBool("visible", true);
 
     // Parse layout properties (Phase 2)

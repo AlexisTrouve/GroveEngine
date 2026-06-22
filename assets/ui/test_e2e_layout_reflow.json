@@ -1,0 +1,15 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "widthPercent": 1.0,
+  "heightPercent": 1.0,
+  "layout": { "type": "horizontal", "align": "stretch" },
+  "children": [
+    { "type": "button", "id": "btn_a", "layout": { "flex": 1 }, "text": "A", "onClick": "test:a" },
+    { "type": "button", "id": "btn_b", "layout": { "flex": 1 }, "text": "B", "onClick": "test:b" }
+  ]
+}

@@ -23,6 +23,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:radial:set_items` | `{id, count}` | Reconfigure a radial wheel to `count` slices at runtime (the pie tiles into ANY N: 2..8+). Generates generic items; a game normally sets real items via the layout JSON (`items[]`, `style.gap`/`style.margin` for the inter-slice gaps) |
 | `ui:set_value` | `{id, value}` | Set slider/progressbar value |
 | `ui:load` | `{layoutPath}` | Load new UI layout from file |
+| `ui:resize` | `{width, height}` | Viewport resized — re-lays-out the whole UI against the new size. The **host** (which owns the window) publishes this on a window-resize event; UIModule stays decoupled from SDL. Widgets with `widthPercent`/`heightPercent` (a fraction `0..1` of the parent content box; the root's parent = the viewport, so `1.0` = fill the window) re-resolve and track the new size. Partial payloads tolerated (only a provided/positive dimension is applied) |
 
 ## Topics Published
 
