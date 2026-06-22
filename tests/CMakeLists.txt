@@ -1908,6 +1908,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIDrawerE2E IT_030_ui_drawer_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_031: modal dialog E2E — focus-trap + open/close on outside click (UI slice 5a).
+    add_executable(IT_031_ui_modal_e2e integration/IT_031_ui_modal_e2e.cpp)
+    target_link_libraries(IT_031_ui_modal_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIModalE2E IT_031_ui_modal_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

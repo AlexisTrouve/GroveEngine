@@ -1,0 +1,21 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    { "id": "bg_btn", "type": "button", "x": 50, "y": 50, "width": 700, "height": 500, "text": "BG", "onClick": "background" },
+    {
+      "id": "modal",
+      "type": "modal",
+      "visible": false,
+      "dialogWidth": 300,
+      "dialogHeight": 200,
+      "children": [
+        { "id": "ok_btn", "type": "button", "x": 20, "y": 20, "width": 100, "height": 30, "text": "OK", "onClick": "dialogok" }
+      ]
+    }
+  ]
+}

@@ -23,6 +23,8 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:radial:set_items` | `{id, count}` | Reconfigure a radial wheel to `count` slices at runtime (the pie tiles into ANY N: 2..8+). Generates generic items; a game normally sets real items via the layout JSON (`items[]`, `style.gap`/`style.margin` for the inter-slice gaps) |
 | `ui:drawer:toggle` | `{id}` | Open/close an edge drawer (it animates the slide itself) |
 | `ui:drawer:set` | `{id, open}` | Force an edge drawer open (`true`) or closed (`false`) |
+| `ui:modal:open` | `{id}` | Open a modal dialog (raises it on top; its dim traps all input behind) |
+| `ui:modal:close` | `{id}` | Close a modal dialog (also fired automatically when the dim is clicked) |
 | `ui:set_value` | `{id, value}` | Set slider/progressbar value |
 | `ui:load` | `{layoutPath}` | Load new UI layout from file |
 | `ui:resize` | `{width, height}` | Viewport resized — re-lays-out the whole UI against the new size. The **host** (which owns the window) publishes this on a window-resize event; UIModule stays decoupled from SDL. Widgets with `widthPercent`/`heightPercent` (a fraction `0..1` of the parent content box; the root's parent = the viewport, so `1.0` = fill the window) re-resolve and track the new size. Partial payloads tolerated (only a provided/positive dimension is applied) |
@@ -41,6 +43,7 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:scroll` | `{widgetId, scrollX, scrollY}` | Scroll panel scrolled |
 | `ui:window:closed` | `{id}` | An in-app window was closed (its close button clicked). The window hides itself + purges its retained entries; the game reacts (free state, etc.) |
 | `ui:tab:changed` | `{widgetId, index}` | A tabbed container switched to page `index` (a tab was clicked). The tabs widget shows that page + hides/purges the others on its own |
+| `ui:modal:closed` | `{id}` | A modal dialog closed (its dim was clicked, or `ui:modal:close`). The modal hides itself + purges its entries |
 
 ### Rendering (Retained Mode)
 

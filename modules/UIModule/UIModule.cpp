@@ -15,6 +15,7 @@
 #include "Widgets/UIWindow.h"
 #include "Widgets/UITabs.h"
 #include "Widgets/UIDrawer.h"
+#include "Widgets/UIModal.h"
 
 #include <grove/JsonDataNode.h>
 #include <spdlog/spdlog.h>
@@ -209,6 +210,27 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
                 if (w->getType() == "drawer") {
                     static_cast<UIDrawer*>(w)->setOpen(open);
+                }
+            }
+        });
+
+        // Modal dialog open/close (slice 5a). Open raises it to the front (on top of everything);
+        // close hides it + purges its entries + notifies the game.
+        m_io->subscribe("ui:modal:open", [this](const Message& msg) {
+            if (!m_root) return;
+            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+                if (w->getType() == "modal") { w->visible = true; w->bringToFront(); }
+            }
+        });
+        m_io->subscribe("ui:modal:close", [this](const Message& msg) {
+            if (!m_root) return;
+            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+                if (w->getType() == "modal" && w->visible) {
+                    w->visible = false;
+                    if (m_renderer) w->releaseRenderEntries(*m_renderer);
+                    auto ev = std::make_unique<JsonDataNode>("closed");
+                    ev->setString("id", w->id);
+                    m_io->publish("ui:modal:closed", std::move(ev));
                 }
             }
         });
@@ -506,6 +528,17 @@ void UIModule::updateUI(float deltaTime) {
                         tabEvent->setInt("index", idx);
                         m_io->publish("ui:tab:changed", std::move(tabEvent));
                     }
+                }
+            }
+            else if (widgetType == "modal") {
+                // Click on the dim, outside the dialog -> close the modal (common modal UX).
+                UIModal* modal = static_cast<UIModal*>(clickedWidget);
+                if (m_context->mousePressed && !modal->pointInDialog(m_context->mouseX, m_context->mouseY)) {
+                    modal->visible = false;
+                    if (m_renderer) modal->releaseRenderEntries(*m_renderer);
+                    auto closeEvent = std::make_unique<JsonDataNode>("closed");
+                    closeEvent->setString("id", modal->id);
+                    m_io->publish("ui:modal:closed", std::move(closeEvent));
                 }
             }
         }

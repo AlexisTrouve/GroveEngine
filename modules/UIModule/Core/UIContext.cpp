@@ -8,6 +8,7 @@
 #include "../Widgets/UIWindow.h"
 #include "../Widgets/UITabs.h"
 #include "../Widgets/UIDrawer.h"
+#include "../Widgets/UIModal.h"
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -104,6 +105,14 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         // closed -> pointInBounds is false -> the click passes through.
         UIDrawer* drawer = static_cast<UIDrawer*>(widget);
         if (drawer->pointInBounds(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "modal") {
+        // Focus-trap: while open, the backdrop absorbs EVERY click (dialog children were tested
+        // above, clipped to the dialog); nothing behind the modal is reachable.
+        UIModal* modal = static_cast<UIModal*>(widget);
+        if (modal->pointInBounds(x, y)) {
             return widget;
         }
     }
@@ -209,6 +218,10 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
     else if (type == "tabs") {
         // Surface the tabs as the click target on PRESS; UIModule resolves the tab switch (it needs
         // to publish ui:tab:changed). On release / content, nothing extra.
+        if (pressed) return target;
+    }
+    else if (type == "modal") {
+        // Surface the modal on PRESS so UIModule can close it on an outside-the-dialog click.
         if (pressed) return target;
     }
 

@@ -13,6 +13,7 @@
 #include "../Widgets/UIWindow.h"
 #include "../Widgets/UITabs.h"
 #include "../Widgets/UIDrawer.h"
+#include "../Widgets/UIModal.h"
 #include <spdlog/spdlog.h>
 #include <unordered_map>
 #include <string>
@@ -123,6 +124,28 @@ void UITree::registerDefaultWidgets() {
             }
         }
         return drawer;
+    });
+
+    // Register modal factory (centered dialog + dim focus-trap — slice 5a). Open state = the
+    // `visible` flag (parsed by parseCommonProperties); a closed modal sets "visible": false.
+    registerWidget("modal", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto modal = std::make_unique<UIModal>();
+        modal->dialogWidth = static_cast<float>(node.getDouble("dialogWidth", 400.0));
+        modal->dialogHeight = static_cast<float>(node.getDouble("dialogHeight", 250.0));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+                std::string v = s->getString(key, "");
+                if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                    return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+                }
+                return def;
+            };
+            modal->dimColor = hexColor(style, "dimColor", modal->dimColor);
+            modal->dialogColor = hexColor(style, "dialogColor", modal->dialogColor);
+        }
+        return modal;
     });
 
     // Register label factory
