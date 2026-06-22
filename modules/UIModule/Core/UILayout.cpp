@@ -179,188 +179,142 @@ void UILayout::layout(UIWidget* widget, float availableWidth, float availableHei
 }
 
 void UILayout::layoutVertical(UIWidget* widget, float availableWidth, float availableHeight) {
-    // Count visible children and calculate flex total
+    const size_t n = widget->children.size();
+
+    // PERF: measure each visible child ONCE. measure() is recursive; the passes below used to call
+    // it up to 3x per child (fixed-size pre-pass, flex assign, cross-axis). Caching gives identical
+    // output (locked by UILayoutUnit) for a fraction of the work on deep trees.
+    std::vector<LayoutMeasurement> m(n);
+    for (size_t i = 0; i < n; ++i) {
+        if (widget->children[i]->visible) m[i] = measure(widget->children[i].get());
+    }
+
+    // Count visible children + flex total; main-axis percent is a fixed reservation before flex.
     int visibleCount = 0;
     float totalFlex = 0.0f;
     float fixedHeight = 0.0f;
-
-    for (auto& child : widget->children) {
+    for (size_t i = 0; i < n; ++i) {
+        auto& child = widget->children[i];
         if (!child->visible) continue;
         visibleCount++;
-
-        // Percent on the MAIN axis (height here) acts as a FIXED reservation — a fraction of the
-        // content box taken before flex shares out the remainder. It is not flex, not measured.
-        if (child->heightPercent > 0.0f) {
-            fixedHeight += child->heightPercent * availableHeight;
-            continue;
-        }
-
+        if (child->heightPercent > 0.0f) { fixedHeight += child->heightPercent * availableHeight; continue; }
         totalFlex += child->layoutProps.flex;
-
-        if (child->layoutProps.flex == 0.0f) {
-            auto childMeasure = measure(child.get());
-            fixedHeight += childMeasure.preferredHeight;
-        }
+        if (child->layoutProps.flex == 0.0f) fixedHeight += m[i].preferredHeight;
     }
 
     if (visibleCount == 0) return;
 
-    // Calculate spacing height
-    float totalSpacing = (visibleCount - 1) * widget->layoutProps.spacing;
-    float remainingHeight = availableHeight - fixedHeight - totalSpacing;
+    const float totalSpacing = (visibleCount - 1) * widget->layoutProps.spacing;
+    const float remainingHeight = availableHeight - fixedHeight - totalSpacing;
 
-    // First pass: assign sizes
-    std::vector<float> childHeights;
-    for (auto& child : widget->children) {
-        if (!child->visible) {
-            childHeights.push_back(0.0f);
-            continue;
-        }
-
-        float childHeight;
+    // Assign main-axis (height) sizes.
+    std::vector<float> childHeights(n, 0.0f);
+    for (size_t i = 0; i < n; ++i) {
+        auto& child = widget->children[i];
+        if (!child->visible) continue;
         if (child->heightPercent > 0.0f) {
-            childHeight = child->heightPercent * availableHeight;            // main-axis percent
+            childHeights[i] = child->heightPercent * availableHeight;
         } else if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
-            childHeight = (child->layoutProps.flex / totalFlex) * remainingHeight;
+            childHeights[i] = (child->layoutProps.flex / totalFlex) * remainingHeight;
         } else {
-            auto childMeasure = measure(child.get());
-            childHeight = childMeasure.preferredHeight;
+            childHeights[i] = m[i].preferredHeight;
         }
-
-        childHeights.push_back(childHeight);
     }
 
-    // Second pass: position children
+    // Position children + assign cross-axis (width).
     float offsetY = widget->layoutProps.getTopPadding();
-
-    for (size_t i = 0; i < widget->children.size(); i++) {
+    for (size_t i = 0; i < n; ++i) {
         auto& child = widget->children[i];
         if (!child->visible) continue;
 
-        float childHeight = childHeights[i];
+        const float childHeight = childHeights[i];
         float childWidth;
-
-        // Cross-axis (width): percent wins, else Stretch fills, else measured preferred width.
         if (child->widthPercent > 0.0f) {
             childWidth = child->widthPercent * availableWidth;
         } else if (widget->layoutProps.align == Alignment::Stretch) {
             childWidth = availableWidth;
         } else {
-            auto childMeasure = measure(child.get());
-            childWidth = childMeasure.preferredWidth;
+            childWidth = m[i].preferredWidth;
         }
 
-        // Position based on alignment
         float childX = widget->layoutProps.getLeftPadding();
         switch (widget->layoutProps.align) {
-            case Alignment::Center:
-                childX += (availableWidth - childWidth) * 0.5f;
-                break;
-            case Alignment::End:
-                childX += availableWidth - childWidth;
-                break;
-            default:
-                break;
+            case Alignment::Center: childX += (availableWidth - childWidth) * 0.5f; break;
+            case Alignment::End:    childX += availableWidth - childWidth; break;
+            default: break;
         }
 
         child->x = childX;
         child->y = offsetY;
-
         layout(child.get(), childWidth, childHeight);
-
         offsetY += childHeight + widget->layoutProps.spacing;
     }
 }
 
 void UILayout::layoutHorizontal(UIWidget* widget, float availableWidth, float availableHeight) {
-    // Count visible children and calculate flex total
+    const size_t n = widget->children.size();
+
+    // PERF: measure each visible child once (see layoutVertical). Identical output, less work.
+    std::vector<LayoutMeasurement> m(n);
+    for (size_t i = 0; i < n; ++i) {
+        if (widget->children[i]->visible) m[i] = measure(widget->children[i].get());
+    }
+
     int visibleCount = 0;
     float totalFlex = 0.0f;
     float fixedWidth = 0.0f;
-
-    for (auto& child : widget->children) {
+    for (size_t i = 0; i < n; ++i) {
+        auto& child = widget->children[i];
         if (!child->visible) continue;
         visibleCount++;
-
-        // Percent on the MAIN axis (width here) acts as a FIXED reservation, taken before flex.
-        if (child->widthPercent > 0.0f) {
-            fixedWidth += child->widthPercent * availableWidth;
-            continue;
-        }
-
+        if (child->widthPercent > 0.0f) { fixedWidth += child->widthPercent * availableWidth; continue; }
         totalFlex += child->layoutProps.flex;
-
-        if (child->layoutProps.flex == 0.0f) {
-            auto childMeasure = measure(child.get());
-            fixedWidth += childMeasure.preferredWidth;
-        }
+        if (child->layoutProps.flex == 0.0f) fixedWidth += m[i].preferredWidth;
     }
 
     if (visibleCount == 0) return;
 
-    // Calculate spacing width
-    float totalSpacing = (visibleCount - 1) * widget->layoutProps.spacing;
-    float remainingWidth = availableWidth - fixedWidth - totalSpacing;
+    const float totalSpacing = (visibleCount - 1) * widget->layoutProps.spacing;
+    const float remainingWidth = availableWidth - fixedWidth - totalSpacing;
 
-    // First pass: assign sizes
-    std::vector<float> childWidths;
-    for (auto& child : widget->children) {
-        if (!child->visible) {
-            childWidths.push_back(0.0f);
-            continue;
-        }
-
-        float childWidth;
+    std::vector<float> childWidths(n, 0.0f);
+    for (size_t i = 0; i < n; ++i) {
+        auto& child = widget->children[i];
+        if (!child->visible) continue;
         if (child->widthPercent > 0.0f) {
-            childWidth = child->widthPercent * availableWidth;              // main-axis percent
+            childWidths[i] = child->widthPercent * availableWidth;
         } else if (child->layoutProps.flex > 0.0f && totalFlex > 0.0f) {
-            childWidth = (child->layoutProps.flex / totalFlex) * remainingWidth;
+            childWidths[i] = (child->layoutProps.flex / totalFlex) * remainingWidth;
         } else {
-            auto childMeasure = measure(child.get());
-            childWidth = childMeasure.preferredWidth;
+            childWidths[i] = m[i].preferredWidth;
         }
-
-        childWidths.push_back(childWidth);
     }
 
-    // Second pass: position children
     float offsetX = widget->layoutProps.getLeftPadding();
-
-    for (size_t i = 0; i < widget->children.size(); i++) {
+    for (size_t i = 0; i < n; ++i) {
         auto& child = widget->children[i];
         if (!child->visible) continue;
 
-        float childWidth = childWidths[i];
+        const float childWidth = childWidths[i];
         float childHeight;
-
-        // Cross-axis (height): percent wins, else Stretch fills, else measured preferred height.
         if (child->heightPercent > 0.0f) {
             childHeight = child->heightPercent * availableHeight;
         } else if (widget->layoutProps.align == Alignment::Stretch) {
             childHeight = availableHeight;
         } else {
-            auto childMeasure = measure(child.get());
-            childHeight = childMeasure.preferredHeight;
+            childHeight = m[i].preferredHeight;
         }
 
-        // Position based on alignment
         float childY = widget->layoutProps.getTopPadding();
         switch (widget->layoutProps.align) {
-            case Alignment::Center:
-                childY += (availableHeight - childHeight) * 0.5f;
-                break;
-            case Alignment::End:
-                childY += availableHeight - childHeight;
-                break;
-            default:
-                break;
+            case Alignment::Center: childY += (availableHeight - childHeight) * 0.5f; break;
+            case Alignment::End:    childY += availableHeight - childHeight; break;
+            default: break;
         }
 
         child->x = offsetX;
         child->y = childY;
-
         layout(child.get(), childWidth, childHeight);
-
         offsetX += childWidth + widget->layoutProps.spacing;
     }
 }

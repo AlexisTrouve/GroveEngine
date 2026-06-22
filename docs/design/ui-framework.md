@@ -188,6 +188,14 @@ them.
   slice-by-slice, each shipped + tested + consumable, no slice N+1 before N is green.
 - **ProjectMind is stale** for this repo (active plan still "ThreadedModuleSystem Phase 2"). Park that
   plan and register this one once execution starts; the code + git remain the source of truth.
+- **Perf — the dirty-gated layout (deliberate follow-on).** `UIPanel::update` runs `UILayout::layout`
+  every frame even when nothing changed. The safe half (measure-once) shipped; the big win is to SKIP
+  the layout pass on unchanged frames. It's risky: a missed invalidation → stale layout (a visual bug
+  no test catches unless it tests that exact scenario), and it must NOT freeze per-frame animations
+  (drawer slide, window drag/resize). The robust approach is a cheap per-frame "layout signature"
+  (panel size + each child's size/visibility/flex/percent) that re-lays-out only on change — but the
+  signature interacts with the fact that `layout()` overwrites child sizes (input vs output). Do it
+  deliberately, with a test that asserts the layout STILL updates on every relevant change.
 - **Found while building 1.1 (pre-existing, flagged not fixed — surgical):** a root-level scalar
   `"flex": N` on a child is **silently dropped** — `UITree::parseCommonProperties` gates flex on
   `hasChild("flex")`, which returns false for scalars (only objects/arrays count, `JsonDataNode.cpp:121`).
@@ -213,6 +221,7 @@ them.
 | 2026-06-22 | 3b-1 Window (static) | ✅ SHIPPED. `UIWindow` — title bar (title + close) + content clipped below it (slice-2 clip); **opaque** (hitTest absorbs clicks in bounds, no leak behind). `hitClipRect()` virtual added (window clips to content rect; ScrollPanel keeps full bounds). `UITree` `"window"` factory. Locked by `IT_026` (content clickable / title-bar absorbed / below-content clipped). |
 | 2026-06-22 | 3b-2 Window interaction | ✅ SHIPPED. `UIModule::handleWindowInteraction()` (centralized on the topmost window under the cursor): **raise-on-click** (`bringToFront`), **title-bar drag**, **close** (hide + purge + `ui:window:closed`). Locked by `IT_027` (raise flips the z-order) + `IT_028` (drag moves it, close hides it). |
 | 2026-06-22 | 3b-3 Window resize | ✅ SHIPPED. Bottom-right grip on `UIWindow` (`resizable`/`minWidth`/`minHeight`); dragging it grows the window (min-clamped), handled in the same centralized `handleWindowInteraction`. Locked by `IT_032` (a content button below the small window's content area becomes reachable after enlarging). **Slice 3 (in-app Window) fully complete: drag + resize + close + z-order.** |
+| 2026-06-22 | perf (layout) | ✅ SHIPPED (safe half). `layoutVertical`/`layoutHorizontal` now measure each child ONCE (was up to 3× — fixed-size/flex/cross-axis — and `measure()` recurses). Identical output (locked by `UILayoutUnit` + layout E2Es). **Deliberate follow-on:** the bigger win = skip layout on static frames (a dirty-gate) — correctness-sensitive (a missed invalidation = stale layout) and must coexist with per-frame animations, so NOT rushed. See §8. |
 | 2026-06-22 | 5c Tabs | ✅ SHIPPED. `UITabs` — tab bar of N buttons + N pages (children), one shown at a time (others hidden + purged), content clipped, opaque. Click a tab → switch active page + `ui:tab:changed {id,index}`. `UITree` `"tabs"` factory (`tabs:[{label}]`). Locked by `IT_029` (tab click flips the active page). Reuses slice-2 clip + the window/opaque pattern. |
 | 2026-06-22 | 5b Drawers | ✅ SHIPPED. `UIDrawer` — edge-docked (`left`/`right`/`top`/`bottom`) collapsible panel that **slides** in/out (smoothstep over `slideDuration`), fills the viewport along the edge, content clipped, opaque on screen, purged when fully closed. Toggled via `ui:drawer:toggle`/`ui:drawer:set {id,open}`. Locked by `IT_030` (closed=unreachable → toggle→sliding→open=reachable → close→unreachable). NB: brings a self-contained per-frame slide animation (the tween foundation, slice 4, lands here). |
 | 2026-06-22 | 5a Modal | ✅ SHIPPED. `UIModal` — centered dialog over a full-screen dim that **traps** input (absorbs every click outside the dialog → nothing behind reachable); content clipped to the dialog. `ui:modal:open` (raises it) / `ui:modal:close`; a click on the dim closes it (`ui:modal:closed`). Locked by `IT_031` (closed→bg clickable; open→bg trapped + dialog clickable; outside-click closes; bg reachable again). |
