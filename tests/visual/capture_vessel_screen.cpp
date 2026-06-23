@@ -124,11 +124,11 @@ int main(int argc, char** argv) {
         gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{
             {"ship", {{"name","S.S. Aurora"},{"parts",parts}}},
             {"noPart", false}, {"selectedPart", {{"label","Reacteur"},{"stat","Energie +60  PV 90"}}} }));
-        json ritems = json::array();
+        json inv = json::array();
         for (int i=0;i<50;++i){ char id[16]; std::snprintf(id,sizeof id,"r%02d",i);
-            ritems.push_back({ {"id",id},{"label","Res "+std::to_string(i+1)},{"subtitle","stock"} }); }
-        json rgroups = json::array({ { {"id","stock"},{"label","Ressources (50)"},{"collapsed",false},{"items",ritems} } });
-        gIO->publish("ui:list:set_groups", std::make_unique<JsonDataNode>("d", json{ {"id","resources"},{"groups",rgroups} }));
+            inv.push_back({ {"id",id},{"name","Res "+std::to_string(i+1)},{"icon",1+(i%4)},{"count",(i*37+12)%980+7},
+                            {"cx",(i%4)*54+2},{"cy",(i/4)*54+2} }); }
+        gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{ {"inventory", inv} }));
         { auto d = std::make_unique<JsonDataNode>("d"); d->setString("id","inspector"); d->setBool("visible", true);
           gIO->publish("ui:set_visible", std::move(d)); }
     }

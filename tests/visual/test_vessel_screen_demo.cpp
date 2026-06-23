@@ -193,7 +193,8 @@ private:
           m_gIO->publish("ui:set_visible", std::move(d)); }
     }
 
-    // The inspector's foldable 50-resource menu (one collapsed group). Re-pushed on each open.
+    // The inspector's 50-resource INVENTORY GRID (icon + count cells, 4 columns, host-computed grid
+    // positions so the scrollpanel can scroll them). Re-pushed (merged) on each open.
     void pushResources() {
         static const char* kNames[50] = {
             "Fer","Cuivre","Or","Argent","Titane","Aluminium","Nickel","Cobalt","Lithium","Uranium",
@@ -202,14 +203,14 @@ private:
             "Polymere","Composite","Acier","Bronze","Circuits","Processeurs","Capteurs","Alliage","Ceramique","Isotopes",
             "Catalyseur","Solvant","Carburant","Oxydant","Munitions","Vivres","Medicaments","Semences","Pieces","Outils"
         };
-        json items = json::array();
+        json inv = json::array();
         for (int i = 0; i < 50; ++i) {
             const int stock = (i * 37 + 12) % 980 + 7;
             char id[16]; std::snprintf(id, sizeof id, "r%02d", i);
-            items.push_back({ {"id", id}, {"label", kNames[i]}, {"subtitle", "x" + std::to_string(stock)} });
+            inv.push_back({ {"id", id}, {"name", kNames[i]}, {"icon", 1+(i%4)}, {"count", stock},
+                            {"cx", (i%4)*54 + 2}, {"cy", (i/4)*54 + 2} });
         }
-        json groups = json::array({ { {"id","stock"}, {"label","Ressources (50)"}, {"collapsed", true}, {"items", items} } });
-        m_gIO->publish("ui:list:set_groups", std::make_unique<JsonDataNode>("d", json{ {"id","resources"}, {"groups", groups} }));
+        m_gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{ {"inventory", inv} }));
     }
 
     std::unique_ptr<BgfxRendererModule> m_renderer;
