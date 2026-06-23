@@ -101,7 +101,38 @@ int main(int argc, char** argv) {
     }
     { auto d = std::make_unique<JsonDataNode>("d"); d->setString("id","fleetPanel"); d->setBool("visible", true);
       gIO->publish("ui:set_visible", std::move(d)); }
-    for (int i=0;i<6;i++) frame();
+
+    // Simulate a fleet-icon click: open the inspector on a ship (push its blueprint + reveal the window), so
+    // the PNG shows the WHOLE vessel screen — the fleet menu AND the opened inspector with its maquette.
+    {
+        auto part = [](const char* id,int x,int y,int w,int h,const char* col,int tex,const char* lbl,const char* st){
+            return json{ {"id",id},{"x",x},{"y",y},{"w",w},{"h",h},{"color",col},{"tex",tex},{"label",lbl},{"stat",st} };
+        };
+        json parts = json::array({
+            part("cockpit",160,10,80,80,  "0xFFFFFFFF",1,"Cockpit","PV 120  Equipage 2"),
+            part("hullA",  140,90,120,44, "0x3a4a63FF",0,"Coque avant","PV 80"),
+            part("gunL",   66,100,64,64,  "0xFFFFFFFF",4,"Canon babord","Degats 14"),
+            part("gunR",   270,100,64,64, "0xFFFFFFFF",4,"Canon tribord","Degats 14"),
+            part("hullM",  130,134,140,60,"0x46587aFF",0,"Coque centrale","PV 140"),
+            part("reactor",160,190,80,80, "0xFFFFFFFF",2,"Reacteur","Energie +60  PV 90"),
+            part("wingL",  40,196,70,44,  "0x2e3c54FF",0,"Aile babord","PV 50"),
+            part("wingR",  290,196,70,44, "0x2e3c54FF",0,"Aile tribord","PV 50"),
+            part("hullB",  140,272,120,44,"0x3a4a63FF",0,"Coque arriere","PV 80"),
+            part("engL",   108,312,70,92, "0xFFFFFFFF",3,"Moteur babord","Poussee +35"),
+            part("engR",   222,312,70,92, "0xFFFFFFFF",3,"Moteur tribord","Poussee +35")
+        });
+        gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{
+            {"ship", {{"name","S.S. Aurora"},{"parts",parts}}},
+            {"noPart", false}, {"selectedPart", {{"label","Reacteur"},{"stat","Energie +60  PV 90"}}} }));
+        json ritems = json::array();
+        for (int i=0;i<50;++i){ char id[16]; std::snprintf(id,sizeof id,"r%02d",i);
+            ritems.push_back({ {"id",id},{"label","Res "+std::to_string(i+1)},{"subtitle","stock"} }); }
+        json rgroups = json::array({ { {"id","stock"},{"label","Ressources (50)"},{"collapsed",false},{"items",ritems} } });
+        gIO->publish("ui:list:set_groups", std::make_unique<JsonDataNode>("d", json{ {"id","resources"},{"groups",rgroups} }));
+        { auto d = std::make_unique<JsonDataNode>("d"); d->setString("id","inspector"); d->setBool("visible", true);
+          gIO->publish("ui:set_visible", std::move(d)); }
+    }
+    for (int i=0;i<8;i++) frame();
 
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }

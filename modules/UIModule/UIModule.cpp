@@ -251,6 +251,12 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                     // on screen. Re-showing re-registers + re-publishes on the next render().
                     if (wasVisible && !visible && m_renderer) {
                         widget->releaseRenderEntries(*m_renderer);
+                    } else if (!wasVisible && visible) {
+                        // Revealing a widget that was hidden at LAYOUT time: the layout skips invisible
+                        // children (they get no size/position), so a %-sized / anchored widget (e.g. a
+                        // centered 62%-wide window) would otherwise show at (0,0) size 0. Re-run the root
+                        // layout now so its %/anchor resolve before it renders.
+                        relayoutRoot();
                     }
                 }
             }

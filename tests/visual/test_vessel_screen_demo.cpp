@@ -61,11 +61,14 @@ public:
             m_uiModule->setConfiguration(c, m_uIO, nullptr);
         }
 
-        // The HUD "Flotte" button emits vessel:drawer -> toggle the fleet panel. Clicking a ship ICON emits
-        // vessel:open -> slice 4 will open the inspector for that ship.
+        // "Flotte" toggles the fleet panel. Clicking a ship ICON (vessel:open) opens the inspector for that
+        // ship; clicking a PART inside it (ship:part) relays into the info panel (reactive selectedPart).
         m_gIO->subscribe("vessel:drawer", [this](const Message&){ toggleFleet(); });
-        m_gIO->subscribe("vessel:open",   [this](const Message& m){
-            std::cout << "vessel:open " << m.data->getString("id","") << " (slice 4: ouvrira l'inspector)\n";
+        m_gIO->subscribe("vessel:open",   [this](const Message& m){ openInspector(m.data->getString("name","")); });
+        m_gIO->subscribe("ship:part",     [this](const Message& m){
+            json patch = { {"noPart", false}, {"selectedPart", {{"label", m.data->getString("label","")},
+                                                                {"stat",  m.data->getString("stat","")}}} };
+            m_gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", std::move(patch)));
         });
 
         pushFleet();
@@ -157,6 +160,54 @@ private:
             }
         }
         m_gIO->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"groups", groups}, {"slots", slots} }));
+    }
+
+    // QUOI : ouvre l'inspector sur le vaisseau cliqué. POURQUOI : feature C ("clic -> window avec la maquette
+    //   en gros"). COMMENT : pousse le blueprint (pièces) + nom, les 50 ressources (repliées), puis révèle la
+    //   fenêtre. Le clic d'une pièce -> ship:part -> merge selectedPart (déjà câblé en init).
+    void openInspector(const std::string& name) {
+        auto part = [](const char* id,int x,int y,int w,int h,const char* col,int tex,const char* lbl,const char* st){
+            return json{ {"id",id},{"x",x},{"y",y},{"w",w},{"h",h},{"color",col},{"tex",tex},{"label",lbl},{"stat",st} };
+        };
+        json parts = json::array({
+            part("cockpit",160,10,80,80,  "0xFFFFFFFF",1,"Cockpit","PV 120  Equipage 2"),
+            part("hullA",  140,90,120,44, "0x3a4a63FF",0,"Coque avant","PV 80"),
+            part("gunL",   66,100,64,64,  "0xFFFFFFFF",4,"Canon babord","Degats 14  Portee 600"),
+            part("gunR",   270,100,64,64, "0xFFFFFFFF",4,"Canon tribord","Degats 14  Portee 600"),
+            part("hullM",  130,134,140,60,"0x46587aFF",0,"Coque centrale","PV 140"),
+            part("reactor",160,190,80,80, "0xFFFFFFFF",2,"Reacteur","Energie +60  PV 90"),
+            part("wingL",  40,196,70,44,  "0x2e3c54FF",0,"Aile babord","PV 50"),
+            part("wingR",  290,196,70,44, "0x2e3c54FF",0,"Aile tribord","PV 50"),
+            part("hullB",  140,272,120,44,"0x3a4a63FF",0,"Coque arriere","PV 80"),
+            part("engL",   108,312,70,92, "0xFFFFFFFF",3,"Moteur babord","Poussee +35"),
+            part("engR",   222,312,70,92, "0xFFFFFFFF",3,"Moteur tribord","Poussee +35")
+        });
+        // MERGE (not replace) so the fleet data (groups/slots) survives — ui:data would clobber the tree.
+        m_gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{
+            {"ship", {{"name", name.empty() ? std::string("Vaisseau") : name}, {"parts", parts}}},
+            {"noPart", true}, {"selectedPart", {{"label","-"},{"stat",""}}} }));
+        pushResources();
+        { auto d=std::make_unique<JsonDataNode>("d"); d->setString("id","inspector"); d->setBool("visible", true);
+          m_gIO->publish("ui:set_visible", std::move(d)); }
+    }
+
+    // The inspector's foldable 50-resource menu (one collapsed group). Re-pushed on each open.
+    void pushResources() {
+        static const char* kNames[50] = {
+            "Fer","Cuivre","Or","Argent","Titane","Aluminium","Nickel","Cobalt","Lithium","Uranium",
+            "Platine","Tungstene","Silicium","Carbone","Hydrogene","Helium","Oxygene","Azote","Methane","Ammoniac",
+            "Glace","Eau","Deuterium","Tritium","Antimatiere","Plasma","Cristaux","Quartz","Diamant","Graphene",
+            "Polymere","Composite","Acier","Bronze","Circuits","Processeurs","Capteurs","Alliage","Ceramique","Isotopes",
+            "Catalyseur","Solvant","Carburant","Oxydant","Munitions","Vivres","Medicaments","Semences","Pieces","Outils"
+        };
+        json items = json::array();
+        for (int i = 0; i < 50; ++i) {
+            const int stock = (i * 37 + 12) % 980 + 7;
+            char id[16]; std::snprintf(id, sizeof id, "r%02d", i);
+            items.push_back({ {"id", id}, {"label", kNames[i]}, {"subtitle", "x" + std::to_string(stock)} });
+        }
+        json groups = json::array({ { {"id","stock"}, {"label","Ressources (50)"}, {"collapsed", true}, {"items", items} } });
+        m_gIO->publish("ui:list:set_groups", std::make_unique<JsonDataNode>("d", json{ {"id","resources"}, {"groups", groups} }));
     }
 
     std::unique_ptr<BgfxRendererModule> m_renderer;
