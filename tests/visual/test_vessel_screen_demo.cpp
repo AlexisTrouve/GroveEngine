@@ -184,7 +184,7 @@ private:
             const bool sel = (s.value("id","") == m_selId) ||
                              (!m_selGroup.empty() && s.value("group","") == m_selGroup);
             json slot = s;
-            slot["border"] = sel ? "0xffd166FF" : "0x2a3650FF";
+            slot["border"] = sel ? "0xffd166FF" : "0x1b2433FF";   // gold if selected, else blends with the icon bg
             slots.push_back(std::move(slot));
         }
         return slots;

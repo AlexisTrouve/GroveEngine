@@ -93,8 +93,8 @@ int main(int argc, char** argv) {
         for (int g = 0; g < 3; ++g) {
             groups.push_back({ {"name", names[g]}, {"ly", g * 64} });
             for (int k = 0; k < sizes[g]; ++k) {
-                // ship0 = SELECTED (gold border), the rest at rest -> shows the selection highlight in the PNG.
-                const char* border = (idx == 0) ? "0xffd166FF" : "0x2a3650FF";
+                // ship0 = SELECTED (gold border), the rest at rest (border blends with the icon bg).
+                const char* border = (idx == 0) ? "0xffd166FF" : "0x1b2433FF";
                 slots.push_back({ {"id","ship"+std::to_string(idx)}, {"name","Vaisseau "+std::to_string(idx)},
                                   {"border", border}, {"ix", k*46}, {"iy", g*64+20}, {"icon", 1+(idx%4)} });
                 ++idx;

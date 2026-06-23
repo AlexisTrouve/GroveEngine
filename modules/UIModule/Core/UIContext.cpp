@@ -135,29 +135,26 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
  * Calls onMouseEnter/onMouseLeave for buttons based on hover state.
  *
  * @param widget Root widget
- * @param ctx UI context with hover state
- * @param prevHoveredId Previous frame's hovered widget ID
+ * @param ctx UI context (unused; kept for signature symmetry)
+ * @param hovered The single widget under the cursor this frame (pointer, may be null)
  */
-void updateHoverState(UIWidget* widget, UIContext& ctx, const std::string& prevHoveredId) {
+void updateHoverState(UIWidget* widget, UIContext& ctx, UIWidget* hovered) {
     if (!widget) return;
+    (void)ctx;
 
-    // Check if this widget's hover state changed
+    // Hover is per-WIDGET (pointer), NOT per-id: data-driven repeater instances (e.g. fleet icons) share an
+    // empty id, so the old id comparison flagged EVERY id-less button as hovered when one was. Compare the
+    // actual hovered pointer; use the button's own isHovered as the prior state.
     if (widget->getType() == "button") {
         UIButton* button = static_cast<UIButton*>(widget);
-
-        bool wasHovered = (widget->id == prevHoveredId);
-        bool isHovered = (widget->id == ctx.hoveredWidgetId);
-
-        if (isHovered && !wasHovered) {
-            button->onMouseEnter();
-        } else if (!isHovered && wasHovered) {
-            button->onMouseLeave();
-        }
+        const bool isHovered = (widget == hovered);
+        if (isHovered && !button->isHovered)      button->onMouseEnter();
+        else if (!isHovered && button->isHovered) button->onMouseLeave();
     }
 
     // Recurse to children
     for (auto& child : widget->children) {
-        updateHoverState(child.get(), ctx, prevHoveredId);
+        updateHoverState(child.get(), ctx, hovered);
     }
 }
 

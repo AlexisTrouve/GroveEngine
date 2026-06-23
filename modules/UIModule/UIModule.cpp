@@ -32,7 +32,7 @@
 // Forward declarations for hit testing functions in UIContext.cpp
 namespace grove {
     UIWidget* hitTest(UIWidget* widget, float x, float y);
-    void updateHoverState(UIWidget* widget, UIContext& ctx, const std::string& prevHoveredId);
+    void updateHoverState(UIWidget* widget, UIContext& ctx, UIWidget* hovered);
     UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool pressed);
 }
 
@@ -649,8 +649,9 @@ void UIModule::updateUI(float deltaTime) {
         m_context->hoveredWidgetId.clear();
     }
 
-    // Update hover state (calls onMouseEnter/onMouseLeave)
-    updateHoverState(m_root.get(), *m_context, prevHoveredId);
+    // Update hover state (calls onMouseEnter/onMouseLeave). Pointer-based: only the single widget under the
+    // cursor hovers (id-less repeater instances would otherwise all match an empty id).
+    updateHoverState(m_root.get(), *m_context, hoveredWidget);
 
     // Publish hover event if changed
     if (m_context->hoveredWidgetId != prevHoveredId && m_io) {

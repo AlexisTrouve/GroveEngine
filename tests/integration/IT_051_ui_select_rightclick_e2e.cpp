@@ -16,7 +16,7 @@
 #include <grove/IntraIO.h>
 #include <grove/JsonDataNode.h>
 #include <string>
-#include <set>
+#include <map>
 
 using namespace grove;
 
@@ -43,12 +43,14 @@ TEST_CASE("IT_051: left-click selects a ship, right-click opens it, a group labe
     REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
 
     std::string selectId, openId, selectGroup;
-    std::set<int> spriteColors;   // every rendered sprite/rect colour — to confirm the selection BORDER draws
+    std::map<int,int> colorByRid;   // latest colour per render entry — to inspect which borders draw
+    auto capColor = [&](const Message& m){ colorByRid[m.data->getInt("renderId",-1)] = m.data->getInt("color",0); };
+    auto countColor = [&](unsigned c){ int n=0; for (auto& kv : colorByRid) if (kv.second == static_cast<int>(c)) ++n; return n; };
     observer->subscribe("vessel:select",      [&](const Message& m){ selectId = m.data->getString("id",""); });
     observer->subscribe("vessel:open",        [&](const Message& m){ openId = m.data->getString("id",""); });
     observer->subscribe("vessel:selectGroup", [&](const Message& m){ selectGroup = m.data->getString("group",""); });
-    observer->subscribe("render:sprite:add",  [&](const Message& m){ spriteColors.insert(m.data->getInt("color", 0)); });
-    observer->subscribe("render:sprite:update",[&](const Message& m){ spriteColors.insert(m.data->getInt("color", 0)); });
+    observer->subscribe("render:sprite:add",  capColor);
+    observer->subscribe("render:sprite:update", capColor);
 
     auto pump = [&]{
         JsonDataNode input("input"); input.setDouble("deltaTime", 0.016);
@@ -72,7 +74,7 @@ TEST_CASE("IT_051: left-click selects a ship, right-click opens it, a group labe
         for (int g = 0; g < 3; ++g) {
             groups.push_back({ {"name", gnames[g]}, {"ly", g*64} });
             for (int k = 0; k < sizes[g]; ++k) {
-                const char* border = (idx == 0) ? "0xffd166FF" : "0x2a3650FF";   // ship0 = selected (gold)
+                const char* border = (idx == 0) ? "0xffd166FF" : "0x1b2433FF";   // ship0 = selected (gold)
                 slots.push_back({ {"id","ship"+std::to_string(idx)}, {"name", ships[idx]}, {"group", gnames[g]},
                                   {"border", border}, {"ix", k*46}, {"iy", g*64+20}, {"icon", 1+(idx%4)} });
                 ++idx;
@@ -83,8 +85,14 @@ TEST_CASE("IT_051: left-click selects a ship, right-click opens it, a group labe
     show("fleetPanel", true);
     pump();
 
-    // --- HIGHLIGHT: ship0's gold border must actually DRAW (UIButton renders its border frame now). ---
-    REQUIRE(spriteColors.count(static_cast<int>(0xffd166FFu)) > 0);
+    // --- HIGHLIGHT: ship0's gold border must actually DRAW (UIButton renders its border frame now), BEFORE
+    //     any hover repaints it. ---
+    REQUIRE(countColor(0xffd166FF) >= 1);
+
+    // --- HOVER (per-widget): hovering icon 0 flags ONLY it. The repeater icons share an empty id, so the old
+    //     id-based hover lit every one — exactly ONE icon must show the hover-blue border now. ---
+    move(42, 100);
+    REQUIRE(countColor(0x6f9fd8FF) == 1);
 
     // --- A. LEFT-CLICK icon 0 (center ~42,100) -> select, NOT open. ---
     selectId.clear(); openId.clear();
