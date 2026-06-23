@@ -8,34 +8,31 @@
 namespace grove {
 
 void UITooltipManager::update(UIWidget* hoveredWidget, const UIContext& ctx, float deltaTime) {
-    // No widget hovered - reset
-    if (!hoveredWidget) {
+    // No widget, or one without a tooltip -> hide.
+    if (!hoveredWidget || hoveredWidget->tooltip.empty()) {
         reset();
         return;
     }
 
-    // Get tooltip text from widget
-    std::string tooltipText = hoveredWidget->tooltip;
-
-    // Check if widget ID changed or tooltip text changed
-    if (hoveredWidget->id != m_currentWidgetId) {
-        reset();
-        m_currentWidgetId = hoveredWidget->id;
-    }
-
-    // If we have tooltip text, accumulate hover time
-    if (!tooltipText.empty()) {
-        m_hoverTime += deltaTime;
-
-        // Show tooltip after delay
-        if (m_hoverTime >= hoverDelay && !m_visible) {
-            m_visible = true;
-            m_currentText = tooltipText;
-            computeTooltipSize(tooltipText);
+    // Track the hovered widget by POINTER (data-driven repeater items all share an empty id, so an id check
+    // never fired when sweeping between them and the tooltip stayed stuck on the first item). On a change: if
+    // a tooltip is ALREADY showing, switch to the new one immediately (snappy); else restart the hover delay.
+    if (hoveredWidget != m_currentWidget) {
+        m_currentWidget = hoveredWidget;
+        m_hoverTime = 0.0f;
+        if (m_visible) {
+            m_currentText = hoveredWidget->tooltip;
+            computeTooltipSize(m_currentText);
         }
     }
 
-    // Update tooltip position if visible
+    m_hoverTime += deltaTime;
+    if (m_hoverTime >= hoverDelay && !m_visible) {
+        m_visible = true;
+        m_currentText = hoveredWidget->tooltip;
+        computeTooltipSize(m_currentText);
+    }
+
     if (m_visible) {
         computeTooltipPosition(ctx.mouseX, ctx.mouseY, ctx.screenWidth, ctx.screenHeight);
     }
@@ -72,7 +69,7 @@ void UITooltipManager::render(UIRenderer& renderer, float screenWidth, float scr
 void UITooltipManager::reset() {
     m_visible = false;
     m_hoverTime = 0.0f;
-    m_currentWidgetId.clear();
+    m_currentWidget = nullptr;
     m_currentText.clear();
 }
 

@@ -65,7 +65,7 @@ private:
     bool m_visible = false;
     float m_hoverTime = 0.0f;
     std::string m_currentText;
-    std::string m_currentWidgetId;
+    UIWidget* m_currentWidget = nullptr;   // tracked by POINTER, not id (repeater items share an empty id)
     float m_tooltipX = 0.0f;
     float m_tooltipY = 0.0f;
     float m_tooltipWidth = 0.0f;

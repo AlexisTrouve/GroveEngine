@@ -42,10 +42,11 @@ TEST_CASE("IT_049: a fleet icon's tooltip is data-bound and shows the ship name 
     REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
 
     std::set<std::string> texts;
+    std::string lastTip;   // latest immediate-mode text = the CURRENT tooltip (icons have no caption)
     auto cap = [&](const Message& m){ texts.insert(m.data->getString("text","")); };
     observer->subscribe("render:text:add",    cap);
     observer->subscribe("render:text:update", cap);
-    observer->subscribe("render:text",        cap);   // immediate-mode (the tooltip draws via drawText)
+    observer->subscribe("render:text",        [&](const Message& m){ const auto t=m.data->getString("text",""); texts.insert(t); lastTip=t; });
 
     auto pump = [&]{
         JsonDataNode input("input"); input.setDouble("deltaTime", 0.016);
@@ -83,6 +84,14 @@ TEST_CASE("IT_049: a fleet icon's tooltip is data-bound and shows the ship name 
     move(42, 100);
     for (int i = 0; i < 40; ++i) pump();
     REQUIRE(texts.count("Aurora") > 0);   // the bound tooltip resolved {{name}} and drew it
+    REQUIRE(lastTip == "Aurora");
+
+    // SWEEP to icon 1 (Borealis, col 1 -> abs (68,80), center ~88,100). With a tooltip already up, it must
+    // UPDATE to the new item — id-less repeater icons share an empty id, so the old id check left it stuck on
+    // "Aurora". A couple of frames is enough (immediate switch while visible).
+    move(88, 100);
+    pump(); pump();
+    REQUIRE(lastTip == "Borealis");
 
     uiModule->shutdown();
 }
