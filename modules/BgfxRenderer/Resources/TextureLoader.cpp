@@ -4,7 +4,17 @@
 #include "../RHI/RHIDevice.h"
 
 #define STB_IMAGE_IMPLEMENTATION
+// stb_image is 3rd-party (bgfx/bimg). Newer GCC flags a false-positive bounds warning inside its PNG tRNS
+// path (`tc[3]`); silence it locally so our -Werror build isn't held hostage by a vendored header.
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 #include <stb/stb_image.h>
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <fstream>
 #include <spdlog/spdlog.h>
@@ -174,6 +184,18 @@ TextureLoader::LoadResult TextureLoader::loadArrayFromMemory(rhi::IRHIDevice& de
         result.error = "Failed to create array texture";
     }
     return result;
+}
+
+bool TextureLoader::decodeRgba(const std::string& path, std::vector<uint8_t>& outPixels, int& outW, int& outH) {
+    int channels = 0;
+    stbi_uc* px = stbi_load(path.c_str(), &outW, &outH, &channels, 4);   // force RGBA8
+    if (!px) {
+        spdlog::error("❌ TextureLoader::decodeRgba FAILED '{}': {}", path, stbi_failure_reason());
+        return false;
+    }
+    outPixels.assign(px, px + static_cast<size_t>(outW) * static_cast<size_t>(outH) * 4);
+    stbi_image_free(px);
+    return true;
 }
 
 } // namespace grove

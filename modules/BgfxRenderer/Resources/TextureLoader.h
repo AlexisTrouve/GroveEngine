@@ -52,6 +52,13 @@ public:
                                         int tileW, int tileH);
     static LoadResult loadArrayFromMemory(rhi::IRHIDevice& device, const uint8_t* data, size_t size,
                                           int tileW, int tileH);
+
+    /**
+     * @brief Decode an image file to RGBA8 pixels in memory (NO GPU upload). For runtime atlas packing —
+     *        the packer decodes several images, assembles them into one buffer, then uploads once.
+     * @return true on success; outPixels = w*h*4 bytes (RGBA8), outW/outH = dimensions.
+     */
+    static bool decodeRgba(const std::string& path, std::vector<uint8_t>& outPixels, int& outW, int& outH);
 };
 
 } // namespace grove

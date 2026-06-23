@@ -9,6 +9,7 @@
 #include "Resources/TextureLoader.h"
 #include "Assets/AssetManager.h"          // streaming texture assets (string id -> resident texture)
 #include "Assets/BgfxTextureProvider.h"
+#include "Assets/AtlasPacker.h"           // runtime atlas packing (asset:pack)
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/TilemapPass.h"
@@ -244,6 +245,24 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             });
             m_io->subscribe("asset:unload", [this](const Message& m) {
                 if (m.data) m_assetManager->unload(m.data->getString("id",""));
+            });
+            // Runtime atlas packing: pack N separate PNGs into one shared sheet + register their sub-sprites.
+            // asset:pack {sheet, sprites:[{id,path}], maxWidth?, gutter?, priority?, group?}.
+            m_io->subscribe("asset:pack", [this](const Message& m) {
+                if (!m.data || !m_device) return;
+                const std::string sheet = m.data->getString("sheet", "");
+                if (sheet.empty()) return;
+                std::vector<assets::PackEntry> entries;
+                if (IDataNode* arr = m.data->getChildReadOnly("sprites")) {
+                    int i = 0;
+                    while (IDataNode* e = arr->getChildReadOnly(std::to_string(i))) {
+                        entries.push_back({ e->getString("id", ""), e->getString("path", "") });
+                        ++i;
+                    }
+                }
+                assets::packAtlas(*m_device, *m_resourceCache, *m_assetManager, sheet, entries,
+                                  m.data->getInt("maxWidth", 2048), m.data->getInt("gutter", 2),
+                                  m.data->getInt("priority", 0), m.data->getString("group", ""));
             });
         }
         m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));

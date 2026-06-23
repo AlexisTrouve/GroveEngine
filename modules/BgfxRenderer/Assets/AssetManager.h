@@ -111,6 +111,15 @@ public:
         if (it != m_assets.end() && it->second.resident) evictAsset(it->second);
     }
 
+    // Register an ALREADY-RESIDENT texture (e.g. a runtime-packed atlas sheet, created by AtlasPacker). It is
+    // PINNED — never evicted — since it has no path to reload from. Counts toward the budget.
+    void registerResident(const std::string& id, uint32_t texId, uint64_t bytes, int priority = 0, const std::string& group = "") {
+        Asset& a = m_assets[id];
+        a.path.clear(); a.priority = priority; a.group = group; a.pinned = true;
+        if (!a.resident) { a.resident = true; m_residentBytes += bytes; }
+        a.texId = texId; a.bytes = bytes; a.lastUsed = ++m_clock;
+    }
+
     // --- Introspection (tests / diagnostics). ---
     bool     isResident(const std::string& id) const { auto it=m_assets.find(id); return it!=m_assets.end() && it->second.resident; }
     bool     isRegistered(const std::string& id) const { return m_assets.count(id) > 0; }
@@ -131,6 +140,9 @@ private:
         bool atlasSprite = false;
         std::string sheetId;
         float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+        // Pinned (phase 2b): a runtime-packed sheet has no path -> it can't be reloaded, so it must NEVER be
+        // evicted. Pinned residents still count toward the budget but are excluded from eviction candidates.
+        bool pinned = false;
     };
 
     void evictAsset(Asset& a) {
@@ -143,7 +155,8 @@ private:
     void evictToFit(const std::string& keep) {
         if (m_residentBytes <= m_budget) return;
         std::vector<std::string> resident;
-        for (const auto& kv : m_assets) if (kv.second.resident && kv.first != keep) resident.push_back(kv.first);
+        for (const auto& kv : m_assets)
+            if (kv.second.resident && !kv.second.pinned && kv.first != keep) resident.push_back(kv.first);
         std::sort(resident.begin(), resident.end(), [&](const std::string& x, const std::string& y){
             const Asset& ax = m_assets[x]; const Asset& ay = m_assets[y];
             if (ax.priority != ay.priority) return ax.priority < ay.priority;   // low priority evicted first
