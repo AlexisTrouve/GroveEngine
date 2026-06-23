@@ -1,0 +1,8 @@
+{
+  "_comment": "Test manifest for the AssetManager. Paths are relative to the TEST cwd (build/tests).",
+  "assets": [
+    { "id": "cockpit", "path": "../../assets/textures/ship/cockpit.png", "priority": 5, "group": "ship" },
+    { "id": "reactor", "path": "../../assets/textures/ship/reactor.png", "group": "ship" },
+    { "id": "engine",  "path": "../../assets/textures/ship/engine.png",  "group": "ship" }
+  ]
+}

@@ -20,6 +20,8 @@
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
+#include <nlohmann/json.hpp>     // parse the declarative asset manifest
+#include <fstream>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
@@ -187,6 +189,46 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         m_textureProvider = std::make_unique<assets::BgfxTextureProvider>(m_device.get(), m_resourceCache.get());
         m_assetManager = std::make_unique<assets::AssetManager>(m_textureProvider.get(), budget);
         m_sceneCollector->setAssetManager(m_assetManager.get());
+
+        // Declarative manifest at boot: config "assetManifest" = a json file { "assets":[ {id,path,priority?,
+        // group?} ] }. Registers metadata only (nothing is loaded until referenced or preloaded).
+        const std::string manifestPath = config.getString("assetManifest", "");
+        if (!manifestPath.empty()) {
+            std::ifstream f(manifestPath);
+            if (!f) {
+                m_logger->warn("asset manifest not found: {}", manifestPath);
+            } else {
+                nlohmann::json j;
+                try { f >> j; } catch (...) { j = nlohmann::json(); }
+                int n = 0;
+                if (j.contains("assets") && j["assets"].is_array()) {
+                    for (const auto& e : j["assets"]) {
+                        if (!e.contains("id") || !e.contains("path")) continue;
+                        m_assetManager->registerAsset(e["id"].get<std::string>(), e["path"].get<std::string>(),
+                                                      e.value("priority", 0), e.value("group", std::string("")));
+                        ++n;
+                    }
+                }
+                m_logger->info("asset manifest: registered {} assets from {}", n, manifestPath);
+            }
+        }
+
+        // Runtime feed — the game registers / preloads / reprioritises / drops assets by data.
+        if (m_io) {
+            m_io->subscribe("asset:register", [this](const Message& m) {
+                if (m.data) m_assetManager->registerAsset(m.data->getString("id",""), m.data->getString("path",""),
+                                                          m.data->getInt("priority",0), m.data->getString("group",""));
+            });
+            m_io->subscribe("asset:preload", [this](const Message& m) {
+                if (m.data) m_assetManager->preloadGroup(m.data->getString("group",""));
+            });
+            m_io->subscribe("asset:setPriority", [this](const Message& m) {
+                if (m.data) m_assetManager->setPriority(m.data->getString("id",""), m.data->getInt("priority",0));
+            });
+            m_io->subscribe("asset:unload", [this](const Message& m) {
+                if (m.data) m_assetManager->unload(m.data->getString("id",""));
+            });
+        }
         m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));
     }
 
