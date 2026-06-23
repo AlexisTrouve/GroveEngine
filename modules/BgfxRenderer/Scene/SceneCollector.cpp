@@ -2,12 +2,22 @@
 #include "grove/IIO.h"
 #include "grove/IDataNode.h"
 #include "../Frame/FrameAllocator.h"
+#include "../Assets/AssetManager.h"   // resolve a sprite's "asset" id -> texture id
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <spdlog/spdlog.h>
 
 namespace grove {
+
+// An "asset" string id (resolved through the streaming AssetManager: on-demand load + cache) wins over a
+// raw numeric "textureId". `fallback` is used when neither is present (e.g. keep the current id on update).
+int SceneCollector::resolveTextureId(const IDataNode& data, int fallback) const {
+    const std::string asset = data.getString("asset", "");
+    if (!asset.empty() && m_assetMgr) return static_cast<int>(m_assetMgr->resolve(asset));
+    return data.getInt("textureId", fallback);
+}
 
 // QUOI : construit une vue orthographique screen-space (1px = 1 unité monde, origine
 //   haut-gauche), zoom 1, sans translation.
@@ -445,7 +455,7 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     // i_data2
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
-    sprite.textureId = static_cast<float>(data.getInt("textureId", 0));
+    sprite.textureId = static_cast<float>(resolveTextureId(data));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = 0.0f;
     // i_data3 (reserved)
@@ -828,7 +838,7 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
-    sprite.textureId = static_cast<float>(data.getInt("textureId", 0));
+    sprite.textureId = static_cast<float>(resolveTextureId(data));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = 0.0f;
     // Optional UI clip rect rides in reserved[] (SpritePass reads it -> bgfx scissor). Absent = 0 = none.
@@ -865,7 +875,7 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", sprite.scaleX));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", sprite.scaleY));
     sprite.rotation = static_cast<float>(data.getDouble("rotation", sprite.rotation));
-    sprite.textureId = static_cast<float>(data.getInt("textureId", static_cast<int>(sprite.textureId)));
+    sprite.textureId = static_cast<float>(resolveTextureId(data, static_cast<int>(sprite.textureId)));
     sprite.layer = static_cast<float>(data.getInt("layer", static_cast<int>(sprite.layer)));
 
     // Re-resolve the clip every update (full snapshot): absent -> 0 -> clip cleared. The UI

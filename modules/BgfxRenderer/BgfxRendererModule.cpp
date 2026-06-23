@@ -7,6 +7,8 @@
 #include "Scene/SceneCollector.h"
 #include "Resources/ResourceCache.h"
 #include "Resources/TextureLoader.h"
+#include "Assets/AssetManager.h"          // streaming texture assets (string id -> resident texture)
+#include "Assets/BgfxTextureProvider.h"
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/TilemapPass.h"
@@ -32,6 +34,10 @@ ResourceCache* BgfxRendererModule::getResourceCache() const {
 
 rhi::IRHIDevice* BgfxRendererModule::getDevice() const {
     return m_device.get();
+}
+
+assets::AssetManager* BgfxRendererModule::getAssetManager() const {
+    return m_assetManager.get();
 }
 
 void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) {
@@ -172,6 +178,17 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_sceneCollector = std::make_unique<SceneCollector>();
     m_sceneCollector->setup(io, m_width, m_height);
     m_logger->info("SceneCollector setup complete with dimensions {}x{}", m_width, m_height);
+
+    // Asset system: a streaming texture cache (string assetId -> resident texture, on-demand load + LRU/priority
+    // eviction under a VRAM budget). The collector resolves a sprite's "asset" id through it. Budget is
+    // configurable via "assetVramBudgetMB" (default 256).
+    {
+        const uint64_t budget = static_cast<uint64_t>(config.getInt("assetVramBudgetMB", 256)) * 1024ull * 1024ull;
+        m_textureProvider = std::make_unique<assets::BgfxTextureProvider>(m_device.get(), m_resourceCache.get());
+        m_assetManager = std::make_unique<assets::AssetManager>(m_textureProvider.get(), budget);
+        m_sceneCollector->setAssetManager(m_assetManager.get());
+        m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));
+    }
 
     // Setup debug overlay
     m_debugOverlay = std::make_unique<DebugOverlay>();

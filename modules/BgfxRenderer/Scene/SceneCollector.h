@@ -10,6 +10,7 @@ namespace grove {
 class IIO;
 class IDataNode;
 class FrameAllocator;
+namespace assets { class AssetManager; }   // resolves a sprite's "asset" id -> texture id (streaming)
 
 // ============================================================================
 // Scene Collector - Gathers render data from IIO messages
@@ -22,6 +23,10 @@ public:
     // Configure IIO subscriptions (called in setConfiguration)
     // width/height: Window dimensions for default view initialization
     void setup(IIO* io, uint16_t width = 1280, uint16_t height = 720);
+
+    // The streaming AssetManager: when a sprite carries an "asset" string id, the collector resolves it to a
+    // texture id (on-demand load + cache) instead of using a raw textureId. nullptr = id-only (legacy).
+    void setAssetManager(assets::AssetManager* mgr) { m_assetMgr = mgr; }
 
     // Collect all IIO messages at frame start (called in process)
     // Pull-based: module controls when to read messages
@@ -74,6 +79,11 @@ private:
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
     float m_elapsedTime = 0.0f;   // accumulated dt (running clock for time-based shaders, e.g. animated tiles)
+
+    // Resolve a sprite's texture: an "asset" string id (-> AssetManager, streaming) wins over a raw
+    // "textureId" (-> `fallback` if absent).
+    int resolveTextureId(const IDataNode& data, int fallback = 0) const;
+    assets::AssetManager* m_assetMgr = nullptr;
 
     // Message parsing helpers (ephemeral mode - legacy)
     void parseSprite(const IDataNode& data);

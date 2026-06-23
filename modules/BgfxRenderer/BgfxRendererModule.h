@@ -19,6 +19,7 @@ class ShaderManager;
 class SpritePass;
 class TilemapPass;
 class DebugOverlay;
+namespace assets { class AssetManager; class BgfxTextureProvider; }   // streaming texture assets
 
 // ============================================================================
 // BgfxRenderer Module - 2D rendering via bgfx
@@ -52,6 +53,7 @@ public:
 
     ResourceCache* getResourceCache() const;
     rhi::IRHIDevice* getDevice() const;
+    assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 
 private:
     // Logger
@@ -65,6 +67,8 @@ private:
     std::unique_ptr<SceneCollector> m_sceneCollector;
     std::unique_ptr<ResourceCache> m_resourceCache;
     std::unique_ptr<DebugOverlay> m_debugOverlay;
+    std::unique_ptr<assets::BgfxTextureProvider> m_textureProvider;   // GPU side of the asset system
+    std::unique_ptr<assets::AssetManager> m_assetManager;             // string id -> resident texture
 
     // Pass references (non-owning, owned by RenderGraph)
     SpritePass* m_spritePass = nullptr;
