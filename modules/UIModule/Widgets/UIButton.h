@@ -138,7 +138,8 @@ private:
     static uint32_t adjustBrightness(uint32_t color, float factor);
 
     // Retained mode render IDs
-    uint32_t m_textRenderId = 0;  // Separate ID for text element
+    uint32_t m_textRenderId = 0;    // Separate ID for text element
+    uint32_t m_borderId = 0;        // Border frame (drawn behind the bg; enables hover/selection borders)
 };
 
 } // namespace grove

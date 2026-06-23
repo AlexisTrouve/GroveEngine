@@ -92,8 +92,11 @@ public:
             auto d=std::make_unique<JsonDataNode>("d"); d->setDouble("x",e.motion.x); d->setDouble("y",e.motion.y);
             m_gIO->publish("input:mouse:move", std::move(d));
         } else if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+            // Map SDL buttons to the engine convention 0 = left, 1 = right (SDL is L=1, M=2, R=3, so a plain
+            // "-1" would make right = 2 and the right-click-to-open never fire).
+            const int b = (e.button.button == SDL_BUTTON_RIGHT) ? 1 : (e.button.button == SDL_BUTTON_MIDDLE ? 2 : 0);
             auto d=std::make_unique<JsonDataNode>("d");
-            d->setInt("button", e.button.button - 1); d->setBool("pressed", e.type == SDL_MOUSEBUTTONDOWN);
+            d->setInt("button", b); d->setBool("pressed", e.type == SDL_MOUSEBUTTONDOWN);
             d->setDouble("x", e.button.x); d->setDouble("y", e.button.y);
             m_gIO->publish("input:mouse:button", std::move(d));
         } else if (e.type == SDL_MOUSEWHEEL) {

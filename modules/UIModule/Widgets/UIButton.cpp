@@ -34,11 +34,13 @@ void UIButton::render(UIRenderer& renderer) {
     if (!m_registered) {
         m_renderId = renderer.registerEntry();       // Background
         m_textRenderId = renderer.registerEntry();   // Text
+        m_borderId = renderer.registerEntry();       // Border frame
         m_registered = true;
-        // Set destroy callback to unregister both
-        setDestroyCallback([&renderer, textId = m_textRenderId](uint32_t id) {
+        // Set destroy callback to unregister all three
+        setDestroyCallback([&renderer, textId = m_textRenderId, borderId = m_borderId](uint32_t id) {
             renderer.unregisterEntry(id);
             renderer.unregisterEntry(textId);
+            renderer.unregisterEntry(borderId);
         });
     }
 
@@ -52,16 +54,23 @@ void UIButton::render(UIRenderer& renderer) {
         logCount++;
     }
 
-    // Retained mode: only publish if changed
-    int bgLayer = renderer.nextLayer();
-
-    // Render background (texture or solid color)
-    if (style.useTexture && style.textureId > 0) {
-        spdlog::info("🎨 [UIButton '{}'] Rendering SPRITE: renderId={}, pos=({},{}), size={}x{}, textureId={}, color=0x{:08X}, layer={}",
-            id, m_renderId, absX, absY, width, height, style.textureId, style.bgColor, bgLayer);
-        renderer.updateSprite(m_renderId, absX, absY, width, height, style.textureId, style.bgColor, bgLayer);
+    // Border frame first (drawn BEHIND), then the bg/texture INSET by borderWidth so the border reads as a
+    // frame around the button. This is what makes hover/selection borders visible (borderWidth 0 -> no border,
+    // bg fills the whole button, unchanged behaviour).
+    const float bw = (style.borderWidth > 0.0f) ? style.borderWidth : 0.0f;
+    int borderLayer = renderer.nextLayer();
+    if (bw > 0.0f) {
+        renderer.updateRect(m_borderId, absX, absY, width, height, style.borderColor, borderLayer);
     } else {
-        renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
+        renderer.updateRect(m_borderId, 0, 0, 0, 0, 0, borderLayer);
+    }
+
+    int bgLayer = renderer.nextLayer();
+    const float ix = absX + bw, iy = absY + bw, iw = width - 2.0f * bw, ih = height - 2.0f * bw;
+    if (style.useTexture && style.textureId > 0) {
+        renderer.updateSprite(m_renderId, ix, iy, iw, ih, style.textureId, style.bgColor, bgLayer);
+    } else {
+        renderer.updateRect(m_renderId, ix, iy, iw, ih, style.bgColor, bgLayer);
     }
 
     // Render text centered
@@ -117,6 +126,7 @@ bool UIButton::containsPoint(float px, float py) const {
 
 void UIButton::releaseRenderEntries(UIRenderer& renderer) {
     if (m_textRenderId != 0) { renderer.unregisterEntry(m_textRenderId); m_textRenderId = 0; }
+    if (m_borderId != 0)     { renderer.unregisterEntry(m_borderId);     m_borderId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId (bg) + recurses to children
 }
 

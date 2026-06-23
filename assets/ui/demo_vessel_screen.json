@@ -37,13 +37,13 @@
           "style": { "bgColor": "0x00000000" },
           "repeat": "{{groups}}",
           "template": {
-            "type": "button", "x": 0, "y": "{{ly}}", "width": 120, "height": 16,
+            "type": "button", "x": 0, "y": "{{ly}}", "width": 150, "height": 18,
             "text": "{{name}}", "tooltip": "Selectionner le groupe",
             "on": { "click": { "event": "vessel:selectGroup", "args": { "group": "{{name}}" } } },
             "style": {
-              "normal":  { "bgColor": "0x00000000", "textColor": "0x8fa6c8FF" },
-              "hover":   { "bgColor": "0x00000000", "textColor": "0xffd166FF" },
-              "pressed": { "bgColor": "0x00000000", "textColor": "0xffffffFF" }
+              "normal":  { "bgColor": "0x1a2433FF", "textColor": "0x8fa6c8FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },
+              "hover":   { "bgColor": "0x243150FF", "textColor": "0xffd166FF", "borderColor": "0xffd166FF", "borderWidth": 1 },
+              "pressed": { "bgColor": "0x161d2aFF", "textColor": "0xffffffFF", "borderColor": "0xffffffFF", "borderWidth": 1 }
             }
           }
         },
