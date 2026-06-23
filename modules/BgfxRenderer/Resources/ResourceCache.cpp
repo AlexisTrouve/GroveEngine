@@ -60,21 +60,37 @@ uint16_t ResourceCache::registerTexture(rhi::TextureHandle handle, const std::st
 
     std::unique_lock lock(m_mutex);
 
-    // Assign new ID
-    uint16_t newId = static_cast<uint16_t>(m_textureById.size());
-    if (newId == 0) {
-        // Reserve index 0 as invalid/default
-        m_textureById.push_back(rhi::TextureHandle{});
-        newId = 1;
+    // Assign an ID — reuse a slot freed by unloadById when possible (streaming load/evict churns ids, so
+    // without reuse the uint16 space would exhaust after enough cycles).
+    uint16_t newId;
+    if (!m_freeTextureIds.empty()) {
+        newId = m_freeTextureIds.back();
+        m_freeTextureIds.pop_back();
+        m_textureById[newId] = handle;
+    } else {
+        newId = static_cast<uint16_t>(m_textureById.size());
+        if (newId == 0) {
+            // Reserve index 0 as invalid/default
+            m_textureById.push_back(rhi::TextureHandle{});
+            newId = 1;
+        }
+        m_textureById.push_back(handle);
     }
-
-    m_textureById.push_back(handle);
     if (!name.empty()) {
         m_pathToTextureId[name] = newId;
         m_textures[name] = handle;
     }
 
     return newId;
+}
+
+void ResourceCache::unloadById(uint16_t id, rhi::IRHIDevice& device) {
+    std::unique_lock lock(m_mutex);
+    if (id == 0 || id >= m_textureById.size()) return;
+    rhi::TextureHandle handle = m_textureById[id];
+    if (handle.isValid()) device.destroy(handle);
+    m_textureById[id] = rhi::TextureHandle{};   // invalidate the slot (getTextureById -> invalid handle)
+    m_freeTextureIds.push_back(id);             // available for reuse
 }
 
 uint16_t ResourceCache::loadTextureWithId(rhi::IRHIDevice& device, const std::string& path) {

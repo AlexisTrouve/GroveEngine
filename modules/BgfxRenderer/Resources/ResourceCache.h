@@ -35,6 +35,11 @@ public:
     // Returns the assigned texture ID
     uint16_t registerTexture(rhi::TextureHandle handle, const std::string& name = "");
 
+    // Destroy a single texture by ID and free its slot (the id may be reused by a later registerTexture).
+    // For the streaming AssetManager: textures are loaded/evicted dynamically, so a per-id unload is needed
+    // (clear() drops everything). No-op if the id is invalid/already free.
+    void unloadById(uint16_t id, rhi::IRHIDevice& device);
+
     // Legacy loading (returns handle directly)
     rhi::TextureHandle loadTexture(rhi::IRHIDevice& device, const std::string& path);
     rhi::ShaderHandle loadShader(rhi::IRHIDevice& device, const std::string& name,
@@ -60,6 +65,7 @@ private:
     // ID-based lookup for textures (index = textureId, 0 = invalid/default)
     std::vector<rhi::TextureHandle> m_textureById;
     std::unordered_map<std::string, uint16_t> m_pathToTextureId;
+    std::vector<uint16_t> m_freeTextureIds;   // slots freed by unloadById, reused by registerTexture
 
     mutable std::shared_mutex m_mutex;
 };
