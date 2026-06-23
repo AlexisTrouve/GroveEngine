@@ -148,14 +148,16 @@ private:
     //   à plat (positions host-calculées), pas d'imbrication.
     void pushFleet() {
         const int sizes[3] = {5, 4, 3};
-        const char* names[3] = {"Alpha", "Bravo", "Reserve"};
+        const char* groupNames[3] = {"Alpha", "Bravo", "Reserve"};
+        const char* shipNames[12] = {"Aurora","Borealis","Cygnus","Draco","Equinox","Falcon",
+                                     "Gemini","Helios","Icarus","Juno","Kestrel","Lyra"};
         json groups = json::array();
         json slots  = json::array();
         int idx = 0;
         for (int g = 0; g < 3; ++g) {
-            groups.push_back({ {"name", names[g]}, {"ly", g * 64} });
+            groups.push_back({ {"name", groupNames[g]}, {"ly", g * 64} });
             for (int k = 0; k < sizes[g]; ++k) {
-                slots.push_back({ {"id", "ship" + std::to_string(idx)}, {"ix", k * 46}, {"iy", g * 64 + 20}, {"icon", 1 + (idx % 4)} });
+                slots.push_back({ {"id", "ship"+std::to_string(idx)}, {"name", shipNames[idx]}, {"ix", k*46}, {"iy", g*64+20}, {"icon", 1+(idx%4)} });
                 ++idx;
             }
         }

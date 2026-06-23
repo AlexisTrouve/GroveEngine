@@ -50,7 +50,7 @@
           "template": {
             "type": "button",
             "x": "{{ix}}", "y": "{{iy}}", "width": 40, "height": 40,
-            "texture": "{{icon}}", "text": "",
+            "texture": "{{icon}}", "text": "", "tooltip": "{{name}}",
             "on": { "click": { "event": "vessel:open", "args": { "id": "{{id}}", "name": "{{name}}" } } },
             "style": {
               "normal":  { "bgColor": "0x1b2433FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },

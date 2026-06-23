@@ -162,6 +162,7 @@ public:
         else if (prop == "y")      y = static_cast<float>(n);
         else if (prop == "width")  width = static_cast<float>(n);
         else if (prop == "height") height = static_cast<float>(n);
+        else if (prop == "tooltip") tooltip = s;   // data-driven hover text (e.g. a repeater item's {{name}})
         (void)s;
     }
 

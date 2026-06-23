@@ -2026,6 +2026,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIVesselOpenInspectorE2E IT_048_ui_vessel_open_inspector_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_049: data-bound tooltip — a repeater item's tooltip resolves {{name}} and shows it on hover.
+    add_executable(IT_049_ui_bound_tooltip_e2e integration/IT_049_ui_bound_tooltip_e2e.cpp)
+    target_link_libraries(IT_049_ui_bound_tooltip_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIBoundTooltipE2E IT_049_ui_bound_tooltip_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
