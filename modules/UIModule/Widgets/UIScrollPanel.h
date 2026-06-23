@@ -23,6 +23,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "scrollpanel"; }
+    // Release our EXTRA entries (borders + scrollbar) so closing/hiding a window that contains a scrollpanel
+    // doesn't leave its scroll area as a ghost in the viewport. The base drops the bg + recurses to children.
+    void releaseRenderEntries(UIRenderer& renderer) override;
     // Clip the hit-test to the panel bounds (slice 2b): a click outside the panel never reaches a
     // scrolled-out child, mirroring the visual scissor pushed in render().
     bool clipsHitTest() const override { return true; }

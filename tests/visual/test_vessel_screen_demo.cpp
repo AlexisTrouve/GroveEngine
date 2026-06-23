@@ -61,10 +61,13 @@ public:
             m_uiModule->setConfiguration(c, m_uIO, nullptr);
         }
 
-        // "Flotte" toggles the fleet panel. Clicking a ship ICON (vessel:open) opens the inspector for that
-        // ship; clicking a PART inside it (ship:part) relays into the info panel (reactive selectedPart).
+        // "Flotte" toggles the panel. LEFT-click a ship = select it (highlight); RIGHT-click = open the
+        // inspector. A group label selects the whole group. Clicking a PART inside the inspector relays into
+        // the info panel (reactive selectedPart).
         m_gIO->subscribe("vessel:drawer", [this](const Message&){ toggleFleet(); });
         m_gIO->subscribe("vessel:open",   [this](const Message& m){ openInspector(m.data->getString("name","")); });
+        m_gIO->subscribe("vessel:select", [this](const Message& m){ m_selId = m.data->getString("id",""); m_selGroup.clear(); repushSlots(); });
+        m_gIO->subscribe("vessel:selectGroup", [this](const Message& m){ m_selGroup = m.data->getString("group",""); m_selId.clear(); repushSlots(); });
         m_gIO->subscribe("ship:part",     [this](const Message& m){
             json patch = { {"noPart", false}, {"selectedPart", {{"label", m.data->getString("label","")},
                                                                 {"stat",  m.data->getString("stat","")}}} };
@@ -93,6 +96,10 @@ public:
             d->setInt("button", e.button.button - 1); d->setBool("pressed", e.type == SDL_MOUSEBUTTONDOWN);
             d->setDouble("x", e.button.x); d->setDouble("y", e.button.y);
             m_gIO->publish("input:mouse:button", std::move(d));
+        } else if (e.type == SDL_MOUSEWHEEL) {
+            // Forward the wheel so the hovered scrollpanel (e.g. the inspector's inventory grid) scrolls.
+            auto d=std::make_unique<JsonDataNode>("d"); d->setDouble("delta", static_cast<double>(e.wheel.y));
+            m_gIO->publish("input:mouse:wheel", std::move(d));
         }
     }
 
@@ -152,16 +159,35 @@ private:
         const char* shipNames[12] = {"Aurora","Borealis","Cygnus","Draco","Equinox","Falcon",
                                      "Gemini","Helios","Icarus","Juno","Kestrel","Lyra"};
         json groups = json::array();
-        json slots  = json::array();
+        m_fleet = json::array();
         int idx = 0;
         for (int g = 0; g < 3; ++g) {
             groups.push_back({ {"name", groupNames[g]}, {"ly", g * 64} });
             for (int k = 0; k < sizes[g]; ++k) {
-                slots.push_back({ {"id", "ship"+std::to_string(idx)}, {"name", shipNames[idx]}, {"ix", k*46}, {"iy", g*64+20}, {"icon", 1+(idx%4)} });
+                m_fleet.push_back({ {"id","ship"+std::to_string(idx)}, {"name",shipNames[idx]}, {"group",groupNames[g]},
+                                    {"ix", k*46}, {"iy", g*64+20}, {"icon", 1+(idx%4)} });
                 ++idx;
             }
         }
-        m_gIO->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"groups", groups}, {"slots", slots} }));
+        m_gIO->publish("ui:data", std::make_unique<JsonDataNode>("d", json{ {"groups", groups}, {"slots", slotsWithBorders()} }));
+    }
+
+    // QUOI : reconstruit les slots avec, par vaisseau, une bordure de REPOS = highlight si sélectionné (par id
+    //   OU par groupe). POURQUOI : la sélection est data-driven — on re-pousse les slots, le repeater re-bind
+    //   borderColor sur chaque icône. Highlight = doré ; repos = bord normal.
+    json slotsWithBorders() {
+        json slots = json::array();
+        for (const auto& s : m_fleet) {
+            const bool sel = (s.value("id","") == m_selId) ||
+                             (!m_selGroup.empty() && s.value("group","") == m_selGroup);
+            json slot = s;
+            slot["border"] = sel ? "0xffd166FF" : "0x2a3650FF";
+            slots.push_back(std::move(slot));
+        }
+        return slots;
+    }
+    void repushSlots() {
+        m_gIO->publish("ui:data:merge", std::make_unique<JsonDataNode>("d", json{ {"slots", slotsWithBorders()} }));
     }
 
     // QUOI : ouvre l'inspector sur le vaisseau cliqué. POURQUOI : feature C ("clic -> window avec la maquette
@@ -220,6 +246,8 @@ private:
     int m_w=1280, m_h=720;
     bool m_fleetOpen=false, m_fleetShown=false;   // fleet-menu slide state
     float m_fleetX=-260.0f;                        // current slide x (off-screen left = closed)
+    json m_fleet;                                  // base fleet model (re-pushed with selection borders)
+    std::string m_selId, m_selGroup;               // current selection (by ship id or by group)
 };
 
 int main(int, char**) {

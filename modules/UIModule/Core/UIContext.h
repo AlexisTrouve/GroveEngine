@@ -19,6 +19,7 @@ public:
     bool mouseDown = false;
     bool mousePressed = false;   // Just pressed this frame
     bool mouseReleased = false;  // Just released this frame
+    int  mouseButton = 0;        // which button (0 = left, 1 = right) for the current press/release
 
     // Keyboard state
     bool keyPressed = false;

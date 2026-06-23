@@ -188,9 +188,9 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
         UIButton* btn = static_cast<UIButton*>(target);
         handled = btn->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
 
-        // Surface on release if the button has a legacy onClick OR a declarative on:click event (so a
-        // purely-declarative button — e.g. a repeater row button — is clickable without a dummy onClick).
-        if (handled && !pressed && (!btn->onClick.empty() || target->eventBindings.count("click"))) {
+        // Surface on release if the button has a legacy onClick OR a declarative on:click / on:rightClick
+        // event (so a purely-declarative repeater-row button is clickable — left OR right — with no dummy onClick).
+        if (handled && !pressed && (!btn->onClick.empty() || target->eventBindings.count("click") || target->eventBindings.count("rightClick"))) {
             return target;  // Return for action / declarative-event publishing
         }
     }

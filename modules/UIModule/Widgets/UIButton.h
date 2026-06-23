@@ -43,6 +43,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "button"; }
+    // Release the EXTRA text entry too (the base only drops the bg + children), so hiding/closing a window
+    // with buttons doesn't leave their text as a ghost.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     // Data-binding: a ship "part" is a clickable button bound to data — "color" (a "0xRRGGBBAA" block) and
     // "texture" (a sprite texture id; >0 -> draw the sprite, 0 -> the colour block). Applied to all states
@@ -62,6 +65,14 @@ public:
             // Bindable label — e.g. a data-driven fleet vignette whose caption is {{name}}. The button
             // already renders `text`; this just lets the repeater/binding write it from the item scope.
             text = s;
+        } else if (prop == "borderColor") {
+            // Bindable RESTING border — used for selection highlight (a selected fleet icon binds its border
+            // to a highlight colour; hover/pressed keep their own feedback borders).
+            uint32_t c = 0;
+            if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+                try { c = static_cast<uint32_t>(std::stoul(s, nullptr, 16)); } catch (...) { c = 0; }
+            }
+            normalStyle.borderColor = c;
         } else {
             UIWidget::applyBoundProp(prop, s, n, b);
         }
@@ -104,6 +115,7 @@ public:
     ButtonState state = ButtonState::Normal;
     bool isHovered = false;
     bool isPressed = false;
+    bool isRightPressed = false;   // right-button press in progress (for on:rightClick)
 
     /**
      * @brief Auto-generate hover/pressed styles from normal style

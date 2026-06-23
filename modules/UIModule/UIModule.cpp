@@ -121,6 +121,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
 
         m_io->subscribe("input:mouse:button", [this](const Message& msg) {
             bool pressed = msg.data->getBool("pressed", false);
+            m_context->mouseButton = msg.data->getInt("button", 0);   // 0 = left, 1 = right
             if (pressed && !m_context->mouseDown) {
                 m_context->mousePressed = true;
             }
@@ -685,7 +686,7 @@ void UIModule::updateUI(float deltaTime) {
     if (m_context->mousePressed || m_context->mouseReleased) {
         UIWidget* clickedWidget = dispatchMouseButton(
             m_root.get(), *m_context,
-            0, // Left button
+            m_context->mouseButton, // 0 = left, 1 = right
             m_context->mousePressed
         );
 
@@ -697,9 +698,10 @@ void UIModule::updateUI(float deltaTime) {
             clickEvent->setDouble("y", m_context->mouseY);
             m_io->publish("ui:click", std::move(clickEvent));
 
-            // Declarative events (on:click): publish the widget's bound event with {{}}-resolved args.
-            // General — any returned widget; fires on the real click (release).
-            if (m_context->mouseReleased) fireWidgetEvent(clickedWidget, "click");
+            // Declarative events: publish the widget's bound event with {{}}-resolved args, on the real click
+            // (release). Right button fires "rightClick", left fires "click" — so a widget can do both (e.g. a
+            // fleet icon: left-click selects, right-click opens the inspector).
+            if (m_context->mouseReleased) fireWidgetEvent(clickedWidget, m_context->mouseButton == 1 ? "rightClick" : "click");
 
             // Publish type-specific events
             std::string widgetType = clickedWidget->getType();

@@ -140,6 +140,17 @@ void UIScrollPanel::render(UIRenderer& renderer) {
     }
 }
 
+void UIScrollPanel::releaseRenderEntries(UIRenderer& renderer) {
+    // Drop the EXTRA retained entries (4 borders + scrollbar track/thumb) the base doesn't know about, then
+    // let the base drop m_renderId (bg) and recurse to children (the inventory cells). Without this, closing
+    // a window holding a scrollpanel leaves its border/scrollbar rects lingering on screen.
+    for (uint32_t* id : { &m_borderTopId, &m_borderBottomId, &m_borderLeftId, &m_borderRightId,
+                          &m_scrollTrackId, &m_scrollThumbId }) {
+        if (*id != 0) { renderer.unregisterEntry(*id); *id = 0; }
+    }
+    UIWidget::releaseRenderEntries(renderer);
+}
+
 void UIScrollPanel::handleMouseWheel(float wheelDelta) {
     if (scrollVertical) {
         scrollOffsetY -= wheelDelta * 20.0f; // Scroll speed

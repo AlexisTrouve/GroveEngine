@@ -48,11 +48,11 @@ TEST_CASE("IT_047: fleet menu hidden top-left panel, shows stacked control group
 
     int spriteAdds = 0;
     std::set<std::string> texts;
-    std::string openedId;
+    std::string selectedId;
     observer->subscribe("render:sprite:add",   [&](const Message&){ ++spriteAdds; });
     observer->subscribe("render:text:add",     [&](const Message& m){ texts.insert(m.data->getString("text","")); });
     observer->subscribe("render:text:update",  [&](const Message& m){ texts.insert(m.data->getString("text","")); });
-    observer->subscribe("vessel:open",         [&](const Message& m){ openedId = m.data->getString("id",""); });
+    observer->subscribe("vessel:select",       [&](const Message& m){ selectedId = m.data->getString("id",""); });
 
     auto pump = [&]{
         JsonDataNode input("input"); input.setDouble("deltaTime", 0.016);
@@ -95,10 +95,10 @@ TEST_CASE("IT_047: fleet menu hidden top-left panel, shows stacked control group
     REQUIRE(texts.count("Reserve") > 0);             // ...the last group too (vertical stacking)
 
     // --- C. CLICKABLE: fleetPanel(12,52) + icons child(10,8) -> (22,60); group 0 icon 0 at (0,20) -> (22,80)
-    //     40x40, center ~ (42,100). Click it -> vessel:open{id:"ship0"}. ---
+    //     40x40, center ~ (42,100). LEFT-click selects it -> vessel:select{id:"ship0"} (right-click opens). ---
     move(42, 100); btn(true); btn(false);
-    INFO("opened id = " << openedId);
-    REQUIRE(openedId == "ship0");
+    INFO("selected id = " << selectedId);
+    REQUIRE(selectedId == "ship0");
 
     uiModule->shutdown();
 }

@@ -80,7 +80,7 @@ TEST_CASE("IT_048: clicking a fleet icon opens the inspector for that ship", "[i
         while (observer->hasMessages() > 0) observer->pullAndDispatch();
     };
     auto move = [&](double x,double y){ auto d=std::make_unique<JsonDataNode>("d"); d->setDouble("x",x); d->setDouble("y",y); hostPub->publish("input:mouse:move", std::move(d)); pump(); };
-    auto btn  = [&](bool p){ auto d=std::make_unique<JsonDataNode>("d"); d->setInt("button",0); d->setBool("pressed",p); hostPub->publish("input:mouse:button", std::move(d)); pump(); };
+    auto btn  = [&](bool p){ auto d=std::make_unique<JsonDataNode>("d"); d->setInt("button",1); d->setBool("pressed",p); hostPub->publish("input:mouse:button", std::move(d)); pump(); };   // RIGHT button = open
     auto show = [&](const char* id,bool v){ auto d=std::make_unique<JsonDataNode>("d"); d->setString("id",id); d->setBool("visible",v); hostPub->publish("ui:set_visible", std::move(d)); pump(); };
 
     // Push the fleet (groups + slots, slot 0 named "Aurora") and reveal the fleet panel.
@@ -106,7 +106,8 @@ TEST_CASE("IT_048: clicking a fleet icon opens the inspector for that ship", "[i
     // --- A. CLOSED: the inspector is hidden -> its title is not rendered. ---
     REQUIRE_FALSE(texts.count("Inspecteur vaisseau") > 0);
 
-    // --- B. OPEN ON CLICK: click fleet icon 0 ("Aurora") at (42,100) -> vessel:open -> host shows inspector. ---
+    // --- B. OPEN ON RIGHT-CLICK: right-click fleet icon 0 ("Aurora") at (42,100) -> vessel:open -> host shows
+    //     the inspector (left-click would only select). ---
     spriteAdds = 0;
     move(42, 100); btn(true); btn(false);
     for (int i = 0; i < 4; ++i) pump();   // let the host relay (data + show) apply + render

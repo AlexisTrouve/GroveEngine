@@ -2038,6 +2038,12 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIInventoryGridE2E IT_050_ui_inventory_grid_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_051: fleet selection — left-click selects, right-click opens, a group label selects the group.
+    add_executable(IT_051_ui_select_rightclick_e2e integration/IT_051_ui_select_rightclick_e2e.cpp)
+    target_link_libraries(IT_051_ui_select_rightclick_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UISelectRightClickE2E IT_051_ui_select_rightclick_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

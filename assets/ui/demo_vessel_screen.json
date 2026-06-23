@@ -37,8 +37,14 @@
           "style": { "bgColor": "0x00000000" },
           "repeat": "{{groups}}",
           "template": {
-            "type": "label", "x": 0, "y": "{{ly}}", "width": 200, "height": 16,
-            "text": "{{name}}", "style": { "fontSize": 12, "color": "0x8fa6c8FF" }
+            "type": "button", "x": 0, "y": "{{ly}}", "width": 120, "height": 16,
+            "text": "{{name}}", "tooltip": "Selectionner le groupe",
+            "on": { "click": { "event": "vessel:selectGroup", "args": { "group": "{{name}}" } } },
+            "style": {
+              "normal":  { "bgColor": "0x00000000", "textColor": "0x8fa6c8FF" },
+              "hover":   { "bgColor": "0x00000000", "textColor": "0xffd166FF" },
+              "pressed": { "bgColor": "0x00000000", "textColor": "0xffffffFF" }
+            }
           }
         },
         {
@@ -50,10 +56,13 @@
           "template": {
             "type": "button",
             "x": "{{ix}}", "y": "{{iy}}", "width": 40, "height": 40,
-            "texture": "{{icon}}", "text": "", "tooltip": "{{name}}",
-            "on": { "click": { "event": "vessel:open", "args": { "id": "{{id}}", "name": "{{name}}" } } },
+            "texture": "{{icon}}", "text": "", "tooltip": "{{name}}", "borderColor": "{{border}}",
+            "on": {
+              "click":      { "event": "vessel:select", "args": { "id": "{{id}}", "name": "{{name}}" } },
+              "rightClick": { "event": "vessel:open",   "args": { "id": "{{id}}", "name": "{{name}}" } }
+            },
             "style": {
-              "normal":  { "bgColor": "0x1b2433FF", "borderColor": "0x2a3650FF", "borderWidth": 1 },
+              "normal":  { "bgColor": "0x1b2433FF", "borderColor": "0x2a3650FF", "borderWidth": 2 },
               "hover":   { "bgColor": "0x243150FF", "borderColor": "0xffd166FF", "borderWidth": 2 },
               "pressed": { "bgColor": "0x161d2aFF", "borderColor": "0xffffffFF", "borderWidth": 2 }
             }

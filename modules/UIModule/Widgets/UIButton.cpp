@@ -115,6 +115,11 @@ bool UIButton::containsPoint(float px, float py) const {
            py >= absY && py < absY + height;
 }
 
+void UIButton::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_textRenderId != 0) { renderer.unregisterEntry(m_textRenderId); m_textRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // drops m_renderId (bg) + recurses to children
+}
+
 bool UIButton::onMouseButton(int button, bool pressed, float x, float y) {
     if (!enabled) return false;
 
@@ -133,6 +138,13 @@ bool UIButton::onMouseButton(int button, bool pressed, float x, float y) {
                 return true;
             }
             isPressed = false;
+        }
+    } else if (button == 1) {  // Right mouse button — symmetric, so a right-click can surface (on:rightClick)
+        if (pressed) {
+            if (containsPoint(x, y)) { isRightPressed = true; return true; }
+        } else {
+            if (isRightPressed && containsPoint(x, y)) { isRightPressed = false; return true; }
+            isRightPressed = false;
         }
     }
 
