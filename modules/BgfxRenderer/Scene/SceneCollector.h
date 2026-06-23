@@ -80,9 +80,9 @@ private:
     float m_deltaTime = 0.0f;
     float m_elapsedTime = 0.0f;   // accumulated dt (running clock for time-based shaders, e.g. animated tiles)
 
-    // Resolve a sprite's texture: an "asset" string id (-> AssetManager, streaming) wins over a raw
-    // "textureId" (-> `fallback` if absent).
-    int resolveTextureId(const IDataNode& data, int fallback = 0) const;
+    // Resolve a sprite's texture: an "asset" string id (-> AssetManager: texId + atlas UV rect, which is
+    // written into `sprite`'s UVs) wins over a raw "textureId" (-> `fallback` if absent). Returns the tex id.
+    int resolveSpriteTexture(const IDataNode& data, SpriteInstance& sprite, int fallback = 0) const;
     assets::AssetManager* m_assetMgr = nullptr;
 
     // Message parsing helpers (ephemeral mode - legacy)

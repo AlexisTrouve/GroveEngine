@@ -209,7 +209,24 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                         ++n;
                     }
                 }
-                m_logger->info("asset manifest: registered {} assets from {}", n, manifestPath);
+                // Atlases (phase 2): a sheet (one texture) + its sub-sprites (UV rects). The sheet is a normal
+                // asset; each sub-sprite points at it. Many sub-sprites share the one resident sheet texture.
+                if (j.contains("atlases") && j["atlases"].is_array()) {
+                    for (const auto& at : j["atlases"]) {
+                        if (!at.contains("sheet") || !at.contains("path") || !at.contains("sprites")) continue;
+                        const std::string sheetId = at["sheet"].get<std::string>();
+                        m_assetManager->registerAsset(sheetId, at["path"].get<std::string>(),
+                                                      at.value("priority", 0), at.value("group", std::string("")));
+                        ++n;
+                        for (const auto& sp : at["sprites"]) {
+                            if (!sp.contains("id")) continue;
+                            m_assetManager->registerAtlasSprite(sp["id"].get<std::string>(), sheetId,
+                                sp.value("u0", 0.0f), sp.value("v0", 0.0f), sp.value("u1", 1.0f), sp.value("v1", 1.0f),
+                                sp.value("priority", 0), sp.value("group", std::string("")));
+                        }
+                    }
+                }
+                m_logger->info("asset manifest: registered {} assets/sheets from {}", n, manifestPath);
             }
         }
 

@@ -4,5 +4,14 @@
     { "id": "cockpit", "path": "../../assets/textures/ship/cockpit.png", "priority": 5, "group": "ship" },
     { "id": "reactor", "path": "../../assets/textures/ship/reactor.png", "group": "ship" },
     { "id": "engine",  "path": "../../assets/textures/ship/engine.png",  "group": "ship" }
+  ],
+  "atlases": [
+    {
+      "sheet": "uiSheet", "path": "../../assets/textures/ship/cockpit.png", "group": "ui",
+      "sprites": [
+        { "id": "ui/a", "u0": 0.0, "v0": 0.0, "u1": 0.5, "v1": 0.5 },
+        { "id": "ui/b", "u0": 0.5, "v0": 0.0, "u1": 1.0, "v1": 0.5 }
+      ]
+    }
   ]
 }

@@ -107,3 +107,39 @@ TEST_CASE("AssetManager: unload frees a resident asset", "[assets][unit]") {
     REQUIRE(am.residentBytes() == 0);
     REQUIRE(gpu.unloads == 1);
 }
+
+TEST_CASE("AssetManager: atlas sub-sprites share ONE resident sheet (resolveSprite + UV)", "[assets][unit]") {
+    MockProvider gpu; AssetManager am(&gpu, 100000);
+    am.registerAsset("sheet", "atlas.png");                            // the actual texture
+    am.registerAtlasSprite("iconA", "sheet", 0.0f, 0.0f, 0.5f, 0.5f);  // top-left quarter
+    am.registerAtlasSprite("iconB", "sheet", 0.5f, 0.0f, 1.0f, 0.5f);  // top-right quarter
+
+    float u0, v0, u1, v1;
+    const uint32_t tA = am.resolveSprite("iconA", u0, v0, u1, v1);
+    REQUIRE(tA != 0);
+    REQUIRE(u0 == 0.0f); REQUIRE(u1 == 0.5f);   // iconA's sub-rect
+    REQUIRE(gpu.loads == 1);                     // the sheet loaded once
+    REQUIRE(am.isResident("sheet"));
+
+    const uint32_t tB = am.resolveSprite("iconB", u0, v0, u1, v1);
+    REQUIRE(tB == tA);                           // SAME sheet texture
+    REQUIRE(u0 == 0.5f); REQUIRE(u1 == 1.0f);    // iconB's sub-rect
+    REQUIRE(gpu.loads == 1);                      // still one load — the sheet is shared/cached
+    REQUIRE(am.residentCount() == 1);            // 2 sprites, 1 texture (the atlas win)
+}
+
+TEST_CASE("AssetManager: resolveSprite on a standalone gives the full UV", "[assets][unit]") {
+    MockProvider gpu; AssetManager am(&gpu, 100000);
+    am.registerAsset("solo", "solo.png");
+    float u0, v0, u1, v1;
+    const uint32_t t = am.resolveSprite("solo", u0, v0, u1, v1);
+    REQUIRE(t != 0);
+    REQUIRE(u0 == 0.0f); REQUIRE(v0 == 0.0f); REQUIRE(u1 == 1.0f); REQUIRE(v1 == 1.0f);
+}
+
+TEST_CASE("AssetManager: resolveSprite on an unknown id returns 0 + full UV", "[assets][unit]") {
+    MockProvider gpu; AssetManager am(&gpu, 100000);
+    float u0, v0, u1, v1;
+    REQUIRE(am.resolveSprite("nope", u0, v0, u1, v1) == 0);
+    REQUIRE(u0 == 0.0f); REQUIRE(u1 == 1.0f);
+}

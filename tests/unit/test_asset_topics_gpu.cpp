@@ -79,6 +79,17 @@ TEST_CASE("asset manifest + asset:* topics feed the AssetManager (GPU)", "[gpu][
     REQUIRE_FALSE(am->isResident("cockpit"));
     REQUIRE(am->isResident("reactor"));   // others untouched
 
+    // --- ATLAS (phase 2): the manifest's atlas registered the sheet + sub-sprites; a render:sprite by a
+    //     sub-sprite id streams the SHARED sheet in (one texture for many sprites). ---
+    REQUIRE(am->isRegistered("ui/a"));
+    REQUIRE(am->isRegistered("uiSheet"));
+    REQUIRE_FALSE(am->isResident("uiSheet"));
+    { auto s=std::make_unique<JsonDataNode>("d"); s->setDouble("x",10); s->setDouble("y",10);
+      s->setDouble("scaleX",32); s->setDouble("scaleY",32); s->setString("asset","ui/a"); s->setInt("layer",1000);
+      gIO->publish("render:sprite", std::move(s)); }
+    frame(); frame();
+    REQUIRE(am->isResident("uiSheet"));   // the atlas sub-sprite resolved + loaded its sheet
+
     renderer->shutdown();
     mgr.removeInstance("at_r"); mgr.removeInstance("at_g");
     SDL_DestroyWindow(win); SDL_Quit();
