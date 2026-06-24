@@ -1,0 +1,28 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0, "y": 0, "width": 400, "height": 300,
+  "style": { "bgColor": "0x101418FF" },
+  "children": [
+    {
+      "type": "button",
+      "id": "litBtn",
+      "x": 10, "y": 10, "width": 64, "height": 64,
+      "asset": "icons/play",
+      "text": ""
+    },
+    {
+      "type": "panel",
+      "id": "grid",
+      "x": 10, "y": 100, "width": 380, "height": 120,
+      "repeat": "{{items}}",
+      "template": {
+        "type": "button",
+        "x": "{{x}}", "y": 0, "width": 48, "height": 48,
+        "asset": "{{icon}}",
+        "text": "",
+        "on": { "click": { "event": "inv:click", "args": { "id": "{{id}}" } } }
+      }
+    }
+  ]
+}

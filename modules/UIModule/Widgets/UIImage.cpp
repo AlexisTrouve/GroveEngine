@@ -25,8 +25,13 @@ void UIImage::render(UIRenderer& renderer) {
     int layer = renderer.nextLayer();
 
     // TODO: Implement proper UV mapping and scale modes in UIRenderer
-    // For now, all scale modes use the same rendering (stretch to bounds)
-    renderer.updateSprite(m_renderId, absX, absY, width, height, textureId, tintColor, layer);
+    // For now, all scale modes use the same rendering (stretch to bounds).
+    // A streamed asset id wins over the numeric textureId (renderer resolves it via the AssetManager).
+    if (!assetId.empty()) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, assetId, tintColor, layer);
+    } else {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, textureId, tintColor, layer);
+    }
 
     // Render children on top
     renderChildren(renderer);

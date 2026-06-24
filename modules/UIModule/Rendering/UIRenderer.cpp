@@ -52,7 +52,7 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
         entry.layer = layer;  // Store initial layer (stable)
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         m_entries[renderId] = entry;
-        publishSpriteAdd(renderId, x, y, w, h, 0, color, layer);
+        publishSpriteAdd(renderId, x, y, w, h, 0, "", color, layer);
         return true;
     }
 
@@ -73,7 +73,7 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
         entry.color = color;
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         // Keep original layer (don't update it)
-        publishSpriteUpdate(renderId, x, y, w, h, 0, color, entry.layer);
+        publishSpriteUpdate(renderId, x, y, w, h, 0, "", color, entry.layer);
         return true;
     }
 
@@ -125,6 +125,16 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
 }
 
 bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer) {
+    return updateSpriteImpl(renderId, x, y, w, h, textureId, "", color, layer);
+}
+
+bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, float h, const std::string& assetId, uint32_t color, int layer) {
+    // Asset-id sprite: numeric textureId is 0 — the renderer resolves the asset string (texture + atlas UV).
+    return updateSpriteImpl(renderId, x, y, w, h, 0, assetId, color, layer);
+}
+
+bool UIRenderer::updateSpriteImpl(uint32_t renderId, float x, float y, float w, float h, int textureId,
+                                  const std::string& assetId, uint32_t color, int layer) {
     if (!m_io) return false;
 
     const ClipRect clip = currentClip();
@@ -138,11 +148,12 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
         entry.w = w;
         entry.h = h;
         entry.textureId = textureId;
+        entry.assetId = assetId;
         entry.color = color;
         entry.layer = layer;  // Store initial layer (stable)
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         m_entries[renderId] = entry;
-        publishSpriteAdd(renderId, x, y, w, h, textureId, color, layer);
+        publishSpriteAdd(renderId, x, y, w, h, textureId, assetId, color, layer);
         return true;
     }
 
@@ -150,7 +161,7 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
     RenderEntry& entry = it->second;
     bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
                    !floatEqual(entry.w, w) || !floatEqual(entry.h, h) ||
-                   entry.textureId != textureId || entry.color != color ||
+                   entry.textureId != textureId || entry.assetId != assetId || entry.color != color ||
                    !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
                    !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h);
 
@@ -160,20 +171,18 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
         entry.w = w;
         entry.h = h;
         entry.textureId = textureId;
+        entry.assetId = assetId;
         entry.color = color;
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         // Keep original layer (don't update it)
-        publishSpriteUpdate(renderId, x, y, w, h, textureId, color, entry.layer);
+        publishSpriteUpdate(renderId, x, y, w, h, textureId, assetId, color, entry.layer);
         return true;
     }
 
     return false;
 }
 
-void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer) {
-    spdlog::info("📤 [UIRenderer] Publishing render:sprite:add - renderId={}, center=({:.1f},{:.1f}), scale={}x{}, textureId={}, layer={}",
-        renderId, x + w * 0.5f, y + h * 0.5f, w, h, textureId, layer);
-
+void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
     sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
@@ -187,6 +196,9 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
     sprite->setDouble("v1", 1.0);
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
+    // Streamed asset id wins over textureId (the renderer's resolveSpriteTexture prefers `asset`). Emitted
+    // only when set, so the numeric path is byte-for-byte unchanged.
+    if (!assetId.empty()) sprite->setString("asset", assetId);
     sprite->setInt("layer", layer);
     // Container clip (scroll panel / window). Emitted only when active; its absence reads as 0 =
     // no clip on the renderer side, so an un-clip update naturally clears the scissor.
@@ -198,7 +210,7 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
     m_io->publish("render:sprite:add", std::move(sprite));
 }
 
-void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer) {
+void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
     sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
@@ -212,6 +224,7 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
     sprite->setDouble("v1", 1.0);
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
+    if (!assetId.empty()) sprite->setString("asset", assetId);
     sprite->setInt("layer", layer);
     const ClipRect c = currentClip();
     if (c.w > 0.0f) {

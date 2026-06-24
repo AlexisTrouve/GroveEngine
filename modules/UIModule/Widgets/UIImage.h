@@ -24,7 +24,15 @@ public:
     // Image properties
     int textureId = 0;           // Texture ID (0 = white texture)
     std::string texturePath;     // Path to texture file (alternative to ID)
+    std::string assetId;         // Streamed asset id (string) — wins over textureId, resolved by AssetManager
     uint32_t tintColor = 0xFFFFFFFF;  // RGBA tint (white = no tint)
+
+    // Data-binding: `asset` (streamed id, wins) + `texture`/`textureId` (numeric). Other props -> base.
+    void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {
+        if (prop == "asset") assetId = s;
+        else if (prop == "texture" || prop == "textureId") textureId = static_cast<int>(n);
+        else UIWidget::applyBoundProp(prop, s, n, b);
+    }
 
     // UV coordinates (for sprite sheets)
     float uvX = 0.0f;

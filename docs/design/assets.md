@@ -60,6 +60,11 @@ stay under budget:
 **and** (for an atlas sub-sprite) writes its UV rect into the sprite. So atlas icons render their sub-region
 with the **existing sprite shader** — no shader change (the sprite already carries `u0..v1`).
 
+**From the UI** (sprite-as-UI): `UIButton` and `UIImage` expose an **`asset`** prop (literal or data-bound
+`"asset":"{{icon}}"`). When set, the widget publishes `render:sprite:add{asset:"id"}` (instead of a numeric
+`textureId`), so thousands of atlas-packed icons/parts stream into the UI by stable id — the same resolve +
+budget + atlas path as world sprites. `asset` wins over `texture`. Locked by `UIAssetSpriteE2E` (IT_052).
+
 ## Atlases
 
 Many small sprites share **one** resident sheet texture (fewer handles, batchable).

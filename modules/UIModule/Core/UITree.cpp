@@ -214,6 +214,9 @@ void UITree::registerDefaultWidgets() {
         button->text = node.getString("text", "");
         button->onClick = node.getString("onClick", "");
         button->enabled = node.getBool("enabled", true);
+        // Streamed asset id (literal). A "{{...}}" value is left to the binding engine (applyBoundProp);
+        // a literal id is rendered directly as the button's sprite, resolved by the AssetManager.
+        button->assetId = node.getString("asset", "");
 
         // Helper lambda to parse a button style
         auto parseButtonStyle = [](IDataNode* styleNode, ButtonStyle& style) {
@@ -280,6 +283,7 @@ void UITree::registerDefaultWidgets() {
         auto image = std::make_unique<UIImage>();
         image->textureId = node.getInt("textureId", 0);
         image->texturePath = node.getString("texturePath", "");
+        image->assetId = node.getString("asset", "");   // streamed asset id (wins over textureId)
 
         auto& mutableNode = const_cast<IDataNode&>(node);
         if (auto* style = mutableNode.getChildReadOnly("style")) {

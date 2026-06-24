@@ -100,6 +100,8 @@ Clickable button with hover/press states.
 **Properties:**
 - `text` - Button label text
 - `onClick` - Action name published to `ui:action`
+- `asset` - Streamed **asset id** (string, e.g. `"icons/iron"`) — draws the bg as a sprite resolved by the
+  AssetManager (atlas-aware, on-demand stream + budget). Bindable: `"asset":"{{icon}}"`. Wins over `texture`/`textureId`.
 - `style` - Visual states (normal, hover, pressed)
   - `bgColor` - Background color (hex RGBA)
   - `textColor` - Text color (hex RGBA)
@@ -303,6 +305,7 @@ Display a sprite/texture.
 
 **Properties:**
 - `textureId` - Texture ID from BgfxRenderer
+- `asset` - Streamed **asset id** (string) — resolved by the AssetManager (atlas-aware). Wins over `textureId`. Bindable via `{{...}}`.
 
 ## UIScrollPanel
 

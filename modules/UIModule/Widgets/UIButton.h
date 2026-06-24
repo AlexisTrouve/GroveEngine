@@ -47,9 +47,14 @@ public:
     // with buttons doesn't leave their text as a ghost.
     void releaseRenderEntries(UIRenderer& renderer) override;
 
-    // Data-binding: a ship "part" is a clickable button bound to data — "color" (a "0xRRGGBBAA" block) and
-    // "texture" (a sprite texture id; >0 -> draw the sprite, 0 -> the colour block). Applied to all states
-    // (flat part). Other props fall through to the base (x/y/width/height/visible).
+    // Streamed asset id for the button's sprite (alternative to the numeric texture). Non-empty -> the button
+    // draws its background as a sprite resolved by the AssetManager (atlas-aware, on-demand stream) instead of
+    // a hardcoded texture id. Set as a literal JSON "asset" or data-bound via {{...}} (applyBoundProp).
+    std::string assetId;
+
+    // Data-binding: a ship "part" is a clickable button bound to data — "color" (a "0xRRGGBBAA" block),
+    // "texture" (a numeric sprite id; >0 -> draw the sprite) and "asset" (a streamed asset id string, wins
+    // over texture). Applied to all states (flat part). Other props fall through to the base.
     void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {
         if (prop == "color" || prop == "bgColor") {
             uint32_t c = 0;
@@ -61,6 +66,10 @@ public:
             const int tex = static_cast<int>(n);
             normalStyle.textureId = hoverStyle.textureId = pressedStyle.textureId = tex;
             normalStyle.useTexture = hoverStyle.useTexture = pressedStyle.useTexture = (tex > 0);
+        } else if (prop == "asset") {
+            // Streamed asset id (string) — e.g. an inventory icon or ship part by stable id. Bound from the
+            // item scope in a repeater ("asset":"{{icon}}"); render() emits it as the sprite's `asset` field.
+            assetId = s;
         } else if (prop == "text") {
             // Bindable label — e.g. a data-driven fleet vignette whose caption is {{name}}. The button
             // already renders `text`; this just lets the repeater/binding write it from the item scope.

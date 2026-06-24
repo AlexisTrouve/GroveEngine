@@ -67,7 +67,11 @@ void UIButton::render(UIRenderer& renderer) {
 
     int bgLayer = renderer.nextLayer();
     const float ix = absX + bw, iy = absY + bw, iw = width - 2.0f * bw, ih = height - 2.0f * bw;
-    if (style.useTexture && style.textureId > 0) {
+    if (!assetId.empty()) {
+        // Streamed asset: draw the bg as a sprite resolved by the AssetManager (atlas-aware). Wins over a
+        // numeric texture id — the renderer turns the `asset` string into a texture + UV.
+        renderer.updateSprite(m_renderId, ix, iy, iw, ih, assetId, style.bgColor, bgLayer);
+    } else if (style.useTexture && style.textureId > 0) {
         renderer.updateSprite(m_renderId, ix, iy, iw, ih, style.textureId, style.bgColor, bgLayer);
     } else {
         renderer.updateRect(m_renderId, ix, iy, iw, ih, style.bgColor, bgLayer);

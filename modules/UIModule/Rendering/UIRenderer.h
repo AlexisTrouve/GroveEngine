@@ -21,6 +21,9 @@ struct RenderEntry {
     float x, y, w, h;
     uint32_t color;
     int textureId;
+    // Streamed asset id (phase: asset-in-UI). Non-empty -> the sprite is published with an `asset` string
+    // (the renderer resolves it to a texture + atlas UV via the AssetManager) instead of a numeric textureId.
+    std::string assetId;
     int layer;
     std::string text;
     float fontSize;
@@ -144,6 +147,15 @@ public:
     bool updateSprite(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer);
 
     /**
+     * @brief Update a sprite by STREAMED ASSET ID (string) instead of a numeric texture id (only publishes
+     *        if changed). The published render:sprite carries an `asset` field; the BgfxRenderer resolves it
+     *        to a resident texture + atlas UV through the AssetManager (on-demand stream + budget eviction).
+     *        This is how a part/icon UI sprite uses the asset system rather than a hardcoded texture id.
+     * @return true if published (changed), false if skipped (unchanged)
+     */
+    bool updateSprite(uint32_t renderId, float x, float y, float w, float h, const std::string& assetId, uint32_t color, int layer);
+
+    /**
      * @brief Number of currently-registered retained entries (introspection).
      *
      * WHY: lets a test assert an invariant on registration count — e.g. a VIRTUALIZED list registers a
@@ -166,9 +178,14 @@ private:
     std::vector<ClipRect> m_clipStack;
     ClipRect currentClip() const { return m_clipStack.empty() ? ClipRect{} : m_clipStack.back(); }
 
-    // Publish helpers
-    void publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer);
-    void publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, uint32_t color, int layer);
+    // Shared core for both updateSprite overloads (numeric textureId vs streamed assetId). assetId non-empty
+    // wins (published as `asset`); otherwise the numeric textureId is published. Change-detects both.
+    bool updateSpriteImpl(uint32_t renderId, float x, float y, float w, float h, int textureId,
+                          const std::string& assetId, uint32_t color, int layer);
+
+    // Publish helpers. assetId non-empty -> emit `asset` (renderer streams it); else emit numeric textureId.
+    void publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer);
+    void publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer);
     void publishSpriteRemove(uint32_t renderId);
     void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
     void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
