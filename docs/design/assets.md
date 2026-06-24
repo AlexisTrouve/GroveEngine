@@ -148,6 +148,8 @@ Registers metadata only — nothing loads until referenced or preloaded.
 - `AssetAsyncUnit` — async state machine: placeholder while decoding, no duplicate requests, upload-on-pump,
   failure latch, sync mode untouched when no decoder is set. (headless, mock provider + mock decoder)
 - `AssetAsyncGpu` — real `ThreadedDecoder` decodes a PNG off-thread, `pumpAsync` uploads it on a real device.
+- `AssetAsyncModuleGpu` — E2E through `BgfxRendererModule`: `assetAsyncLoad` flag honored, `pumpAsync` runs in
+  `process()`, a `render:sprite{asset}` streams in across frames (`isLoading` proves the async branch was taken).
 
 ## Phases
 1. ✅ Registry + cache (budget/priority/LRU) + manifest + topics + `render:sprite` by id.

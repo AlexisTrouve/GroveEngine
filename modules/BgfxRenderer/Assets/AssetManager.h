@@ -192,6 +192,9 @@ public:
     // --- Introspection (tests / diagnostics). ---
     bool     isResident(const std::string& id) const { auto it=m_assets.find(id); return it!=m_assets.end() && it->second.resident; }
     bool     isRegistered(const std::string& id) const { return m_assets.count(id) > 0; }
+    // Async (phase 3): true while an off-thread decode is in flight. Only ever set on the async branch, so it
+    // also tells you the async path was actually taken (a decoder is wired) — never set in synchronous mode.
+    bool     isLoading(const std::string& id) const { auto it=m_assets.find(id); return it!=m_assets.end() && it->second.loading; }
     uint64_t residentBytes() const { return m_residentBytes; }
     size_t   residentCount() const { size_t n=0; for (const auto& kv:m_assets) if (kv.second.resident) ++n; return n; }
     uint64_t budget() const { return m_budget; }

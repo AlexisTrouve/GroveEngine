@@ -2309,6 +2309,21 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(AssetAsyncGpu test_asset_async_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU E2E: async load wiring inside BgfxRendererModule — assetAsyncLoad flag + pumpAsync() in process() +
+    # render:sprite{asset} streaming in across frames. Own process (bgfx is a process-wide singleton).
+    add_executable(test_asset_async_module_gpu unit/test_asset_async_module_gpu.cpp)
+    target_include_directories(test_asset_async_module_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_asset_async_module_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(AssetAsyncModuleGpu test_asset_async_module_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
     target_include_directories(test_text_clip_gpu PRIVATE
