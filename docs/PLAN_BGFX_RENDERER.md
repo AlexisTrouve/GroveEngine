@@ -1168,38 +1168,38 @@ extern "C" {
 - [x] RenderPass::execute prend IRHIDevice& pour updates dynamiques
 - [x] Intégration complète dans BgfxRendererModule
 
-### Phase 5 : Scene Collection + IIO
-- [ ] SceneCollector collect() implémentation complète
-- [ ] Parsing des messages IIO (parseSprite, parseCamera, etc.)
-- [ ] FramePacket generation depuis données collectées
-- [ ] Test: sprites via messages IIO end-to-end
+### Phase 5 : Scene Collection + IIO ✅ DONE
+- [x] SceneCollector collect() implémentation complète
+- [x] Parsing des messages IIO (parseSprite, parseCamera, etc.)
+- [x] FramePacket generation depuis données collectées
+- [x] Test: sprites via messages IIO end-to-end
 
-### Phase 6 : Resource Management
-- [ ] ResourceCache thread-safe
-- [ ] TextureManager (chargement async)
-- [ ] Integration avec SpritePass (textureId → TextureHandle)
+### Phase 6 : Resource Management ✅ DONE
+- [x] ResourceCache thread-safe
+- [x] TextureManager (chargement async) — couvert par le système d'assets (AssetManager + ThreadedDecoder)
+- [x] Integration avec SpritePass (textureId → TextureHandle)
 
-### Phase 6.5 : Tests Unitaires et Tests d'Intégration
+### Phase 6.5 : Tests Unitaires et Tests d'Intégration ✅ DONE
 - [x] test_22_bgfx_sprites_headless.cpp (TU structures de données)
 - [x] test_22_bgfx_sprites.cpp (TI visuel avec SDL2 - nécessite platform data fix)
-- [ ] TU ShaderManager (init, getProgram, shutdown)
-- [ ] TU RenderGraph (addPass, compile, execute order)
-- [ ] TU FrameAllocator (allocate, reset, overflow)
-- [ ] TU RHICommandBuffer (recording, getCommands)
-- [ ] TI SceneCollector (collect depuis IIO mock)
-- [ ] TI Pipeline complet headless (mock device)
+- [x] TU ShaderManager (init, getProgram, shutdown) — `ShaderManagerUnit`
+- [x] TU RenderGraph (addPass, compile, execute order)
+- [x] TU FrameAllocator (allocate, reset, overflow) — `FrameAllocatorUnit`
+- [x] TU RHICommandBuffer (recording, getCommands)
+- [x] TI SceneCollector (collect depuis IIO mock) — `SceneCollectorTest`
+- [x] TI Pipeline complet headless (mock device)
 
-### Phase 7 : Passes additionnelles
-- [ ] TilemapPass
-- [ ] TextPass (+ font loading avec stb_truetype)
-- [ ] ParticlePass
-- [ ] DebugPass lignes/rectangles complets
+### Phase 7 : Passes additionnelles ✅ DONE
+- [x] TilemapPass
+- [x] TextPass (+ font loading avec stb_truetype)
+- [x] ParticlePass
+- [x] DebugPass lignes/rectangles complets
 
-### Phase 8 : Polish
-- [ ] Resource hot-reload
-- [ ] State save/restore pour module hot-reload
-- [ ] Stats/profiling (draw calls, batches, memory)
-- [ ] Documentation API
+### Phase 8 : Polish ✅ DONE
+- [x] Resource hot-reload
+- [x] State save/restore pour module hot-reload (`getState`)
+- [x] Stats/profiling (draw calls, batches, memory) (`getHealthStatus`)
+- [x] Documentation API (DEVELOPER_GUIDE + READMEs modules)
 
 ---
 
@@ -1260,10 +1260,12 @@ find_package(SDL2 REQUIRED)
 | Phase 2 | ✅ DONE | RHI bgfx + triangle test |
 | Phase 3 | ✅ DONE | RenderGraph + Passes |
 | Phase 4 | ✅ DONE | ShaderManager + Intégration |
-| Phase 5 | ⏳ TODO | Scene Collection + IIO |
-| Phase 6 | ⏳ TODO | Resource Management |
-| Phase 6.5 | ⏳ TODO | Tests Unitaires et Tests d'Intégration |
-| Phase 7 | ⏳ TODO | Passes additionnelles |
-| Phase 8 | ⏳ TODO | Polish |
+| Phase 5 | ✅ DONE | Scene Collection + IIO |
+| Phase 6 | ✅ DONE | Resource Management |
+| Phase 6.5 | ✅ DONE | Tests Unitaires et Tests d'Intégration |
+| Phase 7 | ✅ DONE | Passes additionnelles |
+| Phase 8 | ✅ DONE | Polish |
 
-**Prochaine étape** : Phase 5 - Implémenter SceneCollector pour collecter les sprites via IIO.
+**Toutes les phases livrées.** Le renderer est en production (sprites, text, tilemap, particles,
+sector, HUD, caméra, système d'assets). Statut courant = `CLAUDE.md`. Le travail restant (multi-cam,
+culling dans les passes, fog partiel, etc.) vit dans `docs/BACKLOG.md`.

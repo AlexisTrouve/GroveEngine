@@ -56,17 +56,20 @@ Inventory of `modules/UIModule/` (2026-06-22). The skeleton is more complete tha
 - **Alpha** RGBA everywhere; **JSON data-driven** (`UITree`); **hot-reload** with state preservation;
   **E2E harness** (inject real click → assert `ui:*` topic).
 
-### Missing (the real work — identical whichever path)
-- **Anchoring** (anchor to parent edges/corners + offset) and **reflow on resize** (layout runs once
-  at load today).
-- **Grid** layout mode.
-- **Clipping / scissor** — `UIScrollPanel.cpp:33` has a TODO; children currently overflow their
-  bounds. **Foundational** — windows, lists, drawers, tabs all need it.
-- **Dynamic z-order** — order is implicit tree-traversal order; no `bringToFront`/focus-stack.
-- **Window** container (drag/resize/close/title/stack).
-- **Docking / drawers** (4 edges, collapsible, slide).
-- **Tabs**, **Tree/menu-hierarchy**, **List/Grid view (virtualized)**.
-- **Modal/dialog** (dim + focus-trap + button bar).
+### Was missing — now ✅ SHIPPED (historical list; the backbone landed)
+- ✅ **Anchoring** + **reflow on resize** — `IT_021`/`IT_022`.
+- ✅ **Grid** layout mode — `IT_023`.
+- ✅ **Clipping / scissor** — a ScrollPanel pushes its rect on the clip stack → children's render entries
+  carry it → bgfx scissor. Locked by `IT_024`/`IT_025` (UI wiring) + `SpriteClipGpu`/`TextClipGpu` (GPU).
+  *(Narrow residual: a non-absolute-layout child panel re-derives its absX and de-scrolls — rare, noted
+  in `UIScrollPanel.cpp` for a future scrollpanel rework.)*
+- ✅ **Dynamic z-order / focus-stack** (`bringToFront`) — `IT_027`.
+- ✅ **Window** container (drag/resize/close/title/stack) — `IT_026`/`IT_028`/`IT_032`.
+- ✅ **Drawers** (4 edges, collapsible, slide) — `IT_030`.
+- ✅ **Tabs** — `IT_029` · **Tree/menu-hierarchy** — one-level shipped (`IT_034`), **multi-level still TODO** ·
+  **List/Grid virtualized** — `IT_033`/`IT_041`.
+- ✅ **Modal/dialog** (dim + focus-trap + button bar) — `IT_031`.
+- ✅ **Tween** (slide/fade/scale) — exercised by the drawer/modal transitions (`IT_030`/`IT_031`).
 - **Tween/transition** system (slide/fade/scale) and **group opacity** (fading a whole subtree;
   today opacity is only the color AA channel).
 - **Rich-content widgets** — animated panel, audio/voice/radio player, video.
@@ -113,14 +116,14 @@ lands right after, before any window/list.
 
 | # | Slice | Depends on | Proof | Covers (from the ask) |
 |---|---|---|---|---|
-| **1** | **Layout**: reflow-on-resize · anchoring · grid | — | oracle + E2E resize | sectioned menus that reflow, HUD anchored to corners |
-| **2** | **Clipping/scissor** (`render:scissor` + UI honors it) | renderer | GPU readback + E2E | prerequisite for windows/lists/drawers |
-| **3a** | **Z-order / focus-stack** (`bringToFront`, top-most capture) | — | E2E (back window → front) | display order |
-| **3b** | **Window** (titlebar, drag, resize, close, **stackable**) | 2 + 3a | E2E (drag/resize/close/raise) | windows, stackable frames/sub-frames |
-| **4** | **Tween** (slide/fade/scale via Easing) + **group opacity** | — | oracle (curve) + E2E | HUD alpha, basis for all transitions |
-| **5a** | **Modal/Dialog** (dim + focus-trap + button bar) | 3a + 4 | E2E | dialogs |
-| **5b** | **Drawers** 4 edges (collapsible, slide) | 1 + 2 + 4 | E2E | hidden menus top/bottom/left/right |
-| **5c** | **Tabs / sections** | 2 | E2E | menu with sections |
+| **1** ✅ | **Layout**: reflow-on-resize · anchoring · grid | — | `IT_021`/`IT_022`/`IT_023` | sectioned menus that reflow, HUD anchored to corners |
+| **2** ✅ | **Clipping/scissor** (`render:scissor` + UI honors it) | renderer | `IT_024`/`IT_025` + `SpriteClipGpu`/`TextClipGpu` | prerequisite for windows/lists/drawers |
+| **3a** ✅ | **Z-order / focus-stack** (`bringToFront`, top-most capture) | — | `IT_027` | display order |
+| **3b** ✅ | **Window** (titlebar, drag, resize, close, **stackable**) | 2 + 3a | `IT_026`/`IT_028`/`IT_032` | windows, stackable frames/sub-frames |
+| **4** ✅ | **Tween** (slide/fade/scale via Easing) + **group opacity** | — | via drawer/modal transitions (`IT_030`/`IT_031`) | HUD alpha, basis for all transitions |
+| **5a** ✅ | **Modal/Dialog** (dim + focus-trap + button bar) | 3a + 4 | `IT_031` | dialogs |
+| **5b** ✅ | **Drawers** 4 edges (collapsible, slide) | 1 + 2 + 4 | `IT_030` | hidden menus top/bottom/left/right |
+| **5c** ✅ | **Tabs / sections** | 2 | `IT_029` | menu with sections |
 | **5d** | **Tree / menu-hierarchy** (expand/collapse) — ✅ ONE-LEVEL shipped (UIList groups); multi-level tree TODO | 2 | E2E | menu hierarchy, warship groups |
 | **5e** | **List/Grid view virtualized** (repeater + select + virtual scroll) — ✅ SHIPPED | 1 + 2 | E2E + perf | partial ship sidebar |
 | **6a** | **Animated panel** (hosts `grove::anim`/flipbook) | — | E2E (frame advances) | animated 2D scene |

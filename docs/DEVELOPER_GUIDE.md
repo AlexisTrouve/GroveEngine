@@ -27,13 +27,13 @@
 ### Non-Deterministic Execution
 - **Module execution order is NOT guaranteed** - modules may run in different orders between frames
 - **Not suitable for networked games** - no deterministic replay or synchronization
-- **Race conditions possible** - only SequentialModuleSystem is currently implemented (single-threaded)
+- **Race conditions possible** in the experimental ThreadedModuleSystem (Phase 2 ✅); the SequentialModuleSystem path stays single-threaded + deterministic
 
 ### Development Stage
 - **Optimized for rapid iteration**, not stability
 - **No error recovery** - crashes are not handled gracefully
 - **Limited performance optimizations** - no profiling, memory pooling, or SIMD
-- **Single-threaded only** - ThreadedModuleSystem and MultithreadedModuleSystem are TODO
+- **ThreadedModuleSystem** ✅ shipped (Phase 2 — one thread per module); ThreadPool + Cluster module systems still planned
 
 ### Module Limitations
 - **InputModule**: Mouse and keyboard only (gamepad Phase 2 not implemented)
@@ -50,7 +50,7 @@
 To make GroveEngine production-ready, the following is needed:
 - Deterministic execution guarantees
 - Error recovery and graceful degradation
-- Multi-threaded module systems
+- Higher-performance module systems (ThreadPool, Cluster — ThreadedModuleSystem ✅ shipped)
 - Performance profiling and optimization
 - Network IO and distributed messaging
 - Complete gamepad support
