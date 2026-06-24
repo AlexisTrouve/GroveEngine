@@ -2331,6 +2331,20 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(AssetAsyncModuleGpu test_asset_async_module_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: runtime textures / painting — render:texture:create + :paint (region) -> render by asset id.
+    add_executable(test_runtime_texture_gpu unit/test_runtime_texture_gpu.cpp)
+    target_include_directories(test_runtime_texture_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_runtime_texture_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(RuntimeTextureGpu test_runtime_texture_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
     target_include_directories(test_text_clip_gpu PRIVATE

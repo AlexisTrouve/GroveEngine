@@ -77,11 +77,17 @@ camera items are above. The genuine engine gaps it surfaces:
   and mistyped arrays as Mat4 (never exercised until `u_tileAnim[4]`).*
   **Remaining (deferred):** **multi-layer** chunks (terrain + overlay), **partial-fog reveal**
   (`{id,x,y,w,h,fogData}` to patch the fog sub-rect — today fog updates re-send the whole layer).
-- **Render-side culling in passes** — SpritePass/TilemapPass skip instances outside the camera
-  bounds before draw (same `visibleWorldBounds`). Couple with tilemap high-perf; measure first.
-- **Runtime textures / painting** — let the game create a texture from pixel data at runtime and
-  update its pixels (paint). Mostly EXPOSING existing RHI (`createTexture`/`updateTexture`,
-  `ResourceCache::registerTexture`) via a topic (`render:texture:create`/`:update` → textureId).
+- **Render-side culling in passes — ✅ SHIPPED.** SpritePass culls per-sprite (rotation-safe
+  circumscribed circle) and TilemapPass culls per-chunk AABB against `camera::visibleWorldBounds` —
+  off-screen instances are skipped before submit (and the tilemap skips the upload entirely). HUD
+  (screen-space) is never culled. Locked by `PassCullingUnit` (`SpritePass.cpp` + `TilemapPass.cpp`).
+- **Runtime textures / painting — ✅ SHIPPED.** `render:texture:create {id,width,height,color?}` makes a
+  paintable RGBA8 texture by a stable STRING id (registered as a resident asset → usable by
+  `render:sprite{asset:"id"}` AND the UI `asset` prop); `render:texture:paint {id,x,y,w,h,color}` fills a
+  sub-rect (region update — no full re-upload). Exposes the RHI create/update. **Gotcha locked in:** the
+  canvas is created EMPTY then filled (a bgfx texture created WITH initial data is immutable → updates
+  ignored). Locked by `RuntimeTextureGpu` (create RED + paint GREEN corner → framebuffer readback shows
+  both). *Follow-on if needed: arbitrary-pixel upload (base64/raw) beyond solid-colour paint.*
 - **Sprite mips / unit anti-aliasing at zoom-out — ✅ SHIPPED** (2026-06-21). `TextureLoader::loadFromMemory`
   now builds a box-filtered RGBA8 mip chain (`grove::tex::buildRgba8MipChain`, `Resources/MipChain.h`,
   NPOT-safe) and uploads it with `mipLevels`, so `createTexture` makes a mipped texture and the default

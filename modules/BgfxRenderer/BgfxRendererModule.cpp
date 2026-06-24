@@ -275,6 +275,62 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                                   m.data->getInt("maxWidth", 2048), m.data->getInt("gutter", 2),
                                   m.data->getInt("priority", 0), m.data->getString("group", ""));
             });
+
+            // Runtime textures / painting. The game creates a texture by a stable STRING id (registered as a
+            // RESIDENT asset, so render:sprite{asset:"id"} AND the UI `asset` prop can use it) and paints
+            // colored sub-rects into it via a region update (no full re-upload). Mostly EXPOSES the existing
+            // RHI create/updateTexture — the asset id is the handle the game keeps.
+            // render:texture:create {id, width, height, color?}  (color = 0xRRGGBBAA, default transparent).
+            m_io->subscribe("render:texture:create", [this](const Message& m) {
+                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+                const std::string id = m.data->getString("id", "");
+                const int w = m.data->getInt("width", 0), h = m.data->getInt("height", 0);
+                if (id.empty() || w <= 0 || h <= 0) return;
+                const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));   // default transparent
+                std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+                for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+                    px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
+                    px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
+                }
+                rhi::TextureDesc d;
+                d.width = static_cast<uint16_t>(w); d.height = static_cast<uint16_t>(h);
+                d.format = rhi::TextureDesc::RGBA8; d.mipLevels = 1;
+                d.filter = rhi::TextureDesc::Point; d.wrap = rhi::TextureDesc::Clamp;   // crisp canvas, no wrap
+                // IMPORTANT: create EMPTY (no initial data). bgfx makes a texture created WITH data immutable,
+                // and updateTexture2D on it is ignored — so a paintable canvas MUST be created empty (mutable)
+                // and then filled via a region update. Same reason the tilemap index grid is created mutable.
+                d.data = nullptr; d.dataSize = 0;
+                rhi::TextureHandle handle = m_device->createTexture(d);
+                if (!handle.isValid()) return;
+                m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
+                                        0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));   // fill color
+                if (m_assetManager->isRegistered(id)) m_assetManager->unload(id);   // replace -> free the old texture
+                const uint16_t texId = m_resourceCache->registerTexture(handle);
+                if (texId == 0) { m_device->destroy(handle); return; }
+                m_assetManager->registerResident(id, texId, static_cast<uint64_t>(w) * h * 4);
+            });
+            // render:texture:paint {id, x, y, w, h, color} — fill a sub-rect (region update of the GPU texture).
+            m_io->subscribe("render:texture:paint", [this](const Message& m) {
+                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+                const std::string id = m.data->getString("id", "");
+                const int x = m.data->getInt("x", 0), y = m.data->getInt("y", 0);
+                const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
+                if (id.empty() || w <= 0 || h <= 0) return;
+                float u0, v0, u1, v1;
+                const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
+                if (texId == 0) return;
+                rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
+                if (!handle.isValid()) return;
+                const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));
+                std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+                for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+                    px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
+                    px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
+                }
+                m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
+                                        static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                                        static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+            });
         }
         m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));
     }

@@ -109,6 +109,26 @@ upload as cheap as possible — same choice as `AtlasPacker`. Async-loaded stand
 trilinear minification (fine for icons/UI drawn near native scale). Building mips on the worker thread is the
 natural next refinement if heavily-minified streamed textures ever need it.
 
+## Runtime textures / painting
+
+The game can create a texture at runtime and paint into it, addressed by the same **string id** as any asset:
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `render:texture:create` | `{id, width, height, color?}` | create an RGBA8 texture filled with `color` (0xRRGGBBAA, default transparent), registered as a **resident** asset by `id` |
+| `render:texture:paint` | `{id, x, y, w, h, color}` | fill the sub-rect `[x,y,+w,+h]` with `color` — a GPU region update, no full re-upload |
+
+Because it's registered as a resident asset, the canvas renders like anything else: `render:sprite{asset:"id"}`
+or a UI widget's `asset` prop. Use it for procedural textures, minimaps, paint/mask layers, fog overlays, etc.
+
+> **bgfx gotcha (locked in):** a texture created **with** initial data is *immutable* — `updateTexture` on it
+> is silently ignored. So a paintable canvas is created **empty** (mutable) and filled via a region update.
+> Same reason the tilemap index grid is created mutable. Locked by `RuntimeTextureGpu` (create RED + paint a
+> GREEN corner → a framebuffer readback shows both colours).
+>
+> v1 paints **solid-colour** rects (no binary pixel transport). Arbitrary-pixel upload (base64/raw) is the
+> natural follow-on if a use case needs it.
+
 ## Feeding the registry — manifest + topics
 
 Both, as designed:
