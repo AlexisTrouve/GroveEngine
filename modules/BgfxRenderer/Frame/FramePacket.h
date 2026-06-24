@@ -63,6 +63,12 @@ struct TilemapChunk {
     // [dirtyX, dirtyY, +dirtyW, +dirtyH] of the index texture is re-uploaded (fog reveal, terrain
     // edits) instead of the whole grid. dirtyW==0 (with dirty) = full-grid upload (add / full update).
     uint16_t dirtyX = 0, dirtyY = 0, dirtyW = 0, dirtyH = 0;
+    // FOG-ONLY partial reveal (render:tilemap:fog). Separate from the tile `dirty` so a fog-of-war reveal
+    // patches just the R8 visibility mask sub-rect (mip 0, region update) WITHOUT re-uploading tiles or
+    // re-baking the LOD colour. The fog texture is non-mipped + mutable so the region update applies (a
+    // bgfx texture created WITH data is immutable). fogDirtyW>0 + fogDirty = patch [fogDirtyX..+W, ..+H].
+    bool fogDirty = false;
+    uint16_t fogDirtyX = 0, fogDirtyY = 0, fogDirtyW = 0, fogDirtyH = 0;
 };
 
 // ============================================================================

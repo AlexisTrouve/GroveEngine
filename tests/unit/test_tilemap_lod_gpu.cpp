@@ -254,6 +254,37 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         pass.setTileAnim(1, 1, 0.0f);   // stop animating (hygiene)
     }
 
+    // --- PARTIAL FOG REVEAL (render:tilemap:fog): a fog-ONLY sub-rect update patches just that region of
+    //     the R8 mask (mip 0, region update) without re-uploading tiles or re-baking. Render the SAME
+    //     retained chunk twice: all-hidden -> centre ~black; then reveal the centre -> centre = tile colour.
+    {
+        const int G = 8;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        std::vector<uint8_t>  fog(static_cast<size_t>(G) * G, static_cast<uint8_t>(0));   // ALL HIDDEN
+        TilemapChunk chunk{};
+        chunk.x = 0; chunk.y = 0; chunk.width = G; chunk.height = G;
+        chunk.tileWidth = 1; chunk.tileHeight = 1;
+        chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+        chunk.fog = fog.data(); chunk.id = 300; chunk.dirty = true;
+
+        const uint32_t hidden = renderCenter(chunk, G);    // vis=0 -> fognoise (default black)
+        INFO("fog hidden centre=" << std::hex << hidden);
+        CHECK(byteOf(hidden, 0) < 40);                      // centre is hidden (dark)
+
+        // Reveal the centre 4x4 via a FOG-ONLY partial update (tiles untouched: dirty=false).
+        for (int y = 2; y < 6; ++y) for (int x = 2; x < 6; ++x) fog[static_cast<size_t>(y) * G + x] = 255;
+        chunk.dirty = false;
+        chunk.fogDirty = true;
+        chunk.fogDirtyX = 2; chunk.fogDirtyY = 2; chunk.fogDirtyW = 4; chunk.fogDirtyH = 4;
+
+        const uint32_t revealed = renderCenter(chunk, G);   // centre tile now visible -> its colour
+        const uint32_t full = lod::paletteColor(1);
+        INFO("fog revealed centre=" << std::hex << revealed << " full=" << full);
+        CHECK(byteOf(revealed, 0)  >= byteOf(full, 0)  - 20);   // R back to ~full tile colour
+        CHECK(byteOf(revealed, 8)  >= byteOf(full, 8)  - 20);   // G
+        CHECK(byteOf(revealed, 16) >= byteOf(full, 16) - 20);   // B
+    }
+
     device->destroy(fb);
     pass.shutdown(*device);
     shaders.shutdown(*device);

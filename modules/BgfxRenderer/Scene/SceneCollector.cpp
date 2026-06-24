@@ -113,6 +113,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:tilemap:remove") {
             parseTilemapRemove(*msg.data);
         }
+        else if (msg.topic == "render:tilemap:fog") {
+            parseTilemapFog(*msg.data);
+        }
         else if (msg.topic == "render:text") {
             parseText(*msg.data);
         }
@@ -230,10 +233,13 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
                         }
                     }
                     tilemaps[idx++] = chunk;
-                    // Consumed this frame -> clean until the next update (clears the dirty rect too).
+                    // Consumed this frame -> clean until the next update (clears the dirty rects too).
                     rt.chunk.dirty = false;
                     rt.chunk.dirtyX = 0; rt.chunk.dirtyY = 0;
                     rt.chunk.dirtyW = 0; rt.chunk.dirtyH = 0;
+                    rt.chunk.fogDirty = false;
+                    rt.chunk.fogDirtyX = 0; rt.chunk.fogDirtyY = 0;
+                    rt.chunk.fogDirtyW = 0; rt.chunk.fogDirtyH = 0;
                 }
 
                 // Ephemeral chunks (re-sent every frame).
@@ -683,6 +689,50 @@ void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
 void SceneCollector::parseTilemapRemove(const IDataNode& data) {
     const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
     m_retainedTilemaps.erase(id);
+}
+
+// Fog-ONLY partial reveal: render:tilemap:fog {id, x, y, w, h, fogData} patches a w*h visibility block at
+// (x,y) into the retained chunk's fog grid and grows the FOG dirty rect — WITHOUT touching the tile `dirty`,
+// so the pass region-updates only that fog sub-rect (mip 0) and never re-uploads tiles or re-bakes the LOD.
+void SceneCollector::parseTilemapFog(const IDataNode& data) {
+    const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
+    auto it = m_retainedTilemaps.find(id);
+    if (id == 0 || it == m_retainedTilemaps.end()) return;   // a reveal targets an existing retained chunk
+    RetainedTilemap& rt = it->second;
+
+    const int w = data.getInt("w", 0);
+    const int h = data.getInt("h", 0);
+    if (w <= 0 || h <= 0) return;
+    const int x = data.getInt("x", 0);
+    const int y = data.getInt("y", 0);
+    const std::vector<uint8_t> patch = parseFogData(data);   // w*h visibility bytes, row-major
+    if (patch.empty()) return;
+
+    const int gw = rt.chunk.width, gh = rt.chunk.height;
+    // First fog on this chunk -> start fully VISIBLE (255) so the patch only reveals/hides its own rect.
+    if (rt.fog.empty()) rt.fog.assign(static_cast<size_t>(gw) * gh, 255);
+    for (int ty = 0; ty < h; ++ty) {
+        for (int tx = 0; tx < w; ++tx) {
+            const size_t pi = static_cast<size_t>(ty) * w + tx;
+            const size_t gi = static_cast<size_t>(y + ty) * gw + (x + tx);
+            if (pi < patch.size() && gi < rt.fog.size()) rt.fog[gi] = patch[pi];
+        }
+    }
+
+    // Union the FOG dirty rect (independent of the tile dirty rect).
+    TilemapChunk& c = rt.chunk;
+    if (!c.fogDirty) {
+        c.fogDirtyX = static_cast<uint16_t>(x); c.fogDirtyY = static_cast<uint16_t>(y);
+        c.fogDirtyW = static_cast<uint16_t>(w); c.fogDirtyH = static_cast<uint16_t>(h);
+    } else {
+        const int x0 = (c.fogDirtyX < x) ? c.fogDirtyX : x;
+        const int y0 = (c.fogDirtyY < y) ? c.fogDirtyY : y;
+        const int x1 = (c.fogDirtyX + c.fogDirtyW > x + w) ? c.fogDirtyX + c.fogDirtyW : x + w;
+        const int y1 = (c.fogDirtyY + c.fogDirtyH > y + h) ? c.fogDirtyY + c.fogDirtyH : y + h;
+        c.fogDirtyX = static_cast<uint16_t>(x0); c.fogDirtyY = static_cast<uint16_t>(y0);
+        c.fogDirtyW = static_cast<uint16_t>(x1 - x0); c.fogDirtyH = static_cast<uint16_t>(y1 - y0);
+    }
+    c.fogDirty = true;
 }
 
 void SceneCollector::parseText(const IDataNode& data) {

@@ -108,6 +108,7 @@ private:
     void parseTilemapAdd(const IDataNode& data);
     void parseTilemapUpdate(const IDataNode& data);
     void parseTilemapRemove(const IDataNode& data);
+    void parseTilemapFog(const IDataNode& data);   // fog-only partial reveal (render:tilemap:fog)
 
     // Parse a tile-index array from either a "tiles" child node or a comma-separated "tileData"
     // string. Shared by the ephemeral and retained tilemap paths.

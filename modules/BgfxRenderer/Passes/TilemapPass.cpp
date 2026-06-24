@@ -44,19 +44,24 @@ static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChu
 // Bake the chunk's mipped R8 visibility (fog) texture from chunk.fog (Slice fog). Linear + mips =>
 // the fog dims/feathers correctly at every zoom (scalar visibility box-filters meaningfully).
 static rhi::TextureHandle bakeFog(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
-    int mips = 1;
-    std::vector<uint8_t> buf = lod::buildR8MipChain(chunk.fog, chunk.width, chunk.height, mips);
-
+    // Create EMPTY then fill via a region update. A bgfx texture created WITH initial data is IMMUTABLE
+    // (updateTexture is ignored) — and the fog mask must be MUTABLE so a fog-of-war reveal can patch a
+    // sub-rect (render:tilemap:fog) instead of re-baking the whole layer. Consequence: the fog is
+    // NON-MIPPED (mipLevels 1) — the RHI region update only writes mip 0, so partial reveals stay exact.
+    // Negligible: at extreme zoom-out the R8 mask is linear-sampled (mip 0) instead of trilinear.
     rhi::TextureDesc d;
     d.width     = chunk.width;
     d.height    = chunk.height;
-    d.mipLevels = static_cast<uint8_t>(mips);
+    d.mipLevels = 1;
     d.format    = rhi::TextureDesc::R8;
     d.filter    = rhi::TextureDesc::Linear;
     d.wrap      = rhi::TextureDesc::Clamp;
-    d.data      = buf.data();
-    d.dataSize  = static_cast<uint32_t>(buf.size());
-    return device.createTexture(d);
+    rhi::TextureHandle h = device.createTexture(d);   // empty -> mutable
+    if (h.isValid()) {
+        device.updateTexture(h, chunk.fog, static_cast<uint32_t>(chunk.width) * chunk.height,
+                             0, 0, chunk.width, chunk.height);
+    }
+    return h;
 }
 
 // ============================================================================
@@ -277,9 +282,26 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 // The LOD color band depends on tile CONTENT, so any change re-bakes it (Slice B).
                 if (idx.lod.isValid()) device.destroy(idx.lod);
                 idx.lod = bakeLodColor(device, chunk);
-                // Fog (Slice fog): re-bake the R8 visibility texture on any content change.
+                // Fog (Slice fog): re-bake the R8 visibility texture on any content change (covers fog too).
                 if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
                 if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
+            } else if (chunk.fogDirty && chunk.fog != nullptr && chunk.fogDirtyW > 0) {
+                // FOG-ONLY partial reveal: patch just the R8 mask sub-rect (mip 0) — no tile upload, no
+                // LOD re-bake. The fog texture is mutable (created empty), so the region update applies.
+                if (!idx.fog.isValid()) {
+                    idx.fog = bakeFog(device, chunk);   // first fog on this chunk -> create + fill it
+                } else {
+                    std::vector<uint8_t> sub(static_cast<size_t>(chunk.fogDirtyW) * chunk.fogDirtyH);
+                    for (int ty = 0; ty < chunk.fogDirtyH; ++ty) {
+                        for (int tx = 0; tx < chunk.fogDirtyW; ++tx) {
+                            sub[static_cast<size_t>(ty) * chunk.fogDirtyW + tx] =
+                                chunk.fog[static_cast<size_t>(chunk.fogDirtyY + ty) * chunk.width
+                                          + (chunk.fogDirtyX + tx)];
+                        }
+                    }
+                    device.updateTexture(idx.fog, sub.data(), static_cast<uint32_t>(sub.size()),
+                                         chunk.fogDirtyX, chunk.fogDirtyY, chunk.fogDirtyW, chunk.fogDirtyH);
+                }
             }
             indexTex = idx.handle;
             lodTex = idx.lod;

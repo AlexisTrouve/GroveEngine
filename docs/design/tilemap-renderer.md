@@ -130,9 +130,14 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
   a retained chunk; the pass uploads only the dirty rect via the A1 region overload (fog/edits).
   Tests: `SceneCollectorTest` (patch + dirty rect), `PassCullingUnit` (frame 2 region == rect) (`26b27e3`).
 - Fog — fog-of-war: per-tile scalar visibility (`fogData`) baked as a mipped **R8** texture per chunk
-  (`buildR8MipChain`), sampled in fs_tilemap (`s_fog`) and multiplied into the color; dims correctly
-  at every zoom (`a0a714d`, `6396f6d`). Tests: `LodColorUnit` (R8 box-filter), `TilemapLodGpu`
-  (half-visibility -> half color). Fog updates are FULL (re-send fogData); partial-fog reveal TBD.
+  sampled in fs_tilemap (`s_fog`) and multiplied into the color (`a0a714d`, `6396f6d`). Tests:
+  `LodColorUnit` (R8 box-filter), `TilemapLodGpu` (half-visibility -> half color).
+  **Partial-fog reveal ✅ shipped**: `render:tilemap:fog {id,x,y,w,h,fogData}` patches just the R8 mask
+  sub-rect (mip 0 region update) — no tile re-upload / LOD re-bake. The fog texture is now **non-mipped +
+  mutable** (a with-data bgfx texture is immutable, and the RHI region update writes only mip 0, so reveals
+  are exact; trilinear fog at extreme zoom-out gives way to linear mip-0 — negligible for a visibility mask).
+  Locked by `TilemapLodGpu` (reveal a sub-rect) + `SceneCollectorTest`. *(`buildR8MipChain` is now unused by
+  fog but kept — still oracle-tested by `LodColorUnit`.)*
 
 **Learnings (paid for in blood — don't relearn these):**
 - **bgfx HLSL profile is `s_5_0`, NOT `vs_5_0`/`ps_5_0`** — the CMake `compile_bgfx_shader` helper

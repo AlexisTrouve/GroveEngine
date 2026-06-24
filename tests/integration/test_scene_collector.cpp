@@ -194,6 +194,47 @@ TEST_CASE("SceneCollector - retained tilemap: add persists + dirty cycle + updat
     REQUIRE(fx.collector.finalize(allocator).tilemapCount == 0);
 }
 
+TEST_CASE("SceneCollector - render:tilemap:fog patches the fog sub-rect, sets fogDirty, leaves tiles clean", "[scene_collector][retained][fog]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Add a 4x4 chunk id=20, all tiles id 1, fog ALL HIDDEN (0).
+    auto add = std::make_unique<JsonDataNode>("tm");
+    add->setInt("id", 20); add->setInt("width", 4); add->setInt("height", 4);
+    add->setInt("tileW", 1); add->setInt("tileH", 1);
+    add->setString("tileData", "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1");
+    add->setString("fogData",  "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0");
+    fx.ioPublisher->publish("render:tilemap:add", std::move(add));
+    fx.pump();
+    { FramePacket p = fx.collector.finalize(allocator);
+      REQUIRE(p.tilemapCount == 1);
+      REQUIRE(p.tilemaps[0].fog != nullptr);
+      REQUIRE(p.tilemaps[0].fog[5] == 0); }          // (x1,y1) hidden
+    fx.collector.clear();
+
+    // Reveal a 2x2 block at (1,1) via a FOG-ONLY update.
+    auto fog = std::make_unique<JsonDataNode>("tm");
+    fog->setInt("id", 20); fog->setInt("x", 1); fog->setInt("y", 1); fog->setInt("w", 2); fog->setInt("h", 2);
+    fog->setString("fogData", "255,255,255,255");
+    fx.ioPublisher->publish("render:tilemap:fog", std::move(fog));
+    fx.pump();
+    { FramePacket p = fx.collector.finalize(allocator);
+      REQUIRE(p.tilemapCount == 1);
+      const TilemapChunk& c = p.tilemaps[0];
+      REQUIRE(c.fogDirty == true);                   // a fog-only update was signalled
+      REQUIRE(c.dirty == false);                     // tiles were NOT re-dirtied
+      REQUIRE(c.fogDirtyX == 1); REQUIRE(c.fogDirtyY == 1);
+      REQUIRE(c.fogDirtyW == 2); REQUIRE(c.fogDirtyH == 2);
+      REQUIRE(c.fog[5]  == 255);                      // (1,1) revealed   (gi = 1*4+1)
+      REQUIRE(c.fog[6]  == 255);                      // (2,1) revealed
+      REQUIRE(c.fog[0]  == 0);                        // (0,0) still hidden
+      REQUIRE(c.tiles[0] == 1); }                     // tiles untouched
+    fx.collector.clear();
+
+    // Next frame: fogDirty cleared after consumption.
+    REQUIRE(fx.collector.finalize(allocator).tilemaps[0].fogDirty == false);
+}
+
 TEST_CASE("SceneCollector - retained tilemap: partial update patches a sub-rect + dirty rect (A4.2)", "[scene_collector][retained]") {
     RetainedFixture fx;
     FrameAllocator allocator;

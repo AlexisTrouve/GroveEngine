@@ -75,8 +75,14 @@ camera items are above. The genuine engine gaps it surfaces:
   `[gpu]` readback (a tile's colour cycles with time). Capped at 4 animated types (the 16-float setUniform
   command-buffer limit). *En passant: fixed `BgfxDevice::createUniform` — it dropped bgfx's `_num`
   and mistyped arrays as Mat4 (never exercised until `u_tileAnim[4]`).*
-  **Remaining (deferred):** **multi-layer** chunks (terrain + overlay), **partial-fog reveal**
-  (`{id,x,y,w,h,fogData}` to patch the fog sub-rect — today fog updates re-send the whole layer).
+  **Remaining (deferred):** **multi-layer** chunks (terrain + overlay).
+  **Partial-fog reveal — ✅ SHIPPED.** `render:tilemap:fog {id,x,y,w,h,fogData}` patches just the R8 mask
+  sub-rect (mip 0 region update) — no tile re-upload, no LOD re-bake (separate `fogDirty` rect from the tile
+  `dirty`). Required making the fog texture **non-mipped + mutable** (a bgfx texture created WITH data is
+  immutable → updates ignored; the RHI region update writes only mip 0 anyway). Tradeoff: fog is linear-
+  sampled (mip 0) at extreme zoom-out instead of trilinear — negligible for a visibility mask, and reveals
+  are now *exact*. Locked by `TilemapLodGpu` (reveal a sub-rect → it lights up) + `SceneCollectorTest`
+  (fog patch + fogDirty rect, tiles untouched).
 - **Render-side culling in passes — ✅ SHIPPED.** SpritePass culls per-sprite (rotation-safe
   circumscribed circle) and TilemapPass culls per-chunk AABB against `camera::visibleWorldBounds` —
   off-screen instances are skipped before submit (and the tilemap skips the upload entirely). HUD
