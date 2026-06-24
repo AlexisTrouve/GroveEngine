@@ -5,7 +5,7 @@ Streaming texture assets for the BgfxRenderer: **thousands of assets *available*
 on preload), caches it under a configurable **VRAM budget**, and evicts by **priority + LRU**. Small sprites
 can share **atlas** sheets (pre-baked or packed at runtime).
 
-> Status: **phases 1, 2, 2b shipped.** Phase 3 (async load) is the only remaining refinement.
+> Status: **phases 1, 2, 2b, 3 shipped.** The async-load refinement (phase 3) is in and opt-in.
 
 ---
 
@@ -30,6 +30,8 @@ without a GPU.
 | `BgfxTextureProvider` | `Assets/BgfxTextureProvider.h` | Real provider over bgfx: `TextureLoader::loadFromFile` → `ResourceCache::registerTexture` (renderable id) → `unloadById`. |
 | `ShelfPacker` | `Assets/ShelfPacker.h` | Pure shelf bin-packing (`shelfPack(rects, maxWidth, gutter)`). |
 | `AtlasPacker` | `Assets/AtlasPacker.h` | `packAtlas(...)` — decode N PNGs + pack + assemble + upload + register sub-sprites. |
+| `IAsyncDecoder` | (in `AssetManager.h`) | Off-thread decode interface: `request(id,path)`, `poll(out)`, `pending()`. |
+| `ThreadedDecoder` | `Assets/ThreadedDecoder.h` | Real decoder: worker thread(s) run `decodeRgba` (CPU/stb), `poll()` hands finished pixels to the render thread (phase 3). |
 
 The `AssetManager` is owned by `BgfxRendererModule` (config `assetVramBudgetMB`, default 256) and handed to
 the `SceneCollector`, which resolves a sprite's `asset` id at collect time.
@@ -70,6 +72,38 @@ Many small sprites share **one** resident sheet texture (fewer handles, batchabl
 - **Runtime** (phase 2b): `packAtlas(...)` / the `asset:pack` topic decode N *separate* PNGs, shelf-pack them
   into one sheet at load time, upload once, and register the sub-sprites. The packed sheet is **pinned**.
 
+## Async load (phase 3) — decode off-thread, upload on the render thread
+
+By default `resolve(id)` is **synchronous**: it decodes the PNG (stb, the slow part) *and* uploads to the GPU
+on the calling/render thread → a visible **first-touch hitch** the first time an asset is referenced.
+
+Async load splits that in two, behind the `IAsyncDecoder` interface (mirrors `ITextureProvider`):
+
+- **decode** runs on a worker thread (`ThreadedDecoder` → `TextureLoader::decodeRgba`, pure CPU, no bgfx);
+- **upload** stays on the render thread (bgfx is single-threaded) — `pumpAsync()` drains finished decodes once
+  per frame and calls `ITextureProvider::upload(pixels,w,h)`.
+
+State machine (in `AssetManager`):
+
+- `resolve(id)` on a not-yet-resident asset **does not block** — it requests the decode **once** (`loading`
+  flag prevents duplicate requests for a sprite drawn every frame) and returns a **placeholder** texid
+  (`setPlaceholder`, default 0) so the caller keeps drawing this frame.
+- `pumpAsync()` (called in `process()` before collect) uploads what finished → the asset becomes resident and
+  the *next* `resolve` returns the real texture. Eviction (`evictToFit`) runs on the freshly uploaded one too.
+- A decode/upload **failure is latched** (`failed`) so a per-frame `resolve` of a broken file doesn't re-enqueue
+  it forever.
+
+**Opt-in**, off by default (zero behaviour change for existing callers):
+
+```jsonc
+{ "assetAsyncLoad": true, "assetDecodeThreads": 1 }   // renderer config
+```
+
+Tradeoff (v1): async uploads create the texture with **mipLevels 1** (no mips) to keep the render-thread
+upload as cheap as possible — same choice as `AtlasPacker`. Async-loaded standalone textures therefore forgo
+trilinear minification (fine for icons/UI drawn near native scale). Building mips on the worker thread is the
+natural next refinement if heavily-minified streamed textures ever need it.
+
 ## Feeding the registry — manifest + topics
 
 Both, as designed:
@@ -100,6 +134,8 @@ Registers metadata only — nothing loads until referenced or preloaded.
 ### Config keys (renderer)
 - `assetVramBudgetMB` — resident budget (default 256).
 - `assetManifest` — path to the boot manifest (optional).
+- `assetAsyncLoad` — decode off-thread instead of blocking the render thread (default `false`, phase 3).
+- `assetDecodeThreads` — worker threads when async is on (default 1).
 
 ## Tests (regression locks)
 - `AssetManagerUnit` — registry, on-demand+cache, budget eviction, priority protection, LRU, dynamic
@@ -109,10 +145,13 @@ Registers metadata only — nothing loads until referenced or preloaded.
 - `AssetSpriteGpu` — `render:sprite{asset}` streams the texture in.
 - `AssetTopicsGpu` — manifest (assets + atlas) at boot + `asset:*` topics.
 - `AtlasPackerGpu` — `packAtlas` + `asset:pack` build one shared sheet with distinct UVs.
+- `AssetAsyncUnit` — async state machine: placeholder while decoding, no duplicate requests, upload-on-pump,
+  failure latch, sync mode untouched when no decoder is set. (headless, mock provider + mock decoder)
+- `AssetAsyncGpu` — real `ThreadedDecoder` decodes a PNG off-thread, `pumpAsync` uploads it on a real device.
 
 ## Phases
 1. ✅ Registry + cache (budget/priority/LRU) + manifest + topics + `render:sprite` by id.
 2. ✅ Pre-baked atlas (sheet + UV sub-sprites).
 2b. ✅ Runtime atlas packing (`ShelfPacker` + `AtlasPacker` + `asset:pack`).
-3. ⏳ Async load — decode on a worker thread (the slow part), upload on the render thread (bgfx stays
-   single-threaded). Removes the first-touch hitch. Not yet built.
+3. ✅ Async load — decode on a worker thread (`ThreadedDecoder`), upload on the render thread (`pumpAsync`).
+   Opt-in via `assetAsyncLoad`. Removes the first-touch hitch.

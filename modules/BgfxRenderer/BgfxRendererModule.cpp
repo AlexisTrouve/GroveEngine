@@ -10,6 +10,7 @@
 #include "Assets/AssetManager.h"          // streaming texture assets (string id -> resident texture)
 #include "Assets/BgfxTextureProvider.h"
 #include "Assets/AtlasPacker.h"           // runtime atlas packing (asset:pack)
+#include "Assets/ThreadedDecoder.h"       // phase 3: off-thread image decode (opt-in async load)
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/TilemapPass.h"
@@ -191,6 +192,16 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         m_assetManager = std::make_unique<assets::AssetManager>(m_textureProvider.get(), budget);
         m_sceneCollector->setAssetManager(m_assetManager.get());
 
+        // Async load (phase 3), OPT-IN via "assetAsyncLoad" (default off = unchanged synchronous behaviour).
+        // When on, resolve() decodes off-thread and returns a placeholder for a frame or two instead of
+        // blocking the render thread on stb decode -> no first-touch hitch. "assetDecodeThreads" sizes the pool.
+        if (config.getBool("assetAsyncLoad", false)) {
+            const int threads = config.getInt("assetDecodeThreads", 1);
+            m_asyncDecoder = std::make_unique<assets::ThreadedDecoder>(threads);
+            m_assetManager->setAsyncDecoder(m_asyncDecoder.get());
+            m_logger->info("Asset async load ON ({} decode thread(s))", threads);
+        }
+
         // Declarative manifest at boot: config "assetManifest" = a json file { "assets":[ {id,path,priority?,
         // group?} ] }. Registers metadata only (nothing is loaded until referenced or preloaded).
         const std::string manifestPath = config.getString("assetManifest", "");
@@ -337,6 +348,10 @@ void BgfxRendererModule::process(const IDataNode& input) {
     if (m_sceneCollector && m_renderGraph && m_frameAllocator && m_io) {
         // Get delta time from input (or default to 16ms)
         float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));
+
+        // Async load (phase 3): upload any textures that finished decoding off-thread. Done BEFORE collect so
+        // a sprite resolved this frame already sees what just became resident. No-op unless async is enabled.
+        if (m_assetManager) m_assetManager->pumpAsync();
 
         // Collect all IIO messages for this frame
         m_sceneCollector->collect(m_io, deltaTime);

@@ -36,6 +36,28 @@ public:
         return id;
     }
 
+    // Render-thread upload of already-decoded RGBA8 pixels (phase 3 async load). Same registerTexture path as
+    // load(), but the slow decode already happened off-thread — here we only do the cheap GPU createTexture.
+    // mipLevels 1 (no mips): keeps this render-thread call as light as possible; like AtlasPacker, async-loaded
+    // textures forgo trilinear minification (fine for icons/UI drawn near native scale). `rgba` may be freed
+    // right after — bgfx::copy (in createTexture) duplicates it immediately.
+    uint32_t upload(const uint8_t* rgba, int w, int h) override {
+        if (!m_device || !m_cache || !rgba || w <= 0 || h <= 0) return 0;
+        rhi::TextureDesc desc;
+        desc.width = static_cast<uint16_t>(w);
+        desc.height = static_cast<uint16_t>(h);
+        desc.format = rhi::TextureDesc::RGBA8;
+        desc.mipLevels = 1;
+        desc.data = rgba;
+        desc.dataSize = static_cast<uint32_t>(w) * static_cast<uint32_t>(h) * 4u;
+        rhi::TextureHandle handle = m_device->createTexture(desc);
+        if (!handle.isValid()) return 0;
+        const uint16_t id = m_cache->registerTexture(handle);
+        if (id == 0) { m_device->destroy(handle); return 0; }
+        m_bytes[id] = static_cast<uint64_t>(w) * static_cast<uint64_t>(h) * 4ull;   // RGBA8
+        return id;
+    }
+
     void unload(uint32_t texId) override {
         if (m_cache && m_device) m_cache->unloadById(static_cast<uint16_t>(texId), *m_device);
         m_bytes.erase(texId);

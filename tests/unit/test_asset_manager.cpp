@@ -21,6 +21,7 @@ struct MockProvider : ITextureProvider {
     uint32_t load(const std::string& path) override { (void)path; ++loads; uint32_t id = nextId++; sizes[id] = sizeForNext; return id; }
     void     unload(uint32_t texId) override { ++unloads; sizes.erase(texId); }
     uint64_t bytes(uint32_t texId) const override { auto it = sizes.find(texId); return it != sizes.end() ? it->second : 0; }
+    uint32_t upload(const uint8_t* rgba, int w, int h) override { (void)rgba; (void)w; (void)h; uint32_t id = nextId++; sizes[id] = sizeForNext; return id; }
 };
 } // namespace
 

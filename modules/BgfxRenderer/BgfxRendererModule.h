@@ -19,7 +19,7 @@ class ShaderManager;
 class SpritePass;
 class TilemapPass;
 class DebugOverlay;
-namespace assets { class AssetManager; class BgfxTextureProvider; }   // streaming texture assets
+namespace assets { class AssetManager; class BgfxTextureProvider; class ThreadedDecoder; }   // streaming texture assets
 
 // ============================================================================
 // BgfxRenderer Module - 2D rendering via bgfx
@@ -69,6 +69,7 @@ private:
     std::unique_ptr<DebugOverlay> m_debugOverlay;
     std::unique_ptr<assets::BgfxTextureProvider> m_textureProvider;   // GPU side of the asset system
     std::unique_ptr<assets::AssetManager> m_assetManager;             // string id -> resident texture
+    std::unique_ptr<assets::ThreadedDecoder> m_asyncDecoder;          // phase 3: off-thread decode (opt-in)
 
     // Pass references (non-owning, owned by RenderGraph)
     SpritePass* m_spritePass = nullptr;

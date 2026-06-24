@@ -22,6 +22,37 @@ struct ITextureProvider {
     virtual uint32_t load(const std::string& path) = 0;   ///< -> backend texture id (0 = failed)
     virtual void     unload(uint32_t texId) = 0;
     virtual uint64_t bytes(uint32_t texId) const = 0;     ///< VRAM cost of a loaded texture (for the budget)
+    /// Upload ALREADY-DECODED RGBA8 pixels -> backend texture id (0 = failed). The render-thread half of async
+    /// load (phase 3): the slow decode happens off-thread, only this cheap GPU upload runs on the render thread.
+    virtual uint32_t upload(const uint8_t* rgba, int w, int h) = 0;
+};
+
+/**
+ * @brief One image decoded off-thread, waiting to be uploaded on the render thread (phase 3 async load).
+ * QUOI : l'id d'asset visé + ses pixels RGBA8 + dimensions + un flag de succès. POURQUOI : c'est le paquet
+ *   que le worker de décodage rend au thread render via IAsyncDecoder::poll — pixels prêts, plus qu'à uploader.
+ */
+struct DecodedImage {
+    std::string id;                 ///< the assetId this decode was requested for
+    std::vector<uint8_t> pixels;    ///< RGBA8, w*h*4 bytes (empty if ok == false)
+    int w = 0, h = 0;
+    bool ok = false;                ///< false = decode failed (missing/corrupt file)
+};
+
+/**
+ * @brief Off-thread image decoder (phase 3). Decouples the SLOW decode (file read + stb) from the render thread.
+ *
+ * QUOI : `request(id,path)` met un job en file (décodé sur un worker thread) ; `poll(out)` (thread render)
+ *   draine les décodages terminés pour que l'AssetManager fasse l'upload GPU. POURQUOI : le decode est la
+ *   partie lente du first-touch — le sortir du thread render supprime le hitch ; l'upload reste côté render
+ *   car bgfx est single-thread. Interface => l'AssetManager reste pur (Mock déterministe en test, pattern
+ *   ITextureProvider/ISoundBackend). COMMENT : l'impl réelle = ThreadedDecoder (worker thread + decodeRgba).
+ */
+struct IAsyncDecoder {
+    virtual ~IAsyncDecoder() = default;
+    virtual void   request(const std::string& id, const std::string& path) = 0;  ///< enqueue an off-thread decode
+    virtual void   poll(std::vector<DecodedImage>& out) = 0;  ///< drain finished decodes (render thread)
+    virtual size_t pending() const = 0;                       ///< decodes still in flight (diagnostic)
 };
 
 /**
@@ -67,19 +98,57 @@ public:
         a.priority = priority; a.group = group;
     }
 
+    // --- Async load (phase 3): decode off-thread, upload on the render thread. Opt-in via setAsyncDecoder. ---
+    void setAsyncDecoder(IAsyncDecoder* d) { m_decoder = d; }       ///< null (default) = synchronous resolve
+    void setPlaceholder(uint32_t texId) { m_placeholder = texId; } ///< returned by resolve while a decode is in flight
+
     // Resolve an id -> resident backend texture id, loading on demand and evicting to stay under budget.
     // Returns 0 if the id is unknown or the load failed.
+    //
+    // ASYNC: when a decoder is set and the asset isn't resident yet, resolve does NOT block — it kicks an
+    // off-thread decode (once) and returns the placeholder so the caller keeps drawing this frame; the real
+    // texture appears a frame or two later, the first time pumpAsync() picks up the finished decode. A decode
+    // that failed is latched (a.failed) so a sprite drawn every frame doesn't re-enqueue a broken file forever.
     uint32_t resolve(const std::string& id) {
         auto it = m_assets.find(id);
         if (it == m_assets.end()) return 0;
         Asset& a = it->second;
         if (a.resident) { a.lastUsed = ++m_clock; return a.texId; }   // cache hit
-        const uint32_t tex = m_provider->load(a.path);
+
+        if (m_decoder && !a.path.empty()) {                          // async path (standalone asset / sheet)
+            if (a.failed) return m_placeholder;                      // broken file — don't retry every frame
+            if (!a.loading) { a.loading = true; m_decoder->request(id, a.path); }   // kick the decode ONCE
+            return m_placeholder;                                    // not ready yet — draw the placeholder
+        }
+
+        const uint32_t tex = m_provider->load(a.path);               // synchronous path (blocks: decode+upload)
         if (tex == 0) return 0;
         a.resident = true; a.texId = tex; a.bytes = m_provider->bytes(tex); a.lastUsed = ++m_clock;
         m_residentBytes += a.bytes;
         evictToFit(id);                                              // keep `id`, trim the rest if over budget
         return tex;
+    }
+
+    // Drain finished off-thread decodes and upload them on the RENDER THREAD (call once per frame, before
+    // collecting sprites so this frame can already use what just finished). bgfx is single-threaded, so the
+    // GPU upload MUST happen here, not on the worker. No-op when no decoder is set.
+    void pumpAsync() {
+        if (!m_decoder) return;
+        std::vector<DecodedImage> done;
+        m_decoder->poll(done);
+        for (auto& d : done) {
+            auto it = m_assets.find(d.id);
+            if (it == m_assets.end()) continue;                      // asset deregistered meanwhile — drop it
+            Asset& a = it->second;
+            a.loading = false;
+            if (a.resident) continue;                                // already resident (e.g. preloaded sync) — skip
+            if (!d.ok) { a.failed = true; continue; }                // decode failed — latch, never retry
+            const uint32_t tex = m_provider->upload(d.pixels.data(), d.w, d.h);
+            if (tex == 0) { a.failed = true; continue; }             // upload failed — latch too
+            a.resident = true; a.texId = tex; a.bytes = m_provider->bytes(tex); a.lastUsed = ++m_clock;
+            m_residentBytes += a.bytes;
+            evictToFit(d.id);                                        // keep the freshly uploaded one
+        }
     }
 
     // Resolve a sprite to its texture id + UV rect. A SUB-SPRITE resolves its SHEET (load/cache that one
@@ -143,6 +212,10 @@ private:
         // Pinned (phase 2b): a runtime-packed sheet has no path -> it can't be reloaded, so it must NEVER be
         // evicted. Pinned residents still count toward the budget but are excluded from eviction candidates.
         bool pinned = false;
+        // Async load (phase 3): `loading` = a decode is in flight (so resolve doesn't enqueue duplicates);
+        // `failed` = the decode/upload failed (latched so a per-frame resolve doesn't re-request forever).
+        bool loading = false;
+        bool failed = false;
     };
 
     void evictAsset(Asset& a) {
@@ -173,6 +246,9 @@ private:
     uint64_t m_residentBytes = 0;
     uint64_t m_clock = 0;
     std::unordered_map<std::string, Asset> m_assets;
+    // Async load (phase 3): optional off-thread decoder + the texture id resolve hands back while decoding.
+    IAsyncDecoder* m_decoder = nullptr;   // null = synchronous (the default; zero behaviour change)
+    uint32_t m_placeholder = 0;           // returned by resolve() until the real texture is uploaded
 };
 
 } // namespace grove::assets

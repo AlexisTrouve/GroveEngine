@@ -491,6 +491,15 @@ target_include_directories(test_shelf_packer PRIVATE
 target_link_libraries(test_shelf_packer PRIVATE Catch2::Catch2WithMain)
 grove_add_test(ShelfPackerUnit test_shelf_packer ${CMAKE_CURRENT_BINARY_DIR})
 
+# Async load state machine (phase 3): placeholder-while-decoding, no duplicate requests, upload-on-pump,
+# failure latch. Header-only, std-only — mock provider + mock decoder, no threads/bgfx.
+add_executable(test_asset_async unit/test_asset_async.cpp)
+target_include_directories(test_asset_async PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_asset_async PRIVATE Catch2::Catch2WithMain)
+grove_add_test(AssetAsyncUnit test_asset_async ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system slice 1: Transform2D + Hierarchy (grove::anim). Header-only, std-only —
 # in include/grove/anim, already on the public include path.
 add_executable(test_transform2d unit/test_transform2d.cpp)
@@ -2285,6 +2294,20 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         spdlog::spdlog
         Catch2::Catch2WithMain)
     grove_add_test(AtlasPackerGpu test_atlas_packer_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
+    # GPU test: async load (phase 3) — ThreadedDecoder decodes a real PNG off-thread, pump uploads it.
+    add_executable(test_asset_async_gpu unit/test_asset_async_gpu.cpp)
+    target_include_directories(test_asset_async_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_asset_async_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(AssetAsyncGpu test_asset_async_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
