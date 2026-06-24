@@ -2516,6 +2516,25 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Async streaming capture 'capture_async_stream' enabled")
 
+    # INTERACTIVE live demo of the async asset streaming system: a real window where a grid of sprites-by-
+    # assetId streams in from magenta placeholders (SPACE/auto re-triggers the wave). For VOIR le moteur tourner.
+    add_executable(test_async_stream_demo visual/test_async_stream_demo.cpp)
+    target_include_directories(test_async_stream_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(test_async_stream_demo PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET test_async_stream_demo POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_async_stream_demo>")
+    endif()
+    message(STATUS "Async streaming live demo 'test_async_stream_demo' enabled")
+
     # Interactive SMART-RESIZE demo: the SAME responsive demo_ship_inspector.json in a real RESIZABLE
     # window. Etire un coin -> tout reflow ; clic une piece -> info live. WIN32 GUI app + SDL2main.
     add_executable(test_ship_inspector_demo WIN32 visual/test_ship_inspector_demo.cpp)
