@@ -891,6 +891,20 @@ target_link_libraries(test_static_engine_hosting PRIVATE
 )
 grove_add_test(StaticEngineHosting test_static_engine_hosting ${CMAKE_CURRENT_BINARY_DIR})
 
+# Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
+# registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
+# strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it
+# can also be compiled standalone under ThreadSanitizer (WSL) for the race proof.
+add_executable(test_threaded_hosting_e2e
+    integration/test_threaded_hosting_e2e.cpp
+)
+target_link_libraries(test_threaded_hosting_e2e PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+grove_add_test(ThreadedHostingE2E test_threaded_hosting_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
+
 # Engine hosting demo — human-readable companion to the test above. Hosts 3 static
 # modules in a DebugEngine and narrates the inter-module flow frame by frame. Run
 # manually (not a ctest — it's a demo, the test is the regression lock). No GPU/SDL/.so.

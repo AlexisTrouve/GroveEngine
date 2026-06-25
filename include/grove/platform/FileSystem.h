@@ -61,7 +61,7 @@ inline bool isFile(const std::string& path) {
 #else
     struct stat st;
     if (stat(path.c_str(), &st) != 0) return false;
-    return S_ISFILE(st.st_mode);
+    return S_ISREG(st.st_mode);  // POSIX regular-file test (S_ISFILE does not exist — broke the Linux build)
 #endif
 }
 
