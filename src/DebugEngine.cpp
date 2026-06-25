@@ -152,17 +152,21 @@ void DebugEngine::shutdown() {
             // Note: ModuleSystems don't have shutdown in interface yet
             // This would be added when implementing IModuleSystem
         }
-        // Drop each static module's routed IIO instance from the global router so
-        // it stops routing to a dead module and is actually destroyed (the manager
-        // co-owns it). tryGetLiveInstance() never CREATES the singleton — if no
-        // static module was ever hosted it's null and we skip (static-teardown safe).
+        // Destroy the MODULES FIRST (clearing the systems drops the held modules),
+        // while their routed IIO instances are still alive. ORDER IS LOAD-BEARING: a
+        // hosted module keeps a raw IIO* (e.g. UIModule::m_io); dropping its IIO before
+        // the module would dangle that pointer and use-after-free at module teardown
+        // (intermittent SIGSEGV). Resources must outlive their users.
+        moduleSystems.clear();
+        // Now safe: drop each static module's routed IIO instance from the global
+        // router (the manager co-owns it). tryGetLiveInstance() never CREATES the
+        // singleton — null if no static module was ever hosted, so we skip (teardown-safe).
         if (IntraIOManager* mgr = IntraIOManager::tryGetLiveInstance()) {
             for (size_t i = 0; i < moduleIOs.size() && i < moduleNames.size(); ++i) {
                 if (moduleIOs[i]) mgr->removeInstance(moduleNames[i]);
             }
         }
         moduleIOs.clear();
-        moduleSystems.clear();
         moduleNames.clear();
         logger->info("✅ All module systems shut down");
     }
