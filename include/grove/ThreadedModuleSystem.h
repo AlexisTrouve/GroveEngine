@@ -65,6 +65,13 @@ private:
         std::unique_ptr<IModule> module;
         std::thread thread;
 
+        // Archi A: this module's routed IIO inbox, drained by THIS worker thread right
+        // before process() (so the module's subscribe handlers run on the same thread as
+        // its process() — no cross-thread race on the module's own state). Set via
+        // setModuleInbox() after registerModule, before the first frame. Null for modules
+        // that self-wire/self-drain their IIO inside a .so (the engine doesn't hand one over).
+        std::shared_ptr<IIO> inbox;
+
         // Synchronization for barrier pattern
         mutable std::mutex mutex;  // mutable: can be locked in const methods
         std::condition_variable cv;
@@ -184,6 +191,19 @@ public:
 
     // IModuleSystem implementation
     void registerModule(const std::string& name, std::unique_ptr<IModule> module) override;
+
+    /**
+     * @brief Hand a module its routed IIO inbox so its OWN worker thread drains it.
+     * @param name   Module name (must already be registered).
+     * @param inbox  The routed IIO instance for this module.
+     *
+     * Archi A for threaded hosting: the worker pulls+dispatches `inbox` right before
+     * process(), so subscribe handlers and process() run on the SAME (worker) thread.
+     * Call AFTER registerModule and BEFORE the first processModules() (registration is
+     * single-threaded, before the engine starts stepping). No-op if `name` is unknown.
+     */
+    void setModuleInbox(const std::string& name, std::shared_ptr<IIO> inbox);
+
     void processModules(float deltaTime) override;
     void setIOLayer(std::unique_ptr<IIO> ioLayer) override;
     std::unique_ptr<IDataNode> queryModule(const std::string& name, const IDataNode& input) override;

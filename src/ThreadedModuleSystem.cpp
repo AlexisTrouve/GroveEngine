@@ -130,6 +130,24 @@ void ThreadedModuleSystem::registerModule(const std::string& name, std::unique_p
     logger->info("✅ Module '{}' registered successfully (worker count: {})", name, workers.size());
 }
 
+void ThreadedModuleSystem::setModuleInbox(const std::string& name, std::shared_ptr<IIO> inbox) {
+    // QUOI : associer à un worker l'instance IIO que SON thread devra drainer.
+    // POURQUOI : archi A — pour que les handlers du module tournent sur son thread worker
+    //   (et non sur le thread engine via un pump externe), donc sur le MÊME thread que son
+    //   process() → pas de course sur l'état du module. Appelé pendant la phase
+    //   d'enregistrement (mono-thread, avant le 1er processModules), donc le worker ne lit
+    //   pas encore `inbox` ; la 1ère notification CV établit le happens-before write→read.
+    // COMMENT : write-lock du registre, recherche du worker par nom, stockage du shared_ptr.
+    std::unique_lock<std::shared_mutex> lock(workersMutex);
+    auto it = findWorker(name);
+    if (it == workers.end()) {
+        logger->warn("⚠️ setModuleInbox: module '{}' not found", name);
+        return;
+    }
+    (*it)->inbox = std::move(inbox);
+    logger->debug("📥 Worker '{}' will self-drain its IIO inbox (archi A)", name);
+}
+
 void ThreadedModuleSystem::processModules(float deltaTime) {
     // STARVATION FIX: If extractModule() has signalled intent to extract, yield immediately
     // before touching isProcessingFrame or the shared lock. Without this guard the tight
@@ -534,6 +552,19 @@ void ThreadedModuleSystem::workerThreadLoop(ModuleWorker* workerPtr) {
             // FIX #10 : exclusion mutuelle avec un queryModule() concurrent sur ce module.
             {
                 std::lock_guard<std::mutex> processGuard(worker.processMutex);
+                // Archi A: drain THIS module's IIO inbox HERE, on the worker thread, right
+                // before process(). Its subscribe handlers therefore run on the worker thread
+                // (same as process()), so the module's own state is never touched from two
+                // threads. The engine's pumpModuleIO() skips threaded modules for this reason.
+                // hasMessages()/pullAndDispatch() are internally locked (per-instance mutex),
+                // so a concurrent publish from another module's worker is safe.
+                if (worker.inbox) {
+                    int drained = 0;
+                    while (worker.inbox->hasMessages() > 0 && drained < 100000) {
+                        worker.inbox->pullAndDispatch();
+                        ++drained;
+                    }
+                }
                 worker.module->process(*input);
             }
 

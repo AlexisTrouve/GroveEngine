@@ -43,6 +43,18 @@ private:
     // the .so). The IntraIOManager singleton co-owns these — shutdown() drops them.
     std::vector<std::shared_ptr<IIO>> moduleIOs;
 
+    // True (index-aligned with moduleIOs) when this module is hosted in the SHARED
+    // threadedSystem_ instead of its own per-module system. The engine must NOT pump
+    // a threaded module's inbox on the engine thread — its own worker thread drains it
+    // (so its handlers run on the worker thread, not racing process()). See pumpModuleIO.
+    std::vector<bool> moduleIsThreaded_;
+
+    // ONE shared ThreadedModuleSystem hosting ALL threaded static modules, so a single
+    // processModules() runs them on parallel worker threads under one barrier (real
+    // parallelism). Created lazily on the first registerStaticModule(THREADED). Static
+    // modules in here have a null slot in moduleSystems (they are not per-module systems).
+    std::unique_ptr<IModuleSystem> threadedSystem_;
+
     // Socket management
     std::unique_ptr<IIO> coordinatorSocket;
     std::vector<std::unique_ptr<IIO>> clientSockets;

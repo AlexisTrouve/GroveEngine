@@ -33,13 +33,34 @@
 #include <grove/JsonDataNode.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <thread>
 
 using namespace grove;
 
 namespace {
+
+// --- Concurrency probe: do the modules' process() bodies overlap in TIME? ---------
+// A shared in-flight counter. ProcGuard bumps it on entry (recording the running
+// maximum) and drops it on exit; the short sleep widens the overlap window so the
+// probe is reliable. g_maxConcurrent >= 2 proves >=2 workers were inside process()
+// SIMULTANEOUSLY — true parallelism. With per-module hosting (each module its own
+// ThreadedModuleSystem, run sequentially by the engine) it stays 1. This is the
+// red/green discriminator for the "real parallelism" redesign.
+std::atomic<int> g_inProcess{0};
+std::atomic<int> g_maxConcurrent{0};
+struct ProcGuard {
+    ProcGuard() {
+        int n = g_inProcess.fetch_add(1) + 1;
+        int prev = g_maxConcurrent.load();
+        while (n > prev && !g_maxConcurrent.compare_exchange_weak(prev, n)) {}
+        std::this_thread::sleep_for(std::chrono::microseconds(300));
+    }
+    ~ProcGuard() { g_inProcess.fetch_sub(1); }
+};
 
 // Shared IModule boilerplate (mirrors test_engine_hosting_demo's DemoModule).
 class ChainModule : public IModule {
@@ -69,6 +90,7 @@ public:
         io_ = io; outTopic_ = c.getString("out", "chain:a");
     }
     void process(const IDataNode&) override {
+        ProcGuard _pg;  // record overlap with other modules' process()
         if (!io_) return;
         ++produced_;  // module state mutated on the worker thread
         io_->publish(outTopic_, std::make_unique<JsonDataNode>("m", nlohmann::json{{"n", produced_}}));
@@ -92,6 +114,7 @@ public:
         });
     }
     void process(const IDataNode&) override {
+        ProcGuard _pg;  // record overlap with other modules' process()
         if (!io_) return;
         // Read relayed_ (written by the handler) AND publish — same state, this thread.
         io_->publish(outTopic_, std::make_unique<JsonDataNode>("m", nlohmann::json{{"relayed", relayed_}}));
@@ -113,7 +136,7 @@ public:
             if (m.data) lastRelayed_ = m.data->getInt("relayed", -1);
         });
     }
-    void process(const IDataNode&) override {}
+    void process(const IDataNode&) override { ProcGuard _pg; }  // overlap probe
     std::string getType() const override { return "SinkModule"; }
     int received() const { return received_; }
     int lastRelayed() const { return lastRelayed_; }
@@ -161,21 +184,27 @@ int main() {
     const int relayedV     = R->relayed();
     const int receivedV    = S->received();
     const int lastRelayedV = S->lastRelayed();
+    const int maxConc      = g_maxConcurrent.load();
 
     engine.shutdown();
 
     std::printf("  producer published : %d (frames=%d)\n", producedV, frames);
     std::printf("  relay received     : %d\n", relayedV);
     std::printf("  sink received      : %d (last relayed=%d)\n", receivedV, lastRelayedV);
+    std::printf("  max concurrent process() : %d  (>=2 == real parallelism)\n", maxConc);
 
-    // The chain must have flowed end to end across the three worker threads.
-    const bool ok = (producedV    >= frames - 1)
-                 && (relayedV     > 0)
-                 && (receivedV    > 0)
-                 && (lastRelayedV > 0);
+    // The chain must have flowed end to end across the three worker threads...
+    const bool delivered = (producedV    >= frames - 1)
+                        && (relayedV     > 0)
+                        && (receivedV    > 0)
+                        && (lastRelayedV > 0);
+    // ...AND the modules must have actually run in parallel (overlapping process()).
+    const bool parallel = (maxConc >= 2);
+    const bool ok = delivered && parallel;
 
-    std::printf(ok ? "  OK — threaded pub/sub chain flowed through the engine.\n"
-                   : "  FAIL — a hop never delivered.\n");
+    if (!delivered) std::printf("  FAIL — a hop never delivered.\n");
+    if (!parallel)  std::printf("  FAIL — modules ran SERIALLY (max concurrency 1), no real parallelism.\n");
+    if (ok)         std::printf("  OK — threaded pub/sub chain flowed AND modules ran in parallel.\n");
     std::printf("================================================================\n");
     return ok ? 0 : 1;
 }

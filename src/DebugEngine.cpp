@@ -3,6 +3,7 @@
 #include <grove/JsonDataValue.h>
 #include <grove/ModuleSystemFactory.h>
 #include <grove/SequentialModuleSystem.h>
+#include <grove/ThreadedModuleSystem.h> // shared threaded host + setModuleInbox (archi A)
 #include <grove/IModule.h>          // full IModule (setConfiguration) for static hosting
 #include <grove/IntraIOManager.h>   // routed IIO instances for static modules
 #include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
@@ -158,6 +159,11 @@ void DebugEngine::shutdown() {
         // the module would dangle that pointer and use-after-free at module teardown
         // (intermittent SIGSEGV). Resources must outlive their users.
         moduleSystems.clear();
+        // Destroy the SHARED threaded system too (joins every worker thread, then destroys
+        // the threaded modules). MUST happen here — before dropping the IIO instances —
+        // because each threaded module holds a raw IIO* (setConfiguration) and each worker
+        // holds a shared_ptr to its inbox; both must die while their IIO instance is alive.
+        threadedSystem_.reset();
         // Now safe: drop each static module's routed IIO instance from the global
         // router (the manager co-owns it). tryGetLiveInstance() never CREATES the
         // singleton — null if no static module was ever hosted, so we skip (teardown-safe).
@@ -168,6 +174,7 @@ void DebugEngine::shutdown() {
         }
         moduleIOs.clear();
         moduleNames.clear();
+        moduleIsThreaded_.clear();
         logger->info("✅ All module systems shut down");
     }
 
@@ -417,6 +424,9 @@ void DebugEngine::processModuleSystems(float deltaTime) {
     logger->trace("⚙️ Processing {} module system(s)", moduleSystems.size());
 
     for (size_t i = 0; i < moduleSystems.size(); ++i) {
+        // Null slot = a threaded static module hosted in the shared threadedSystem_
+        // (processed once, below) rather than in its own per-module system.
+        if (!moduleSystems[i]) continue;
         logger->trace("🔧 Processing module system: {}", moduleNames[i]);
 
         try {
@@ -440,6 +450,17 @@ void DebugEngine::processModuleSystems(float deltaTime) {
                 logger->critical("⚠️ Module '{}' is now in a failed state and will be skipped", moduleNames[i]);
                 // Continue processing other modules - don't crash the entire engine
             }
+        }
+    }
+
+    // The SHARED threaded system runs ALL its modules in PARALLEL under one barrier
+    // (real parallelism). One processModules() call drives every threaded worker. A
+    // crash here can't hot-reload (static modules) — log and keep the engine alive.
+    if (threadedSystem_) {
+        try {
+            threadedSystem_->processModules(deltaTime);
+        } catch (const std::exception& e) {
+            logger->error("❌ Shared threaded system crashed: {} (frame {})", e.what(), frameCount);
         }
     }
 }
@@ -541,32 +562,50 @@ void DebugEngine::registerStaticModule(const std::string& name,
     }
 
     try {
-        // 1. Per-module ModuleSystem (only the module SOURCE differs from the .so
-        //    path — the hosting is identical).
-        auto moduleSystem = ModuleSystemFactory::create(strategy);
-
-        // 2. Routed IIO instance for this module. The manager co-owns it; we keep
-        //    a handle to pump it each step() and to drop it in shutdown().
+        // Routed IIO instance for this module — same regardless of strategy. The manager
+        // co-owns it; we keep a handle to pump/drop it. A null config becomes an empty node.
         std::shared_ptr<IIO> io = IntraIOManager::getInstance().createInstance(name);
-
-        // 3. Configure BEFORE the module is ever processed: real routed IIO + the
-        //    ModuleSystem as the ITaskScheduler. A null config becomes an empty node
-        //    so setConfiguration always receives a valid reference.
         std::unique_ptr<IDataNode> cfg = config
             ? std::move(config)
             : std::make_unique<JsonDataNode>("config", json::object());
-        module->setConfiguration(*cfg, io.get(), moduleSystem.get());
 
-        // 4. Hand the configured module to its system.
-        moduleSystem->registerModule(name, std::move(module));
-
-        // 5. Store everything index-aligned across the parallel vectors.
-        moduleLoaders.push_back(nullptr);              // static module → no .so loader
-        moduleSystems.push_back(std::move(moduleSystem));
-        moduleIOs.push_back(std::move(io));
-        moduleNames.push_back(name);
-
-        logger->info("✅ Static module '{}' registered + wired (total: {})", name, moduleNames.size());
+        if (strategy == ModuleSystemType::THREADED) {
+            // REAL PARALLELISM: every threaded static module shares ONE ThreadedModuleSystem,
+            // so a single processModules() runs them all on parallel worker threads under one
+            // barrier. (Per-module threaded systems would be driven sequentially by the engine
+            // = threads but no parallelism.) Created lazily on the first threaded module.
+            if (!threadedSystem_) {
+                threadedSystem_ = ModuleSystemFactory::create(ModuleSystemType::THREADED);
+            }
+            // Configure with the shared system as the scheduler, then register + hand over
+            // the routed inbox so the module's OWN worker thread drains it (archi A): its
+            // subscribe handlers run on the worker thread, not the engine thread.
+            module->setConfiguration(*cfg, io.get(), threadedSystem_.get());
+            threadedSystem_->registerModule(name, std::move(module));
+            if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get())) {
+                ts->setModuleInbox(name, io);
+            }
+            moduleLoaders.push_back(nullptr);   // static module → no .so loader
+            moduleSystems.push_back(nullptr);   // hosted by threadedSystem_, not a per-module system
+            moduleIOs.push_back(std::move(io));
+            moduleNames.push_back(name);
+            moduleIsThreaded_.push_back(true);
+            logger->info("✅ Static module '{}' registered into the SHARED threaded system (parallel) — total: {}",
+                         name, moduleNames.size());
+        } else {
+            // SEQUENTIAL (and any future per-module strategy): one ModuleSystem per module,
+            // driven on the engine thread; the engine pumps its inbox (pumpModuleIO) after
+            // process() — load-bearing ordering for self-draining UI modules.
+            auto moduleSystem = ModuleSystemFactory::create(strategy);
+            module->setConfiguration(*cfg, io.get(), moduleSystem.get());
+            moduleSystem->registerModule(name, std::move(module));
+            moduleLoaders.push_back(nullptr);
+            moduleSystems.push_back(std::move(moduleSystem));
+            moduleIOs.push_back(std::move(io));
+            moduleNames.push_back(name);
+            moduleIsThreaded_.push_back(false);
+            logger->info("✅ Static module '{}' registered + wired (total: {})", name, moduleNames.size());
+        }
 
     } catch (const std::exception& e) {
         logger->error("❌ Failed to register static module '{}': {}", name, e.what());
@@ -587,11 +626,15 @@ void DebugEngine::registerStaticModule(const std::string& name,
 //   se câblent eux-mêmes) ignorés.
 void DebugEngine::pumpModuleIO() {
     constexpr int kMaxDrainPerFrame = 100000;  // garde-fou anti boucle de self-republish
-    for (auto& io : moduleIOs) {
-        if (!io) continue;
+    for (size_t i = 0; i < moduleIOs.size(); ++i) {
+        if (!moduleIOs[i]) continue;
+        // Threaded modules drain their OWN inbox on their worker thread (archi A) — the
+        // engine must NOT also pull here, or handlers would fire on the engine thread and
+        // race the module's process() on its worker thread. Skip them.
+        if (i < moduleIsThreaded_.size() && moduleIsThreaded_[i]) continue;
         int drained = 0;
-        while (io->hasMessages() > 0 && drained < kMaxDrainPerFrame) {
-            io->pullAndDispatch();
+        while (moduleIOs[i]->hasMessages() > 0 && drained < kMaxDrainPerFrame) {
+            moduleIOs[i]->pullAndDispatch();
             ++drained;
         }
     }
@@ -624,6 +667,7 @@ void DebugEngine::registerModuleFromFile(const std::string& name, const std::str
         moduleSystems.push_back(std::move(moduleSystem));
         moduleIOs.push_back(nullptr);
         moduleNames.push_back(name);
+        moduleIsThreaded_.push_back(false);  // .so module self-wires its IIO; engine doesn't pump/own it
 
         logger->info("✅ Module '{}' registered successfully", name);
         logger->debug("📊 Total modules loaded: {}", moduleNames.size());
