@@ -472,6 +472,7 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
             }
         }
 #else
+    {  // Linux: opener matching the Windows `if (true) {` above, so the brace after #endif balances on both platforms (the brace straddle broke the Linux build).
         // Linux/Unix: mkstemps gives us a unique path like /tmp/grove_module_XXXXXX.so
         char tempTemplate[] = "/tmp/grove_module_XXXXXX.so";
         int tempFd = mkstemps(tempTemplate, 3); // 3 == length of ".so"

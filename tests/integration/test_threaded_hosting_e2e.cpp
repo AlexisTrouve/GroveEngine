@@ -154,17 +154,25 @@ int main() {
     const int frames = 300;
     for (int f = 0; f < frames; ++f) engine.step(1.0f / 60.0f);
 
+    // Snapshot module state BEFORE shutdown(): shutdown() destroys the hosted
+    // modules (it clears their module systems), after which P/R/S dangle. Reading
+    // them post-shutdown is a use-after-free (TSan/ASan catch it).
+    const int producedV    = P->produced();
+    const int relayedV     = R->relayed();
+    const int receivedV    = S->received();
+    const int lastRelayedV = S->lastRelayed();
+
     engine.shutdown();
 
-    std::printf("  producer published : %d (frames=%d)\n", P->produced(), frames);
-    std::printf("  relay received     : %d\n", R->relayed());
-    std::printf("  sink received      : %d (last relayed=%d)\n", S->received(), S->lastRelayed());
+    std::printf("  producer published : %d (frames=%d)\n", producedV, frames);
+    std::printf("  relay received     : %d\n", relayedV);
+    std::printf("  sink received      : %d (last relayed=%d)\n", receivedV, lastRelayedV);
 
     // The chain must have flowed end to end across the three worker threads.
-    const bool ok = (P->produced() >= frames - 1)
-                 && (R->relayed()  > 0)
-                 && (S->received() > 0)
-                 && (S->lastRelayed() > 0);
+    const bool ok = (producedV    >= frames - 1)
+                 && (relayedV     > 0)
+                 && (receivedV    > 0)
+                 && (lastRelayedV > 0);
 
     std::printf(ok ? "  OK — threaded pub/sub chain flowed through the engine.\n"
                    : "  FAIL — a hop never delivered.\n");
