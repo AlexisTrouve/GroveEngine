@@ -836,18 +836,64 @@ Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Register new sprite (retained) |
-| `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Update existing sprite |
+| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, asset?}` | Register new sprite (retained) |
+| `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, asset?}` | Update existing sprite |
 | `render:sprite:remove` | `{renderId}` | Unregister sprite |
 
 **Immediate Mode (legacy, still supported):**
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?}` | Render single sprite (ephemeral). `x,y` = CENTER. `space:"screen"` → HUD overlay (see below) |
+| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?, asset?}` | Render single sprite (ephemeral). `x,y` = CENTER. `space:"screen"` → HUD overlay (see below) |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
+
+#### Asset streaming & runtime textures
+
+Instead of a raw numeric `textureId`, any sprite can reference a texture by a stable **string `asset`
+id** — the engine streams it on demand through the `AssetManager` (atlas-aware UVs, VRAM budget +
+priority/LRU eviction). Thousands of assets can be *registered* (cheap metadata) while only a budget's
+worth stay *resident*. `asset` **wins over** `textureId`/`texture` when both are present.
+
+```cpp
+auto s = std::make_unique<JsonDataNode>("sprite");
+s->setString("asset", "icons/iron");     // streamed by id (atlas sub-sprite -> its UV rect)
+s->setDouble("x", 100); s->setDouble("y", 100);
+s->setDouble("scaleX", 32); s->setDouble("scaleY", 32);
+s->setInt("layer", 1000);
+io->publish("render:sprite", std::move(s));   // also works on render:sprite:add{asset}
+```
+
+The same `asset` id is bindable from **UI widgets** (`UIButton`/`UIImage` `asset` prop, literal or
+`"{{icon}}"`) — see [UI Widgets](UI_WIDGETS.md). Sprite-as-UI by streamed id is locked by `IT_052`.
+
+**Registry / streaming topics**
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `asset:register` | `{id, path, priority?, group?}` | register a standalone asset (metadata only — nothing loads yet) |
+| `asset:preload` | `{group}` | load a whole group now (highest priority first) |
+| `asset:setPriority` | `{id, priority}` | re-prioritise (affects eviction order) |
+| `asset:unload` | `{id}` | drop a resident asset |
+| `asset:pack` | `{sheet, sprites:[{id,path}], maxWidth?, gutter?, priority?, group?}` | runtime-pack N PNGs into one shared (pinned) sheet |
+
+Assets can also be declared at boot via the `assetManifest` config (a JSON file with `assets` +
+`atlases` sections). Config keys (renderer): `assetVramBudgetMB` (default 256), `assetManifest`,
+`assetAsyncLoad` (decode off-thread → no first-touch hitch, default `false`), `assetDecodeThreads`
+(default 1).
+
+**Runtime textures / painting** — create a texture at runtime and paint colored rects into it,
+addressed by the **same string id** as any asset (use it as a sprite/UI `asset`). For procedural
+textures, minimaps, paint/mask layers, fog overlays:
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `render:texture:create` | `{id, width, height, color?}` | create an RGBA8 texture filled with `color` (`0xRRGGBBAA`, default transparent), registered as a **resident** asset by `id` |
+| `render:texture:paint` | `{id, x, y, w, h, color}` | fill the sub-rect `[x,y → x+w,y+h]` with `color` — a GPU region update, no full re-upload |
+
+> Full deep-dive (cache/eviction, atlases, async state machine, the bgfx immutability gotcha):
+> **[design/assets.md](design/assets.md)**.
 
 #### Text
 
@@ -909,9 +955,10 @@ Two modes:
 | Topic | Payload | Description |
 |-------|---------|-------------|
 | `render:tilemap` | `{x, y, width, height, tileW, tileH, textureId, tileData}` | Ephemeral chunk (re-uploaded each frame) |
-| `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?}` | Retained chunk by `id` (≠0) — upload-once |
+| `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?, layers?}` | Retained chunk by `id` (≠0) — upload-once. `layers?` = **multi-layer** (see below) |
 | `render:tilemap:update` | full: `{id, tileData, fogData?}` · partial: `{id, x, y, w, h, tileData}` | Update a retained chunk (see *Update semantics*) |
 | `render:tilemap:remove` | `{id}` | Drop a retained chunk |
+| `render:tilemap:fog` | `{id, x, y, w, h, fogData}` | **Partial fog-of-war reveal** — patch only the `w×h` visibility block at tile `(x,y)` into a retained chunk's fog mask. Tiles are **not** touched and the LOD is **not** re-baked — only the fog mip-0 sub-rect re-uploads. `fogData` = `w*h` bytes `0..255`, row-major (255 = visible). First fog on a chunk starts fully **visible** (255), so a patch only reveals/hides its own rect |
 | `render:tilemap:anim` | `{tileId, frames, fps}` | Declare an **animated tile** (water/lava): `tileId` cycles through `frames` CONSECUTIVE atlas layers (from its base layer `id-1`) at `fps`. The index texture is unchanged — the shader offsets the layer by time, so animation costs **zero per-frame upload**. `frames ≤ 1` stops it. Up to 4 animated types. The game arranges the frames as consecutive layers in its tileset |
 
 **Fields**
@@ -923,7 +970,22 @@ Two modes:
 - `tileData` (string) — comma-separated tile ids, **row-major**. (Alternative: a `tiles` child node, one
   child per tile with an int `v`.)
 - `fogData` (string, optional) — comma-separated per-tile visibility `0..255` (255 = visible, 0 = hidden
-  → fog). Empty = no fog. Stored as a mipped R8 mask and blended with a tiled fog texture.
+  → fog). Empty = no fog. Stored as an R8 mask and multiplied into the tile color. Reveal incrementally
+  with `render:tilemap:fog` (above) — no tile re-upload.
+- `layers` (array, optional) — **multi-layer chunk** (Strategy A). An array of `{tileData (or a `tiles`
+  child), textureId?}`, read **by index** = compositing order. **Layer 0** is the opaque base terrain
+  (and also drives the legacy `tiles`/`textureId`/LOD path); **layers > 0** are alpha-blended overlays/
+  decals drawn back-to-front (tile id `0` = transparent, skipped). Each layer is its own index + LOD;
+  the fog mask is shared. Retained chunks only.
+
+```jsonc
+// A grass base with a sparse road overlay on top.
+{ "id": 1, "x": 0, "y": 0, "width": 64, "height": 64, "tileW": 16, "tileH": 16,
+  "layers": [
+    { "tileData": "1,1,1,...", "textureId": 10 },   // layer 0 = terrain (opaque)
+    { "tileData": "0,0,5,...", "textureId": 11 }     // layer 1 = road decals (id 0 = nothing)
+  ] }
+```
 
 **Update semantics** (`render:tilemap:update`)
 - **Full replace** — `{id, tileData}` (+ optional `fogData`): replaces the whole grid. **Geometry is fixed**
