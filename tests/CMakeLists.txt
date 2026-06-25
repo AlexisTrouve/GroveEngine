@@ -294,6 +294,23 @@ add_dependencies(test_02_chaos_monkey ChaosModule)
 # CTest integration
 grove_add_test(ChaosMonkey test_02_chaos_monkey ${CMAKE_CURRENT_BINARY_DIR})
 
+# Reload-after-throw safety: deterministic repro + regression lock for the
+# cross-DLL exception-object UAF that makes ChaosMonkey crash intermittently.
+# Reuses ChaosModule (it throws from inside its DLL).
+add_executable(test_reload_after_throw
+    integration/test_reload_after_throw.cpp
+)
+
+target_link_libraries(test_reload_after_throw PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+
+add_dependencies(test_reload_after_throw ChaosModule)
+
+grove_add_test(ReloadAfterThrow test_reload_after_throw ${CMAKE_CURRENT_BINARY_DIR} 180)
+
 # StressModule pour tests de stabilit� long-terme
 add_library(StressModule SHARED
     modules/StressModule.cpp

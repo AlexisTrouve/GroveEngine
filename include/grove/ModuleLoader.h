@@ -52,6 +52,40 @@ private:
     std::vector<std::string> orphanedTempPaths;
 
     /**
+     * A DLL that is finished with but kept MAPPED for one extra reload cycle.
+     *
+     * WHY (deferred unload): a module can throw a std::exception from inside its
+     * own DLL. On MinGW each module .dll statically links its OWN copy of the
+     * exception type's vtable + destructor + the what() string buffer. The
+     * caller catches that exception BY REFERENCE and then calls reload(), which
+     * historically FreeLibrary'd the DLL immediately — WHILE the caught object
+     * was still alive. When the caller's catch scope then exits, the runtime
+     * runs ~exception() through a vtable now living in unmapped memory →
+     * use-after-free → the flaky ChaosMonkey SIGSEGV (un-reproducible under gdb
+     * because the fault depends on whether the freed page was reused yet).
+     *
+     * FIX: reload()/unload() do NOT FreeLibrary the old DLL synchronously. The
+     * handle (and its temp-copy path) are parked here and freed one cycle later —
+     * by which point the caller's catch block (and the exception object it held)
+     * is long gone. Bounded to ~1 entry at steady state (current + one parked).
+     */
+    struct PendingUnload {
+        void*       handle = nullptr;  ///< HMODULE/void* kept mapped until flushed
+        std::string tempPath;          ///< temp copy to delete once truly freed
+        std::string verifyPath;        ///< canonical path to poll out of the module list
+    };
+    std::vector<PendingUnload> pendingUnloads_;
+
+    /**
+     * @brief FreeLibrary/dlclose every parked handle and delete its temp copy.
+     *
+     * Called at the top of unload() (frees the handle parked last cycle, whose
+     * exception object is now certainly dead) and from the destructor (drains
+     * the final parked handle at teardown, when no exception can be in flight).
+     */
+    void flushDeferredUnload();
+
+    /**
      * Number of successful hot-reloads performed by this loader instance.
      *
      * WHY: Used to scale the post-FreeLibrary wait time adaptively.

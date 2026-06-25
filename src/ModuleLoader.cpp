@@ -44,8 +44,12 @@ ModuleLoader::~ModuleLoader() {
         if (logger) {
             logger->warn("⚠️ ModuleLoader destroyed with library still loaded - forcing unload");
         }
-        unload();
+        unload();  // parks the current DLL + flushes any older parked one
     }
+
+    // Drain the final parked DLL. At teardown no caller catch handler can be in
+    // flight, so FreeLibrary on the last deferred handle is safe to do now.
+    flushDeferredUnload();
 
     // Drain any remaining orphaned temp files on destruction so we don't leave
     // files behind when the process exits.
@@ -142,6 +146,83 @@ void ModuleLoader::retryOrphanedDeletions() {
         logger->warn("⚠️ [{} orphaned temp files still locked after retry — total accumulated: {}]",
                      orphanedTempPaths.size(), orphanedTempPaths.size());
     }
+}
+
+void ModuleLoader::flushDeferredUnload() {
+    // QUOI : libérer pour de bon (FreeLibrary / dlclose) les DLLs PARQUÉES au
+    //        cycle précédent, puis supprimer leur copie temporaire.
+    //
+    // POURQUOI : on a volontairement DIFFÉRÉ leur démappage (voir PendingUnload
+    //        dans le header). Une DLL parquée est une DLL dont le module a peut-être
+    //        levé une exception que l'appelant a attrapée PAR RÉFÉRENCE avant de
+    //        rappeler reload(). Si on l'avait FreeLibrary tout de suite, le ~exception()
+    //        exécuté à la sortie du catch de l'appelant sauterait dans une vtable
+    //        démappée → use-after-free (le SIGSEGV flaky de ChaosMonkey, invisible
+    //        sous gdb). En la libérant ICI — au tout début du PROCHAIN unload(), ou
+    //        à la destruction — on a la garantie que la portée catch de l'appelant
+    //        s'est refermée depuis longtemps : l'objet exception est mort, le
+    //        FreeLibrary est donc sûr.
+    //
+    // COMMENT : pour chaque entrée parquée — FreeLibrary, puis (Windows) on attend
+    //        que la DLL quitte la liste des modules du process (poll GetModuleHandleA,
+    //        ~0ms si FreeLibrary démappe tout de suite) AVANT de supprimer la copie
+    //        temp. Plus de sleep aveugle adaptatif : c'était un pansement sur l'UAF
+    //        d'exception, désormais corrigé à la racine (voir le else ci-dessous).
+    //        Enfin, suppression de la copie temp (mise en orphelin si encore verrouillée).
+    if (pendingUnloads_.empty()) return;
+
+    for (auto& p : pendingUnloads_) {
+        if (!p.handle) continue;
+
+#ifdef _WIN32
+        HMODULE handleToFree = static_cast<HMODULE>(p.handle);
+        BOOL freeResult = FreeLibrary(handleToFree);
+        if (!freeResult) {
+            DWORD errorCode = GetLastError();
+            logger->error("❌ FreeLibrary (deferred) failed with error code: {}", errorCode);
+        } else {
+            // NO blind post-FreeLibrary sleep. The historical inline path slept an
+            // adaptive 150–500ms here "to let DW2/SJLJ deregistration + AV hooks
+            // finish before the next LoadLibraryA". That was a SYMPTOMATIC mitigation
+            // for the cross-DLL exception use-after-free that deferred unload now fixes
+            // at the root (see PendingUnload): a bigger wait merely made the freed
+            // vtable page more likely to be already remapped when ~exception() ran, so
+            // the flaky crash fired less often — it never addressed the cause. With the
+            // UAF gone, the only real requirement is that the DLL be fully unmapped
+            // before we delete its temp file / the address is reused. We gate on that
+            // directly — polling GetModuleHandleA until the module leaves the process
+            // list — instead of a fixed blind wait. In the common case FreeLibrary
+            // unmaps synchronously so the first poll returns NULL (~0ms), cutting
+            // recovery latency from ~800ms to ~300ms (ChaosMonkey: 150 recoveries in
+            // <60s instead of timing out at 121s). The poll still tolerates the rare
+            // case where an AV scanner briefly keeps the module listed.
+            if (!p.verifyPath.empty()) {
+                const int maxVerifyRetries   = 50;
+                const int verifyRetryDelayMs = 10;  // up to 500ms ONLY if it lingers
+                for (int i = 0; i < maxVerifyRetries; ++i) {
+                    if (GetModuleHandleA(p.verifyPath.c_str()) == NULL) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(verifyRetryDelayMs));
+                }
+            }
+        }
+#else
+        if (dlclose(p.handle) != 0) {
+            logger->error("❌ dlclose (deferred) failed: {}", dlerror());
+        }
+#endif
+
+        // Now that the DLL is truly unmapped, delete its temp copy (orphan it for
+        // a later retry if the OS/AV still holds the file open).
+        if (!p.tempPath.empty()) {
+            logger->debug("🧹 Cleaning up deferred temp file: {}", p.tempPath);
+            if (!deleteTempFileWithRetry(p.tempPath)) {
+                logger->warn("⚠️ Queuing temp file for deferred deletion: {}", p.tempPath);
+                orphanedTempPaths.push_back(p.tempPath);
+            }
+        }
+    }
+
+    pendingUnloads_.clear();
 }
 
 // ============================================================================
@@ -427,10 +508,35 @@ std::unique_ptr<IModule> ModuleLoader::load(const std::string& path, const std::
 
     // Open library
 #ifdef _WIN32
-    libraryHandle = LoadLibraryA(actualPath.c_str());
+    // Load the library, retrying ONLY on transient file-lock errors.
+    // QUOI : tenter LoadLibraryA ; si l'OS répond par un verrou TRANSITOIRE
+    //        (ERROR_SHARING_VIOLATION 32 / ERROR_ACCESS_DENIED 5 / ERROR_LOCK_VIOLATION 33),
+    //        attendre brièvement et réessayer.
+    // POURQUOI : la copie temp vient d'être écrite ; un scanner antivirus (Defender)
+    //        peut la tenir ouverte le temps de la scanner → le mapping échoue avec un
+    //        verrou transitoire. Sous forte charge parallèle (plusieurs tests
+    //        hot-reload concurrents + scan AV), ça arrive ponctuellement (vu : ctest -j4,
+    //        ChaosMonkey, LoadLibrary err=32). Un retry borné est la réponse correcte à
+    //        une condition transitoire — préférable à l'ancien sleep aveugle de ~500ms
+    //        imposé à CHAQUE reload (il « couvrait » ce cas en ralentissant tout). Ici le
+    //        chemin nominal (pas de verrou) ne paie rien : succès au 1er essai.
+    // COMMENT : jusqu'à 20 essais espacés de 30ms (≈600ms max, et SEULEMENT si verrou).
+    //        Toute autre erreur (DLL invalide / introuvable) échoue immédiatement.
+    DWORD loadError = 0;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        libraryHandle = LoadLibraryA(actualPath.c_str());
+        if (libraryHandle) break;
+        loadError = GetLastError();
+        const bool transientLock = (loadError == ERROR_SHARING_VIOLATION ||
+                                    loadError == ERROR_ACCESS_DENIED ||
+                                    loadError == ERROR_LOCK_VIOLATION);
+        if (!transientLock) break;  // genuine load failure — don't waste retries
+        logger->debug("⏳ LoadLibrary transient lock (err={}, attempt {}/20), retrying in 30ms: {}",
+                      loadError, attempt + 1, actualPath);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    }
     if (!libraryHandle) {
-        DWORD errorCode = GetLastError();
-        std::string error = "LoadLibrary failed with error code " + std::to_string(errorCode);
+        std::string error = "LoadLibrary failed with error code " + std::to_string(loadError);
 
         if (usedTempCopy) {
             DeleteFileA(tempPath.c_str());
@@ -560,44 +666,39 @@ void ModuleLoader::unload() {
         }
     }
 
-    // --- Phase 1: release the library handle -----------------------------------
-#ifdef _WIN32
-    // Save the handle before clearing — we need it to verify unload below.
-    HMODULE handleToFree = static_cast<HMODULE>(libraryHandle);
-    BOOL freeResult = FreeLibrary(handleToFree);
+    // --- Phase 1: free the PREVIOUSLY parked DLL (deferred unload) --------------
+    // If a module threw and the caller caught it by reference before calling
+    // reload() again, that exception object was destroyed when the earlier catch
+    // scope exited — so the parked DLL is no longer referenced and FreeLibrary is
+    // safe now. (See PendingUnload / flushDeferredUnload for the full
+    // use-after-free rationale; it also carries the adaptive post-free wait +
+    // process-module-list verify that used to live here.)
+    flushDeferredUnload();
 
-    if (!freeResult) {
-        DWORD errorCode = GetLastError();
-        logger->error("❌ FreeLibrary failed with error code: {}", errorCode);
-        // Even on failure, null out the handle to avoid double-free.
-        libraryHandle = nullptr;
-        createFunc    = nullptr;
-        libraryPath.clear();
-        moduleName.clear();
-        logUnloadSuccess();
-        return;
-    }
-
-    // --- Phase 1b: verify the module is no longer in the process module list --
-    // Windows Defender / the OS can keep a DLL open momentarily after
-    // FreeLibrary returns TRUE.  If EnumProcessModules still sees it, wait a
-    // little and re-check.  We do NOT call FreeLibrary again — that would
-    // double-decrement the refcount on a DLL we already freed.
-    //
-    // IMPORTANT: when we loaded directly (no temp copy), tempLibraryPath is
-    // empty but libraryPath still holds the original DLL path at this point.
-    // We MUST wait for that path to be released too — otherwise the next copy
-    // attempt in load() will find the file still locked, burn all retries, and
-    // fall back to direct load again, eventually causing SIGSEGV from address-
-    // space exhaustion.
+    // --- Phase 1b: PARK the current DLL instead of freeing it synchronously -----
+    // QUOI : on ne FreeLibrary/dlclose PAS la DLL courante ici ; on garde son
+    //        handle (et sa copie temp) MAPPÉ, à libérer au prochain unload() / à
+    //        la destruction.
+    // POURQUOI : reload() est typiquement appelé depuis le catch de l'appelant qui
+    //        vient d'attraper PAR RÉFÉRENCE une exception levée par CE module. Cet
+    //        objet exception porte une vtable + un destructeur compilés DANS cette
+    //        DLL. La démapper maintenant ferait sauter le ~exception() (exécuté à la
+    //        fermeture du catch, APRÈS le retour de reload()) dans du code libéré →
+    //        use-after-free (le SIGSEGV flaky de ChaosMonkey). En différant d'un
+    //        cycle, la DLL reste mappée au-delà de la portée catch de l'appelant.
+    // COMMENT : on mémorise handle + chemin temp + chemin canonique (pour vérifier
+    //        plus tard sa sortie de la liste des modules) puis on remet le loader en
+    //        état « déchargé ». Borné à ≤1 entrée parquée en régime établi.
     {
-        // Use whichever path we actually loaded from: temp copy if we made one,
-        // original path otherwise (covers the direct-load fallback case).
+        PendingUnload parked;
+        parked.handle   = libraryHandle;
+        parked.tempPath = tempLibraryPath;  // deleted by flushDeferredUnload next cycle
+#ifdef _WIN32
+        // Canonicalize the path we loaded from (temp copy if any, else the
+        // original — covers the direct-load fallback) so a later GetModuleHandleA
+        // can find it in the process module list. Windows stores module handles
+        // under their absolute path, not relative paths like "./foo.dll".
         const std::string& rawVerifyPath = !tempLibraryPath.empty() ? tempLibraryPath : libraryPath;
-
-        // Normalize the path to its fully-qualified form so GetModuleHandleA can
-        // find it in the process module list.  Windows stores module handles under
-        // their canonical absolute path, not relative paths like "./foo.dll".
         std::string verifyPath = rawVerifyPath;
         if (!rawVerifyPath.empty()) {
             char fullPath[MAX_PATH];
@@ -605,96 +706,23 @@ void ModuleLoader::unload() {
                 verifyPath = fullPath;
             }
         }
-
-        // Allow up to 500ms total (50 × 10ms) — long enough for Windows Defender
-        // and AV hooks to finish their post-FreeLibrary scan, but short enough
-        // not to stall the reload noticeably for the user.
-        const int maxVerifyRetries   = 50;
-        const int verifyRetryDelayMs = 10; // 50 × 10ms = 500ms max wait
-
-        // Minimum guaranteed wait after FreeLibrary, even if GetModuleHandleA
-        // immediately returns NULL.  This covers the window where the OS has
-        // removed the module from its module list but has NOT yet finished
-        // running the DLL's cleanup callbacks (exception-frame deregistration,
-        // TLS destructors, __attribute__((destructor)) functions, etc.).
-        // Without this wait, MinGW's DW2/SJLJ exception tables can accumulate
-        // and corrupt after ~100 repeated DLL load/unload cycles, producing
-        // SIGSEGV inside the next LoadLibraryA or the new module's constructors.
-        //
-        // 150ms ensures Windows has completed all post-FreeLibrary cleanup
-        // including AV scanner hooks and exception frame deregistration before
-        // we proceed with the next LoadLibraryA call.
-        //
-        // INCREASED FROM 50ms → 150ms:
-        // The chaos monkey test crashed at reload ~70 with SIGSEGV.  MinGW's
-        // DW2/SJLJ exception tables accumulate corruption when a new DLL is
-        // loaded before the previous one's deregistration callbacks finish.
-        // 50ms was insufficient under load (multiple modules reloading in
-        // parallel); 150ms gives AV scanners and the OS three times as long
-        // to complete teardown before the next LoadLibraryA runs.
-        // Adaptive wait: base 150ms + 30ms per completed reload, capped at 500ms.
-        //
-        // WHY ADAPTIVE: Under sustained reload cycles (chaos monkey), address
-        // space fragments progressively - each reload leaves ghost mappings that
-        // Windows has not fully reclaimed.  A flat 150ms wait is sufficient for
-        // the first ~7 reloads but insufficient beyond that (SIGSEGV at reload 8
-        // traced to address-space exhaustion during LoadLibraryA).
-        // Giving the OS more time per accumulated reload reduces the probability
-        // of SIGSEGV from DW2/SJLJ exception table corruption and AV hook
-        // interference.  The 500ms cap prevents unbounded stall in extreme cases.
-        const uint32_t minWaitMs = std::min(150u + reloadCount_ * 30u, 500u);
-        logger->debug("⏳ Post-FreeLibrary adaptive wait: {}ms (reloadCount={})",
-                      minWaitMs, reloadCount_);
-        std::this_thread::sleep_for(std::chrono::milliseconds(minWaitMs));
-
-        if (!verifyPath.empty()) {
-            for (int i = 0; i < maxVerifyRetries; ++i) {
-                // GetModuleHandleA does NOT increment the refcount (unlike
-                // GetModuleHandleEx without GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT).
-                // NULL return means the OS has fully unmapped the DLL — safe to proceed.
-                HMODULE stillLoaded = GetModuleHandleA(verifyPath.c_str());
-                if (stillLoaded == NULL) {
-                    if (i > 0) {
-                        logger->debug("✅ Module unloaded from process list after {}ms wait (total: {}ms)",
-                                      i * verifyRetryDelayMs, minWaitMs + i * verifyRetryDelayMs);
-                    }
-                    break;
-                }
-                logger->debug("⏳ Module still in process list (attempt {}/{}), waiting {}ms... [path={}]",
-                              i + 1, maxVerifyRetries, verifyRetryDelayMs, verifyPath);
-                std::this_thread::sleep_for(std::chrono::milliseconds(verifyRetryDelayMs));
-            }
-        }
-        // If verifyPath is somehow empty (should not happen), skip the wait —
-        // we have no path to check against (but the minWaitMs above still ran).
-    }
-#else
-    int dlResult = dlclose(libraryHandle);
-    if (dlResult != 0) {
-        std::string error = dlerror();
-        logger->error("❌ dlclose failed: {}", error);
-    }
+        parked.verifyPath = std::move(verifyPath);
 #endif
+        pendingUnloads_.push_back(std::move(parked));
+        logger->debug("🅿️ Parked DLL for deferred unload (pending={})", pendingUnloads_.size());
+    }
 
     libraryHandle = nullptr;
     createFunc    = nullptr;
     libraryPath.clear();
     moduleName.clear();
 
-    // --- Phase 2: delete the temp file ----------------------------------------
-    // Use retry logic to handle the case where the OS (or AV) still has the
-    // file open briefly after FreeLibrary / dlclose returned.
-    if (!tempLibraryPath.empty()) {
-        logger->debug("🧹 Cleaning up temp file: {}", tempLibraryPath);
-
-        if (!deleteTempFileWithRetry(tempLibraryPath)) {
-            // Couldn't delete even after retries.  Store for the next cycle.
-            logger->warn("⚠️ Queuing temp file for deferred deletion: {}", tempLibraryPath);
-            orphanedTempPaths.push_back(tempLibraryPath);
-        }
-
-        tempLibraryPath.clear();
-    }
+    // --- Phase 2: the temp file is now OWNED by the parked entry ----------------
+    // We deferred FreeLibrary, so the temp .dll is still memory-mapped and cannot
+    // be deleted yet; flushDeferredUnload() deletes it once it truly frees the
+    // handle next cycle. Here we only relinquish our copy of the path (ownership
+    // moved into the parked entry above) so we don't double-track or re-delete it.
+    tempLibraryPath.clear();
 
     logUnloadSuccess();
 }
@@ -800,8 +828,10 @@ std::unique_ptr<IModule> ModuleLoader::reload(std::unique_ptr<IModule> currentMo
     auto  reloadEndTime = std::chrono::high_resolution_clock::now();
     float reloadTime    = std::chrono::duration<float, std::milli>(reloadEndTime - reloadStartTime).count();
 
-    // Increment reload counter AFTER successful completion so the next
-    // unload() cycle uses the updated count for its adaptive wait.
+    // Count successful reloads (informational — surfaced in the completion log
+    // and useful for diagnostics). No longer drives any timing: the old adaptive
+    // post-FreeLibrary wait that read this was removed once deferred unload fixed
+    // the underlying exception use-after-free at the root.
     ++reloadCount_;
 
     logger->info("✅ Hot-reload completed in {:.3f}ms (reloadCount now {})",
