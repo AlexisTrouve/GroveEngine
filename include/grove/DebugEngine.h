@@ -37,6 +37,11 @@ private:
     std::vector<std::unique_ptr<IModuleSystem>> moduleSystems;
     std::vector<std::string> moduleNames;
     std::vector<std::unique_ptr<ModuleLoader>> moduleLoaders;
+    // Per-module routed IIO instance, index-aligned with moduleSystems. Non-null
+    // ONLY for static modules (registerStaticModule), which the engine wires +
+    // pumps itself; file-loaded modules carry a null slot (they self-wire inside
+    // the .so). The IntraIOManager singleton co-owns these — shutdown() drops them.
+    std::vector<std::shared_ptr<IIO>> moduleIOs;
 
     // Socket management
     std::unique_ptr<IIO> coordinatorSocket;
@@ -58,6 +63,7 @@ private:
     void logModuleHealth();
     void logSocketHealth();
     void processModuleSystems(float deltaTime);
+    void pumpModuleIO();   // drain each static module's IIO inbox (fire handlers)
     void processClientMessages();
     void processCoordinatorMessages();
     float calculateDeltaTime();
@@ -73,6 +79,10 @@ public:
     void step(float deltaTime) override;
     void shutdown() override;
     void loadModules(const std::string& configPath) override;
+    void registerStaticModule(const std::string& name,
+                              std::unique_ptr<IModule> module,
+                              ModuleSystemType strategy,
+                              std::unique_ptr<IDataNode> config = nullptr) override;
     void registerMainSocket(std::unique_ptr<IIO> coordinatorSocket) override;
     void registerNewClientSocket(std::unique_ptr<IIO> clientSocket) override;
     EngineType getType() const override;

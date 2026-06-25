@@ -3,6 +3,9 @@
 #include <grove/JsonDataValue.h>
 #include <grove/ModuleSystemFactory.h>
 #include <grove/SequentialModuleSystem.h>
+#include <grove/IModule.h>          // full IModule (setConfiguration) for static hosting
+#include <grove/IntraIOManager.h>   // routed IIO instances for static modules
+#include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <grove/platform/FileSystem.h>
@@ -97,6 +100,11 @@ void DebugEngine::step(float deltaTime) {
             processClientMessages();
         }
 
+        // Deliver queued inter-module messages to their handlers BEFORE processing,
+        // so each module's process() sees this frame's inbound traffic. Without this
+        // the routed IIO queues fill but no subscribed handler ever fires.
+        pumpModuleIO();
+
         // Process all module systems
         if (!moduleSystems.empty()) {
             logger->trace("🔧 Processing {} module system(s)", moduleSystems.size());
@@ -138,6 +146,16 @@ void DebugEngine::shutdown() {
             // Note: ModuleSystems don't have shutdown in interface yet
             // This would be added when implementing IModuleSystem
         }
+        // Drop each static module's routed IIO instance from the global router so
+        // it stops routing to a dead module and is actually destroyed (the manager
+        // co-owns it). tryGetLiveInstance() never CREATES the singleton — if no
+        // static module was ever hosted it's null and we skip (static-teardown safe).
+        if (IntraIOManager* mgr = IntraIOManager::tryGetLiveInstance()) {
+            for (size_t i = 0; i < moduleIOs.size() && i < moduleNames.size(); ++i) {
+                if (moduleIOs[i]) mgr->removeInstance(moduleNames[i]);
+            }
+        }
+        moduleIOs.clear();
         moduleSystems.clear();
         moduleNames.clear();
         logger->info("✅ All module systems shut down");
@@ -485,6 +503,90 @@ void DebugEngine::validateConfiguration() {
     logger->trace("🚧 TODO: Implement comprehensive config validation");
 }
 
+// ============================================================================
+// Static module hosting — the entry point for static-linked games.
+// ============================================================================
+void DebugEngine::registerStaticModule(const std::string& name,
+                                       std::unique_ptr<IModule> module,
+                                       ModuleSystemType strategy,
+                                       std::unique_ptr<IDataNode> config) {
+    // QUOI : héberge un module DÉJÀ instancié dans l'engine, sans .so/.dll.
+    // POURQUOI : le seul chemin d'entrée existant (registerModuleFromFile) charge
+    //   depuis un .so et — pire — ne câblait jamais setConfiguration ni l'IIO, donc
+    //   un jeu static-linké devait contourner l'engine entièrement. C'est LE fix :
+    //   on prend le module, on le câble dans le vrai routeur, on le pilote.
+    // COMMENT : 1. ModuleSystem par module (même factory que le chemin .so),
+    //   2. on crée l'instance IIO ROUTÉE du module (IntraIOManager singleton) —
+    //      c'est le routeur qui porte réellement le trafic inter-modules, pas le
+    //      setIOLayer() vestigial, 3. setConfiguration(config, io, scheduler) où le
+    //      ModuleSystem fait office d'ITaskScheduler (il EN est un), AVANT tout
+    //      process(), 4. registerModule, 5. stockage index-aligné (slot loader nul
+    //      = pas de .so → reloadModule le refuse proprement).
+    logger->info("📦 Registering STATIC module '{}' (no .so/.dll)", name);
+    logger->debug("⚙️ Module system strategy: {}", static_cast<int>(strategy));
+
+    if (!module) {
+        logger->error("❌ Cannot register a null static module '{}'", name);
+        throw std::invalid_argument("registerStaticModule: null module for '" + name + "'");
+    }
+
+    try {
+        // 1. Per-module ModuleSystem (only the module SOURCE differs from the .so
+        //    path — the hosting is identical).
+        auto moduleSystem = ModuleSystemFactory::create(strategy);
+
+        // 2. Routed IIO instance for this module. The manager co-owns it; we keep
+        //    a handle to pump it each step() and to drop it in shutdown().
+        std::shared_ptr<IIO> io = IntraIOManager::getInstance().createInstance(name);
+
+        // 3. Configure BEFORE the module is ever processed: real routed IIO + the
+        //    ModuleSystem as the ITaskScheduler. A null config becomes an empty node
+        //    so setConfiguration always receives a valid reference.
+        std::unique_ptr<IDataNode> cfg = config
+            ? std::move(config)
+            : std::make_unique<JsonDataNode>("config", json::object());
+        module->setConfiguration(*cfg, io.get(), moduleSystem.get());
+
+        // 4. Hand the configured module to its system.
+        moduleSystem->registerModule(name, std::move(module));
+
+        // 5. Store everything index-aligned across the parallel vectors.
+        moduleLoaders.push_back(nullptr);              // static module → no .so loader
+        moduleSystems.push_back(std::move(moduleSystem));
+        moduleIOs.push_back(std::move(io));
+        moduleNames.push_back(name);
+
+        logger->info("✅ Static module '{}' registered + wired (total: {})", name, moduleNames.size());
+
+    } catch (const std::exception& e) {
+        logger->error("❌ Failed to register static module '{}': {}", name, e.what());
+        throw;
+    }
+}
+
+// Drain every static module's IIO inbox so its subscribed handlers actually fire.
+// QUOI : pour chaque instance IIO de module, pullAndDispatch jusqu'à vide.
+// POURQUOI : la livraison IntraIO est EN FILE — publish() enfile dans l'instance
+//   cible, et le callback enregistré par subscribe() ne se déclenche QUE sur
+//   pullAndDispatch(). Sans ce drain, l'engine appellerait process() sur des
+//   modules qui ne reçoivent jamais un seul message (l'IIO mort signalé).
+// COMMENT : appelé une fois par step(), AVANT processModuleSystems(), pour que le
+//   trafic entrant soit livré avant le process() de chaque module (latence 1 frame
+//   par saut, standard). Cap par instance pour qu'un handler qui se republie à
+//   lui-même ne fasse pas tourner la frame à l'infini. Slots nuls (modules .so qui
+//   se câblent eux-mêmes) ignorés.
+void DebugEngine::pumpModuleIO() {
+    constexpr int kMaxDrainPerFrame = 100000;  // garde-fou anti boucle de self-republish
+    for (auto& io : moduleIOs) {
+        if (!io) continue;
+        int drained = 0;
+        while (io->hasMessages() > 0 && drained < kMaxDrainPerFrame) {
+            io->pullAndDispatch();
+            ++drained;
+        }
+    }
+}
+
 // Hot-reload methods
 void DebugEngine::registerModuleFromFile(const std::string& name, const std::string& modulePath, ModuleSystemType strategy) {
     logger->info("📦 Registering module '{}' from file: {}", name, modulePath);
@@ -506,9 +608,11 @@ void DebugEngine::registerModuleFromFile(const std::string& name, const std::str
         logger->debug("🔗 Registering module with system");
         moduleSystem->registerModule(name, std::move(module));
 
-        // Store everything
+        // Store everything (index-aligned with moduleIOs — a file-loaded module
+        // self-wires its IIO inside the .so, so it gets a null slot here).
         moduleLoaders.push_back(std::move(loader));
         moduleSystems.push_back(std::move(moduleSystem));
+        moduleIOs.push_back(nullptr);
         moduleNames.push_back(name);
 
         logger->info("✅ Module '{}' registered successfully", name);
@@ -535,6 +639,15 @@ void DebugEngine::reloadModule(const std::string& name) {
 
         size_t index = std::distance(moduleNames.begin(), it);
         logger->debug("🔍 Found module '{}' at index {}", name, index);
+
+        // A static module (registerStaticModule) has no .so loader — there is
+        // nothing to reload from. Refuse cleanly instead of dereferencing the null
+        // loader slot (which the auto-recovery path in processModuleSystems could
+        // otherwise hit and crash on).
+        if (!moduleLoaders[index]) {
+            logger->error("❌ Module '{}' is STATIC (no .so) — hot-reload not supported", name);
+            throw std::runtime_error("Cannot hot-reload a static module: " + name);
+        }
 
         // Get references
         auto& moduleSystem = moduleSystems[index];

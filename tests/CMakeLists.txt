@@ -859,6 +859,33 @@ add_dependencies(test_11_io_system ProducerModule ConsumerModule BroadcastModule
 # CTest integration
 grove_add_test(IOSystemStress test_11_io_system ${CMAKE_CURRENT_BINARY_DIR})
 
+# Static engine hosting — IEngine::registerStaticModule + setConfiguration wiring +
+# per-module IIO pump. Acceptance lock for the static-linked-game use case: 3
+# already-instantiated modules talk to each other THROUGH the engine, driven by
+# engine.step(dt) only (no .so, no manual process(), no manual IIO routing).
+# In-process, Catch2, no DLLs.
+add_executable(test_static_engine_hosting
+    integration/test_static_engine_hosting.cpp
+)
+target_link_libraries(test_static_engine_hosting PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(StaticEngineHosting test_static_engine_hosting ${CMAKE_CURRENT_BINARY_DIR})
+
+# Engine hosting demo — human-readable companion to the test above. Hosts 3 static
+# modules in a DebugEngine and narrates the inter-module flow frame by frame. Run
+# manually (not a ctest — it's a demo, the test is the regression lock). No GPU/SDL/.so.
+add_executable(test_engine_hosting_demo
+    visual/test_engine_hosting_demo.cpp
+)
+target_link_libraries(test_engine_hosting_demo PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+message(STATUS "Engine hosting demo 'test_engine_hosting_demo' enabled (run manually)")
+
 # ================================================================================
 # Benchmarks
 # ================================================================================

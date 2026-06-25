@@ -3,10 +3,14 @@
 #include <string>
 #include <memory>
 
+#include "IModuleSystem.h"   // for ModuleSystemType (used by registerStaticModule)
+
 // Forward declarations to avoid circular dependencies
 namespace grove {
     class IModuleSystem;
     class IIO;
+    class IModule;
+    class IDataNode;
 }
 
 namespace grove {
@@ -94,6 +98,32 @@ public:
      * }
      */
     virtual void loadModules(const std::string& configPath) = 0;
+
+    /**
+     * @brief Register an already-instantiated module — STATIC link, no .so/.dll
+     * @param name Unique module identifier (also its IIO routing id)
+     * @param module Already-constructed module (ownership transferred to the engine)
+     * @param strategy Execution strategy for this module's per-module ModuleSystem
+     * @param config Optional configuration node forwarded to setConfiguration()
+     *               (nullptr → the engine synthesises an empty config)
+     *
+     * The static counterpart to loadModules(): a host that links the engine AND
+     * its modules into one binary hands a live std::unique_ptr<IModule> straight
+     * in, with no dynamic library involved. The engine takes full ownership and:
+     *   1. creates a per-module ModuleSystem of the requested strategy,
+     *   2. creates the module's routed IIO instance and wires it through
+     *      setConfiguration(config, io, scheduler) — the ModuleSystem doubles as
+     *      the ITaskScheduler,
+     *   3. registers the module and pumps its IIO inbox on every step().
+     *
+     * After this, step(dt) is the ONLY per-frame call the host needs — no manual
+     * process(), no manual message routing. This is what makes the engine usable
+     * by a static-linked game (the file-loading path is for hot-reload dev only).
+     */
+    virtual void registerStaticModule(const std::string& name,
+                                      std::unique_ptr<IModule> module,
+                                      ModuleSystemType strategy,
+                                      std::unique_ptr<IDataNode> config = nullptr) = 0;
 
     /**
      * @brief Register main coordinator socket
