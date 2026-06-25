@@ -2518,6 +2518,28 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Demo capture tool 'capture_ui_demo' enabled")
 
+    # Engine-hosted capture: the SAME Fleet Command screen, but UIModule + BgfxRenderer
+    # are HOSTED ON THE ENGINE (registerStaticModule + engine.step()), not hand-wired.
+    # The visual half of the "UI runs on the engine" proof (headless logic lock = IT_053).
+    add_executable(capture_ui_on_engine visual/capture_ui_on_engine.cpp)
+    target_include_directories(capture_ui_on_engine PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(capture_ui_on_engine PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_ui_on_engine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_ui_on_engine>")
+    endif()
+    message(STATUS "Engine-hosted capture tool 'capture_ui_on_engine' enabled")
+
     # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
     add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
     target_include_directories(capture_ship_inspector PRIVATE
