@@ -372,6 +372,16 @@ public:
         m_transientPoolCount = 0;
     }
 
+    void requestScreenShot(const std::string& filePath) override {
+        // QUOI : demande a bgfx une capture du BACKBUFFER (handle invalide = backbuffer).
+        // POURQUOI : sert le devlog (cf. RHIDevice.h). bgfx lit les pixels au prochain
+        //            bgfx::frame() puis appelle CallbackI::screenShot -> le callback PAR
+        //            DEFAUT ecrit "<filePath>.tga" (bgfx.cpp, CallbackStub). Aucune init
+        //            de callback custom requise -> changement minimal et sans risque.
+        // COMMENT : non-bloquant ; la capture est prete apres le frame() qui suit l'appel.
+        bgfx::requestScreenShot(BGFX_INVALID_HANDLE, filePath.c_str());
+    }
+
     // ========================================
     // Offscreen framebuffers (test / readback)
     // ========================================

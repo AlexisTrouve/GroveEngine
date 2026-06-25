@@ -148,6 +148,18 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                                        static_cast<uint16_t>(d.getInt("frames", 0)),
                                        static_cast<float>(d.getDouble("fps", 0.0)));
         });
+
+        // Runtime topic: capture du backbuffer pour le devlog. La scene publie
+        // render:screenshot {path} ; on relaie au device (qui demande la capture a
+        // bgfx, ecrite au prochain frame()). Ce handler tourne pendant collect()
+        // (avant le frame() de process()) -> la capture sort sur la frame courante.
+        // SceneCollector ignore ce topic (pas une primitive) ; on le traite ici, ou
+        // vit le device -- comme render:tilemap:anim.
+        m_io->subscribe("render:screenshot", [this](const Message& msg) {
+            if (!msg.data || !m_device) return;
+            const std::string path = msg.data->getString("path", "");
+            if (!path.empty()) m_device->requestScreenShot(path);
+        });
     }
 
     // Create SpritePass and keep reference for texture binding

@@ -81,6 +81,18 @@ public:
     // Frame
     virtual void frame() = 0;
 
+    // Screenshot of the BACKBUFFER, written to disk on the next frame.
+    // QUOI    : demande une capture du backbuffer ; le fichier est ecrit (par le
+    //           backend) au prochain frame() sous le chemin `filePath` (+ extension
+    //           selon le backend, p.ex. ".tga" pour le callback bgfx par defaut).
+    // POURQUOI: le jeu a besoin de captures pour son devlog (pipeline externe qui
+    //           clone le repo) ; en faire une primitive de rendu (topic render:
+    //           screenshot) garde l'isolation R1 -- la scene publie, le renderer
+    //           capture, aucun acces direct a bgfx cote jeu.
+    // COMMENT : impl PAR DEFAUT = no-op -> les backends sans capture (mock, autres
+    //           RHI) ne sont pas forces de l'implementer ; seul BgfxDevice override.
+    virtual void requestScreenShot(const std::string& filePath) { (void)filePath; }
+
     // Command buffer execution
     virtual void executeCommandBuffer(const class RHICommandBuffer& cmdBuffer) = 0;
 
