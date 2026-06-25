@@ -1842,6 +1842,19 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(UIScrollPanelE2E IT_019_ui_scrollpanel_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_053: the WHOLE UI runs HOSTED ON THE ENGINE (registerStaticModule + engine.step()),
+    # not hand-wired. Same scenario as IT_044 but UIModule is constructed statically
+    # (UIModule_static) and driven entirely through DebugEngine. Headless, no .so, no GPU.
+    add_executable(IT_053_ui_on_engine_e2e
+        integration/IT_053_ui_on_engine_e2e.cpp
+    )
+    target_link_libraries(IT_053_ui_on_engine_e2e PRIVATE
+        UIModule_static          # full UIModule (PUBLIC: include dir + GroveEngine::impl)
+        GroveEngine::core
+        Catch2::Catch2WithMain
+    )
+    grove_add_test(UIOnEngineE2E IT_053_ui_on_engine_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # test_radial_math: pure action-wheel geometry (RadialMath.h), no GPU/module/IIO.
     add_executable(test_radial_math unit/test_radial_math.cpp)
     target_include_directories(test_radial_math PRIVATE

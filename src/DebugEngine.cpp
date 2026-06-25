@@ -100,16 +100,22 @@ void DebugEngine::step(float deltaTime) {
             processClientMessages();
         }
 
-        // Deliver queued inter-module messages to their handlers BEFORE processing,
-        // so each module's process() sees this frame's inbound traffic. Without this
-        // the routed IIO queues fill but no subscribed handler ever fires.
-        pumpModuleIO();
-
-        // Process all module systems
+        // Process all module systems FIRST. Self-draining modules (e.g. UIModule)
+        // pull their OWN inbox inside process() — and that ordering is load-bearing:
+        // UIModule resets per-frame input edges in beginFrame() then reads them in
+        // processInput(), so pumping its inbox BEFORE process() would let beginFrame()
+        // wipe the click before updateUI() ever sees it. Hence: process, THEN pump.
         if (!moduleSystems.empty()) {
             logger->trace("🔧 Processing {} module system(s)", moduleSystems.size());
             processModuleSystems(deltaTime);
         }
+
+        // Deliver any STILL-queued inter-module messages to their handlers — the
+        // safety net for modules that do NOT self-drain in process() (without it
+        // their routed IIO queues fill but no subscribed handler ever fires). Runs
+        // AFTER processing (one-frame delivery latency, standard) so it never races a
+        // self-draining module's beginFrame()/processInput() ordering above.
+        pumpModuleIO();
 
         // Health monitoring every 30 frames
         if (frameCount % 30 == 0) {
