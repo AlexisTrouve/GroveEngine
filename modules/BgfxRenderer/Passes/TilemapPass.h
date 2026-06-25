@@ -131,11 +131,15 @@ private:
     // frame — stable while the submitted chunk set is stable. A4's retained chunkId path replaces
     // this positional cache with a true upload-once grid.
     struct IndexTexture {
-        rhi::TextureHandle handle;   // R16UI tile-index texture (detail band)
-        rhi::TextureHandle lod;      // RGBA8 mipped LOD color texture (zoom-out band, Slice B)
-        rhi::TextureHandle fog;      // R8 mipped visibility texture (Slice fog; invalid = no fog)
+        rhi::TextureHandle handle;   // R16UI tile-index texture (detail band) — layer 0
+        rhi::TextureHandle lod;      // RGBA8 mipped LOD color texture (zoom-out band, Slice B) — layer 0
+        rhi::TextureHandle fog;      // R8 mipped visibility texture (Slice fog; invalid = no fog) — per chunk
         uint16_t width = 0;
         uint16_t height = 0;
+        // Multi-layer overlays (Strategy A): one {index, lod} per layer beyond layer 0 (= handle/lod).
+        // Sized to chunk.layerCount-1, (re)built with the chunk. Drawn alpha-blended on top of layer 0.
+        std::vector<rhi::TextureHandle> extraIndex;
+        std::vector<rhi::TextureHandle> extraLod;
     };
     // Ephemeral chunks (id == 0): positional cache, re-uploaded every frame (legacy immediate path).
     std::vector<IndexTexture> m_indexTextures;

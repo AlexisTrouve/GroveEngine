@@ -19,6 +19,7 @@
 #include "grove/IntraIO.h"
 #include "grove/IntraIOManager.h"
 #include "grove/JsonDataNode.h"
+#include <nlohmann/json.hpp>
 
 #include <memory>
 #include <chrono>
@@ -233,6 +234,36 @@ TEST_CASE("SceneCollector - render:tilemap:fog patches the fog sub-rect, sets fo
 
     // Next frame: fogDirty cleared after consumption.
     REQUIRE(fx.collector.finalize(allocator).tilemaps[0].fogDirty == false);
+}
+
+TEST_CASE("SceneCollector - render:tilemap:add with layers[] builds a multi-layer chunk (Strategy A)", "[scene_collector][retained][multilayer]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A 2x2 chunk id=30 with TWO layers: base (id 1, tileset 0) + overlay (one teal tile, tileset 7).
+    auto add = std::make_unique<JsonDataNode>("tm", nlohmann::json{
+        {"id", 30}, {"width", 2}, {"height", 2}, {"tileW", 1}, {"tileH", 1},
+        {"layers", nlohmann::json::array({
+            nlohmann::json{ {"tileData", "1,1,1,1"}, {"textureId", 0} },   // layer 0 = base
+            nlohmann::json{ {"tileData", "0,3,0,0"}, {"textureId", 7} }    // layer 1 = overlay
+        })}
+    });
+    fx.ioPublisher->publish("render:tilemap:add", std::move(add));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.tilemapCount == 1);
+    const TilemapChunk& c = p.tilemaps[0];
+    REQUIRE(c.layerCount == 2);
+    REQUIRE(c.layers != nullptr);
+    REQUIRE(c.layers[0].tiles[0] == 1);          // base grid
+    REQUIRE(c.layers[0].textureId == 0);
+    REQUIRE(c.layers[1].tiles[1] == 3);          // overlay's teal tile at index 1
+    REQUIRE(c.layers[1].textureId == 7);
+    // Layer 0 is also mirrored into the legacy single-tile path (LOD/partial/upload use it).
+    REQUIRE(c.tiles != nullptr);
+    REQUIRE(c.tiles[0] == 1);
+    REQUIRE(c.textureId == 0);
 }
 
 TEST_CASE("SceneCollector - retained tilemap: partial update patches a sub-rect + dirty rect (A4.2)", "[scene_collector][retained]") {

@@ -25,13 +25,13 @@ static rhi::TextureHandle createIndexTexture(rhi::IRHIDevice& device, uint16_t w
 // Bake the chunk's mipped LOD color texture (Slice B): build the mip chain with the pure helper in
 // LodColor.h, then upload it. Linear + mips => GPU trilinear gives the smooth, alias-free zoom-out
 // band. (The mip-chain math is unit-tested headless; see test_lod_color.)
-static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
+static rhi::TextureHandle bakeLodColorFor(rhi::IRHIDevice& device, uint16_t w, uint16_t h, const uint16_t* tiles) {
     int mips = 1;
-    std::vector<uint32_t> buf = lod::buildLodMipChain(chunk.width, chunk.height, chunk.tiles, mips);
+    std::vector<uint32_t> buf = lod::buildLodMipChain(w, h, tiles, mips);
 
     rhi::TextureDesc d;
-    d.width     = chunk.width;
-    d.height    = chunk.height;
+    d.width     = w;
+    d.height    = h;
     d.mipLevels = static_cast<uint8_t>(mips);
     d.format    = rhi::TextureDesc::RGBA8;
     d.filter    = rhi::TextureDesc::Linear;          // trilinear over the mip chain
@@ -39,6 +39,10 @@ static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChu
     d.data      = buf.data();
     d.dataSize  = static_cast<uint32_t>(buf.size() * sizeof(uint32_t));
     return device.createTexture(d);                  // bgfx::copy duplicates `buf`
+}
+
+static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
+    return bakeLodColorFor(device, chunk.width, chunk.height, chunk.tiles);
 }
 
 // Bake the chunk's mipped R8 visibility (fog) texture from chunk.fog (Slice fog). Linear + mips =>
@@ -180,6 +184,8 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
         if (idx.handle.isValid()) device.destroy(idx.handle);
         if (idx.lod.isValid()) device.destroy(idx.lod);
         if (idx.fog.isValid()) device.destroy(idx.fog);
+        for (auto h : idx.extraIndex) if (h.isValid()) device.destroy(h);   // multi-layer overlays
+        for (auto h : idx.extraLod)   if (h.isValid()) device.destroy(h);
     }
     m_retainedIndex.clear();
 }
@@ -245,12 +251,14 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
 
         rhi::TextureHandle lodTex;
         rhi::TextureHandle fogTex = m_defaultFog;
+        IndexTexture* ridx = nullptr;   // set for retained chunks -> source of multi-layer overlay textures
 
         if (chunk.id != 0) {
             // Retained (Slice A4): cache by chunk id, upload ONLY when the chunk is dirty (the frame
             // it was added/updated) or just (re)created. A static chunk uploads exactly once.
             seenRetained.insert(chunk.id);
             IndexTexture& idx = m_retainedIndex[chunk.id];
+            ridx = &idx;   // retained chunks carry the multi-layer overlay textures
             const bool needsCreate =
                 !idx.handle.isValid() || idx.width != chunk.width || idx.height != chunk.height;
             if (needsCreate) {
@@ -285,6 +293,19 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 // Fog (Slice fog): re-bake the R8 visibility texture on any content change (covers fog too).
                 if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
                 if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
+                // Multi-layer overlays (Strategy A): (re)create an index + LOD per layer beyond layer 0
+                // (which is handle/lod above). Full re-upload on any content change (no partial for extras).
+                const size_t extraCount = (chunk.layerCount > 1) ? chunk.layerCount - 1 : 0;
+                for (auto h : idx.extraIndex) if (h.isValid()) device.destroy(h);
+                for (auto h : idx.extraLod)   if (h.isValid()) device.destroy(h);
+                idx.extraIndex.assign(extraCount, rhi::TextureHandle{});
+                idx.extraLod.assign(extraCount, rhi::TextureHandle{});
+                for (size_t li = 0; li < extraCount; ++li) {
+                    const TilemapLayer& L = chunk.layers[li + 1];
+                    idx.extraIndex[li] = createIndexTexture(device, chunk.width, chunk.height);
+                    if (L.tiles) device.updateTexture(idx.extraIndex[li], L.tiles, bytes, 0, 0, chunk.width, chunk.height);
+                    idx.extraLod[li] = bakeLodColorFor(device, chunk.width, chunk.height, L.tiles);
+                }
             } else if (chunk.fogDirty && chunk.fog != nullptr && chunk.fogDirtyW > 0) {
                 // FOG-ONLY partial reveal: patch just the R8 mask sub-rect (mip 0) — no tile upload, no
                 // LOD re-bake. The fog texture is mutable (created empty), so the region update applies.
@@ -330,36 +351,43 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             fogTex = idx.fog.isValid() ? idx.fog : m_defaultFog;
         }
 
-        // Atlas = the chunk's registered tileset array (Slice A3.3), else the procedural color array.
-        // Both are texture2DArrays (one tile type per layer), so the sampler2DArray bind is valid.
-        rhi::TextureHandle tileset = m_defaultAtlas;
-        if (chunk.textureId != 0) {
-            auto it = m_tilesets.find(chunk.textureId);
-            if (it != m_tilesets.end() && it->second.isValid()) {
-                tileset = it->second;
+        // Per-LAYER draw (Strategy A). Same uniforms/state/quad; the layer supplies its own index + LOD +
+        // tileset. The tilemap state is BlendMode::Alpha, so drawing layer 0 then the overlays back-to-front
+        // composites them (layer 0 opaque covers; overlay tile id 0 is transparent + discarded -> base shows).
+        const float params[4] = { chunk.x, chunk.y, tw, th };
+        const float grid[4]   = { static_cast<float>(chunk.width), static_cast<float>(chunk.height),
+                                  static_cast<float>(m_tilesPerRow), static_cast<float>(m_tilesPerCol) };
+        auto drawLayer = [&](rhi::TextureHandle index, rhi::TextureHandle lod, uint16_t texId) {
+            rhi::TextureHandle tileset = m_defaultAtlas;
+            if (texId != 0) {
+                auto it = m_tilesets.find(texId);
+                if (it != m_tilesets.end() && it->second.isValid()) tileset = it->second;
+            }
+            cmd.setState(state);
+            cmd.setUniform(m_paramsUniform, params, 1);
+            cmd.setUniform(m_gridUniform, grid, 1);
+            cmd.setUniform(m_animUniform, animData, kMaxTileAnims);   // animated-tile table + clock
+            cmd.setUniform(m_animMetaUniform, animMeta, 1);
+            cmd.setTexture(0, index, m_indexSampler);
+            cmd.setTexture(1, tileset, m_atlasSampler);
+            cmd.setTexture(2, lod, m_lodSampler);
+            cmd.setTexture(3, fogTex, m_fogSampler);
+            cmd.setTexture(4, m_fogNoise.isValid() ? m_fogNoise : m_defaultFogNoise, m_fogNoiseSampler);
+            cmd.setVertexBuffer(m_quadVB);
+            cmd.setIndexBuffer(m_quadIB);
+            cmd.drawIndexed(6);
+            cmd.submit(0, m_shader, 0);
+        };
+
+        // Layer 0 (= the legacy single grid: indexTex/lodTex/chunk.textureId).
+        drawLayer(indexTex, lodTex, chunk.textureId);
+        // Overlays (layers 1..N-1) for a retained multi-layer chunk, alpha-blended on top.
+        if (ridx && chunk.layerCount > 1) {
+            const size_t extraCount = chunk.layerCount - 1;
+            for (size_t li = 0; li < extraCount && li < ridx->extraIndex.size(); ++li) {
+                drawLayer(ridx->extraIndex[li], ridx->extraLod[li], chunk.layers[li + 1].textureId);
             }
         }
-
-        // Per-chunk draw: state, uniforms, two textures (index + atlas), one quad.
-        cmd.setState(state);
-
-        float params[4] = { chunk.x, chunk.y, tw, th };
-        float grid[4]   = { static_cast<float>(chunk.width), static_cast<float>(chunk.height),
-                            static_cast<float>(m_tilesPerRow), static_cast<float>(m_tilesPerCol) };
-        cmd.setUniform(m_paramsUniform, params, 1);
-        cmd.setUniform(m_gridUniform, grid, 1);
-        cmd.setUniform(m_animUniform, animData, kMaxTileAnims);   // animated-tile table + clock
-        cmd.setUniform(m_animMetaUniform, animMeta, 1);
-
-        cmd.setTexture(0, indexTex, m_indexSampler);
-        cmd.setTexture(1, tileset, m_atlasSampler);
-        cmd.setTexture(2, lodTex, m_lodSampler);
-        cmd.setTexture(3, fogTex, m_fogSampler);
-        cmd.setTexture(4, m_fogNoise.isValid() ? m_fogNoise : m_defaultFogNoise, m_fogNoiseSampler);
-        cmd.setVertexBuffer(m_quadVB);
-        cmd.setIndexBuffer(m_quadIB);
-        cmd.drawIndexed(6);
-        cmd.submit(0, m_shader, 0);
     }
 
     // GC retained index textures whose chunk id was not present this frame (chunk removed). Keeps
@@ -369,6 +397,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             if (it->second.handle.isValid()) device.destroy(it->second.handle);
             if (it->second.lod.isValid()) device.destroy(it->second.lod);
             if (it->second.fog.isValid()) device.destroy(it->second.fog);
+            for (auto h : it->second.extraIndex) if (h.isValid()) device.destroy(h);   // multi-layer overlays
+            for (auto h : it->second.extraLod)   if (h.isValid()) device.destroy(h);
             it = m_retainedIndex.erase(it);
         } else {
             ++it;

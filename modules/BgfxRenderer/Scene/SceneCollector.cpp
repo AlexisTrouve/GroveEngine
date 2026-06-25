@@ -232,6 +232,24 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
                             chunk.fog = fogCopy;
                         }
                     }
+                    // Multi-layer (Strategy A): copy each layer's grid into frame memory + build the
+                    // TilemapLayer array (layer 0 == chunk.tiles above; layers[1..] = the overlays).
+                    if (!rt.layerTiles.empty()) {
+                        TilemapLayer* layerArr = allocator.allocateArray<TilemapLayer>(rt.layerTiles.size());
+                        if (layerArr) {
+                            for (size_t li = 0; li < rt.layerTiles.size(); ++li) {
+                                const std::vector<uint16_t>& lt = rt.layerTiles[li];
+                                uint16_t* copy = static_cast<uint16_t*>(
+                                    allocator.allocate(lt.size() * sizeof(uint16_t), alignof(uint16_t)));
+                                if (copy && !lt.empty()) std::memcpy(copy, lt.data(), lt.size() * sizeof(uint16_t));
+                                layerArr[li].tiles = copy;
+                                layerArr[li].tileCount = lt.size();
+                                layerArr[li].textureId = (li < rt.layerTexIds.size()) ? rt.layerTexIds[li] : 0;
+                            }
+                            chunk.layers = layerArr;
+                            chunk.layerCount = rt.layerTiles.size();
+                        }
+                    }
                     tilemaps[idx++] = chunk;
                     // Consumed this frame -> clean until the next update (clears the dirty rects too).
                     rt.chunk.dirty = false;
@@ -623,6 +641,21 @@ void SceneCollector::parseTilemapAdd(const IDataNode& data) {
     rt.chunk.dirty = true;            // upload on the next finalize
     rt.tiles = parseTileArray(data);
     rt.fog = parseFogData(data);      // optional per-tile visibility (empty = no fog)
+    // Multi-layer (Strategy A): a "layers" array of {tileData/tiles, textureId?}, read BY INDEX (order =
+    // compositing order, 0 = base). layer 0 also drives the legacy `tiles`/textureId/LOD path.
+    IDataNode* layersNode = const_cast<IDataNode&>(data).getChildReadOnly("layers");
+    if (layersNode) {
+        for (int i = 0; ; ++i) {
+            IDataNode* L = layersNode->getChildReadOnly(std::to_string(i));
+            if (!L) break;
+            rt.layerTiles.push_back(parseTileArray(*L));
+            rt.layerTexIds.push_back(static_cast<uint16_t>(L->getInt("textureId", 0)));
+        }
+    }
+    if (!rt.layerTiles.empty()) {
+        rt.tiles = rt.layerTiles[0];              // layer 0 = the legacy single grid
+        rt.chunk.textureId = rt.layerTexIds[0];
+    }
     rt.chunk.tiles = nullptr;         // pointers fixed in finalize
     rt.chunk.tileCount = rt.tiles.size();
     m_retainedTilemaps[id] = std::move(rt);

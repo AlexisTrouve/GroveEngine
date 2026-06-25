@@ -51,6 +51,10 @@ private:
         TilemapChunk chunk;
         std::vector<uint16_t> tiles;
         std::vector<uint8_t> fog;   // per-tile visibility 0..255 (empty = no fog); Slice fog
+        // Multi-layer (Strategy A): each layer's tile grid + tileset id. Empty = single-layer (uses `tiles`).
+        // layerTiles[0] mirrors `tiles` (layer 0 = the legacy path). Pointers fixed into frame memory in finalize.
+        std::vector<std::vector<uint16_t>> layerTiles;
+        std::vector<uint16_t> layerTexIds;
     };
     std::unordered_map<uint32_t, RetainedTilemap> m_retainedTilemaps;
 

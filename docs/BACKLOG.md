@@ -75,7 +75,13 @@ camera items are above. The genuine engine gaps it surfaces:
   `[gpu]` readback (a tile's colour cycles with time). Capped at 4 animated types (the 16-float setUniform
   command-buffer limit). *En passant: fixed `BgfxDevice::createUniform` — it dropped bgfx's `_num`
   and mistyped arrays as Mat4 (never exercised until `u_tileAnim[4]`).*
-  **Remaining (deferred):** **multi-layer** chunks (terrain + overlay).
+  **Multi-layer chunks — ✅ SHIPPED** (Strategy A). `render:tilemap:add` takes `layers:[{tileData,textureId?}]`:
+  layer 0 = opaque terrain (the legacy single-grid path), layers >0 = alpha-blended overlays/decals drawn
+  back-to-front (the tilemap state is already `BlendMode::Alpha`; tile id 0 is transparent + discarded → base
+  shows through). Each layer = its own index + LOD texture + tileset; fog is shared per chunk. Retained chunks
+  only; full re-upload of overlays on change (the partial path stays layer-0/single-grid). No shader change.
+  Locked by `TilemapLodGpu` (2 layers: transparent overlay → base shows; opaque overlay → covers) +
+  `SceneCollectorTest` (layers[] parsed; layer 0 mirrored into the legacy path).
   **Partial-fog reveal — ✅ SHIPPED.** `render:tilemap:fog {id,x,y,w,h,fogData}` patches just the R8 mask
   sub-rect (mip 0 region update) — no tile re-upload, no LOD re-bake (separate `fogDirty` rect from the tile
   `dirty`). Required making the fog texture **non-mipped + mutable** (a bgfx texture created WITH data is

@@ -285,6 +285,43 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         CHECK(byteOf(revealed, 16) >= byteOf(full, 16) - 20);   // B
     }
 
+    // --- MULTI-LAYER (Strategy A): a chunk with 2 layers — base OPAQUE + overlay ON TOP. Tile id 0 in
+    //     the overlay is transparent (base shows through); an opaque overlay tile covers the base.
+    {
+        const int G = 8;
+        std::vector<uint16_t> base(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));   // grey, opaque
+        std::vector<uint16_t> overClear(static_cast<size_t>(G) * G, static_cast<uint16_t>(0)); // transparent
+        std::vector<uint16_t> overTeal(static_cast<size_t>(G) * G, static_cast<uint16_t>(3));   // teal, opaque
+
+        auto twoLayer = [&](std::vector<uint16_t>& l0, std::vector<uint16_t>& l1, uint32_t id,
+                            TilemapLayer out[2]) -> TilemapChunk {
+            out[0].tiles = l0.data(); out[0].tileCount = l0.size(); out[0].textureId = 0;
+            out[1].tiles = l1.data(); out[1].tileCount = l1.size(); out[1].textureId = 0;
+            TilemapChunk c{};
+            c.x = 0; c.y = 0; c.width = G; c.height = G; c.tileWidth = 1; c.tileHeight = 1;
+            c.tiles = l0.data(); c.tileCount = l0.size();   // layer 0 = legacy path (upload + LOD)
+            c.layers = out; c.layerCount = 2;
+            c.id = id; c.dirty = true;
+            return c;
+        };
+
+        // A: overlay fully transparent -> centre shows the BASE grey (overlay lets it through).
+        TilemapLayer la[2]; TilemapChunk ca = twoLayer(base, overClear, 400, la);
+        const uint32_t gotBase = renderCenter(ca, G);
+        const uint32_t grey = lod::paletteColor(1);
+        INFO("multilayer base-through got=" << std::hex << gotBase << " grey=" << grey);
+        CHECK(byteOf(gotBase, 0) == byteOf(grey, 0));   // base visible under a transparent overlay
+
+        // B: overlay opaque teal -> centre shows the OVERLAY (drawn on top of the base).
+        TilemapLayer lb[2]; TilemapChunk cb = twoLayer(base, overTeal, 401, lb);
+        const uint32_t gotOver = renderCenter(cb, G);
+        const uint32_t teal = lod::paletteColor(3);
+        INFO("multilayer overlay got=" << std::hex << gotOver << " teal=" << teal);
+        CHECK(byteOf(gotOver, 0)  == byteOf(teal, 0));   // overlay covers the base
+        CHECK(byteOf(gotOver, 8)  == byteOf(teal, 8));
+        CHECK(byteOf(gotOver, 16) == byteOf(teal, 16));
+    }
+
     device->destroy(fb);
     pass.shutdown(*device);
     shaders.shutdown(*device);

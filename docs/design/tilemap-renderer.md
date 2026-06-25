@@ -157,7 +157,10 @@ The detail band AND the zoom-out LOD band are implemented on `master` and tested
 - Flagged pre-existing bug: full-image `updateTexture` uses device `m_width/m_height` (only correct
   for a screen-sized texture); the region overload sidesteps it.
 
-**Not done (backlog):** multi-layer, animated tiles.
+**Multi-layer ✅ shipped** (Strategy A): `render:tilemap:add layers:[{tileData,textureId?}]` — layer 0
+opaque + layers >0 alpha-blended back-to-front (state is already `BlendMode::Alpha`; tile id 0 transparent).
+Each layer = its own index + LOD; fog shared. Retained only; no shader change. Locked by `TilemapLodGpu` +
+`SceneCollectorTest`. **Animated tiles ✅ shipped** (`render:tilemap:anim`). **Not done (backlog):** —
 
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is

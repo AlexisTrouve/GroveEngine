@@ -42,6 +42,17 @@ static_assert(sizeof(SpriteInstance) == 80, "SpriteInstance must be 80 bytes for
 // Tilemap Chunk Data
 // ============================================================================
 
+// One tile LAYER within a chunk (Strategy A multi-layer). Each layer is its own tile grid + tileset,
+// drawn in order: layer 0 OPAQUE (terrain), layers >0 alpha-blended on top (decals/overlays whose atlas
+// tiles use transparency — tile id 0 is fully transparent + discarded). All layers share the chunk's
+// geometry (width/height/tileW/H) and fog. The tilemap state is already BlendMode::Alpha, so drawing the
+// layers back-to-front composites them with no extra state.
+struct TilemapLayer {
+    const uint16_t* tiles = nullptr;
+    size_t tileCount = 0;
+    uint16_t textureId = 0;   // tileset for this layer (0 = procedural color atlas)
+};
+
 struct TilemapChunk {
     float x, y;           // Chunk position
     uint16_t width, height;
@@ -69,6 +80,12 @@ struct TilemapChunk {
     // bgfx texture created WITH data is immutable). fogDirtyW>0 + fogDirty = patch [fogDirtyX..+W, ..+H].
     bool fogDirty = false;
     uint16_t fogDirtyX = 0, fogDirtyY = 0, fogDirtyW = 0, fogDirtyH = 0;
+    // Multi-layer (Strategy A): when layerCount>0 the chunk renders these layers (0 opaque, >0 alpha
+    // over) instead of just `tiles`. layers[0] mirrors `tiles`/`textureId` (the collector sets both), so
+    // the legacy single-layer path + LOD/partial/fog code is unchanged; layers[1..] are the overlays.
+    // Retained chunks only (id != 0). layerCount==0 -> legacy single-`tiles` path.
+    const TilemapLayer* layers = nullptr;
+    size_t layerCount = 0;
 };
 
 // ============================================================================
