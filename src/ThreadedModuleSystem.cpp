@@ -552,12 +552,27 @@ void ThreadedModuleSystem::workerThreadLoop(ModuleWorker* workerPtr) {
             // FIX #10 : exclusion mutuelle avec un queryModule() concurrent sur ce module.
             {
                 std::lock_guard<std::mutex> processGuard(worker.processMutex);
-                // Archi A: drain THIS module's IIO inbox HERE, on the worker thread, right
-                // before process(). Its subscribe handlers therefore run on the worker thread
-                // (same as process()), so the module's own state is never touched from two
-                // threads. The engine's pumpModuleIO() skips threaded modules for this reason.
-                // hasMessages()/pullAndDispatch() are internally locked (per-instance mutex),
-                // so a concurrent publish from another module's worker is safe.
+                // Archi A: process() FIRST, then drain THIS module's IIO inbox — on the worker
+                // thread, AFTER process(). The order is load-bearing:
+                //
+                // WHY AFTER (not before): this mirrors the engine's sequential pump-AFTER-process
+                // ordering (DebugEngine::pumpModuleIO runs once process() has returned). A REAL
+                // self-draining module like UIModule pulls its OWN inbox INSIDE process()
+                // (beginFrame resets input edges → processInput pulls + sets them → updateUI
+                // consumes). If we drained BEFORE process(), we'd steal those input messages and
+                // beginFrame would then wipe the edges → the click is lost (proven red by
+                // test_threaded_real_ui_e2e). Draining AFTER lets such a module self-drain
+                // correctly first; our drain is then a harmless no-op for it. For NON-self-draining
+                // modules (e.g. the synthetic Producer/Relay/Sink) this post-drain fires their
+                // subscribe handlers for the NEXT frame — the same 1-frame latency sequential
+                // hosting already has, so behaviour is consistent engine-wide.
+                //
+                // THREADING: the drain fires subscribe handlers on THIS worker thread (same as
+                // process()), so the module's own state is never touched from two threads. The
+                // engine's pumpModuleIO() skips threaded modules for this reason.
+                // hasMessages()/pullAndDispatch() are internally locked (per-instance mutex), so a
+                // concurrent publish from another module's worker is safe.
+                worker.module->process(*input);
                 if (worker.inbox) {
                     int drained = 0;
                     while (worker.inbox->hasMessages() > 0 && drained < 100000) {
@@ -565,7 +580,6 @@ void ThreadedModuleSystem::workerThreadLoop(ModuleWorker* workerPtr) {
                         ++drained;
                     }
                 }
-                worker.module->process(*input);
             }
 
         } catch (const std::exception& e) {

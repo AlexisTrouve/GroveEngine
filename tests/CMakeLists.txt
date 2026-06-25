@@ -1886,6 +1886,19 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(UIOnEngineE2E IT_053_ui_on_engine_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # test_threaded_real_ui_e2e: the IT_053 scenario but UIModule is hosted THREADED
+    # (registerStaticModule(THREADED)) — runs on its own worker thread. Proves a REAL
+    # self-draining module survives threaded hosting + worker-owned IIO drain (archi A).
+    # Plain main() (no Catch2): exit 0 = the click flowed through the worker-threaded UIModule.
+    add_executable(test_threaded_real_ui_e2e
+        integration/test_threaded_real_ui_e2e.cpp
+    )
+    target_link_libraries(test_threaded_real_ui_e2e PRIVATE
+        UIModule_static          # full UIModule (PUBLIC: include dir + GroveEngine::impl)
+        GroveEngine::core
+    )
+    grove_add_test(ThreadedRealUIE2E test_threaded_real_ui_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # test_radial_math: pure action-wheel geometry (RadialMath.h), no GPU/module/IIO.
     add_executable(test_radial_math unit/test_radial_math.cpp)
     target_include_directories(test_radial_math PRIVATE
