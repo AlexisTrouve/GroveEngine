@@ -143,6 +143,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/IntraIOManager.cpp  # âœ… Fixed for IDataNode
         src/SequentialModuleSystem.cpp  # âœ… Fixed for IDataNode
         src/ThreadedModuleSystem.cpp  # âœ… Phase 2 implementation
+        src/ThreadPoolModuleSystem.cpp  # âœ… Phase 3: shared worker pool + work-stealing
         src/IOFactory.cpp  # âœ… Fixed for IDataNode
         src/ModuleFactory.cpp  # âœ… Should work (no json in main API)
         src/ModuleSystemFactory.cpp  # âœ… Needs check

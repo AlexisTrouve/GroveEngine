@@ -905,6 +905,19 @@ target_link_libraries(test_threaded_hosting_e2e PRIVATE
 )
 grove_add_test(ThreadedHostingE2E test_threaded_hosting_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
 
+# Phase 3 slice-1 lock: ThreadPoolModuleSystem (shared pool + work-stealing) driven
+# standalone. Proves correctness + work-stealing balance + real parallelism + archi-A
+# inbox drain on the pool. Plain main(), no GPU/SDL/.so/Catch2 — TSan-able (WSL).
+add_executable(test_threadpool_lifecycle
+    integration/test_threadpool_lifecycle.cpp
+)
+target_link_libraries(test_threadpool_lifecycle PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+grove_add_test(ThreadPoolLifecycle test_threadpool_lifecycle ${CMAKE_CURRENT_BINARY_DIR} 60)
+
 # Engine hosting demo — human-readable companion to the test above. Hosts 3 static
 # modules in a DebugEngine and narrates the inter-module flow frame by frame. Run
 # manually (not a ctest — it's a demo, the test is the regression lock). No GPU/SDL/.so.
