@@ -1912,6 +1912,27 @@ if(GROVE_BUILD_UI_MODULE)
     )
     grove_add_test(ThreadedRealUIE2E test_threaded_real_ui_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Phase 2 consolidation: MULTIPLE real modules hosted THREADED together via the engine.
+    # Real UIModule + real SoundManager (MockSoundBackend) + game glue + parallelism probes;
+    # a real click crosses three hosted modules (UI -> ship:part -> glue -> sound:sfx -> Sound).
+    # Needs both UI and Sound modules built; SoundManagerModule.cpp is compiled in (like the
+    # SoundManagerUnit test). Plain main(), headless.
+    if(GROVE_BUILD_SOUND_MODULE)
+        add_executable(test_threaded_real_multi_e2e
+            integration/test_threaded_real_multi_e2e.cpp
+            ../modules/SoundManager/SoundManagerModule.cpp
+        )
+        target_include_directories(test_threaded_real_multi_e2e PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+            ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        target_link_libraries(test_threaded_real_multi_e2e PRIVATE
+            UIModule_static          # real UIModule (PUBLIC: include dir + GroveEngine::impl)
+            GroveEngine::core
+        )
+        grove_add_test(ThreadedRealMultiE2E test_threaded_real_multi_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
+    endif()
+
     # test_radial_math: pure action-wheel geometry (RadialMath.h), no GPU/module/IIO.
     add_executable(test_radial_math unit/test_radial_math.cpp)
     target_include_directories(test_radial_math PRIVATE
