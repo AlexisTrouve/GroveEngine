@@ -25,9 +25,11 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 | System | Status | Description | Use Case |
 |--------|--------|-------------|----------|
 | **SequentialModuleSystem** | ✅ Production Ready | Single-threaded, one module at a time | Debug, testing |
-| **ThreadedModuleSystem** | ✅ Phase 2 Complete | One thread per module (parallel execution) | 2-8 modules, ≤30 FPS |
-| **ThreadPoolModuleSystem** | 🚧 Planned (Phase 3) | Shared worker pool, work stealing | High performance (>30 FPS) |
+| **ThreadedModuleSystem** | ✅ Phase 2 Complete | One thread per module (parallel execution) | Few HEAVY modules (≲ cores) |
+| **ThreadPoolModuleSystem** | ✅ Phase 3 Complete | Shared worker pool + work-stealing | MANY lightweight modules (N ≫ cores) |
 | **ClusterModuleSystem** | 🚧 Planned (Phase 4) | Distributed across machines | MMO scale |
+
+**Hosting both via the engine**: `registerStaticModule(name, module, ModuleSystemType::THREADED|THREAD_POOL, config)` — one shared system per strategy, archi-A (the worker drains the module's IIO inbox AFTER `process()`). Pick by the benchmark: THREADED for a handful of heavy modules, THREAD_POOL for many light ones. Resume/open tasks (incl. the one remaining rigour gap — TSan on the engine→pool path): **[docs/design/threaded-pool-handoff.md](docs/design/threaded-pool-handoff.md)**.
 
 ## Available Modules
 
