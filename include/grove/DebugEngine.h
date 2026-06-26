@@ -43,10 +43,11 @@ private:
     // the .so). The IntraIOManager singleton co-owns these — shutdown() drops them.
     std::vector<std::shared_ptr<IIO>> moduleIOs;
 
-    // True (index-aligned with moduleIOs) when this module is hosted in the SHARED
-    // threadedSystem_ instead of its own per-module system. The engine must NOT pump
-    // a threaded module's inbox on the engine thread — its own worker thread drains it
-    // (so its handlers run on the worker thread, not racing process()). See pumpModuleIO.
+    // True (index-aligned with moduleIOs) when this module is hosted in a SHARED
+    // WORKER-DRAINED system (threadedSystem_ OR poolSystem_) instead of its own per-module
+    // system. The engine must NOT pump such a module's inbox on the engine thread — its
+    // worker thread drains it (so its handlers run on the worker thread, not racing
+    // process()). "Threaded" here means worker-hosted, covering the pool too. See pumpModuleIO.
     std::vector<bool> moduleIsThreaded_;
 
     // ONE shared ThreadedModuleSystem hosting ALL threaded static modules, so a single
@@ -54,6 +55,12 @@ private:
     // parallelism). Created lazily on the first registerStaticModule(THREADED). Static
     // modules in here have a null slot in moduleSystems (they are not per-module systems).
     std::unique_ptr<IModuleSystem> threadedSystem_;
+
+    // ONE shared ThreadPoolModuleSystem (Phase 3) hosting ALL pool static modules: N modules
+    // distributed over M work-stealing workers under one barrier. Created lazily on the first
+    // registerStaticModule(THREAD_POOL). Like threadedSystem_, its modules are worker-drained
+    // (moduleIsThreaded_ == true) and have a null moduleSystems slot. The two can coexist.
+    std::unique_ptr<IModuleSystem> poolSystem_;
 
     // Socket management
     std::unique_ptr<IIO> coordinatorSocket;

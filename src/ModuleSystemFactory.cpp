@@ -6,8 +6,8 @@
 // Include implemented systems
 #include <grove/SequentialModuleSystem.h>
 #include <grove/ThreadedModuleSystem.h>
+#include <grove/ThreadPoolModuleSystem.h>  // Phase 3
 // Forward declarations for future implementations
-// #include "ThreadPoolModuleSystem.h"
 // #include "ClusterModuleSystem.h"
 
 namespace grove {
@@ -42,10 +42,9 @@ std::unique_ptr<IModuleSystem> ModuleSystemFactory::create(ModuleSystemType syst
 
         case ModuleSystemType::THREAD_POOL:
             logger->debug("🔧 Creating ThreadPoolModuleSystem instance");
-            // TODO: Implement ThreadPoolModuleSystem
-            // moduleSystem = std::make_unique<ThreadPoolModuleSystem>();
-            logger->error("❌ ThreadPoolModuleSystem not yet implemented");
-            throw std::invalid_argument("ThreadPoolModuleSystem not yet implemented");
+            moduleSystem = std::make_unique<ThreadPoolModuleSystem>();
+            logger->info("✅ ThreadPoolModuleSystem created successfully");
+            break;
 
         case ModuleSystemType::CLUSTER:
             logger->debug("🔧 Creating ClusterModuleSystem instance");

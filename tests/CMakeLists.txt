@@ -1931,6 +1931,23 @@ if(GROVE_BUILD_UI_MODULE)
             GroveEngine::core
         )
         grove_add_test(ThreadedRealMultiE2E test_threaded_real_multi_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
+
+        # Phase 3 slice 2: the SAME multi-real-module scenario, but hosted in the THREAD_POOL
+        # (registerStaticModule(THREAD_POOL)). Proves the pool's engine integration in real
+        # conditions. Shares real_multi_scenario.h with the THREADED lock above.
+        add_executable(test_pool_real_multi_e2e
+            integration/test_pool_real_multi_e2e.cpp
+            ../modules/SoundManager/SoundManagerModule.cpp
+        )
+        target_include_directories(test_pool_real_multi_e2e PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+            ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        target_link_libraries(test_pool_real_multi_e2e PRIVATE
+            UIModule_static
+            GroveEngine::core
+        )
+        grove_add_test(PoolRealMultiE2E test_pool_real_multi_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
     endif()
 
     # test_radial_math: pure action-wheel geometry (RadialMath.h), no GPU/module/IIO.

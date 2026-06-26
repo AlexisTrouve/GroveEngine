@@ -3,7 +3,8 @@
 #include <grove/JsonDataValue.h>
 #include <grove/ModuleSystemFactory.h>
 #include <grove/SequentialModuleSystem.h>
-#include <grove/ThreadedModuleSystem.h> // shared threaded host + setModuleInbox (archi A)
+#include <grove/ThreadedModuleSystem.h>
+#include <grove/ThreadPoolModuleSystem.h>  // Phase 3: dynamic_cast for setModuleInbox + factory create // shared threaded host + setModuleInbox (archi A)
 #include <grove/IModule.h>          // full IModule (setConfiguration) for static hosting
 #include <grove/IntraIOManager.h>   // routed IIO instances for static modules
 #include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
@@ -164,6 +165,9 @@ void DebugEngine::shutdown() {
         // because each threaded module holds a raw IIO* (setConfiguration) and each worker
         // holds a shared_ptr to its inbox; both must die while their IIO instance is alive.
         threadedSystem_.reset();
+        // Same teardown invariant for the pool system: destroy its workers + modules before we
+        // drop the IIO instances (each pool module holds a raw IIO*, each worker a shared_ptr inbox).
+        poolSystem_.reset();
         // Now safe: drop each static module's routed IIO instance from the global
         // router (the manager co-owns it). tryGetLiveInstance() never CREATES the
         // singleton — null if no static module was ever hosted, so we skip (teardown-safe).
@@ -463,6 +467,16 @@ void DebugEngine::processModuleSystems(float deltaTime) {
             logger->error("❌ Shared threaded system crashed: {} (frame {})", e.what(), frameCount);
         }
     }
+
+    // The SHARED pool system (Phase 3) runs ALL its modules over the work-stealing worker pool
+    // under one barrier — one call drives every pool task. Same crash-isolation as above.
+    if (poolSystem_) {
+        try {
+            poolSystem_->processModules(deltaTime);
+        } catch (const std::exception& e) {
+            logger->error("❌ Shared pool system crashed: {} (frame {})", e.what(), frameCount);
+        }
+    }
 }
 
 void DebugEngine::processClientMessages() {
@@ -591,6 +605,26 @@ void DebugEngine::registerStaticModule(const std::string& name,
             moduleNames.push_back(name);
             moduleIsThreaded_.push_back(true);
             logger->info("✅ Static module '{}' registered into the SHARED threaded system (parallel) — total: {}",
+                         name, moduleNames.size());
+        } else if (strategy == ModuleSystemType::THREAD_POOL) {
+            // Phase 3: every pool static module shares ONE ThreadPoolModuleSystem — N modules
+            // distributed over M work-stealing workers under one barrier. Same archi A as
+            // THREADED: the worker that runs a module's frame task drains its inbox right after
+            // process(), so the engine must NOT pump it (moduleIsThreaded_ == true below).
+            if (!poolSystem_) {
+                poolSystem_ = ModuleSystemFactory::create(ModuleSystemType::THREAD_POOL);
+            }
+            module->setConfiguration(*cfg, io.get(), poolSystem_.get());
+            poolSystem_->registerModule(name, std::move(module));
+            if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get())) {
+                ps->setModuleInbox(name, io);
+            }
+            moduleLoaders.push_back(nullptr);   // static module → no .so loader
+            moduleSystems.push_back(nullptr);   // hosted by poolSystem_, not a per-module system
+            moduleIOs.push_back(std::move(io));
+            moduleNames.push_back(name);
+            moduleIsThreaded_.push_back(true);  // worker-drained → engine must not pump its inbox
+            logger->info("✅ Static module '{}' registered into the SHARED pool system (work-stealing) — total: {}",
                          name, moduleNames.size());
         } else {
             // SEQUENTIAL (and any future per-module strategy): one ModuleSystem per module,
