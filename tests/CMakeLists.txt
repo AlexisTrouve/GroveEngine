@@ -1035,6 +1035,16 @@ target_link_libraries(benchmark_threaded_vs_sequential_cpu PRIVATE
     GroveEngine::impl
 )
 
+# Phase 3 slice 3: ThreadPoolModuleSystem vs ThreadedModuleSystem (vs Sequential) CPU-bound,
+# swept over module count N — shows WHERE the work-stealing pool beats per-module threading.
+add_executable(benchmark_pool_vs_threaded
+    benchmarks/benchmark_pool_vs_threaded.cpp
+)
+target_link_libraries(benchmark_pool_vs_threaded PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+
 # IIO Message Latency Benchmark (through module systems)
 add_executable(benchmark_iio_latency
     benchmarks/benchmark_iio_latency.cpp
