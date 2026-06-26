@@ -918,6 +918,21 @@ target_link_libraries(test_threadpool_lifecycle PRIVATE
 )
 grove_add_test(ThreadPoolLifecycle test_threadpool_lifecycle ${CMAKE_CURRENT_BINARY_DIR} 60)
 
+# Engine->pool TSan twin of ThreadedHostingE2E: the synthetic Producer->Relay->Sink
+# chain hosted via registerStaticModule(THREAD_POOL) and driven by engine.step().
+# Locks the THREAD_POOL strategy + the DebugEngine pool branch + cross-thread IIO
+# delivery + archi-A drain, all recombined. Plain main(), no GPU/SDL/.so/Catch2 — so
+# it compiles standalone under ThreadSanitizer (WSL) for the engine->pool race proof.
+add_executable(test_pool_hosting_e2e
+    integration/test_pool_hosting_e2e.cpp
+)
+target_link_libraries(test_pool_hosting_e2e PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+grove_add_test(PoolHostingE2E test_pool_hosting_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
+
 # Engine hosting demo — human-readable companion to the test above. Hosts 3 static
 # modules in a DebugEngine and narrates the inter-module flow frame by frame. Run
 # manually (not a ctest — it's a demo, the test is the regression lock). No GPU/SDL/.so.

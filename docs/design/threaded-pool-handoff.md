@@ -29,6 +29,11 @@ github + bitbucket). This is the resume point for the module-system parallelism 
 - `3ec88bf` — **Phase 3 slice 1**: `ThreadPoolModuleSystem` standalone (pool + work-stealing).
 - `0ae8495` — **Phase 3 slice 2**: engine integration (`registerStaticModule(THREAD_POOL)`).
 - `9079f50` — **Phase 3 slice 3**: benchmark.
+- **(this session) — engine→pool TSan twin**: `test_pool_hosting_e2e` (the synthetic
+  Producer→Relay→Sink chain hosted via `registerStaticModule(THREAD_POOL)`, driven by
+  `engine.step()`, plain `main()`, GPU/SDL-free). Ran **10/10 clean under ThreadSanitizer**
+  (WSL, `setarch -R`) — 0 race, 0 hang. Closes the last rigour gap (was OPEN TASK #1).
+  ctest `PoolHostingE2E`; TSan target `tsan_pool_hosting` in the WSL wrapper.
 
 ## Load-bearing invariants (do NOT break)
 
@@ -55,28 +60,27 @@ github + bitbucket). This is the resume point for the module-system parallelism 
 - **Host guidance**: `THREADED` for a handful of heavy modules; `THREAD_POOL` for many
   lightweight modules (N ≫ cores). `benchmark_pool_vs_threaded` (not a ctest — wall-clock).
 
+## DONE — engine→pool TSan (was the top rigour gap)
+
+`test_pool_hosting_e2e` (synthetic Producer/Relay/Sink hosted via
+`registerStaticModule(THREAD_POOL)`, plain `main()`, GPU/SDL-free) is the pool's twin of
+`test_threaded_hosting_e2e`. It exercises the engine→pool path recombined — pool barrier +
+IIO cross-thread routing + archi-A drain + the `DebugEngine` pool branch — and ran **10/10
+clean under ThreadSanitizer** (WSL `~/tsan_build`, target `tsan_pool_hosting`, launched via
+`setarch $(uname -m) -R`): 0 data race, 0 hang, `maxConc=3` (real parallelism). Also a ctest
+(`PoolHostingE2E`). The threaded & pool hosting paths now hold the same TSan bar.
+
 ## OPEN TASKS (priority order)
 
-1. **[rigour] TSan on the engine→pool path.** Slice 1 has TSan on the pool *standalone*; the
-   threaded system has its hosted-via-engine TSan jumel (`test_threaded_hosting_e2e`, synthetic
-   + TSan-able through `registerStaticModule(THREADED)`). The pool has NO such twin. Write a
-   `test_pool_hosting_e2e` — the same synthetic Producer/Relay/Sink chain but hosted via
-   `registerStaticModule(THREAD_POOL)`, plain `main()`, GPU/SDL-free — and run it under
-   ThreadSanitizer (WSL recipe: see memory `tsan-via-wsl-recipe` / the `~/tsan_build` wrapper at
-   the session scratchpad's `tsan/CMakeLists.txt`; add a `tsan_pool_hosting` target next to
-   `tsan_threaded` / `tsan_pool_lifecycle`). **Low risk** (the engine→pool path recombines the
-   pool barrier, IIO cross-thread routing, and archi A — each already TSan-proven separately;
-   the `DebugEngine` pool branch is a trivial mirror of the threaded one), but it's the one
-   coherence gap. **The run is CPU-heavy (WSL rebuild + TSan)** — do it on mains power.
-2. **[minor] `thread_count` configurable through the engine.** `ThreadPoolModuleSystem` ctor
+1. **[minor] `thread_count` configurable through the engine.** `ThreadPoolModuleSystem` ctor
    takes `threadCount` (0 = auto = cores-1). `ModuleSystemFactory::setConfiguration` reads
    `thread_count`/`queue_size` but they're still TODO — not plumbed from `registerStaticModule`.
-3. **[minor] threaded + pool coexisting in one engine** is wired (`processModuleSystems` drives
+2. **[minor] threaded + pool coexisting in one engine** is wired (`processModuleSystems` drives
    both `threadedSystem_` and `poolSystem_`) but untested. Exotic — a host normally picks one.
-4. **[opt] pool overhead at small N.** The bench shows the pool losing to threaded for N < ~64
+3. **[opt] pool overhead at small N.** The bench shows the pool losing to threaded for N < ~64
    (light work) — its barrier + `runFrameTasks` busy-wait (spin + `yield`) burns CPU. Replacing
    the spins with condition_variables would cut that overhead (at some wakeup-latency cost).
-5. **[future] Phase 4** — `ClusterModuleSystem` (distributed). Blank slate.
+4. **[future] Phase 4** — `ClusterModuleSystem` (distributed). Blank slate.
 
 ## Key files
 
@@ -86,6 +90,7 @@ github + bitbucket). This is the resume point for the module-system parallelism 
 - `src/ModuleSystemFactory.cpp` — `THREAD_POOL` case.
 - Tests: `test_threadpool_lifecycle` (standalone + TSan-able), `test_pool_real_multi_e2e` +
   `test_threaded_real_multi_e2e` (share `real_multi_scenario.h`), `test_threaded_hosting_e2e`
-  (synthetic, TSan-able — the template for the open TSan task), `benchmark_pool_vs_threaded`.
+  + **`test_pool_hosting_e2e`** (the engine→pool TSan twin — synthetic, GPU/SDL-free),
+  `benchmark_pool_vs_threaded`.
 - TSan: memory `tsan-via-wsl-recipe`; WSL wrapper builds into `~/tsan_build`, run via
-  `setarch $(uname -m) -R`.
+  `setarch $(uname -m) -R`. Targets: `tsan_threaded`, `tsan_pool_lifecycle`, `tsan_pool_hosting`.
