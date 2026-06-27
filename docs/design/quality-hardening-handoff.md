@@ -112,17 +112,33 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1:detect_odr_violation=0
    to the ~2.5× ASan slowdown (LimitsTest is literally the *timeout* test). Confirm on a plain Linux
    build, then relax the timing assertions. Not a memory bug.
 
-### Phase 2 — Static analysis (clang-tidy)
+### Phase 2 — Static analysis (clang-tidy) ✅ DONE (src/ pass) — 2026-06-28
 
-A different bug class (uninit members, missing virtual dtors, API misuse, implicit conversions),
-caught *statically* + continuously.
+`.clang-tidy` committed (curated for bug-finding) + the `src/` crop fixed (commit `a668239`).
 
-- Add a curated `.clang-tidy` (start narrow: `bugprone-*`, `performance-*`, a `cppcoreguidelines`
-  subset; disable the noisy/opinionated ones). Run over `src/ include/ modules/`. Triage; fix
-  high-confidence findings, suppress (with reason) the rest.
-- Optional `make tidy` target.
-- **Success:** `.clang-tidy` committed; a clean-or-triaged run.
-- **Gotcha:** blanket-enabling all checks = noise flood → curate the list, expand gradually.
+**Toolchain (no admin needed):** MinGW/Windows has no system clang-tidy and WSL has none either (no
+passwordless sudo to `apt install`). Route that worked: the **pip wheel** —
+`python -m pip install --user clang-tidy` (lands in `…/Python312/Scripts/clang-tidy.exe`, LLVM 22) —
+driven by the **Ninja compile DB** (`cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`):
+`clang-tidy -p build src/*.cpp`. Cross-toolchain (MinGW DB + clang frontend) parses our code fine.
+
+**Curation is everything:** raw `misc-*` flooded (≈353 warnings on one file, almost all
+`misc-const-correctness`). After disabling the pedantic/noisy checks the `src/` crop was **25 findings**
+— all triaged. Fixed the real ones (3× missing `reserve()`, `routeMessage` payload → const ref on the
+hot path, `registerInstance` → move, dead `generation`/`filename`/timing locals, qualified
+`~DebugEngine` shutdown, anonymized unused params). Curated OFF **with documented rationale** in
+`.clang-tidy`: `bugprone-exception-escape` (all 7 hits are destructors → implicitly noexcept → a throw
+= a FRANK terminate; wrapping would MASK errors, anti-doctrine), `performance-inefficient-string-concatenation`
+(path-building readability), `misc-const-correctness` (flood). 2 intentional empty-catches → `NOLINT` w/ reason.
+
+- **Lesson — verify, don't auto-apply:** clang-tidy flagged `ModuleFactory`'s `fs` alias as *unused*,
+  but `fs::listDirectory/isFile` ARE used — a cross-toolchain mis-resolve. Removing it would have broken
+  the build. **Skipped (false positive).** Treat every finding as a claim to verify, not a fix to apply.
+- **Coverage caveat:** this pass covered `src/` (the engine core). `modules/` (esp. GPU/bgfx) and
+  `include/` headers-in-isolation are NOT yet tidy'd — a follow-up (the GPU modules need their compile
+  DB entries, which exist in the Windows build). `include/grove/ImGuiUI.h` errors on a missing `imgui.h`
+  (optional header, not in the build) — ignore.
+- **Open:** a `make tidy` / `run-clang-tidy` wrapper target so it's one command; widen to `modules/`.
 
 ### Phase 3 — Automate (CI)
 
