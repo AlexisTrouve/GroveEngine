@@ -115,6 +115,22 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
      targets now share the original across worker threads — 0 races ×15 runs).
    - **TSan re-run done** (the change touches publish/route/deliver + the ABBA boundary): 3 WSL targets
      × 5 runs = **0 races**, all `EXIT=0`, real parallelism exercised ([[tsan-via-wsl-recipe]]).
+   - **MEASURED A/B** (`tests/benchmarks/benchmark_iio_zerocopy.cpp` vs the same bench on pre-ZC code
+     `7dd1cd7` via a throwaway worktree — both Ninja/MinGW/Release `-O3`, M=40000, ns per `publish()`):
+
+     | payload | N | OLD (pre-ZC) | NEW re-home | NEW coreResident | OLD→coreRes |
+     |---|---|---|---|---|---|
+     | sprite (~12 fields) | 1 | 3 577 | 2 181 | 605 | 5.9× |
+     | sprite | 16 | 34 502 | 5 826 | 4 529 | 7.6× |
+     | sprite | 64 | 136 416 | 19 509 | 20 169 | 6.8× |
+     | fat (64-sprite array) | 1 | 196 008 | 84 479 | 1 317 | **149×** |
+     | fat | 4 | 531 792 | 83 983 | 2 315 | **230×** |
+     | fat | 16 | **2 441 524** | 82 012 | 6 478 | **377×** |
+
+     The `O(N)→O(1)` is direct: OLD `ns/sub` is ~constant (~2.1µs sprite, ~150µs fat = one json copy
+     per subscriber) so OLD `ns/pub` is linear in N; NEW pulls the copy out of the per-subscriber path.
+     The win grows with fan-out AND payload size — exactly the copy-elimination signature. (Small
+     payload + tiny fan-out is where it barely matters; that path was never the wall.)
 2. **[minor] No bulk path for particles/text.** Same JSON-per-primitive wall sprites had. Add
    `submit*Batch` analogues only if they become hot (the benchmark shows particles/text also cap ~5k/60fps).
 3. **[minor] FrameAllocator can't grow** — fixed arena, sized at init. A double-buffered/growable
