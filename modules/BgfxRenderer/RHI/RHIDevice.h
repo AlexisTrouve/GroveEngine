@@ -31,7 +31,9 @@ public:
     // Lifecycle
     // nativeWindowHandle: Window handle (HWND on Windows, X11 Window on Linux)
     // nativeDisplayHandle: Display handle (nullptr on Windows, X11 Display* on Linux)
-    virtual bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height) = 0;
+    // vsync=false uncaps the present (BGFX_RESET_NONE) — frames run as fast as the GPU+CPU
+    // allow instead of locking to the monitor refresh. Default true (the safe game default).
+    virtual bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height, bool vsync = true) = 0;
     virtual void shutdown() = 0;
     virtual void reset(uint16_t width, uint16_t height) = 0;
 

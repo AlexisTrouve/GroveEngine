@@ -26,9 +26,11 @@ public:
     BgfxDevice() = default;
     ~BgfxDevice() override = default;
 
-    bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height) override {
+    bool init(void* nativeWindowHandle, void* nativeDisplayHandle, uint16_t width, uint16_t height, bool vsync = true) override {
         m_width = width;
         m_height = height;
+        // Remember the reset flags so resize() re-applies the SAME present mode (vsync or not).
+        m_resetFlags = vsync ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 
         // IMPORTANT: On Windows, we MUST call bgfx::renderFrame() before bgfx::init() to force
         // single-threaded mode. This is required because:
@@ -44,7 +46,7 @@ public:
         init.type = bgfx::RendererType::Direct3D11;
         init.resolution.width = width;
         init.resolution.height = height;
-        init.resolution.reset = BGFX_RESET_VSYNC;
+        init.resolution.reset = m_resetFlags;
 
         // Set platform data
         init.platformData.nwh = nativeWindowHandle;
@@ -83,7 +85,7 @@ public:
     void reset(uint16_t width, uint16_t height) override {
         m_width = width;
         m_height = height;
-        bgfx::reset(width, height, BGFX_RESET_VSYNC);
+        bgfx::reset(width, height, m_resetFlags);
         bgfx::setViewRect(0, 0, 0, width, height);
     }
 
@@ -670,6 +672,7 @@ public:
 private:
     uint16_t m_width = 0;
     uint16_t m_height = 0;
+    uint32_t m_resetFlags = BGFX_RESET_VSYNC;   // present mode, set in init() from the vsync flag
     bool m_initialized = false;
 
     // Transient instance buffer pool (reset each frame)

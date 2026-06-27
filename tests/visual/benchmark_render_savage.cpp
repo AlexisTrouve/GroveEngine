@@ -73,11 +73,16 @@ constexpr int      SPRITE_LAYERS = 8;     // × NUM_ASSETS = 32 batches max — 
 constexpr double   MELT_MS       = 100.0; // stop ramping once a frame costs this much (~10 FPS)
 constexpr int      WARM_FRAMES    = 8;    // let bgfx/GPU settle + assets go resident before timing
 constexpr int      MEAS_FRAMES    = 24;   // averaged window per ramp step
-constexpr int      MAX_N          = 200000;
+constexpr int      MAX_N          = 600000;   // pool sized to this; POD path ramps up to here
 
 // The ramp ladder (counts). The ramp stops early when a step exceeds MELT_MS.
 const std::vector<int> LADDER = {1000, 2500, 5000, 10000, 20000, 35000,
                                  50000, 75000, 100000, 150000, 200000};
+
+// The POD path delivers ~ns/sprite, so it climbs MUCH higher before melting — give it a
+// longer ladder (vsync now actually OFF + a 256MB arena) to find the TRUE GPU/pipeline ceiling.
+const std::vector<int> LADDER_POD = {2500, 10000, 25000, 50000, 100000, 150000, 200000,
+                                     300000, 400000, 500000, 600000};
 
 // One measured ramp step.
 struct Row {
@@ -128,6 +133,8 @@ public:
         cfg.setString("backend", "d3d11");
         cfg.setBool("vsync", false);            // CRITICAL: uncapped → real throughput, not 60Hz
         cfg.setInt("assetVramBudgetMB", 512);   // keep all ship textures resident (no thrash)
+        cfg.setInt("frameAllocatorSizeMB", 256);// 256MB arena → ~3.3M sprite capacity (so the POD
+                                                // path isn't capped by the default 16MB / ~200k)
         m_renderer->setConfiguration(cfg, m_rendererIO.get(), nullptr);
 
         // Register the 4 real ship PNGs as streamed assets (atlas/streaming path Alexi picked).
@@ -380,7 +387,7 @@ int main(int, char**) {
 
     // --- Regime 1b: SAME sprites via the POD bulk path (the fix). One message, zero JSON. ---
     std::vector<Row> spritesPod;
-    for (int n : LADDER) {
+    for (int n : LADDER_POD) {
         if (quit) break;
         Row r = bench->measure(n, 2, [&](int c){ bench->emitSpriteBatchPOD(c); }, quit);
         spritesPod.push_back(r);
@@ -427,7 +434,7 @@ int main(int, char**) {
     if (!quit) {
         const int S = 80000, P = 80000, T = 8000;  // sprites + particles + text strings (+ the resident tilemap)
         finale = bench->measure(S, 2, [&](int){
-            bench->emitSprites(S);
+            bench->emitSpriteBatchPOD(S);   // POD path → all 80k actually render (JSON would cap at ~10k)
             bench->emitParticles(P);
             bench->emitText(T);
         }, quit);

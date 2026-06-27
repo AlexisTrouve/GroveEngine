@@ -97,7 +97,7 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_frameAllocator = std::make_unique<FrameAllocator>(allocatorSize);
 
     m_device = rhi::IRHIDevice::create();
-    if (!m_device->init(windowHandle, displayHandle, m_width, m_height)) {
+    if (!m_device->init(windowHandle, displayHandle, m_width, m_height, m_vsync)) {
         m_logger->error("Failed to initialize RHI device");
         return;
     }

@@ -199,6 +199,33 @@ sprite->setInt("layer", 10);               // Z-order (higher = front)
 io->publish("render:sprite", std::move(sprite));
 ```
 
+#### Bulk Sprite Submission (high throughput)
+
+`render:sprite` is one IIO message per sprite, and **IIO deep-copies every message to JSON
+on publish** (`IIO::publish()` requires a `JsonDataNode`). That costs **~10 µs/sprite**, so the
+path tops out around **5 000 sprites/frame at 60 fps** — fine for UI and a few hundred entities,
+but a wall for thousands. The GPU itself is nowhere near saturated (10 k sprites draw in <1 ms).
+
+For thousands of sprites, a **statically-linked host** that already holds packed instances feeds
+them straight to the renderer — bypassing IIO and JSON entirely:
+
+```cpp
+// SpriteInstance is the GPU-ready POD (Frame/FramePacket.h): position, scale, rotation,
+// UVs, textureId, layer, and rgba floats. The host fills a contiguous array each frame.
+std::vector<grove::SpriteInstance> instances = buildMySprites();
+
+// Call BETWEEN frames (after the previous frame, before the next engine/renderer step).
+// One vector insert, ~ns/sprite — no JSON, no IIO routing.
+renderer->submitSpriteBatch(instances.data(), instances.size());
+```
+
+Measured (`tests/visual/benchmark_render_savage.cpp`, D3D11): the bulk path sustains the **60 fps
+sprite ceiling from ~5 k → ~100 k (≈21×)**, and at low counts a frame is ~0.5 ms (≈30× cheaper).
+World-space, no per-sprite asset/clip resolution — the host hands final instances. Use `render:sprite`
+for UI / a handful of dynamic entities; use `submitSpriteBatch` for crowds, bullet-hell, particles-as-
+sprites, large tile-entity counts. (For huge **static** content, prefer a retained tilemap — it scales
+to millions of tiles at 60 fps because it uploads once.)
+
 #### Rendering Text
 
 ```cpp
