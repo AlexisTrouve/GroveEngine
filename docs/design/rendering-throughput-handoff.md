@@ -89,15 +89,28 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
 
 ## OPEN TASKS (priority order)
 
-1. **[perf — the big one] Kill the IIO json deep-copies.** `IntraIO::publish` deep-copies the json
-   (`src/IntraIO.cpp:61-82`) and `IntraIOManager` re-wraps it per delivery (`src/IntraIOManager.cpp:321`,
-   batch path `:548`). Replace copy-delivery with a **shared immutable payload**
-   (`shared_ptr<const ...>`): one alloc, ref-counted, shared across N subscribers AND across the
-   lock boundary without copying (immutable → thread-safe to share). Benefits **ALL** IIO traffic
-   (events/UI/state) — **NOT the sprite path** (already solved by the direct API). **Core change,
-   wide blast radius**: touches publish/route/deliver + the ABBA lock-ordering the deep-copy
-   currently guarantees + the batch-flush thread. **TSan-proven invariants exist — re-run the full
-   WSL TSan suite after** ([[tsan-via-wsl-recipe]]). This is its own careful effort, not a drive-by.
+1. **[perf — DONE, with one lever left] Killed the per-subscriber IIO json copy.** `Message::data`
+   is now `shared_ptr<const IDataNode>`: one immutable node, ref-counted, shared across N subscribers
+   AND across the lock boundary (immutable → thread-safe to share). The old `O(N)` per-delivery
+   re-wrap (`IntraIOManager.cpp:321`) is gone — high-freq delivery is a ref-count bump. `render:sprite`
+   (N=1) went **2 json copies → 1**; fan-out (N≫1) went `O(N)` → `O(1)`. Benefits ALL IIO traffic
+   (events/UI/state), NOT the sprite bulk path (already direct). Shipped: ZC-1 `42c8e64`, ZC-2/3 `de4bd40`.
+   - **CONSTRAINT discovered (load-bearing): cross-`.so` vtable lifetime.** `publish()` does NOT share
+     the publisher's original node — it **re-homes** the json into one node built in the **core lib**
+     (`src/IntraIO.cpp` publish). Reason: a payload allocated inside a hot-loaded module's `.so`, if
+     still queued when that `.so` is unloaded (`dlclose`), disposes `~JsonDataNode` through a **freed
+     vtable → SIGSEGV at teardown** (caught the hard way: `IntraIOManager dtor → IntraIO dtor →
+     deque<Message> dtor`, gdb-confirmed). The OLD per-delivery re-copy gave this cross-`.so` safety
+     *implicitly* (it re-allocated in core); re-homing once preserves it while still killing the `O(N)`
+     copy. So this is **one-copy-share-N**, not literal zero-copy.
+   - **The remaining lever → TRUE zero-copy (0 copies) for CORE publishers.** A core/static module's
+     payload already has a core vtable → safe to share as-is. Gate it: tag the IntraIO instance
+     `external` when the module system hosts a **hot-loaded** module; `publish()` re-homes only when
+     `external` (safe), and shares the original (no copy) otherwise. Delivers the full `render:sprite`
+     win for the common case (the game — incl. [[drifterra-consumes-groveengine]], static-linked — is a
+     core publisher). Cost: an instance flag + wiring it from the module system. Not yet built.
+   - **TSan re-run done** (the change touches publish/route/deliver + the ABBA boundary): 3 WSL targets
+     × 5 runs = **0 races**, all `EXIT=0`, real parallelism exercised ([[tsan-via-wsl-recipe]]).
 2. **[minor] No bulk path for particles/text.** Same JSON-per-primitive wall sprites had. Add
    `submit*Batch` analogues only if they become hot (the benchmark shows particles/text also cap ~5k/60fps).
 3. **[minor] FrameAllocator can't grow** — fixed arena, sized at init. A double-buffered/growable
@@ -113,5 +126,7 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
 - `tests/visual/benchmark_render_savage.cpp` — the savage benchmark (windowed, wall-clock).
 - `tests/integration/test_scene_collector.cpp` — `SceneCollectorTest [bulk]` regression lock.
 - `docs/DEVELOPER_GUIDE.md` — "Bulk Sprite Submission" section.
-- **IIO speedup target**: `src/IntraIO.cpp:61-82` (publish deep-copy), `src/IntraIOManager.cpp:321,548`
-  (per-delivery re-wrap). Engine consumed by [[drifterra-consumes-groveengine]].
+- **IIO shared payload (DONE)**: `include/grove/IIO.h` (`Message::data` = `shared_ptr<const IDataNode>`),
+  `src/IntraIO.cpp` publish (re-home + share), `src/IntraIOManager.cpp` routeMessage (ref-count forward) +
+  batch flush. Zero-copy proof: `tests/integration/test_message_envelope.cpp` `[zerocopy]`. The remaining
+  true-zero-copy lever (core-publisher flag) is OPEN TASK #1. Engine consumed by [[drifterra-consumes-groveengine]].
