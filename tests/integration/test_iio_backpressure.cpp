@@ -31,7 +31,7 @@ TEST_CASE("IntraIO enforces maxQueueSize on a stalled consumer (backpressure)", 
     const int flood = 1000;
     for (int i = 0; i < flood; ++i) {
         auto node = std::make_unique<JsonDataNode>("data", nlohmann::json{{"i", i}});
-        io->deliverMessage("test:flood", std::move(node), /*isLowFreq=*/false);
+        io->deliverMessage("test:flood", std::move(node), /*isLowFreq=*/false, /*env=*/{});
     }
 
     auto health = io->getHealth();
@@ -159,7 +159,7 @@ TEST_CASE("IntraIO bounds the low-frequency queue too", "[iio][backpressure]") {
     const int flood = 500;
     for (int i = 0; i < flood; ++i) {
         auto node = std::make_unique<JsonDataNode>("data", nlohmann::json{{"i", i}});
-        io->deliverMessage("test:lowfreq", std::move(node), /*isLowFreq=*/true);
+        io->deliverMessage("test:lowfreq", std::move(node), /*isLowFreq=*/true, /*env=*/{});
     }
 
     auto health = io->getHealth();

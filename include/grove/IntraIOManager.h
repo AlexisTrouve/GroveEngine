@@ -93,6 +93,14 @@ private:
     mutable std::atomic<size_t> totalRoutedMessages{0};
     mutable std::atomic<size_t> totalRoutes{0};
 
+    // Current engine-time snapshot for envelope stamping (IO contract §5/§6). The engine pushes
+    // (tick, simTime) once per step() via setSimTime(); routeMessage() reads them to stamp the
+    // envelope. Atomics (not an EngineClock pointer) so a worker-thread routeMessage NEVER races
+    // the engine thread advancing the clock. The pair may tear by ~one step at a frame boundary —
+    // harmless (simTime == tick·dt; a one-frame skew on a coarse replay axis).
+    std::atomic<uint64_t> m_currentTick{0};
+    std::atomic<double>   m_currentSimTime{0.0};
+
     // Batched logging (pour éviter spam)
     static constexpr size_t LOG_BATCH_SIZE = 100;
     mutable std::atomic<size_t> messagesSinceLastLog{0};
@@ -135,8 +143,15 @@ public:
 
     std::shared_ptr<IntraIO> getInstance(const std::string& instanceId) const;
 
-    // Routing (called by IntraIO instances)
-    void routeMessage(const std::string& sourceid, const std::string& topic, const json& messageData);
+    // Routing (called by IntraIO instances). seq + lamport are the sender's envelope send-stamp
+    // (computed in IntraIO::publish under its lock); routeMessage adds tick/simTime and delivers.
+    void routeMessage(const std::string& sourceid, const std::string& topic, const json& messageData,
+                      uint64_t seq, uint64_t lamport);
+
+    // Engine-pushed simulation-time snapshot for envelope stamping (IO contract §5/§6). The engine
+    // calls this once per step() right after the EngineClock advances; routeMessage() reads it to
+    // stamp tick/simTime. Lock-free (atomic stores) so it never participates in the routing locks.
+    void setSimTime(uint64_t tick, double simTime);
     void registerSubscription(const std::string& instanceId, const std::string& pattern, bool isLowFreq, int batchInterval = 1000);
     void unregisterSubscription(const std::string& instanceId, const std::string& pattern);
 

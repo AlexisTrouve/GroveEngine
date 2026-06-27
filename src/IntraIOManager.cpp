@@ -223,9 +223,21 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
     return nullptr;
 }
 
-void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& messageData) {
+void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& messageData,
+                                  uint64_t seq, uint64_t lamport) {
     // DEADLOCK FIX: Use scoped_lock for consistent lock ordering when both mutexes needed
     std::scoped_lock lock(managerMutex, batchMutex);
+
+    // Complete the envelope (IO contract §5): the sender supplied source/seq/lamport (its
+    // send-stamp); we add the current engine-time snapshot (tick/simTime — lock-free atomic
+    // reads, never racing the engine thread). Stamped once, shared by every high-freq delivery
+    // of this message. (Low-freq batched delivery is coalesced and carries only coarse time.)
+    Envelope env;
+    env.source  = sourceId;
+    env.seq     = seq;
+    env.lamport = lamport;
+    env.tick    = m_currentTick.load(std::memory_order_relaxed);
+    env.simTime = m_currentSimTime.load(std::memory_order_relaxed);
 
     totalRoutedMessages++;
     messagesSinceLastLog++;
@@ -316,10 +328,10 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
                 logger->debug("  📦 Buffered for '{}' (pattern: {}, buffer size: {})",
                              subscriberId, matchedPattern, buffer.messages.size());
             } else {
-                // High-freq: immediate delivery
+                // High-freq: immediate delivery, carrying the full envelope.
                 json dataCopy = messageData;
                 auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
-                targetInstance->second->deliverMessage(topic, std::move(dataNode), false);
+                targetInstance->second->deliverMessage(topic, std::move(dataNode), false, env);
                 deliveredCount++;
                 logger->trace("  ↪️ Delivered to '{}' (high-freq)", subscriberId);
             }
@@ -544,13 +556,28 @@ void IntraIOManager::flushBatchBufferSafe(BatchBuffer& buffer) {
         });
     }
 
-    // Deliver ONE batch message containing the array
+    // Deliver ONE batch message containing the array, with a COARSE envelope: low-freq batching
+    // coalesces N source messages into a single delivery, so per-message seq / lamport / causal
+    // order are intentionally NOT preserved here — batching is the bandwidth-optimized, lossy path
+    // (IO contract §3/§9). We stamp only the engine-time snapshot at flush + a batch source marker.
+    Envelope batchEnv;
+    batchEnv.source  = "batch:" + buffer.pattern;
+    batchEnv.tick    = m_currentTick.load(std::memory_order_relaxed);
+    batchEnv.simTime = m_currentSimTime.load(std::memory_order_relaxed);
     auto batchDataNode = std::make_unique<JsonDataNode>("batch", batchArray);
-    targetInstance->second->deliverMessage(firstTopic, std::move(batchDataNode), true);
+    targetInstance->second->deliverMessage(firstTopic, std::move(batchDataNode), true, batchEnv);
 
     logger->info("✅ Batch delivered to '{}' successfully", buffer.instanceId);
 
     buffer.messages.clear();
+}
+
+void IntraIOManager::setSimTime(uint64_t tick, double simTime) {
+    // Lock-free snapshot push (engine thread, once per step). routeMessage() reads these atomics
+    // to stamp the envelope's tick/simTime WITHOUT touching the routing locks or the EngineClock
+    // object — so a worker-thread route never races the engine thread advancing the clock.
+    m_currentTick.store(tick, std::memory_order_relaxed);
+    m_currentSimTime.store(simTime, std::memory_order_relaxed);
 }
 
 // Singleton implementation

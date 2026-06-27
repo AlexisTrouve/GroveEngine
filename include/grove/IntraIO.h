@@ -14,6 +14,7 @@
 #include <nlohmann/json.hpp>
 
 #include "IIO.h"
+#include "LamportClock.h"   // per-node logical clock for envelope causal stamping (§5)
 
 using json = nlohmann::json;
 
@@ -23,7 +24,9 @@ namespace grove {
 class IIntraIODelivery {
 public:
     virtual ~IIntraIODelivery() = default;
-    virtual void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) = 0;
+    // env: the transport-owned message envelope (source/seq/lamport/tick/simTime), stamped by the
+    // router on publish and carried to the sink so it lands on the delivered Message (IO contract §5).
+    virtual void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) = 0;
     virtual const std::string& getInstanceId() const = 0;
 };
 
@@ -57,6 +60,13 @@ private:
 
     // Instance identification for routing
     std::string instanceId;
+
+    // Envelope stamping (IO contract §5). seqCounter_ = monotonic per-source sequence;
+    // lamportClock_ = this node's logical clock. BOTH are mutated ONLY under operationMutex
+    // (seqCounter_ + lamportClock_.tick() in publish(); lamportClock_.update() in
+    // deliverMessage()), so they are plain non-atomic members and stay race-free.
+    uint64_t seqCounter_ = 0;
+    LamportClock lamportClock_;
 
     // Message storage
     std::queue<Message> messageQueue;
@@ -138,7 +148,7 @@ public:
     void forceProcessLowFreqBatches();
 
     // Manager interface (called by IntraIOManager)
-    void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) override;
+    void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) override;
     const std::string& getInstanceId() const override;
 };
 

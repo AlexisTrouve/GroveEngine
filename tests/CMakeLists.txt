@@ -919,6 +919,17 @@ target_include_directories(test_lamport_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(test_lamport_clock PRIVATE Catch2::Catch2WithMain)
 grove_add_test(LamportClockUnit test_lamport_clock ${CMAKE_CURRENT_BINARY_DIR})
 
+# Message envelope E2E (IO contract §5, part 2b/2c): the transport stamps source/seq/lamport/
+# tick/simTime on delivered messages, with Lamport causality across a publish chain, and the
+# engine's step() wire pushes the tick the envelope is stamped from. In-process, Catch2, no GPU.
+add_executable(test_message_envelope integration/test_message_envelope.cpp)
+target_link_libraries(test_message_envelope PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(MessageEnvelope test_message_envelope ${CMAKE_CURRENT_BINARY_DIR})
+
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
 # strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it

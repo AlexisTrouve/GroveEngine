@@ -145,7 +145,7 @@ is `dump()`'d.
 
 ---
 
-## 5. The message envelope 🟡
+## 5. The message envelope ✅ BUILT (intra) — part 2
 
 Ordering/causality metadata is an **envelope** concern, owned by the transport — **not** part of
 the user's json payload. The transport stamps and reads the header; the module owns only the
@@ -156,16 +156,32 @@ keeps modules from hand-rolling sequence numbers.
 message = { header: <envelope>, payload: <json> }   // header transport-owned, payload module-owned
 ```
 
+**Built.** `grove::Envelope` (`IIO.h`) is a struct on every `Message`. `IntraIO::publish` stamps
+`source` + `seq` + `lamport` under the instance's lock; `IntraIOManager::routeMessage` adds
+`tick`/`simTime` from the engine snapshot; the sink (`IntraIO::deliverMessage`) lands the full
+envelope on the delivered `Message` and folds the sender's lamport into its own clock. Stamped on
+the **high-freq control plane**; the low-freq batch path is coalesced and carries only coarse time
+(by design — §3/§9). Locked by `MessageEnvelope` (E2E) + `LamportClockUnit`, and **TSan-clean**
+(WSL, the threaded + pool hosting chains — publish/route/deliver under real parallelism, 0 races).
+
 Envelope fields (control-plane only — see §3):
 
 | Field | What | Why | Status |
 |-------|------|-----|--------|
-| `source` | publisher instance id | per-producer ordering, routing | 🟡 |
-| `seq` | monotonic per-source counter | gap detection, **dedup**, per-source order | 🟡 |
-| `lamport` | logical clock (scalar) | **causal total order**, tie-broken by source — canonical reconstructable order for replay | 🟡 |
-| `tick` | engine epoch (§6) | coarse debug/replay axis ("show me tick 4096"); cheap, kept even where unsynced | 🟡 |
-| `simTime` | deterministic sim time (= `tick·dt`) | shipped so a **remote module needs no clock sync** — it reads the tick's time from the message | 🟡 |
-| `causedBy?` | optional correlation id | ties response→request; traces the causal DAG across a relocated module | 🟡 |
+| `source` | publisher instance id | per-producer ordering, routing | ✅ |
+| `seq` | monotonic per-source counter | gap detection, **dedup**, per-source order | ✅ |
+| `lamport` | logical clock (scalar) | **causal total order**, tie-broken by source — canonical reconstructable order for replay | ✅ |
+| `tick` | engine epoch (§6) | coarse debug/replay axis ("show me tick 4096"); cheap, kept even where unsynced | ✅ |
+| `simTime` | deterministic sim time (= `tick·dt`) | shipped so a **remote module needs no clock sync** — it reads the tick's time from the message | ✅ |
+| `causedBy?` | optional correlation id | ties response→request; traces the causal DAG across a relocated module | 🟡 reserved (field present, not yet populated) |
+
+**Lamport is per-node, not a shared counter.** Each `IntraIO` owns a `LamportClock`: `tick()` on
+publish (send-stamp), `update(received) = max(local, received)+1` on deliver (receive rule) — both
+under that instance's `operationMutex`, so it stays race-free with no shared state. A shared atomic
+counter would be simpler intra-process but **can't cross a process boundary** — it would break the
+moment a module is relocated to LocalIO/NetworkIO, which is the whole point of the envelope. `tick`/
+`simTime` come from a lock-free atomic snapshot the engine pushes once per `step()` (so a worker-
+thread route never races the engine advancing the clock).
 
 **Lamport, not wall-clock.** Wall-clock timestamps are *not* an ordering tool (drift,
 non-monotonic across machines, ms collisions). Lamport is a causality counter (one integer,
@@ -346,11 +362,13 @@ under the low-trust doctrine. The pattern:
 | Backpressure: bounded queue + drop-oldest + IOHealth + 80% warn | ✅ BUILT |
 | Data-plane direct path (`submitSpriteBatch`) | ✅ BUILT |
 | TSan harness (WSL) | ✅ BUILT |
-| Message envelope `{source, seq, lamport, tick, simTime, causedBy?}` | 🟡 DECIDED |
+| Message envelope `{source, seq, lamport, tick, simTime}` stamped (intra, control plane, TSan-clean) | ✅ BUILT |
+| `causedBy` correlation id (field present, not yet populated) | 🟡 DECIDED |
 | EngineClock (fixed timestep, exposes tick/simTime/dt/realTime to modules) | ✅ BUILT |
 | Clock → module handoff: `setClock` injection + `IEngine::clock()` host accessor | ✅ BUILT |
 | Pause / slow-mo / time-scale via the clock | ✅ BUILT |
-| Lamport logical clock + per-source seq + dedup | 🟡 DECIDED |
+| Lamport logical clock (per-node) + per-source seq, stamped | ✅ BUILT |
+| Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED |
 | Dual logging = stamped stream, two views; structured replay sink; exec-order | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
 | Intra zero-copy delivery (`shared_ptr<const>`) | 🟡 DECIDED (rendering handoff task #1) |
@@ -365,11 +383,13 @@ under the low-trust doctrine. The pattern:
 
 1. ~~**EngineClock first**~~ ✅ **DONE** (part 1: `EngineClock` + `step()` advances it + `setClock`
    injection + `IEngine::clock()`). Locked by `EngineClockUnit` + `EngineClockHosting`.
-2. **The envelope** ← *next* — add the transport-owned header; wire `seq`/`lamport`/`tick`/`simTime`.
-   The clock now provides `tick`/`simTime`, so the envelope's time fields have a real source to stamp
-   from. **Re-run the WSL TSan suite after** (touches publish/route/deliver and the ABBA lock order).
-3. **Structured replay sink** — once messages are stamped, the per-module + centralized logs fall
-   out as two queries; build the structured sink (async, droppable).
+2. ~~**The envelope**~~ ✅ **DONE** (part 2: `Envelope {source, seq, lamport, tick, simTime}` stamped
+   through publish/route/deliver; per-node `LamportClock`; engine pushes the tick/simTime snapshot).
+   Locked by `MessageEnvelope` + `LamportClockUnit`; **WSL TSan re-run clean** (threaded + pool chains,
+   0 races). `causedBy` reserved; consumer-side dedup/gap-detection deferred to the replay sink.
+3. **Structured replay sink** ← *next* — messages are now stamped, so the per-module + centralized
+   logs fall out as two queries; build the structured sink (async, droppable). Natural home for
+   `causedBy` + seq-based dedup (they need a consumer that reads the stamped stream).
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with coalesce/reject.
 5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task; independent,
    benefits all control-plane traffic.
@@ -382,9 +402,14 @@ under the low-trust doctrine. The pattern:
 - `src/DebugEngine.cpp` — owns `m_clock`, advances it in `step()`, injects it via `setClock` in
   `registerStaticModule`; the concrete engine loop; 80%-full health warning.
 - `tests/unit/test_engine_clock.cpp` + `tests/integration/test_engine_clock_hosting.cpp` — the locks.
+- `include/grove/IIO.h` — ✅ `Envelope` struct + `Message::env` (the message header).
+- `include/grove/LamportClock.h` — ✅ per-node logical clock (pure, header-only).
 - `include/grove/IOFactory.h` + `src/IOFactory.cpp` — the intra/local/network tiers (local/network are stubs).
-- `src/IntraIO.cpp` — json deep-copy delivery (zero-copy target) + bounded queue / drop-oldest / IOHealth.
-- `src/IntraIOManager.cpp` — per-delivery re-wrap (zero-copy target).
+- `src/IntraIO.cpp` — publish stamps source/seq/lamport; deliver lands the envelope + folds lamport
+  (receive rule); json deep-copy delivery (zero-copy target) + bounded queue / drop-oldest / IOHealth.
+- `src/IntraIOManager.cpp` — `routeMessage` completes the envelope (tick/simTime) + `setSimTime`
+  atomic snapshot; per-delivery re-wrap (zero-copy target).
+- `tests/integration/test_message_envelope.cpp` + `tests/unit/test_lamport_clock.cpp` — the envelope locks.
 - `docs/design/rendering-throughput-handoff.md` — the data-plane path + the intra zero-copy task.
 
 ---

@@ -96,6 +96,11 @@ void DebugEngine::step(float deltaTime) {
         // applied here (timeScale), so a paused engine still runs step() but the sim time holds.
         m_clock.advance(deltaTime);
 
+        // Push this frame's clock snapshot to the IIO router so it can stamp tick/simTime onto
+        // every message's envelope this frame (IO contract §5). Lock-free atomic store; must
+        // follow advance() so the envelope carries the CURRENT frame's time, not the previous.
+        IntraIOManager::getInstance().setSimTime(m_clock.tick(), m_clock.simTime());
+
         // Process coordinator messages
         if (coordinatorSocket) {
             logger->trace("📨 Processing coordinator messages");

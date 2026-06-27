@@ -4,11 +4,12 @@ Companion to **[iio-contract.md](iio-contract.md)** (the permanent doctrine). Th
 *resume point*: how the contract was reached, what to build first, and the design questions still
 open. Read the contract for the *what/why*; read this for *where we are and what's next*.
 
-**Status: doctrine decided + documented; Part 1 (EngineClock) now BUILT.** The contract started
-as a design agreement; the first build slice — the EngineClock (1a class + 1b engine wiring + 1c
-`setClock` module injection) — is shipped and locked by `EngineClockUnit` + `EngineClockHosting`.
-The rest is still 🟡. The status ledger in the contract marks every line ✅ built / 🟡 decided /
-🔵 deferred.
+**Status: doctrine decided + documented; Parts 1 (EngineClock) + 2 (message envelope) now BUILT.**
+The contract started as a design agreement; two build slices are shipped: the EngineClock (1a class
++ 1b engine wiring + 1c `setClock` injection) and the message envelope (2a `Envelope`/`LamportClock`
++ 2b publish/route/deliver stamping + 2c E2E), the latter **WSL-TSan-clean**. Locked by
+`EngineClockUnit`/`EngineClockHosting` + `LamportClockUnit`/`MessageEnvelope`. Next is the structured
+replay sink. The status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
 ## What this session decided (the trail)
 
@@ -47,11 +48,15 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
    and advances it in `step()` + `setClock` module injection + `IEngine::clock()` host accessor.
    Pause / slow-mo / fast-forward work end-to-end. Locked by `EngineClockUnit` (13 cases / 65
    assertions) + `EngineClockHosting` (E2E, 11 assertions). Default `dt = 1/60`, `maxStepsPerFrame = 8`.
-2. **The envelope** ← *next* — transport-owned header `{source, seq, lamport, tick, simTime, causedBy?}`.
-   The clock now supplies `tick`/`simTime` to stamp from. **Re-run the WSL TSan suite after** — it
-   touches publish/route/deliver and the ABBA lock order ([[tsan-via-wsl-recipe]]).
-3. **Structured replay sink** — once stamped, per-module + centralized logs fall out as two
-   queries; build the async, droppable structured sink.
+2. ✅ **The envelope — DONE.** `Envelope {source, seq, lamport, tick, simTime}` on every `Message`,
+   stamped through publish/route/deliver. Per-node `LamportClock` (tick on send, max+1 on receive,
+   both under the instance lock). `tick`/`simTime` from a lock-free atomic snapshot the engine pushes
+   each `step()`. High-freq control plane fully stamped; low-freq batch coalesced (coarse time only).
+   Locked by `MessageEnvelope` (4 cases / 18 assertions) + `LamportClockUnit` (7 cases / 25). **WSL
+   TSan re-run CLEAN** — threaded + pool hosting chains, 6 runs, 0 races, real workload (600 routed).
+   `causedBy` field present but not populated; consumer-side seq-dedup deferred.
+3. **Structured replay sink** ← *next* — once stamped, per-module + centralized logs fall out as two
+   queries; build the async, droppable structured sink. Natural home for `causedBy` + seq-dedup.
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with
    coalesce (latest-wins) / reject (critical) alongside the current global drop-oldest.
 5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task;
@@ -70,14 +75,21 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
   guard: on hitting the cap, the unrun remainder is dropped (sim time slips, no catch-up sprint).
   Negative deltas clamped to 0.
 
-**Still open (for the envelope and beyond):**
+- ✅ **Envelope structure → struct on `Message`.** `Envelope env;` member on `Message` (a sibling of
+  `topic`/`data`/`timestamp`), not reserved fields, not embedded in the payload json. Keeps the
+  transport header cleanly separate from the module's `data` (and leaves the §4 intra zero-copy
+  applicable to `data` independently).
+- ✅ **Lamport ownership → per-node.** Each `IntraIO` owns a `LamportClock`, mutated only under its
+  `operationMutex` (tick in publish, update in deliver). NOT a shared manager counter (can't cross a
+  process boundary → would break relocation). `tick`/`simTime` come from an atomic snapshot the
+  engine pushes via `IntraIOManager::setSimTime` each step (race-free vs the engine advancing the clock).
 
-- **Envelope structure** — header struct *alongside* the payload `IDataNode`, or reserved fields
-  on the message? Must keep the §4 intra zero-copy (`shared_ptr<const>`) applicable to the payload.
-- **Lamport increment site & ownership** — incremented on publish and on receive; per-IIO-instance
-  counter vs a shared engine counter? (Affects the total-order tie-break.)
+**Still open (later slices):**
+
 - **Per-topic backpressure** — which topics coalesce (`render:camera`, tension intents) vs reject
   (critical commands)? Needs enumeration as topics are added.
+- **Consumer-side dedup / gap-detection** using `seq`, and populating `causedBy` — both land with the
+  structured replay sink (a consumer that reads the stamped stream).
 
 ## Pointers
 

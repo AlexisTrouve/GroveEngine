@@ -59,10 +59,20 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     // of the JSON — it does not touch our internal state.
 
     nlohmann::json jsonDataCopy;
+    uint64_t seq = 0;
+    uint64_t lamport = 0;
     {
         std::lock_guard<std::mutex> lock(operationMutex);
 
         totalPublished++;
+
+        // Envelope SEND-stamp (IO contract §5), under operationMutex so the counters stay
+        // serialized with everything else this instance touches: a monotonic per-source
+        // sequence number + a Lamport "send" tick. These are the SENDER's values, so they are
+        // computed HERE (not at the sink). The router adds tick/simTime; the sink lands the
+        // full envelope on the delivered Message and folds this lamport into its own clock.
+        seq = ++seqCounter_;
+        lamport = lamportClock_.tick();
 
         // Validate and copy the JSON payload while we hold the lock.
         // We copy (not reference) so that releasing operationMutex cannot
@@ -78,7 +88,7 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     // Route the copied message via central manager.
     // NOTE: routeMessage() acquires managerMutex internally.
     //       We must NOT hold operationMutex here (see ABBA comment above).
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonDataCopy);
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonDataCopy, seq, lamport);
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
@@ -304,7 +314,7 @@ void IntraIO::forceProcessLowFreqBatches() {
     processLowFreqSubscriptions();
 }
 
-void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq) {
+void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) {
     // deliverMessage() is called by IntraIOManager::flushBatchBufferSafe() while
     // holding managerMutex. It ONLY enqueues the message — it does NOT invoke any
     // user callback. There is therefore no outbound call that could try to re-acquire
@@ -316,11 +326,18 @@ void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode
     // by the fixes in publish() / subscribe() / pullAndDispatch().
     std::lock_guard<std::mutex> lock(operationMutex);
 
+    // Envelope RECEIVE-rule (IO contract §5): fold the sender's lamport into our own clock
+    // (max+1) so anything THIS instance publishes next is stamped causally after the message it
+    // just received. Done under operationMutex — same lock as publish()'s tick — so this node's
+    // Lamport clock is always serialized. The message keeps the sender's send-stamp (env.lamport).
+    lamportClock_.update(env.lamport);
+
     Message msg;
     msg.topic = topic;
     msg.data = std::move(message);
     msg.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
+    msg.env = env;   // transport-owned header lands on the delivered Message
 
     if (isLowFreq) {
         lowFreqMessageQueue.push(std::move(msg));
