@@ -8,22 +8,30 @@ analysis). This doc is the plan + the resume-from-here state.
 
 ---
 
-## Where we are (grounded 2026-06-27)
+## Status (2026-06-28) — RESUME HERE
+
+**Phase 1 (sanitizers) ✅ DONE · Phase 2 (clang-tidy) ✅ DONE.** The engine core is now proven clean on
+two new axes: **0 UB / 0 memory errors / 0 leaks** under ASan+UBSan (core/logic/IIO/math + the hot-reload
+dlopen/dlclose path), and **statically clean** under a curated clang-tidy `src/` pass (only minor real
+fixes, no serious bugs). The thesis above is delivered for the core.
+
+**Next:** Phase 3 (CI) — blocked on a host decision (github/gitea/none) — **or** the cheaper win: widen
+clang-tidy + the sanitizer sweep to `modules/` (GPU/bgfx), the one area not yet covered. Per-phase detail below.
 
 | Capability | Status |
 |---|---|
 | Test suite (121 ctest) | ✅ solid, the backbone |
-| TSan / Helgrind | ⚠️ wired as **manual** CMake flags (`GROVE_ENABLE_TSAN` / `_HELGRIND`, OFF by default), `CMakeLists.txt:11-16, 27-29` |
-| ASan / LSan | ❌ **not a build option** — run today via a throwaway WSL wrapper only |
-| UBSan | ❌ **never run** — an entire bug class unchecked |
-| clang-tidy / static analysis | ❌ none (no `.clang-tidy`) |
-| CI (auto on push) | ❌ none — everything is manual, depends on remembering |
+| TSan / Helgrind | ✅ wired (`GROVE_ENABLE_TSAN` / `_HELGRIND`, manual flags, `CMakeLists.txt:11-16, 27-29`); IIO/pool TSan-proven |
+| ASan / LSan | ✅ wired (`GROVE_ENABLE_ASAN`, commit `400e62a`); core + hot-reload swept **clean** |
+| UBSan | ✅ wired (`GROVE_ENABLE_UBSAN`, `400e62a`); swept **clean**, negative-controlled |
+| clang-tidy / static analysis | ✅ `.clang-tidy` curated (`a668239`); `src/` crop fixed. `modules/` not yet (follow-up) |
+| CI (auto on push) | ❌ none — everything still manual (Phase 3) |
 | Coverage | ❌ not measured |
-| Perf / leak regression gates | ❌ none (benchmarks are wall-clock, run by hand) |
+| Perf / leak regression gates | ❌ none — benchmarks wall-clock, run by hand (Phase 4) |
 
-**Toolchain reality:** primary build is Windows/MinGW (Ninja, `-O3`). **MinGW ships no ASan/UBSan/TSan**
-→ all sanitizers run via **WSL** (the engine compiles on Linux — see [[tsan-via-wsl-recipe]]). This
-constrains *how* the sweeps run (below), not *whether*.
+**Toolchain reality:** primary build Windows/MinGW (Ninja, `-O3`). MinGW ships no sanitizers → run via
+**WSL** ([[tsan-via-wsl-recipe]]; ASan/UBSan recipe in *Phase 1 — what actually worked*). clang-tidy via the
+**pip wheel** on Windows + the Ninja compile DB (no admin needed; see Phase 2). These constrain *how*, not *whether*.
 
 ---
 
@@ -204,6 +212,12 @@ gitea + github + bitbucket).
 - `docs/design/iio-contract-handoff.md` — the determinism/replay feature track (separate).
 - Memory: [[tsan-via-wsl-recipe]], [[rendering-throughput]], [[engine-io-contract]].
 
-**Suggested start:** Phase 1a + 1b (wire `GROVE_ENABLE_UBSAN`, sweep the suite, triage the crop) — it's
-one focused session, pure bug-hunting in your TDD-adversarial loop, and it tells us how dirty (or
-clean) the engine really is before investing in CI.
+**Resume from here (Phases 1+2 done):** two clean increments left, pick by appetite —
+- **Widen coverage to `modules/`** (cheap, no new infra): point clang-tidy at `modules/*/` (the Windows
+  build already has their compile-DB entries) + get bgfx/SDL onto the WSL toolchain so the `[gpu]`/SDL
+  tests join the sanitizer sweep. Closes the one gap: the core is proven clean, the modules aren't yet.
+- **Phase 3 (CI)** — the structural win, but it needs Alexi's host decision first (github / gitea / none).
+  Once a host is picked, wire a Linux workflow: build → ctest → the ASan/UBSan/TSan sweeps → clang-tidy.
+
+Everything needed to repeat the sanitizer + clang-tidy runs by hand is in the phase sections above
+(recipes, gotchas, the pip-wheel + WSL paths). Nothing is blocked except the CI host choice.
