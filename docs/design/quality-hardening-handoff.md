@@ -29,7 +29,13 @@ constrains *how* the sweeps run (below), not *whether*.
 
 ## Plan (phased by leverage)
 
-### Phase 1 — Sanitizer lenses on the whole engine ⭐ START HERE
+### Phase 1 — Sanitizer lenses ✅ DONE (sweep clean) — 2026-06-27
+
+**Result: the core/logic/IIO/math/datatree/topictree subset is sanitizer-clean.** UBSan = 0 undefined
+behavior; ASan+LSan = 0 memory errors, 0 leaks — across 44 passing tests, **negative-controlled** (a
+deliberate signed overflow IS caught by UBSan; a leaked `JsonDataNode` IS caught by LSan). `GROVE_ENABLE_ASAN`
+/ `_UBSAN` wired (commit `400e62a`). The original plan (below) held; what we actually ran + the gotchas
+that bit are captured in *Phase 1 — what actually worked* further down.
 
 Highest yield in *real bugs found*, and it amortizes what we just built. Mirror the existing TSAN
 block for two new options, then sweep the suite.
@@ -61,6 +67,43 @@ block for two new options, then sweep the suite.
   - **Verify the verifier**: every sanitizer sweep starts with a *negative control* (inject one
     deliberate fault, confirm the tool flags it) before trusting a clean run. We did this for LSan
     (a leaked `JsonDataNode` → caught at `JsonDataNode.cpp:18`); do the same for UBSan/ASan.
+
+#### Phase 1 — what actually worked (reproducible recipe)
+
+MinGW has no sanitizers → run on WSL. The full-suite Linux build had never been done; this is the
+working path (scripts lived in the session scratchpad — re-create if needed):
+
+```bash
+# Configure (Unix Makefiles — Ninja isn't on the WSL PATH). SDL find_package SUCCEEDS but its
+# imported targets are missing on this WSL → force it off, else the sound demos fail at configure.
+cmake -S /mnt/c/.../groveengine -B ~/ubsan_build \
+  -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+  -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON -DCMAKE_DISABLE_FIND_PACKAGE_SDL2_mixer=ON \
+  -DGROVE_ENABLE_UBSAN=ON -DGROVE_BUILD_TESTS=ON          # ASan: add -DGROVE_ENABLE_ASAN=ON (they compose)
+cmake --build ~/ubsan_build -j4 -- -k                     # Make keep-going is "-k" NOT "-k 0" (Ninja syntax)
+UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1:detect_odr_violation=0 \
+  ctest --test-dir ~/ubsan_build --output-on-failure -j2 -E "ChaosMonkey|MemoryLeakHunter|StressTest|ProductionHotReload"
+```
+
+- **79 test binaries build** on Linux (only `SDLBackend`/InputModule fails — no SDL.h). **47 run via ctest.**
+- **Verify-the-verifier**: standalone neg control `int x=INT_MAX; x+=1;` under `-fsanitize=undefined` →
+  `runtime error: signed integer overflow`. Confirms UBSan is live before trusting the clean run.
+- **Coverage caveat (be honest):** this is the **core/logic/IIO** subset. NOT covered: GPU/renderer
+  tests (no bgfx on WSL), SDL input, the 4 long stress tests (excluded for speed — TSan/ASan-leak
+  domain anyway), and the hot-reload tests below.
+- **Logs to `$HOME` not `/tmp`** — WSL tmpfs `/tmp` is wiped when the WSL VM idles out between calls.
+
+#### Phase 1 — side findings (test quality, NOT engine bugs → follow-ups)
+
+1. **~5 hot-reload tests hardcode `.dll`** (`ModuleDependencies`, `MultiVersionCoexistence`,
+   `IOSystemStress`, …): they `load("./libBaseModule.dll")` etc., so they **fail on Linux** (`cannot
+   open shared object file`) and **never get sanitized**. The hot-reload `.so` lifecycle is exactly
+   where use-after-free hides → fixing the extension to be platform-conditional **unblocks sanitizer
+   coverage of that path** (+ makes them CI-able). High-value follow-up.
+2. **`LimitsTest` / `ConfigHotReload`** pass under UBSan-only but fail under ASan+UBSan with **zero
+   sanitizer errors** — they load their `.so` fine; the failures are timing/count assertions sensitive
+   to the ~2.5× ASan slowdown (LimitsTest is literally the *timeout* test). Confirm on a plain Linux
+   build, then relax the timing assertions. Not a memory bug.
 
 ### Phase 2 — Static analysis (clang-tidy)
 
