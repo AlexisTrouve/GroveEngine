@@ -282,11 +282,17 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                 const std::string sheet = m.data->getString("sheet", "");
                 if (sheet.empty()) return;
                 std::vector<assets::PackEntry> entries;
-                if (IDataNode* arr = m.data->getChildReadOnly("sprites")) {
-                    int i = 0;
-                    while (IDataNode* e = arr->getChildReadOnly(std::to_string(i))) {
-                        entries.push_back({ e->getString("id", ""), e->getString("path", "") });
-                        ++i;
+                // Read the sprites array straight off the payload json (const). We deliberately do
+                // NOT use getChildReadOnly here: it lazily MATERIALIZES child nodes (mutates the
+                // node), which on a shared, const, zero-copy payload would be both ill-formed and a
+                // data race across subscribers. The raw const json read is mutation-free + thread-safe.
+                if (auto* jn = dynamic_cast<const JsonDataNode*>(m.data.get())) {
+                    const auto& j = jn->getJsonData();
+                    auto it = j.find("sprites");
+                    if (it != j.end() && it->is_array()) {
+                        for (const auto& e : *it) {
+                            entries.push_back({ e.value("id", std::string{}), e.value("path", std::string{}) });
+                        }
                     }
                 }
                 assets::packAtlas(*m_device, *m_resourceCache, *m_assetManager, sheet, entries,

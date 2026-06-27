@@ -328,7 +328,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         // half of the data-driven loop — no imperative set_text needed). Reactivity = re-resolve on push.
         m_io->subscribe("ui:data", [this](const Message& msg) {
             if (!msg.data) return;
-            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
                 m_uiData = jn->getJsonData();
             }
             ++m_dataVersion;
@@ -341,7 +341,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             if (!msg.data) return;
             const std::string path = msg.data->getString("path", "");
             if (path.empty()) return;
-            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
                 const auto& j = jn->getJsonData();
                 if (j.contains("value")) {
                     uibind::setAtPath(m_uiData, path, j["value"]);
@@ -355,7 +355,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         // (provided keys override deeply; a null value deletes a key). Update many fields without a full push.
         m_io->subscribe("ui:data:merge", [this](const Message& msg) {
             if (!msg.data) return;
-            if (auto* jn = dynamic_cast<JsonDataNode*>(msg.data.get())) {
+            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
                 m_uiData.merge_patch(jn->getJsonData());
                 ++m_dataVersion;
                 refreshDataDriven();
