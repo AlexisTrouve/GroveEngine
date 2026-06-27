@@ -31,11 +31,12 @@ constrains *how* the sweeps run (below), not *whether*.
 
 ### Phase 1 — Sanitizer lenses ✅ DONE (sweep clean) — 2026-06-27
 
-**Result: the core/logic/IIO/math/datatree/topictree subset is sanitizer-clean.** UBSan = 0 undefined
-behavior; ASan+LSan = 0 memory errors, 0 leaks — across 44 passing tests, **negative-controlled** (a
-deliberate signed overflow IS caught by UBSan; a leaked `JsonDataNode` IS caught by LSan). `GROVE_ENABLE_ASAN`
-/ `_UBSAN` wired (commit `400e62a`). The original plan (below) held; what we actually ran + the gotchas
-that bit are captured in *Phase 1 — what actually worked* further down.
+**Result: the core/logic/IIO/math/datatree/topictree subset AND the hot-reload dlopen/dlclose path are
+sanitizer-clean.** UBSan = 0 undefined behavior; ASan+LSan = 0 memory errors, 0 leaks — **negative-controlled**
+(a deliberate signed overflow IS caught by UBSan; a leaked `JsonDataNode` IS caught by LSan). The hot-reload
+coverage came from a follow-up fix (`.dll` hardcoding → portable `.so`/`.dll`, commit `bf7132f`; see side
+findings). `GROVE_ENABLE_ASAN`/`_UBSAN` wired (commit `400e62a`). What we actually ran + the gotchas that bit
+are in *Phase 1 — what actually worked* below.
 
 Highest yield in *real bugs found*, and it amortizes what we just built. Mirror the existing TSAN
 block for two new options, then sweep the suite.
@@ -95,11 +96,17 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=1:detect_odr_violation=0
 
 #### Phase 1 — side findings (test quality, NOT engine bugs → follow-ups)
 
-1. **~5 hot-reload tests hardcode `.dll`** (`ModuleDependencies`, `MultiVersionCoexistence`,
-   `IOSystemStress`, …): they `load("./libBaseModule.dll")` etc., so they **fail on Linux** (`cannot
-   open shared object file`) and **never get sanitized**. The hot-reload `.so` lifecycle is exactly
-   where use-after-free hides → fixing the extension to be platform-conditional **unblocks sanitizer
-   coverage of that path** (+ makes them CI-able). High-value follow-up.
+1. ✅ **FIXED (commit `bf7132f`) — hot-reload `.dll` hardcoding.** `test_09/10/11` hardcoded
+   `"./libX.dll"` → failed to load any module on Linux → never sanitized. Added a file-local
+   `modPath()` resolving `.so`/`.dll` per platform (mirrors the `#ifdef` idiom in `test_05/07/08`).
+   **Result: the hot-reload dlopen/dlclose path is now SANITIZER-CLEAN** — `ModuleDependencies`,
+   `MultiVersionCoexistence`, `IOSystemStress` + `ReloadAfterThrow`, `RaceConditionHunter`,
+   `ErrorRecovery` all pass under ASan+UBSan on Linux with **0 sanitizer errors**. (24 test module
+   `.so`s build fine on Linux.) Windows still 3/3 green. Two tests still fail on Linux for
+   **non-sanitizer** reasons, flagged not fixed: **ChaosMonkey** "<10MB RSS growth" assertion (ASan
+   inflates RSS ~3× — mechanical false positive; LSan finds no real leak), and **ProductionHotReload**
+   "v2 version" assertion (fails on Linux while *every other* reload/multiversion test passes → test-
+   specific, not a hot-reload break — worth a look only if Linux becomes a target platform).
 2. **`LimitsTest` / `ConfigHotReload`** pass under UBSan-only but fail under ASan+UBSan with **zero
    sanitizer errors** — they load their `.so` fine; the failures are timing/count assertions sensitive
    to the ~2.5× ASan slowdown (LimitsTest is literally the *timeout* test). Confirm on a plain Linux
