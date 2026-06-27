@@ -147,6 +147,43 @@ while (io->hasMessages()) {
 - **Callbacks handle HOW**: Clean separation of concerns
 - **Thread-safe**: Callbacks invoked in module's thread context
 
+#### The message payload — shared, immutable, `const`
+
+A handler receives the payload as **`msg.data`**, typed `std::shared_ptr<const IDataNode>`. The bus
+delivers **one immutable node shared by pointer across every subscriber** (zero-copy delivery) — so
+the payload is `const` on purpose: no subscriber can mutate what another is reading.
+
+**Reading it** — use the `const` accessors (this is what almost every handler does):
+
+```cpp
+io->subscribe("ui:action", [this](const grove::Message& msg) {
+    std::string action = msg.data->getString("action", "");   // const getters: getString/getInt/
+    int button         = msg.data->getInt("button", 0);        // getDouble/getBool/hasProperty...
+    // Need the raw json (arrays, nested objects)? cast to const and use the const getJsonData():
+    if (auto* jn = dynamic_cast<const grove::JsonDataNode*>(msg.data.get())) {
+        const auto& j = jn->getJsonData();                     // const ref — read only
+    }
+});
+```
+
+**Do NOT** mutate the payload or call destructive/lazy-materializing methods on it (`getChild`,
+`setX`, ...): they don't compile on a `const` node, and on a shared node they would corrupt the
+data other subscribers see. Read the json directly instead (as above).
+
+**Lifetime** — the payload lives only as long as the `Message`, i.e. the duration of your handler.
+To keep it **after** the handler returns, copy the `shared_ptr` (a ref-count bump, not a json copy):
+
+```cpp
+std::shared_ptr<const grove::IDataNode> kept;   // a member, say
+io->subscribe("game:state", [&](const grove::Message& msg) { kept = msg.data; });  // extends its life
+```
+
+**Performance** — the bus never copies the payload per subscriber. A module registered with
+`registerStaticModule` (the normal static/linked-in host, e.g. a game built on the engine) publishes
+with **zero json copies** (its node is shared directly); a hot-loaded `.so` module's payload is
+re-homed into one core node on publish (one copy, for cross-`.so` safety). Either way fan-out to N
+subscribers is `O(1)` copies, not `O(N)`. See `docs/design/rendering-throughput-handoff.md` for numbers.
+
 ---
 
 ## Available Modules
@@ -201,10 +238,13 @@ io->publish("render:sprite", std::move(sprite));
 
 #### Bulk Sprite Submission (high throughput)
 
-`render:sprite` is one IIO message per sprite, and **IIO deep-copies every message to JSON
-on publish** (`IIO::publish()` requires a `JsonDataNode`). That costs **~10 µs/sprite**, so the
-path tops out around **5 000 sprites/frame at 60 fps** — fine for UI and a few hundred entities,
-but a wall for thousands. The GPU itself is nowhere near saturated (10 k sprites draw in <1 ms).
+`render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per
+delivery (zero-copy delivery — see *The message payload* above; a static/linked-in host publishes it
+with zero json copies). But each sprite still costs a `JsonDataNode` to **build** (`make_unique` +
+the `set*` calls) plus the per-message bus machinery (envelope, queue, dispatch). That per-message
+overhead — node construction, not a copy — is what keeps the path in the low thousands of
+sprites/frame at 60 fps: fine for UI and a few hundred entities, a wall for thousands. The GPU itself
+is nowhere near saturated (10 k sprites draw in <1 ms).
 
 For thousands of sprites, a **statically-linked host** that already holds packed instances feeds
 them straight to the renderer — bypassing IIO and JSON entirely:

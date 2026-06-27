@@ -126,7 +126,7 @@ the pathfinder or its clients.
 
 | Tier | Boundary | Status | Payload cost |
 |------|----------|--------|--------------|
-| `intra` → IntraIO | same process, direct calls | ✅ BUILT | should be zero-copy |
+| `intra` → IntraIO | same process, direct calls | ✅ BUILT | ✅ zero-copy (`shared_ptr<const>`) |
 | `local` → LocalIO | same machine (pipes/sockets) | 🔵 stub (throws "not yet implemented") | serializes |
 | `network` → NetworkIO | TCP/WS, distributed | 🔵 stub | serializes + wire |
 
@@ -138,10 +138,11 @@ plane — so it is 🔵 **deferred, profile-gated**, decided only when a concret
 becomes hot.
 
 The intra zero-copy optimization (deliver a `shared_ptr<const>` immutable payload instead of
-deep-copying the json — [rendering-throughput-handoff.md](rendering-throughput-handoff.md),
-open task #1) is **compatible with all of this**: it changes intra *delivery*, not the payload
-*type*. The pathfinder still publishes json; in-process it is shared by pointer, on a remote it
-is `dump()`'d.
+deep-copying the json — [rendering-throughput-handoff.md](rendering-throughput-handoff.md)) is
+✅ **BUILT** and **compatible with all of this**: it changes intra *delivery*, not the payload
+*type*. The publisher still publishes json; in-process it is shared by pointer (one immutable node
+across N subscribers; static/core publishers share with 0 copies via the `coreResident` flag, others
+re-home once for cross-`.so` safety), on a remote it is `dump()`'d.
 
 ---
 
@@ -371,7 +372,7 @@ under the low-trust doctrine. The pattern:
 | Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED |
 | Dual logging = stamped stream, two views; structured replay sink; exec-order | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
-| Intra zero-copy delivery (`shared_ptr<const>`) | 🟡 DECIDED (rendering handoff task #1) |
+| Intra zero-copy delivery (`shared_ptr<const>`) | ✅ BUILT (fan-out O(N)→O(1); coreResident = true 0-copy) |
 | Per-topic backpressure policy (coalesce / reject) | 🟡 DECIDED |
 | Live determinism enforcement (sort + apply canonical order) | 🔵 DEFERRED |
 | Vector clocks | 🔵 DEFERRED |
@@ -391,8 +392,10 @@ under the low-trust doctrine. The pattern:
    logs fall out as two queries; build the structured sink (async, droppable). Natural home for
    `causedBy` + seq-based dedup (they need a consumer that reads the stamped stream).
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with coalesce/reject.
-5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task; independent,
-   benefits all control-plane traffic.
+5. ~~**Intra zero-copy delivery**~~ ✅ **DONE** (`Message::data` = `shared_ptr<const IDataNode>`; one
+   immutable node shared across N subscribers, fan-out O(N)→O(1); `coreResident` instances share the
+   original with 0 copies, others re-home once for cross-`.so` safety). Locked by `MessageEnvelope`
+   `[zerocopy]`; WSL TSan re-run clean; measured A/B in the rendering handoff (149–377× on fat fan-out).
 
 ## Key files
 

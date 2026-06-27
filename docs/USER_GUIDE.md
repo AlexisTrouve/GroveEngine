@@ -451,6 +451,20 @@ void MyModule::setConfiguration(const grove::IDataNode& configNode,
 }
 ```
 
+#### The message payload (`msg.data`)
+
+`msg.data` is a `std::shared_ptr<const grove::IDataNode>`: the bus delivers **one immutable payload
+shared by pointer across all subscribers** (zero-copy). Read it with the `const` accessors
+(`getString`/`getInt`/`getDouble`/`getBool`) as the examples above do. Two rules:
+
+- **Don't mutate it** — it's `const` and shared; destructive/`set*` methods won't compile, and would
+  corrupt what other subscribers see. To read raw json, cast to `const grove::JsonDataNode*` and use
+  the `const getJsonData()`.
+- **It lives only for the handler** — to keep a payload afterwards, copy the `shared_ptr`
+  (`auto kept = msg.data;`), which is a ref-count bump, not a data copy.
+
+See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) → *The message payload* for the full rationale + perf.
+
 #### Processing Messages with Callback Dispatch
 
 ```cpp
