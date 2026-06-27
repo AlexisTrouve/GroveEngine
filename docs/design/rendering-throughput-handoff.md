@@ -51,7 +51,14 @@ A direct bulk path that hands the renderer GPU-ready instances, bypassing IIO + 
   `reset()`, so every frame floored at ~16.6ms regardless of the (read-but-ignored) flag. Now
   threaded: `IRHIDevice::init(..., bool vsync = true)`, BgfxDevice stores reset flags
   (`BGFX_RESET_VSYNC` vs `BGFX_RESET_NONE`) and reuses them on resize. Backward-compatible (default
-  true; one impl, one caller). With it OFF, the bulk path's *real* cost is visible (below).
+  true). With it OFF, the bulk path's *real* cost is visible (below).
+  - ⚠️ **Correction (post-hoc):** `IRHIDevice` has **two** impls, not one — `BgfxDevice` AND
+    `tests/mocks/MockRHIDevice.h`. The `bool vsync` param was added to the interface but **not**
+    propagated to the mock, which silently became abstract and broke the build of ~8 renderer test
+    targets (`test_render_graph`, `test_shader_manager`, `test_pass_culling`, `test_hud_view`,
+    `test_bitmap_font`, `test_rhi_texture_desc`, `test_debug_pass`, `test_pipeline_headless`).
+    Fixed: the mock's `init` now mirrors the 5-arg signature (a code comment there warns it MUST
+    track the interface). Lesson: any change to an `IRHIDevice` pure virtual must update the mock too.
 - **B. Documented `submitSpriteBatch`** for hosts: DEVELOPER_GUIDE "Bulk Sprite Submission" (when to
   use it vs `render:sprite` vs retained tilemap) + a CLAUDE.md BgfxRenderer note.
 

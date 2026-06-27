@@ -80,7 +80,11 @@ public:
     // IRHIDevice Implementation
     // ========================================
 
-    bool init(void* /*nativeWindowHandle*/, void* /*nativeDisplayHandle*/, uint16_t /*width*/, uint16_t /*height*/) override {
+    // NOTE: signature MUST mirror IRHIDevice::init exactly (incl. the trailing `bool vsync`,
+    // added with the vsync-config work). MockRHIDevice is a SECOND impl of IRHIDevice — any
+    // change to the interface's pure virtuals must be propagated here, or the mock silently
+    // becomes abstract and every renderer test that instantiates it fails to compile.
+    bool init(void* /*nativeWindowHandle*/, void* /*nativeDisplayHandle*/, uint16_t /*width*/, uint16_t /*height*/, bool /*vsync*/) override {
         return initShouldSucceed;
     }
 
