@@ -32,6 +32,20 @@
 #include <atomic>
 #include <vector>
 #include <map>
+#include <string>
+
+// Hot-reload artifacts are .so on Linux/macOS, .dll on Windows. Resolve the extension per platform
+// so this test runs (and gets sanitized) on both — the module paths below were hardcoded .dll
+// (Windows-only), which made the test fail to load anything on Linux.
+namespace {
+std::string modPath(const std::string& base) {
+#ifdef _WIN32
+    return "./lib" + base + ".dll";
+#else
+    return "./lib" + base + ".so";
+#endif
+}
+}
 
 // Cross-platform dlopen wrappers
 #ifdef _WIN32
@@ -203,11 +217,11 @@ int main() {
 
     // Load all IO test modules
     bool loadSuccess = true;
-    loadSuccess &= engine.loadModule("ProducerModule", "./libProducerModule.dll");
-    loadSuccess &= engine.loadModule("ConsumerModule", "./libConsumerModule.dll");
-    loadSuccess &= engine.loadModule("BroadcastModule", "./libBroadcastModule.dll");
-    loadSuccess &= engine.loadModule("BatchModule", "./libBatchModule.dll");
-    loadSuccess &= engine.loadModule("IOStressModule", "./libIOStressModule.dll");
+    loadSuccess &= engine.loadModule("ProducerModule", modPath("ProducerModule"));
+    loadSuccess &= engine.loadModule("ConsumerModule", modPath("ConsumerModule"));
+    loadSuccess &= engine.loadModule("BroadcastModule", modPath("BroadcastModule"));
+    loadSuccess &= engine.loadModule("BatchModule", modPath("BatchModule"));
+    loadSuccess &= engine.loadModule("IOStressModule", modPath("IOStressModule"));
 
     if (!loadSuccess) {
         std::cerr << "❌ Failed to load required modules\n";

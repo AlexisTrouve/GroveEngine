@@ -31,6 +31,20 @@
 #include <thread>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+#include <string>
+
+// Hot-reload artifacts are .so on Linux/macOS, .dll on Windows. Resolve the extension per platform
+// so this test runs (and gets sanitized) on both — the module paths below were hardcoded .dll
+// (Windows-only), which made the test fail to load anything on Linux.
+namespace {
+std::string modPath(const std::string& base) {
+#ifdef _WIN32
+    return "./lib" + base + ".dll";
+#else
+    return "./lib" + base + ".so";
+#endif
+}
+}
 
 // Cross-platform dlopen wrappers
 #ifdef _WIN32
@@ -368,11 +382,11 @@ int main() {
     // === SETUP: Load modules with dependencies ===
     std::cout << "=== Setup: Load modules with dependencies ===\n";
 
-    ASSERT_TRUE(engine.loadModule("BaseModule", "./libBaseModule.dll"),
+    ASSERT_TRUE(engine.loadModule("BaseModule", modPath("BaseModule")),
                 "Should load BaseModule");
-    ASSERT_TRUE(engine.loadModule("DependentModule", "./libDependentModule.dll"),
+    ASSERT_TRUE(engine.loadModule("DependentModule", modPath("DependentModule")),
                 "Should load DependentModule");
-    ASSERT_TRUE(engine.loadModule("IndependentModule", "./libIndependentModule.dll"),
+    ASSERT_TRUE(engine.loadModule("IndependentModule", modPath("IndependentModule")),
                 "Should load IndependentModule");
 
     reporter.addAssertion("modules_loaded", true);

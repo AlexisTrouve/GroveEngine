@@ -32,6 +32,20 @@
 #include <memory>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+#include <string>
+
+// Hot-reload artifacts are .so on Linux/macOS, .dll on Windows. Resolve the extension per platform
+// so this test runs (and gets sanitized) on both — the module paths below were hardcoded .dll
+// (Windows-only), which made the test fail to load anything on Linux.
+namespace {
+std::string modPath(const std::string& base) {
+#ifdef _WIN32
+    return "./lib" + base + ".dll";
+#else
+    return "./lib" + base + ".so";
+#endif
+}
+}
 
 // Cross-platform dlopen wrappers
 #ifdef _WIN32
@@ -347,7 +361,7 @@ int main() {
         std::cout << "=== Phase 0: Setup Baseline (v1 with 100 entities) ===\n";
 
         // Load v1
-        std::string v1Path = "./libGameLogicModuleV1.dll";
+        std::string v1Path = modPath("GameLogicModuleV1");
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 1, v1Path),
                     "Load GameLogic v1");
 
@@ -367,7 +381,7 @@ int main() {
         auto phase1Start = std::chrono::high_resolution_clock::now();
 
         // Load v2
-        std::string v2Path = "./libGameLogicModuleV2.dll";
+        std::string v2Path = modPath("GameLogicModuleV2");
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 2, v2Path),
                     "Load GameLogic v2");
 
@@ -502,7 +516,7 @@ int main() {
         std::cout << "\n=== Phase 5: Three-Way Coexistence (v1, v2, v3) ===\n";
 
         // Load v3
-        std::string v3Path = "./libGameLogicModuleV3.dll";
+        std::string v3Path = modPath("GameLogicModuleV3");
         ASSERT_TRUE(engine.loadModuleVersion("GameLogic", 3, v3Path),
                     "Load GameLogic v3");
 
