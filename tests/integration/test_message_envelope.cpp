@@ -169,6 +169,30 @@ TEST_CASE("Zero-copy - subscribers share one immutable payload, not a per-delive
     mgr.removeInstance("ZC");
 }
 
+TEST_CASE("Zero-copy - a core-resident publisher shares the ORIGINAL node (true zero-copy)", "[envelope][iio][zerocopy]") {
+    auto& mgr = IntraIOManager::getInstance();
+    auto a = mgr.createInstance("ZcoreA", /*coreResident=*/true);   // publisher is core-resident
+    auto b = mgr.createInstance("ZcoreB");
+
+    std::shared_ptr<const IDataNode> got;
+    b->subscribe("zc:topic", [&](const Message& m) { got = m.data; });
+
+    auto node = std::make_unique<JsonDataNode>("orig", nlohmann::json{{"k", 7}});
+    const IDataNode* originalPtr = node.get();    // remember the published node's exact address
+    a->publish("zc:topic", std::move(node));
+    while (b->hasMessages() > 0) b->pullAndDispatch();
+
+    REQUIRE(got != nullptr);
+    // TRUE zero-copy: the delivered node IS the published node — the original was shared by pointer,
+    // not re-homed into a core copy. A default (non-core-resident) instance re-homes, so it would
+    // deliver a DIFFERENT pointer (the prior [zerocopy] case exercises that share-the-core-copy path).
+    REQUIRE(got.get() == originalPtr);
+    REQUIRE(got->getInt("k", -1) == 7);
+
+    mgr.removeInstance("ZcoreA");
+    mgr.removeInstance("ZcoreB");
+}
+
 // ============================================================================
 // Engine wire: step() pushes the snapshot that the envelope is stamped from
 // ============================================================================

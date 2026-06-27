@@ -595,7 +595,10 @@ void DebugEngine::registerStaticModule(const std::string& name,
     try {
         // Routed IIO instance for this module — same regardless of strategy. The manager
         // co-owns it; we keep a handle to pump/drop it. A null config becomes an empty node.
-        std::shared_ptr<IIO> io = IntraIOManager::getInstance().createInstance(name);
+        // coreResident=true: a STATIC module is linked into the core for the whole process, so its
+        // published nodes never dangle past an .so unload → publish() shares them by pointer (TRUE
+        // zero-copy, 0 json copies). Hot-loaded .so modules self-wire their IIO and stay re-homed.
+        std::shared_ptr<IIO> io = IntraIOManager::getInstance().createInstance(name, /*coreResident=*/true);
         std::unique_ptr<IDataNode> cfg = config
             ? std::move(config)
             : std::make_unique<JsonDataNode>("config", json::object());

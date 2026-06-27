@@ -23,7 +23,7 @@ class IntraIO; // Forward declaration
 class IIntraIODelivery; // Forward declaration
 
 // Factory function for creating IntraIO (defined in IntraIO.cpp to avoid circular include)
-std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId);
+std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId, bool coreResident = false);
 
 /**
  * @brief Central router for IntraIO instances
@@ -133,8 +133,10 @@ public:
     IntraIOManager();
     ~IntraIOManager();
 
-    // Instance management
-    std::shared_ptr<IntraIO> createInstance(const std::string& instanceId);
+    // Instance management. coreResident=true ⇒ the instance may share payloads by pointer (true
+    // zero-copy in publish) because its publisher's code is core-resident for the whole process
+    // (a static/core module). Default false ⇒ re-home payloads (safe for hot-loaded .so publishers).
+    std::shared_ptr<IntraIO> createInstance(const std::string& instanceId, bool coreResident = false);
     void registerInstance(const std::string& instanceId, std::shared_ptr<IIntraIODelivery> instance);
     void removeInstance(const std::string& instanceId);
 

@@ -70,6 +70,14 @@ private:
     uint64_t seqCounter_ = 0;
     LamportClock lamportClock_;
 
+    // TRUE zero-copy gate. When true, publish() shares the publisher's ORIGINAL payload node by
+    // pointer (0 json copies) instead of re-homing it into a core-built node. Only safe when the
+    // publisher's CODE lives in the core for the whole process (a static/core module): its node
+    // can never dangle past an .so unload. Default false = re-home (always safe) — see publish().
+    // Set true by IntraIOManager::createInstance(..., coreResident=true), used by the engine for
+    // static modules (registerStaticModule). Hot-loaded .so modules + ad-hoc instances stay false.
+    bool coreResident_ = false;
+
     // Message storage
     std::queue<Message> messageQueue;
     std::queue<Message> lowFreqMessageQueue;
@@ -121,7 +129,10 @@ private:
     void logPull(const Message& message) const;
 
 public:
-    IntraIO(const std::string& instanceId);
+    // coreResident: true ⇒ this instance's publisher is core-resident for the whole process, so
+    // publish() may share its payload node directly (true zero-copy). Default false ⇒ re-home
+    // every payload into a core node (safe for hot-loaded .so publishers). See coreResident_.
+    IntraIO(const std::string& instanceId, bool coreResident = false);
     virtual ~IntraIO();
 
     // IIO implementation

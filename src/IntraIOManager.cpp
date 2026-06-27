@@ -120,7 +120,7 @@ IntraIOManager::~IntraIOManager() {
 }
 
 
-std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& instanceId) {
+std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& instanceId, bool coreResident) {
     std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
 
     auto it = instances.find(instanceId);
@@ -130,8 +130,8 @@ std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& insta
         return std::static_pointer_cast<IntraIO>(it->second);
     }
 
-    // Create new IntraIO instance via factory function
-    auto instance = createIntraIOInstance(instanceId);
+    // Create new IntraIO instance via factory function (coreResident gates true zero-copy publish)
+    auto instance = createIntraIOInstance(instanceId, coreResident);
     instances[instanceId] = instance;
 
     logger->info("✅ Created IntraIO instance: '{}'", instanceId);

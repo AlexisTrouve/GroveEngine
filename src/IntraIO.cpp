@@ -8,11 +8,11 @@
 namespace grove {
 
 // Factory function for IntraIOManager to avoid circular include
-std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId) {
-    return std::make_shared<IntraIO>(instanceId);
+std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId, bool coreResident) {
+    return std::make_shared<IntraIO>(instanceId, coreResident);
 }
 
-IntraIO::IntraIO(const std::string& id) : instanceId(id) {
+IntraIO::IntraIO(const std::string& id, bool coreResident) : instanceId(id), coreResident_(coreResident) {
     std::cout << "[IntraIO] Created instance: " << instanceId << std::endl;
     lastHealthCheck = std::chrono::high_resolution_clock::now();
 }
@@ -74,26 +74,29 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
         seq = ++seqCounter_;
         lamport = lamportClock_.tick();
 
-        // SHARED PAYLOAD (zero per-subscriber copy): build ONE immutable node here and share it by
-        // pointer across all N subscribers + across the released lock boundary. The old router deep-
-        // copied the json once PER subscriber (O(N)); we copy it once here (O(1)) and ref-count it.
-        //
-        // Why RE-HOME (copy the json into a node built HERE) instead of sharing `message` directly:
-        // `message` may have been allocated inside a hot-loaded module's .so. If a subscriber queue
-        // still holds the shared payload when that .so is unloaded (dlclose), disposing the
-        // shared_ptr would invoke ~JsonDataNode through a vtable in freed code — a SIGSEGV at
-        // teardown (observed: IntraIOManager dtor -> IntraIO dtor -> deque<Message> dtor). A node
-        // built in THIS translation unit (core lib) carries a core vtable, safe to dispose at any
-        // later point regardless of module load/unload. (The old per-delivery re-copy in routeMessage
-        // gave this cross-.so safety implicitly; re-homing once preserves it while still killing the
-        // O(N) fan-out copy.) Immutable + self-contained, so sharing it past the released
-        // operationMutex is race-free and keeps the ABBA discipline intact. Named "message" to match
-        // the old delivered node (consumers that inspect the node name stay compatible).
+        // SHARED PAYLOAD: build/wrap ONE immutable node and share it by pointer across all N
+        // subscribers + across the released lock boundary. The old router deep-copied the json once
+        // PER subscriber (O(N)); here it is at most ONE copy, ref-counted (immutable → race-free to
+        // share). We require a JsonDataNode (the batch flush + json-reading consumers depend on it).
         auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
         if (!jsonNode) {
             throw std::runtime_error("IntraIO::publish() requires JsonDataNode for message data");
         }
-        payload = std::make_shared<const JsonDataNode>("message", jsonNode->getJsonData());
+        if (coreResident_) {
+            // TRUE zero-copy: this instance's publisher is core-resident for the whole process, so
+            // its node can never dangle past an .so unload. Share the ORIGINAL node — ZERO json copy.
+            payload = std::shared_ptr<const IDataNode>(std::move(message));
+        } else {
+            // SAFE default: RE-HOME the json into a node built in THIS translation unit (core lib).
+            // `message` may have been allocated inside a hot-loaded module's .so; if a subscriber
+            // queue still holds the shared payload when that .so is unloaded (dlclose), disposing the
+            // shared_ptr would invoke ~JsonDataNode through a vtable in freed code — a SIGSEGV at
+            // teardown (observed: IntraIOManager dtor -> IntraIO dtor -> deque<Message> dtor). A core
+            // node carries a core vtable, safe to dispose at any later point regardless of module
+            // load/unload. (The old per-delivery re-copy gave this cross-.so safety implicitly.)
+            // Named "message" to match the old delivered node (name-inspecting consumers stay compatible).
+            payload = std::make_shared<const JsonDataNode>("message", jsonNode->getJsonData());
+        }
     }
     // operationMutex is now released — safe to call routeMessage()
 
