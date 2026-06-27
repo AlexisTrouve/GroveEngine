@@ -44,6 +44,12 @@ assets::AssetManager* BgfxRendererModule::getAssetManager() const {
     return m_assetManager.get();
 }
 
+void BgfxRendererModule::submitSpriteBatch(const SpriteInstance* data, size_t count) {
+    // Forward to the collector's bulk feed. Called between frames (before the next process()
+    // finalize()); the instances live in m_sprites until this frame is drawn and cleared.
+    if (m_sceneCollector) m_sceneCollector->addSpritesBulk(data, count);
+}
+
 void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) {
     m_io = io;
 

@@ -1277,3 +1277,63 @@ TEST_CASE("SceneCollector - collect mixed message types", "[scene_collector][int
     REQUIRE(packet.particleCount == 1);
     REQUIRE(packet.debugLineCount == 1);
 }
+
+// ============================================================================
+// BULK direct-feed (SceneCollector::addSpritesBulk) — the high-throughput path that
+// bypasses IIO + JSON. Locks the contract proven by benchmark_render_savage (the bulk
+// path sustains ~22× the 60fps sprite ceiling of render:sprite). GPU-free: pure collector.
+// ============================================================================
+
+namespace {
+// Build a GPU-ready instance with a recognizable x and layer (the only fields asserted).
+inline SpriteInstance makeInstance(float x, float layer) {
+    SpriteInstance s{};
+    s.x = x; s.y = 0.0f; s.scaleX = 1.0f; s.scaleY = 1.0f;
+    s.u1 = 1.0f; s.v1 = 1.0f; s.layer = layer; s.a = 1.0f;
+    return s;
+}
+} // namespace
+
+TEST_CASE("SceneCollector - addSpritesBulk feeds N instances into the frame (no IIO/JSON)", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    std::vector<SpriteInstance> batch = {
+        makeInstance(10.0f, 0.0f), makeInstance(20.0f, 0.0f), makeInstance(30.0f, 0.0f)};
+    fx.collector.addSpritesBulk(batch.data(), batch.size());
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 3);
+    // Same layer → stable order preserved, so the first instance keeps its x.
+    REQUIRE_THAT(p.sprites[0].x, WithinAbs(10.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[2].x, WithinAbs(30.0f, 0.01f));
+}
+
+TEST_CASE("SceneCollector - bulk sprites and IIO ephemeral sprites coexist in one frame", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Two via the bulk path...
+    std::vector<SpriteInstance> batch = {makeInstance(1.0f, 0.0f), makeInstance(2.0f, 0.0f)};
+    fx.collector.addSpritesBulk(batch.data(), batch.size());
+    // ...and one via the classic IIO/JSON path.
+    auto s = std::make_unique<JsonDataNode>("s");
+    s->setDouble("x", 99.0);
+    fx.ioPublisher->publish("render:sprite", std::move(s));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 3);   // merged: both feeds land in the same ephemeral list
+}
+
+TEST_CASE("SceneCollector - clear() drops bulk sprites (ephemeral, per-frame)", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    std::vector<SpriteInstance> batch = {makeInstance(5.0f, 0.0f)};
+    fx.collector.addSpritesBulk(batch.data(), batch.size());
+    REQUIRE(fx.collector.finalize(allocator).spriteCount == 1);
+
+    fx.collector.clear();          // end-of-frame reset
+    REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone next frame
+}

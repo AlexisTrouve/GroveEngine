@@ -19,6 +19,7 @@ class ShaderManager;
 class SpritePass;
 class TilemapPass;
 class DebugOverlay;
+struct SpriteInstance;   // POD GPU instance (Frame/FramePacket.h) — submitSpriteBatch takes a pointer
 namespace assets { class AssetManager; class BgfxTextureProvider; class ThreadedDecoder; }   // streaming texture assets
 
 // ============================================================================
@@ -54,6 +55,12 @@ public:
     ResourceCache* getResourceCache() const;
     rhi::IRHIDevice* getDevice() const;
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
+
+    // BULK sprite submission — direct, IIO/JSON-free. A statically-linked host that already
+    // holds packed SpriteInstances feeds them straight to this frame's scene (call between
+    // frames, before the next process()). This is the high-throughput path: render:sprite
+    // sends one JSON message per sprite (deep-copied by IIO, ~10µs each); this is ~ns/sprite.
+    void submitSpriteBatch(const SpriteInstance* data, size_t count);
 
 private:
     // Logger

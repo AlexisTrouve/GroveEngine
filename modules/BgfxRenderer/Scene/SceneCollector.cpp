@@ -451,6 +451,12 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     return packet;
 }
 
+void SceneCollector::addSpritesBulk(const SpriteInstance* data, size_t count) {
+    // One bulk insert — no per-sprite JSON parse, no IIO. The instances are already in the
+    // exact GPU layout finalize() expects, so this is the whole cost of feeding `count` sprites.
+    if (data && count) m_sprites.insert(m_sprites.end(), data, data + count);
+}
+
 void SceneCollector::clear() {
     m_sprites.clear();
     m_tilemaps.clear();

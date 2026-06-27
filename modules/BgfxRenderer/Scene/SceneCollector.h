@@ -35,6 +35,13 @@ public:
     // Generate immutable FramePacket for render passes
     FramePacket finalize(FrameAllocator& allocator);
 
+    // BULK direct-feed: append N GPU-ready instances straight into this frame's ephemeral
+    // sprite list, bypassing IIO + JSON entirely. The host calls this between frames (after
+    // clear(), before process()'s finalize) when it already holds packed SpriteInstances —
+    // the high-throughput path (~ns/sprite) vs render:sprite (one JSON message each, deep-
+    // copied by IIO at ~10µs/sprite). World-space, no asset/clip resolution: final instances.
+    void addSpritesBulk(const SpriteInstance* data, size_t count);
+
     // Reset for next frame
     void clear();
 

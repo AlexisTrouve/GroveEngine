@@ -2738,6 +2738,27 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Async streaming live demo 'test_async_stream_demo' enabled")
 
+    # GROS SAUVAGE — rendering throughput benchmark (windowed, vsync OFF). Ramps sprites/
+    # particles/text/tilemap until the frame time melts, reads bgfx GPU/CPU timers, finds the
+    # 60/30fps ceilings + names the bottleneck. Plain main() (SDL_MAIN_HANDLED), not a ctest
+    # (wall-clock measurement, machine/driver dependent — like benchmark_pool_vs_threaded).
+    add_executable(benchmark_render_savage visual/benchmark_render_savage.cpp)
+    target_include_directories(benchmark_render_savage PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(benchmark_render_savage PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET benchmark_render_savage POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:benchmark_render_savage>")
+    endif()
+    message(STATUS "Render savage benchmark 'benchmark_render_savage' enabled")
+
     # INTERACTIVE live demo: stream textures from an ONLINE image bank (picsum.photos) via a demo-side
     # curl-backed IAsyncDecoder — proves the asset pipeline streams from remote sources (network-paced fill).
     add_executable(test_online_stream_demo visual/test_online_stream_demo.cpp)
