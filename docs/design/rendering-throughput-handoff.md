@@ -89,7 +89,7 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
 
 ## OPEN TASKS (priority order)
 
-1. **[perf — DONE, with one lever left] Killed the per-subscriber IIO json copy.** `Message::data`
+1. **[perf — DONE] Zero-copy IIO delivery.** `Message::data`
    is now `shared_ptr<const IDataNode>`: one immutable node, ref-counted, shared across N subscribers
    AND across the lock boundary (immutable → thread-safe to share). The old `O(N)` per-delivery
    re-wrap (`IntraIOManager.cpp:321`) is gone — high-freq delivery is a ref-count bump. `render:sprite`
@@ -103,12 +103,16 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
      deque<Message> dtor`, gdb-confirmed). The OLD per-delivery re-copy gave this cross-`.so` safety
      *implicitly* (it re-allocated in core); re-homing once preserves it while still killing the `O(N)`
      copy. So this is **one-copy-share-N**, not literal zero-copy.
-   - **The remaining lever → TRUE zero-copy (0 copies) for CORE publishers.** A core/static module's
-     payload already has a core vtable → safe to share as-is. Gate it: tag the IntraIO instance
-     `external` when the module system hosts a **hot-loaded** module; `publish()` re-homes only when
-     `external` (safe), and shares the original (no copy) otherwise. Delivers the full `render:sprite`
-     win for the common case (the game — incl. [[drifterra-consumes-groveengine]], static-linked — is a
-     core publisher). Cost: an instance flag + wiring it from the module system. Not yet built.
+   - **TRUE zero-copy (0 copies) for CORE publishers — DONE (ZC-4 `3034ea5`).** A core/static module's
+     payload already has a core vtable → safe to share as-is. Gated by an IntraIO instance flag
+     `coreResident` (default false = re-home, safe): `IntraIOManager::createInstance(id, coreResident)`
+     threads it through; `DebugEngine::registerStaticModule` sets it **true** (a static module is
+     core-resident for the whole process). `publish()` then shares the ORIGINAL node (0 json copies)
+     for core-resident instances, re-homes for the rest. Hot-loaded `.so` modules self-wire their IIO
+     and stay `false` → cross-`.so` safety intact. Delivers the full win for the common case (the game,
+     incl. [[drifterra-consumes-groveengine]] static-linked, publishes core-resident). Proof: `[zerocopy]`
+     case asserting the delivered node IS the published pointer. TSan re-validated (the static hosting
+     targets now share the original across worker threads — 0 races ×15 runs).
    - **TSan re-run done** (the change touches publish/route/deliver + the ABBA boundary): 3 WSL targets
      × 5 runs = **0 races**, all `EXIT=0`, real parallelism exercised ([[tsan-via-wsl-recipe]]).
 2. **[minor] No bulk path for particles/text.** Same JSON-per-primitive wall sprites had. Add
@@ -127,6 +131,7 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
 - `tests/integration/test_scene_collector.cpp` — `SceneCollectorTest [bulk]` regression lock.
 - `docs/DEVELOPER_GUIDE.md` — "Bulk Sprite Submission" section.
 - **IIO shared payload (DONE)**: `include/grove/IIO.h` (`Message::data` = `shared_ptr<const IDataNode>`),
-  `src/IntraIO.cpp` publish (re-home + share), `src/IntraIOManager.cpp` routeMessage (ref-count forward) +
-  batch flush. Zero-copy proof: `tests/integration/test_message_envelope.cpp` `[zerocopy]`. The remaining
-  true-zero-copy lever (core-publisher flag) is OPEN TASK #1. Engine consumed by [[drifterra-consumes-groveengine]].
+  `src/IntraIO.cpp` publish (coreResident → share original / else re-home), `src/IntraIOManager.cpp`
+  routeMessage (ref-count forward) + batch flush, `src/DebugEngine.cpp` (static modules → coreResident=true).
+  Proofs: `tests/integration/test_message_envelope.cpp` `[zerocopy]` (both the re-home-share-N path and the
+  true-zero-copy original-pointer path). Engine consumed by [[drifterra-consumes-groveengine]].
