@@ -76,7 +76,7 @@ void EconomyModule::setDataTree(IDataTree* treePtr) {
     this->tree = treePtr;
 }
 
-void EconomyModule::handlePlayerEvent(const std::string& topic, IDataNode* data) {
+void EconomyModule::handlePlayerEvent(const std::string& topic, const IDataNode* data) {
     std::cout << "[EconomyModule] Handling player event: " << topic << std::endl;
 
     if (topic == "player:level_up") {

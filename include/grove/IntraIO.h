@@ -24,9 +24,11 @@ namespace grove {
 class IIntraIODelivery {
 public:
     virtual ~IIntraIODelivery() = default;
+    // message: the SHARED immutable payload (zero-copy) — the same node the publisher created,
+    // shared by pointer across all subscribers, not deep-copied per delivery.
     // env: the transport-owned message envelope (source/seq/lamport/tick/simTime), stamped by the
     // router on publish and carried to the sink so it lands on the delivered Message (IO contract §5).
-    virtual void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) = 0;
+    virtual void deliverMessage(const std::string& topic, std::shared_ptr<const IDataNode> message, bool isLowFreq, const Envelope& env) = 0;
     virtual const std::string& getInstanceId() const = 0;
 };
 
@@ -148,7 +150,7 @@ public:
     void forceProcessLowFreqBatches();
 
     // Manager interface (called by IntraIOManager)
-    void deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) override;
+    void deliverMessage(const std::string& topic, std::shared_ptr<const IDataNode> message, bool isLowFreq, const Envelope& env) override;
     const std::string& getInstanceId() const override;
 };
 

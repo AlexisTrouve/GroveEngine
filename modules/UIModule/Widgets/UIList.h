@@ -156,9 +156,9 @@ public:
 
     // Parse an `items` array-of-objects child off `containerNode` (factory node OR set_items message).
     // Each entry: {id, label, subtitle?, icon?}. Shared by UITree + UIModule + parseGroups (no dup).
-    static std::vector<ListItem> parseItems(IDataNode& containerNode);
+    static std::vector<ListItem> parseItems(const IDataNode& containerNode);
     // Parse a `groups` array-of-objects: each {id, label, collapsed?, items:[...]} (items via parseItems).
-    static std::vector<ListGroup> parseGroups(IDataNode& containerNode);
+    static std::vector<ListGroup> parseGroups(const IDataNode& containerNode);
 
     // --- Properties (data-driven). ---
     float rowHeight = 36.0f;

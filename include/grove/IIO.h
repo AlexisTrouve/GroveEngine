@@ -43,7 +43,12 @@ struct Envelope {
 
 struct Message {
     std::string topic;
-    std::unique_ptr<IDataNode> data;
+    // SHARED IMMUTABLE payload: one published node is wrapped once and shared by pointer across all
+    // N subscribers (and across the route/deliver lock boundary) instead of being json-deep-copied
+    // per delivery — the intra zero-copy delivery. `const` makes it safe to share concurrently (no
+    // subscriber can mutate a payload another is reading) and compile-prevents the destructive
+    // getChild on a shared node. Readers use const methods / const getJsonData().
+    std::shared_ptr<const IDataNode> data;
     uint64_t timestamp;
     Envelope env;                  // transport-owned header (source/seq/lamport/tick/simTime) — see Envelope
 

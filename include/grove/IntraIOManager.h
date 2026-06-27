@@ -71,7 +71,9 @@ private:
         std::string pattern;
         int batchInterval;
         std::chrono::steady_clock::time_point lastFlush;
-        std::vector<std::pair<std::string, json>> messages; // topic + data pairs
+        // topic + SHARED payload pairs (zero-copy buffered until flush; the json is extracted from
+        // each shared node only at flush time when the coalesced batch array is built).
+        std::vector<std::pair<std::string, std::shared_ptr<const IDataNode>>> messages;
     };
     std::unordered_map<std::string, BatchBuffer> batchBuffers; // pattern -> buffer
     mutable std::mutex batchMutex;
@@ -143,10 +145,11 @@ public:
 
     std::shared_ptr<IntraIO> getInstance(const std::string& instanceId) const;
 
-    // Routing (called by IntraIO instances). seq + lamport are the sender's envelope send-stamp
-    // (computed in IntraIO::publish under its lock); routeMessage adds tick/simTime and delivers.
-    void routeMessage(const std::string& sourceid, const std::string& topic, const json& messageData,
-                      uint64_t seq, uint64_t lamport);
+    // Routing (called by IntraIO instances). `payload` is the SHARED immutable node (zero-copy):
+    // forwarded by pointer to each high-freq subscriber, no per-delivery json copy. seq + lamport
+    // are the sender's envelope send-stamp (from IntraIO::publish); routeMessage adds tick/simTime.
+    void routeMessage(const std::string& sourceid, const std::string& topic,
+                      std::shared_ptr<const IDataNode> payload, uint64_t seq, uint64_t lamport);
 
     // Engine-pushed simulation-time snapshot for envelope stamping (IO contract §5/§6). The engine
     // calls this once per step() right after the EngineClock advances; routeMessage() reads it to

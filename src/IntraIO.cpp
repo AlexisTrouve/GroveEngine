@@ -58,7 +58,7 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     // BEFORE calling into IntraIOManager. routeMessage() receives a value copy
     // of the JSON — it does not touch our internal state.
 
-    nlohmann::json jsonDataCopy;
+    std::shared_ptr<const IDataNode> payload;
     uint64_t seq = 0;
     uint64_t lamport = 0;
     {
@@ -74,21 +74,33 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
         seq = ++seqCounter_;
         lamport = lamportClock_.tick();
 
-        // Validate and copy the JSON payload while we hold the lock.
-        // We copy (not reference) so that releasing operationMutex cannot
-        // invalidate the data we pass to routeMessage().
+        // SHARED PAYLOAD (zero per-subscriber copy): build ONE immutable node here and share it by
+        // pointer across all N subscribers + across the released lock boundary. The old router deep-
+        // copied the json once PER subscriber (O(N)); we copy it once here (O(1)) and ref-count it.
+        //
+        // Why RE-HOME (copy the json into a node built HERE) instead of sharing `message` directly:
+        // `message` may have been allocated inside a hot-loaded module's .so. If a subscriber queue
+        // still holds the shared payload when that .so is unloaded (dlclose), disposing the
+        // shared_ptr would invoke ~JsonDataNode through a vtable in freed code — a SIGSEGV at
+        // teardown (observed: IntraIOManager dtor -> IntraIO dtor -> deque<Message> dtor). A node
+        // built in THIS translation unit (core lib) carries a core vtable, safe to dispose at any
+        // later point regardless of module load/unload. (The old per-delivery re-copy in routeMessage
+        // gave this cross-.so safety implicitly; re-homing once preserves it while still killing the
+        // O(N) fan-out copy.) Immutable + self-contained, so sharing it past the released
+        // operationMutex is race-free and keeps the ABBA discipline intact. Named "message" to match
+        // the old delivered node (consumers that inspect the node name stay compatible).
         auto* jsonNode = dynamic_cast<JsonDataNode*>(message.get());
         if (!jsonNode) {
             throw std::runtime_error("IntraIO::publish() requires JsonDataNode for message data");
         }
-        jsonDataCopy = jsonNode->getJsonData();  // deep copy
+        payload = std::make_shared<const JsonDataNode>("message", jsonNode->getJsonData());
     }
     // operationMutex is now released — safe to call routeMessage()
 
-    // Route the copied message via central manager.
+    // Route the SHARED payload via central manager.
     // NOTE: routeMessage() acquires managerMutex internally.
     //       We must NOT hold operationMutex here (see ABBA comment above).
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, jsonDataCopy, seq, lamport);
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport);
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
@@ -314,7 +326,7 @@ void IntraIO::forceProcessLowFreqBatches() {
     processLowFreqSubscriptions();
 }
 
-void IntraIO::deliverMessage(const std::string& topic, std::unique_ptr<IDataNode> message, bool isLowFreq, const Envelope& env) {
+void IntraIO::deliverMessage(const std::string& topic, std::shared_ptr<const IDataNode> message, bool isLowFreq, const Envelope& env) {
     // deliverMessage() is called by IntraIOManager::flushBatchBufferSafe() while
     // holding managerMutex. It ONLY enqueues the message — it does NOT invoke any
     // user callback. There is therefore no outbound call that could try to re-acquire

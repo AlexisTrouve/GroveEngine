@@ -2,6 +2,7 @@
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
 #include <grove/IDataNode.h>
+#include <grove/JsonDataNode.h>   // const-json read of list payloads (zero-copy bus: const payload)
 #include <algorithm>
 #include <string>
 
@@ -173,39 +174,48 @@ void UIList::setSelectedIndex(int i) {
     m_selectedItemId = r.isHeader ? std::string() : r.itemId;
 }
 
-std::vector<ListItem> UIList::parseItems(IDataNode& containerNode) {
+std::vector<ListItem> UIList::parseItems(const IDataNode& containerNode) {
     // Read an `items` array-of-objects (keyed by index "0","1",... — strings-in-arrays don't round-trip
     // through the JSON tree, so every element is an OBJECT, exactly like tabs[] / radial items[]).
+    // We read the json DIRECTLY (const) rather than via getChildReadOnly, which lazily materializes
+    // child nodes (mutates the node) — ill-formed + a data race on a shared const message payload.
     std::vector<ListItem> out;
-    IDataNode* arr = containerNode.getChildReadOnly("items");
-    if (!arr) return out;
+    const auto* jn = dynamic_cast<const JsonDataNode*>(&containerNode);
+    if (!jn) return out;
+    const json& j = jn->getJsonData();
+    auto arrIt = j.find("items");
+    if (arrIt == j.end() || !arrIt->is_array()) return out;
     int i = 0;
-    while (IDataNode* it = arr->getChildReadOnly(std::to_string(i))) {
+    for (const auto& e : *arrIt) {
         ListItem item;
-        item.id            = it->getString("id", std::to_string(i));
-        item.label         = it->getString("label", "");
-        item.subtitle      = it->getString("subtitle", "");
-        item.iconTextureId = it->getInt("icon", 0);
+        item.id            = e.value("id", std::to_string(i));
+        item.label         = e.value("label", std::string{});
+        item.subtitle      = e.value("subtitle", std::string{});
+        item.iconTextureId = e.value("icon", 0);
         out.push_back(std::move(item));
         ++i;
     }
     return out;
 }
 
-std::vector<ListGroup> UIList::parseGroups(IDataNode& containerNode) {
-    // Read a `groups` array-of-objects: each {id, label, collapsed?, items:[...]}. The nested items[] are
-    // parsed by reusing parseItems on the group node (it has its own "items" child). Same json-backed
-    // constraint as items[] over IIO (see UI_TOPICS): the array must live in the node's JSON.
+std::vector<ListGroup> UIList::parseGroups(const IDataNode& containerNode) {
+    // Read a `groups` array-of-objects: each {id, label, collapsed?, items:[...]}. The nested items[]
+    // reuse parseItems by wrapping each group's json in a throwaway node (low-freq: set_groups only).
+    // Direct const-json read for the same reason as parseItems (no child materialization).
     std::vector<ListGroup> out;
-    IDataNode* arr = containerNode.getChildReadOnly("groups");
-    if (!arr) return out;
+    const auto* jn = dynamic_cast<const JsonDataNode*>(&containerNode);
+    if (!jn) return out;
+    const json& j = jn->getJsonData();
+    auto arrIt = j.find("groups");
+    if (arrIt == j.end() || !arrIt->is_array()) return out;
     int i = 0;
-    while (IDataNode* g = arr->getChildReadOnly(std::to_string(i))) {
+    for (const auto& g : *arrIt) {
         ListGroup group;
-        group.id        = g->getString("id", std::to_string(i));
-        group.label     = g->getString("label", "");
-        group.collapsed = g->getBool("collapsed", false);
-        group.items     = parseItems(*g);
+        group.id        = g.value("id", std::to_string(i));
+        group.label     = g.value("label", std::string{});
+        group.collapsed = g.value("collapsed", false);
+        const JsonDataNode groupNode("group", g);   // wrap the group json to reuse parseItems
+        group.items     = parseItems(groupNode);
         out.push_back(std::move(group));
         ++i;
     }

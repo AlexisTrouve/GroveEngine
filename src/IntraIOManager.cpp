@@ -223,8 +223,8 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
     return nullptr;
 }
 
-void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic, const json& messageData,
-                                  uint64_t seq, uint64_t lamport) {
+void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic,
+                                  std::shared_ptr<const IDataNode> payload, uint64_t seq, uint64_t lamport) {
     // DEADLOCK FIX: Use scoped_lock for consistent lock ordering when both mutexes needed
     std::scoped_lock lock(managerMutex, batchMutex);
 
@@ -316,22 +316,22 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
             }
 
             if (isLowFreq) {
-                // Add to batch buffer instead of immediate delivery
+                // Add to batch buffer instead of immediate delivery (store the SHARED payload;
+                // the json is extracted only at flush when the coalesced batch array is built).
                 // NOTE: batchMutex already held via scoped_lock
 
                 auto& buffer = batchBuffers[matchedPattern];
                 buffer.instanceId = subscriberId;
                 buffer.pattern = matchedPattern;
-                buffer.messages.push_back({topic, messageData});
+                buffer.messages.push_back({topic, payload});
 
                 deliveredCount++;
                 logger->debug("  📦 Buffered for '{}' (pattern: {}, buffer size: {})",
                              subscriberId, matchedPattern, buffer.messages.size());
             } else {
-                // High-freq: immediate delivery, carrying the full envelope.
-                json dataCopy = messageData;
-                auto dataNode = std::make_unique<JsonDataNode>("message", dataCopy);
-                targetInstance->second->deliverMessage(topic, std::move(dataNode), false, env);
+                // High-freq: immediate delivery — forward the SHARED payload by pointer (a
+                // ref-count bump, NO json copy). All N subscribers share the one immutable node.
+                targetInstance->second->deliverMessage(topic, payload, false, env);
                 deliveredCount++;
                 logger->trace("  ↪️ Delivered to '{}' (high-freq)", subscriberId);
             }
@@ -546,13 +546,20 @@ void IntraIOManager::flushBatchBufferSafe(BatchBuffer& buffer) {
     json batchArray = json::array();
     std::string firstTopic;
 
-    for (const auto& [topic, messageData] : buffer.messages) {
+    for (const auto& [topic, payload] : buffer.messages) {
         if (firstTopic.empty()) {
             firstTopic = topic;
         }
+        // Extract the json from the SHARED payload to merge it into the coalesced array. This is
+        // the one spot the batch path materializes the json (low-freq + infrequent — §3/§9); the
+        // high-freq control plane never copies.
+        json data;
+        if (auto* jn = dynamic_cast<const JsonDataNode*>(payload.get())) {
+            data = jn->getJsonData();
+        }
         batchArray.push_back({
             {"topic", topic},
-            {"data", messageData}
+            {"data", std::move(data)}
         });
     }
 
@@ -564,8 +571,8 @@ void IntraIOManager::flushBatchBufferSafe(BatchBuffer& buffer) {
     batchEnv.source  = "batch:" + buffer.pattern;
     batchEnv.tick    = m_currentTick.load(std::memory_order_relaxed);
     batchEnv.simTime = m_currentSimTime.load(std::memory_order_relaxed);
-    auto batchDataNode = std::make_unique<JsonDataNode>("batch", batchArray);
-    targetInstance->second->deliverMessage(firstTopic, std::move(batchDataNode), true, batchEnv);
+    std::shared_ptr<const IDataNode> batchPayload = std::make_shared<const JsonDataNode>("batch", batchArray);
+    targetInstance->second->deliverMessage(firstTopic, batchPayload, true, batchEnv);
 
     logger->info("✅ Batch delivered to '{}' successfully", buffer.instanceId);
 

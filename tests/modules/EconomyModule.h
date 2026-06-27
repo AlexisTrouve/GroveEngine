@@ -40,7 +40,7 @@ private:
     int totalBonusesApplied = 0;
     int playerEventsProcessed = 0;
 
-    void handlePlayerEvent(const std::string& topic, IDataNode* data);
+    void handlePlayerEvent(const std::string& topic, const IDataNode* data);
     void applyEconomyBonus(int goldBonus);
 };
 

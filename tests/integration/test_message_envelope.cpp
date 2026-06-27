@@ -137,6 +137,39 @@ TEST_CASE("Envelope - tick/simTime are stamped from the engine clock snapshot", 
 }
 
 // ============================================================================
+// Zero-copy: all subscribers to a topic share ONE payload (the same node pointer)
+// ============================================================================
+
+TEST_CASE("Zero-copy - subscribers share one immutable payload, not a per-delivery copy", "[envelope][iio][zerocopy]") {
+    auto& mgr = IntraIOManager::getInstance();
+    auto a = mgr.createInstance("ZA");
+    auto b = mgr.createInstance("ZB");
+    auto c = mgr.createInstance("ZC");
+
+    // Capture the shared_ptr (not a raw pointer): copying it extends the payload's lifetime past
+    // the handler — which is exactly how a handler keeps a received payload around, and the correct
+    // semantics of a shared bus (the node lives as long as ANY subscriber holds it).
+    std::shared_ptr<const IDataNode> bShared, cShared;
+    b->subscribe("z:topic", [&](const Message& m) { bShared = m.data; });
+    c->subscribe("z:topic", [&](const Message& m) { cShared = m.data; });
+
+    a->publish("z:topic", std::make_unique<JsonDataNode>("d", nlohmann::json{{"k", 42}}));
+    while (b->hasMessages() > 0) b->pullAndDispatch();
+    while (c->hasMessages() > 0) c->pullAndDispatch();
+
+    REQUIRE(bShared != nullptr);
+    REQUIRE(cShared != nullptr);
+    // THE zero-copy proof: both subscribers got the EXACT SAME node, not a deep copy each. Under
+    // the old copy-per-delivery model these pointers would differ; sharing makes them identical.
+    REQUIRE(bShared.get() == cShared.get());
+    REQUIRE(bShared->getInt("k", -1) == 42);   // and it is the real payload, read via a const getter
+
+    mgr.removeInstance("ZA");
+    mgr.removeInstance("ZB");
+    mgr.removeInstance("ZC");
+}
+
+// ============================================================================
 // Engine wire: step() pushes the snapshot that the envelope is stamped from
 // ============================================================================
 
