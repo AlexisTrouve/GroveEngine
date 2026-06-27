@@ -22,10 +22,30 @@ struct SubscriptionConfig {
     bool compress = false;           // Compress batched data
 };
 
+/**
+ * @brief Transport-owned metadata header stamped on every control-plane message — the "envelope".
+ *
+ * The envelope (IO contract §5, docs/design/iio-contract.md) carries ordering/causality metadata
+ * OWNED BY THE TRANSPORT, separate from the module's payload (Message::data). It lets the transport
+ * do dedup / gap-detection / causal ordering generically, and lets a canonical order be
+ * reconstructed offline for replay/debug — WITHOUT the module ever touching it. A module reads it
+ * only if it wants to (e.g. a relocated remote module reads `simTime`/`tick` instead of holding the
+ * EngineClock pointer). Stamped by the transport on publish; never authored by the payload.
+ */
+struct Envelope {
+    std::string source;            // publisher instance id (IntraIO::instanceId) — routing + per-source order
+    uint64_t    seq      = 0;      // monotonic per-source counter — gap detection / dedup
+    uint64_t    lamport  = 0;      // logical clock send-stamp — causal total order, tie-broken by source
+    uint64_t    tick     = 0;      // engine tick at publish (EngineClock) — coarse replay axis
+    double      simTime  = 0.0;    // engine simTime at publish — so a remote module needs no clock sync
+    std::string causedBy;          // optional correlation id (response->request). Reserved; not yet populated.
+};
+
 struct Message {
     std::string topic;
     std::unique_ptr<IDataNode> data;
     uint64_t timestamp;
+    Envelope env;                  // transport-owned header (source/seq/lamport/tick/simTime) — see Envelope
 
     // Default constructor
     Message() = default;

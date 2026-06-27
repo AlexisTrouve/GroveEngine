@@ -911,6 +911,14 @@ target_link_libraries(test_engine_clock_hosting PRIVATE
 )
 grove_add_test(EngineClockHosting test_engine_clock_hosting ${CMAKE_CURRENT_BINARY_DIR})
 
+# grove::LamportClock — logical clock for causal ordering (grove/LamportClock.h). Pure,
+# header-only, no engine link. The causality primitive of the message envelope (IO contract
+# §5, part 2a). Objective oracle test (tick / receive-rule max+1 / monotonicity / causality).
+add_executable(test_lamport_clock unit/test_lamport_clock.cpp)
+target_include_directories(test_lamport_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(test_lamport_clock PRIVATE Catch2::Catch2WithMain)
+grove_add_test(LamportClockUnit test_lamport_clock ${CMAKE_CURRENT_BINARY_DIR})
+
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
 # strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it
