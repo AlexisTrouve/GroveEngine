@@ -1129,6 +1129,21 @@ target_link_libraries(benchmark_iio_direct PRIVATE
     GroveEngine::impl
 )
 
+# IIO Zero-Copy Throughput Benchmark (fan-out scaling + coreResident vs re-home)
+add_executable(benchmark_iio_zerocopy
+    benchmarks/benchmark_iio_zerocopy.cpp
+)
+
+target_include_directories(benchmark_iio_zerocopy PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_iio_zerocopy PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    topictree::topictree
+)
+
 # ================================================================================
 # BgfxRenderer Tests (only if GROVE_BUILD_BGFX_RENDERER is ON)
 # ================================================================================
