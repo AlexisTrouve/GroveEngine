@@ -333,7 +333,10 @@ if (masterTree->reloadIfChanged()) {
 auto msg = io->pullMessage();
 if (msg.topic == "config:reload") {
     auto configRoot = tree->getConfigRoot();
-    configRoot->setChild("updated", std::move(msg.data));
+    // Shared/const payload (zero-copy bus) → copy its json into an owned node (setChild takes unique_ptr).
+    configRoot->setChild("updated",
+        std::make_unique<JsonDataNode>("updated",
+            dynamic_cast<const JsonDataNode&>(*msg.data).getJsonData()));
     
     // Notify modules
     for (auto& module : modules) {

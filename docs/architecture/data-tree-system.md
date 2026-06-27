@@ -132,7 +132,11 @@ void Engine::handleSaveRequests() {
 
         if (msg.topic.starts_with("save:")) {
             std::string path = extractPath(msg.topic);
-            m_tree->getDataRoot()->setChild(path, std::move(msg.data));
+            // msg.data is a SHARED, const payload (zero-copy bus) — copy its json into an OWNED
+            // node to hand to setChild (which takes a unique_ptr); you can't move a shared/const node.
+            m_tree->getDataRoot()->setChild(path,
+                std::make_unique<JsonDataNode>(path,
+                    dynamic_cast<const JsonDataNode&>(*msg.data).getJsonData()));
             m_tree->saveNode("data/" + path);
         }
     }
@@ -157,7 +161,10 @@ void DebugEngine::processNetworkMessages() {
     if (msg.topic == "config:reload") {
         auto configRoot = m_tree->getNode("config");
         configRoot->clearChildren();
-        configRoot->setChild("updated", std::move(msg.data));
+        // Shared/const payload → copy its json into an owned node (setChild takes a unique_ptr).
+        configRoot->setChild("updated",
+            std::make_unique<JsonDataNode>("updated",
+                dynamic_cast<const JsonDataNode&>(*msg.data).getJsonData()));
 
         // Notify all modules
         for (auto& module : m_modules) {
