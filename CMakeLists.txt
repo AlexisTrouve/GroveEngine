@@ -21,6 +21,43 @@ if(GROVE_ENABLE_TSAN)
     message(WARNING "âš ï¸  TSan cannot be combined with ASan - build separately")
 endif()
 
+# ----------------------------------------------------------------------------
+# AddressSanitizer + LeakSanitizer / UndefinedBehaviorSanitizer.
+# MinGW ships none of these -> build under WSL/Linux (see docs/design/quality-hardening-handoff.md).
+# ASan and UBSan COMPOSE (-fsanitize=address,undefined); TSan is exclusive (build separately).
+# ----------------------------------------------------------------------------
+option(GROVE_ENABLE_ASAN  "Enable AddressSanitizer + LeakSanitizer" OFF)
+option(GROVE_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer"       OFF)
+
+if(GROVE_ENABLE_ASAN OR GROVE_ENABLE_UBSAN)
+    if(GROVE_ENABLE_TSAN)
+        message(FATAL_ERROR "GROVE_ENABLE_ASAN/UBSAN cannot combine with GROVE_ENABLE_TSAN - build separately")
+    endif()
+
+    # Build the comma list for whichever subset is on (both compose into one -fsanitize=).
+    set(_grove_san "")
+    if(GROVE_ENABLE_ASAN)
+        message(STATUS "AddressSanitizer + LeakSanitizer enabled (~2-3x slowdown)")
+        set(_grove_san "address")
+    endif()
+    if(GROVE_ENABLE_UBSAN)
+        message(STATUS "UndefinedBehaviorSanitizer enabled (fails hard via -fno-sanitize-recover)")
+        if(_grove_san)
+            set(_grove_san "${_grove_san},undefined")
+        else()
+            set(_grove_san "undefined")
+        endif()
+    endif()
+
+    add_compile_options(-fsanitize=${_grove_san} -g -O1 -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${_grove_san})
+
+    # A UB violation must FAIL the test (non-zero exit), not just print-and-continue.
+    if(GROVE_ENABLE_UBSAN)
+        add_compile_options(-fno-sanitize-recover=undefined)
+    endif()
+endif()
+
 # ============================================================================
 # Helgrind (Valgrind) Integration
 # ============================================================================
