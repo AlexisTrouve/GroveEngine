@@ -90,6 +90,12 @@ void DebugEngine::step(float deltaTime) {
     auto frameStartTime = std::chrono::high_resolution_clock::now();
 
     try {
+        // Advance the authoritative engine clock FIRST: fold this frame's real deltaTime into
+        // fixed sim steps so (tick, simTime, dt) are current before any module's process() reads
+        // them this frame. The clock is the single source of sim time — pause / slow-mo are
+        // applied here (timeScale), so a paused engine still runs step() but the sim time holds.
+        m_clock.advance(deltaTime);
+
         // Process coordinator messages
         if (coordinatorSocket) {
             logger->trace("📨 Processing coordinator messages");
@@ -137,6 +143,12 @@ void DebugEngine::step(float deltaTime) {
     float frameTime = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
 
     logFrameEnd(frameTime);
+}
+
+EngineClock& DebugEngine::clock() {
+    // The host's handle on simulation time: read (tick/simTime/dt/realTime) and control
+    // (pause/resume/setTimeScale). The same clock is injected read-only into every module.
+    return m_clock;
 }
 
 void DebugEngine::shutdown() {
@@ -582,6 +594,13 @@ void DebugEngine::registerStaticModule(const std::string& name,
         std::unique_ptr<IDataNode> cfg = config
             ? std::move(config)
             : std::make_unique<JsonDataNode>("config", json::object());
+
+        // Inject the engine's authoritative clock (read-only) BEFORE the module is moved into
+        // its system. Strategy-independent (the clock is engine-global), so done once here
+        // rather than in each branch. Same long-lived-service-injection pattern as the io +
+        // scheduler passed to setConfiguration below; m_clock outlives every module. Timeless
+        // modules ignore it (default no-op).
+        module->setClock(&m_clock);
 
         if (strategy == ModuleSystemType::THREADED) {
             // REAL PARALLELISM: every threaded static module shares ONE ThreadedModuleSystem,

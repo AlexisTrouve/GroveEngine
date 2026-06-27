@@ -8,6 +8,7 @@
 // Forward declarations
 namespace grove {
     class IIO;
+    class EngineClock;   // engine's authoritative clock, injected read-only via setClock()
 }
 
 namespace grove {
@@ -68,6 +69,23 @@ public:
      * Should setup internal state, validate configuration, and store service references.
      */
     virtual void setConfiguration(const IDataNode& configNode, IIO* io, ITaskScheduler* scheduler) = 0;
+
+    /**
+     * @brief Receive the engine's authoritative clock (read-only)
+     * @param clock Pointer to the engine-owned EngineClock (outlives the module), or null
+     *
+     * The engine injects its single fixed-timestep clock here, once, at registration —
+     * the same long-lived-service-injection pattern as the io/scheduler handed to
+     * setConfiguration(). A module that needs time stores the pointer and reads
+     * clock->tick()/simTime()/dt() inside process() (the value is current for the frame;
+     * pause / slow-mo / fast-forward are applied by the engine, transparently).
+     *
+     * Default: no-op — most modules are timeless and ignore it, so adding the clock breaks
+     * no existing module. The pointer is read-only: the host controls time, modules observe it.
+     * Relocation note: a REMOTE (out-of-process) module cannot hold this pointer and instead
+     * reads simTime/tick from each message envelope — see docs/design/iio-contract.md.
+     */
+    virtual void setClock(const EngineClock* clock) { (void)clock; }
 
     /**
      * @brief Get current module configuration

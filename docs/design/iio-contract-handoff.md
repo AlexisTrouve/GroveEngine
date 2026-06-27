@@ -4,9 +4,11 @@ Companion to **[iio-contract.md](iio-contract.md)** (the permanent doctrine). Th
 *resume point*: how the contract was reached, what to build first, and the design questions still
 open. Read the contract for the *what/why*; read this for *where we are and what's next*.
 
-**Status: doctrine decided + documented. Nothing built this session.** The contract is a design
-agreement, not code. The status ledger in the contract marks every line ✅ built / 🟡 decided /
-🔵 deferred — most is 🟡.
+**Status: doctrine decided + documented; Part 1 (EngineClock) now BUILT.** The contract started
+as a design agreement; the first build slice — the EngineClock (1a class + 1b engine wiring + 1c
+`setClock` module injection) — is shipped and locked by `EngineClockUnit` + `EngineClockHosting`.
+The rest is still 🟡. The status ledger in the contract marks every line ✅ built / 🟡 decided /
+🔵 deferred.
 
 ## What this session decided (the trail)
 
@@ -39,14 +41,15 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
 - Backpressure is **already partly built** (`IntraIO` bounds the queue + drop-oldest, `IOHealth`
   metrics, 80%-full warning) — credited, not invented.
 
-## Build order (suggested) — start here
+## Build order — progress
 
-1. **EngineClock first.** Smallest, most foundational, independent of the IIO rework. A
-   `(tick, simTime, dt, realTime)` provider sampled once per tick in the main loop, fixed
-   timestep. De-risks everything else and immediately unlocks pause/slow-mo.
-2. **The envelope** — transport-owned header `{source, seq, lamport, tick, simTime, causedBy?}`.
-   **Re-run the WSL TSan suite after** — it touches publish/route/deliver and the ABBA lock order
-   ([[tsan-via-wsl-recipe]]).
+1. ✅ **EngineClock — DONE.** `grove::EngineClock` (pure, header-only, fixed timestep) + engine owns
+   and advances it in `step()` + `setClock` module injection + `IEngine::clock()` host accessor.
+   Pause / slow-mo / fast-forward work end-to-end. Locked by `EngineClockUnit` (13 cases / 65
+   assertions) + `EngineClockHosting` (E2E, 11 assertions). Default `dt = 1/60`, `maxStepsPerFrame = 8`.
+2. **The envelope** ← *next* — transport-owned header `{source, seq, lamport, tick, simTime, causedBy?}`.
+   The clock now supplies `tick`/`simTime` to stamp from. **Re-run the WSL TSan suite after** — it
+   touches publish/route/deliver and the ABBA lock order ([[tsan-via-wsl-recipe]]).
 3. **Structured replay sink** — once stamped, per-module + centralized logs fall out as two
    queries; build the async, droppable structured sink.
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with
@@ -54,16 +57,21 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
 5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task;
    independent, benefits all control-plane traffic.
 
-## Open design questions (decide before/while building)
+## Open design questions
 
-These are **not yet decided** — flagged so they aren't lost:
+**Resolved this slice:**
 
-- **How does the clock reach modules?** `process(const IDataNode&)` takes only an input node.
-  Options: (a) change the signature to pass `(input, clock)` — wide blast radius, breaks every
-  module; (b) a per-tick clock *topic* — but that's async/unordered, wrong for a clock; (c) an
-  engine-provided accessor the module queries each tick. **(c) looks right but is unconfirmed.**
-- **Fixed dt value** — `1/60`? configurable per-engine? And the accumulator's max-steps clamp
-  (spiral-of-death guard) is unspecified.
+- ✅ **How does the clock reach modules? → (c) injection.** `virtual void setClock(const EngineClock*)`,
+  a non-breaking default-no-op on `IModule`; the engine calls it once at registration. Chosen over
+  (a) signature change (taxes every module + the TSan-proven hot path; one-way door) and (b) a clock
+  topic (async/unordered, wrong for ground truth). Consistent with how `io`/`scheduler` are already
+  injected. Remote modules read `simTime`/`tick` from the envelope instead. See contract §6.
+- ✅ **Fixed dt value → `1/60` default, `maxStepsPerFrame = 8` default**, both ctor args. Spiral-of-death
+  guard: on hitting the cap, the unrun remainder is dropped (sim time slips, no catch-up sprint).
+  Negative deltas clamped to 0.
+
+**Still open (for the envelope and beyond):**
+
 - **Envelope structure** — header struct *alongside* the payload `IDataNode`, or reserved fields
   on the message? Must keep the §4 intra zero-copy (`shared_ptr<const>`) applicable to the payload.
 - **Lamport increment site & ownership** — incremented on publish and on receive; per-IIO-instance

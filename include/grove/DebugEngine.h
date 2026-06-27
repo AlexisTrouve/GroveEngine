@@ -13,6 +13,7 @@
 #include "IIO.h"
 #include "IDataNode.h"
 #include "ModuleLoader.h"
+#include "EngineClock.h"   // authoritative fixed-timestep clock (owned by value, advanced in step())
 
 namespace grove {
 
@@ -71,6 +72,11 @@ private:
     std::chrono::high_resolution_clock::time_point engineStartTime;
     size_t frameCount = 0;
 
+    // The engine's single authoritative simulation clock. Advanced once per step() with the
+    // frame's deltaTime; injected read-only into every static module via setClock(). Default
+    // fixed timestep (1/60). The host reads + controls it (pause/slow-mo) via clock().
+    EngineClock m_clock;
+
     // Configuration
     std::unique_ptr<IDataNode> engineConfig;
 
@@ -96,6 +102,7 @@ public:
     void initialize() override;
     void run() override;
     void step(float deltaTime) override;
+    EngineClock& clock() override;
     void shutdown() override;
     void loadModules(const std::string& configPath) override;
     void registerStaticModule(const std::string& name,

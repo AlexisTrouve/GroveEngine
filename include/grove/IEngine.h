@@ -11,6 +11,7 @@ namespace grove {
     class IIO;
     class IModule;
     class IDataNode;
+    class EngineClock;
 }
 
 namespace grove {
@@ -71,6 +72,18 @@ public:
      * without entering the main loop.
      */
     virtual void step(float deltaTime) = 0;
+
+    /**
+     * @brief Access the engine's authoritative simulation clock
+     * @return Reference to the engine-owned EngineClock (mutable: the host controls time)
+     *
+     * The single source of simulation time. The engine advances it once per step(); the
+     * host reads it (tick / simTime / dt / realTime) and CONTROLS it (pause(), resume(),
+     * setTimeScale() for slow-mo / fast-forward). The same clock is injected read-only into
+     * every hosted module via IModule::setClock(), so the host and all modules share one
+     * coherent notion of "now". See docs/design/iio-contract.md (EngineClock).
+     */
+    virtual EngineClock& clock() = 0;
 
     /**
      * @brief Shutdown engine and cleanup all resources

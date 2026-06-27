@@ -900,6 +900,17 @@ target_include_directories(test_engine_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(test_engine_clock PRIVATE Catch2::Catch2WithMain)
 grove_add_test(EngineClockUnit test_engine_clock ${CMAKE_CURRENT_BINARY_DIR})
 
+# EngineClock hosting E2E (IO contract 1b + 1c): a static module reads the engine's clock
+# (injected via setClock) while the host drives step() + pause/slow-mo via engine.clock().
+# Proves the clock is WIRED, not just unit-correct. In-process, Catch2, no GPU/SDL/.so.
+add_executable(test_engine_clock_hosting integration/test_engine_clock_hosting.cpp)
+target_link_libraries(test_engine_clock_hosting PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(EngineClockHosting test_engine_clock_hosting ${CMAKE_CURRENT_BINARY_DIR})
+
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
 # strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it

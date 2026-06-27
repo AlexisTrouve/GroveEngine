@@ -181,22 +181,51 @@ Lamport = canonical/portable order; exec-order = forensic "what actually ran". B
 
 ---
 
-## 6. The EngineClock 🟡 (today: `step(dt)` ✅ but `dt` stops at the engine)
+## 6. The EngineClock ✅ BUILT (part 1: 1a + 1b + 1c)
 
-**Today:** `IEngine::step(float deltaTime)` exists and the engine owns frame timing, but
-`IModule::process(const IDataNode&)` receives **neither dt nor tick**. `dt` stops at the engine
-boundary — a module that wants time has nowhere clean to get it. That gap is what the EngineClock
-closes.
+**Built.** `grove::EngineClock` (`include/grove/EngineClock.h`) is the engine's single
+authoritative clock: a pure, header-only fixed-timestep accumulator. `DebugEngine` owns one by
+value, advances it once per `step(dt)` (`m_clock.advance(deltaTime)`), and exposes it to the host
+via `IEngine::clock()` (read **and** control: pause/resume/setTimeScale). Each module is handed
+the same clock **read-only** at registration via `IModule::setClock(const EngineClock*)` and reads
+`tick()/simTime()/dt()` inside `process()`. The old gap — `step(dt)` existed but `dt` never reached
+modules — is closed.
 
 **Contract:** the main engine owns **one authoritative clock**, samples real time **once per
 tick**, derives `(tick, simTime, dt)`, and that is the **only** time any module ever sees. No
 module calls the OS clock. This is the *enforcement mechanism* for the confinement rule (§2).
 
+### How the clock reaches modules ✅ (decided: injection, option c)
+
+The open question was: signature change `process(input, clock)` (a), a clock *topic* (b), or an
+injected handle (c). **Decided: (c)** — `virtual void setClock(const EngineClock*)`, a **non-breaking
+default no-op** on `IModule`; the engine calls `module->setClock(&m_clock)` once at registration.
+Rationale:
+
+- **Consistent with the existing contract.** The engine already injects long-lived service pointers
+  (`IIO* io`, `ITaskScheduler* scheduler`) via `setConfiguration`, stored and read during
+  `process()`. The clock is one more engine-owned service of the same kind — not a special case.
+- **The clock is a per-tick *global*** (same value for every message this tick), so a per-call
+  parameter (a) buys nothing and taxes every module + the TSan-proven parallel hot path. (c) injects
+  once; timeless modules ignore it (default no-op) and are untouched.
+- **A topic (b) is wrong for ground truth** — async/unordered/droppable under backpressure; the clock
+  must be a synchronous authoritative read, not a message.
+- **Reversible.** (c)→(a) later is a deliberate batched refactor if ever wanted; (a) is a one-way door
+  across every module. Start cheap.
+
+**Relocation note.** A pointer can't cross a process boundary, so a **remote** (Local/Network-tier)
+module does not use `setClock` — it reads `simTime`/`tick` from each message **envelope** (§5). Intra
+= injected pointer; remote = envelope field. Same notion of "now", two transports — by design.
+
+Locked by `EngineClockUnit` (the pure clock, 13 cases) + `EngineClockHosting` (E2E: a hosted module
+reads the injected clock; host-driven pause/slow-mo seen by the module).
+
 ### Fixed timestep — but not enforced on sim order
 
-- **Fixed timestep** ✅ decided: `dt` is constant (e.g. `1/60`), so `simTime = tick·dt`. The
-  classic accumulator pattern (Gaffer, "Fix Your Timestep"): sample real time, accumulate, step
-  the sim in fixed `dt` chunks, interpolate render between sims.
+- **Fixed timestep** ✅ BUILT: `dt` is constant (e.g. `1/60`), so `simTime = tick·dt` (derived,
+  never summed → no float drift). The classic accumulator pattern (Gaffer, "Fix Your Timestep"):
+  accumulate scaled real time, emit fixed `dt` steps, with a spiral-of-death cap that drops the
+  unrun remainder (a long hitch makes sim time slip, never sprint to catch up).
 - **Elegant consequence:** under fixed timestep, **`tick` and `simTime` are isomorphic** —
   "the engine clock" and "the tick counter" become one authoritative source.
 - **NOT enforced on sim order** ✅ decided: fixed `dt` makes *time* deterministic and pausable;
@@ -219,8 +248,10 @@ profiling → `realTime` (and accepts non-determinism there).
 
 - **Deterministic time** — every module at tick N sees the exact same timestamp; recorded
   per-tick samples replay identically.
-- **Pause / slow-mo / fast-forward** ✅ confirmed needed — time comes from one source: `dt=0`
-  pauses, `dt·scale` slows or speeds. A module reading the OS clock could never be paused.
+- **Pause / slow-mo / fast-forward** ✅ BUILT — time comes from one source: `timeScale=0`
+  pauses (sim frozen, realTime keeps flowing), `realDelta·timeScale` slows or speeds. Driven by the
+  host via `engine.clock()`; every hosted module sees it transparently. A module reading the OS clock
+  could never be paused. (`pause()` remembers the active scale so `resume()` restores a slow-mo.)
 - **Distributed sync for free** — a remote module does *not* NTP-sync to the engine; it reads the
   tick's `simTime` from the message it received (§5). NTP-style real-clock sync is needed only to
   measure *staleness*, a profiling/resilience concern, never the deterministic path.
@@ -316,8 +347,9 @@ under the low-trust doctrine. The pattern:
 | Data-plane direct path (`submitSpriteBatch`) | ✅ BUILT |
 | TSan harness (WSL) | ✅ BUILT |
 | Message envelope `{source, seq, lamport, tick, simTime, causedBy?}` | 🟡 DECIDED |
-| EngineClock (fixed timestep, exposes tick/simTime/dt/realTime to modules) | 🟡 DECIDED |
-| Pause / slow-mo / time-scale via the clock | 🟡 DECIDED |
+| EngineClock (fixed timestep, exposes tick/simTime/dt/realTime to modules) | ✅ BUILT |
+| Clock → module handoff: `setClock` injection + `IEngine::clock()` host accessor | ✅ BUILT |
+| Pause / slow-mo / time-scale via the clock | ✅ BUILT |
 | Lamport logical clock + per-source seq + dedup | 🟡 DECIDED |
 | Dual logging = stamped stream, two views; structured replay sink; exec-order | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
@@ -331,11 +363,11 @@ under the low-trust doctrine. The pattern:
 
 ## Open decisions & suggested build order
 
-1. **EngineClock first** — small, foundational, independent of the IIO rework. Define the
-   `(tick, simTime, dt, realTime)` provider, sampled once per tick in the main loop; thread it to
-   modules (the missing piece is `process()` having no access to it today). De-risks everything else.
-2. **The envelope** — add the transport-owned header; wire `seq`/`lamport`/`tick`/`simTime`.
-   Re-run the WSL TSan suite after (touches publish/route/deliver and the ABBA lock order).
+1. ~~**EngineClock first**~~ ✅ **DONE** (part 1: `EngineClock` + `step()` advances it + `setClock`
+   injection + `IEngine::clock()`). Locked by `EngineClockUnit` + `EngineClockHosting`.
+2. **The envelope** ← *next* — add the transport-owned header; wire `seq`/`lamport`/`tick`/`simTime`.
+   The clock now provides `tick`/`simTime`, so the envelope's time fields have a real source to stamp
+   from. **Re-run the WSL TSan suite after** (touches publish/route/deliver and the ABBA lock order).
 3. **Structured replay sink** — once messages are stamped, the per-module + centralized logs fall
    out as two queries; build the structured sink (async, droppable).
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with coalesce/reject.
@@ -344,12 +376,15 @@ under the low-trust doctrine. The pattern:
 
 ## Key files
 
-- `include/grove/IEngine.h` — `step(float dt)`, the loop owner; doc already references IOHealth/backpressure.
-- `include/grove/IModule.h` — `process(const IDataNode&)`, the pure-function contract.
+- `include/grove/EngineClock.h` — ✅ the authoritative fixed-timestep clock (pure, header-only).
+- `include/grove/IEngine.h` — `step(float dt)` (advances the clock) + `clock()` host accessor.
+- `include/grove/IModule.h` — `process(const IDataNode&)`, the pure-function contract; `setClock()` injection.
+- `src/DebugEngine.cpp` — owns `m_clock`, advances it in `step()`, injects it via `setClock` in
+  `registerStaticModule`; the concrete engine loop; 80%-full health warning.
+- `tests/unit/test_engine_clock.cpp` + `tests/integration/test_engine_clock_hosting.cpp` — the locks.
 - `include/grove/IOFactory.h` + `src/IOFactory.cpp` — the intra/local/network tiers (local/network are stubs).
 - `src/IntraIO.cpp` — json deep-copy delivery (zero-copy target) + bounded queue / drop-oldest / IOHealth.
 - `src/IntraIOManager.cpp` — per-delivery re-wrap (zero-copy target).
-- `src/DebugEngine.cpp` — the concrete engine loop; 80%-full health warning.
 - `docs/design/rendering-throughput-handoff.md` — the data-plane path + the intra zero-copy task.
 
 ---
