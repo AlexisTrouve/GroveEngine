@@ -29,7 +29,7 @@ DebugEngine::~DebugEngine() {
     logger->info("🔧 DebugEngine destructor called");
     if (running.load()) {
         logger->warn("⚠️ Engine still running during destruction - forcing shutdown");
-        shutdown();
+        DebugEngine::shutdown();  // qualified: non-virtual dispatch is intended in the destructor
     }
     logger->trace("🏗️ DebugEngine object destroyed");
 }

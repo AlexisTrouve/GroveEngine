@@ -1,0 +1,33 @@
+# GroveEngine clang-tidy — first static-analysis pass.
+# Curated for BUG-FINDING, not style: real defect patterns (bugprone / clang-analyzer),
+# avoidable copies (performance), and a few misc correctness checks. Style/modernize checks
+# are intentionally OFF (low bug-signal, high noise) and can be layered in later.
+# Run: clang-tidy -p build <file.cpp> (compile DB from the Ninja build, -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
+# MinGW/Windows has no system clang-tidy -> pip wheel: `python -m pip install --user clang-tidy`.
+# Notable checks OFF (with reason):
+#  - misc-const-correctness: floods (wants const on every lock_guard/local) — pedantic, not a bug-finder.
+#  - bugprone-exception-escape: every hit here is a DESTRUCTOR; dtors are implicitly noexcept, so a throw
+#    -> std::terminate is an acceptable FRANK failure. Wrapping dtors in try/catch would MASK errors
+#    (against the no-silent-fallback doctrine), so we accept terminate over masking.
+#  - performance-inefficient-string-concatenation: only path-building (`a + "/" + b`) — readability wins.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  clang-analyzer-*,
+  misc-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-exception-escape,
+  -misc-no-recursion,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  -misc-const-correctness,
+  -performance-avoid-endl,
+  -performance-inefficient-string-concatenation
+
+WarningsAsErrors: ''
+# Only diagnose OUR headers (engine core + modules), never third-party under deps/ or external/.
+HeaderFilterRegex: '(/include/grove/|/modules/|/src/).*'
+FormatStyle: none

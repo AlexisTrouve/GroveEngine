@@ -65,7 +65,7 @@ IDataNode* JsonDataNode::getChildReadOnly(const std::string& name) {
                     return m_children[name].get();
                 }
             }
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch): non-numeric index falls through to nullptr
             // Not a valid numeric index, ignore
         }
     }
@@ -75,6 +75,7 @@ IDataNode* JsonDataNode::getChildReadOnly(const std::string& name) {
 
 std::vector<std::string> JsonDataNode::getChildNames() {
     std::vector<std::string> names;
+    names.reserve(m_children.size());
 
     // First, add names from m_children (already materialized nodes)
     for (const auto& [name, _] : m_children) {

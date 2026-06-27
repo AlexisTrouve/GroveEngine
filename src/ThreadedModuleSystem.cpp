@@ -199,7 +199,7 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
 
     // ATOMIC: Increment frame generation (signals new frame to workers)
     // memory_order_release ensures sharedDeltaTime/sharedFrameCount are visible to workers
-    size_t generation = currentFrameGeneration.fetch_add(1, std::memory_order_release) + 1;
+    currentFrameGeneration.fetch_add(1, std::memory_order_release);  // increment signals new frame; result unused
 
     // FIX: [BUG B] -- Acquire then release worker->mutex BEFORE notify_one to prevent missed wakeup.
     // Pattern: lock => release => notify. This guarantees the worker is either:
@@ -223,7 +223,7 @@ void ThreadedModuleSystem::processModules(float deltaTime) {
 
     // Calculate total synchronization time
     auto frameEndTime = std::chrono::high_resolution_clock::now();
-    float totalSyncTime = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
+    float totalSyncTime = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();  // NOLINT(clang-analyzer-deadcode.DeadStores): logFrameEnd() removed from hot path (below); kept for easy re-enable
 
     // PERFORMANCE: Removed logFrameEnd() from hot path (causes mutex contention)
     // logFrameEnd(totalSyncTime);
@@ -373,7 +373,7 @@ std::unique_ptr<IModule> ThreadedModuleSystem::extractModule(const std::string& 
 
 // ITaskScheduler implementation
 
-void ThreadedModuleSystem::scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> taskData) {
+void ThreadedModuleSystem::scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> /*taskData*/) {
     logger->debug("⚙️ Task scheduled for immediate execution: '{}'", taskType);
 
     try {

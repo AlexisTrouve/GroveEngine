@@ -149,9 +149,6 @@ bool JsonDataTree::saveNode(const std::string& path) {
             return false;
         }
 
-        // Extract filename from path
-        size_t lastSlash = path.find_last_of('/');
-        std::string filename = (lastSlash == std::string::npos) ? path : path.substr(lastSlash + 1);
         std::string filePath = m_basePath + "/" + path + ".json";
 
         auto* jsonNode = dynamic_cast<JsonDataNode*>(node.get());

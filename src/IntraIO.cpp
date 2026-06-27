@@ -33,7 +33,7 @@ IntraIO::~IntraIO() {
     if (!IntraIOManager::isDestroyed()) {
         try {
             IntraIOManager::getInstance().removeInstance(instanceId);
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch): teardown guard — manager may already be gone
             // Ignore errors during cleanup - manager might already be destroyed
         }
     }
@@ -307,6 +307,7 @@ std::vector<std::string> IntraIO::getActiveTopics() const {
     std::lock_guard<std::mutex> lock(operationMutex);
 
     std::vector<std::string> topics;
+    topics.reserve(highFreqSubscriptions.size() + lowFreqSubscriptions.size());
     for (const auto& sub : highFreqSubscriptions) {
         topics.push_back(sub.originalPattern);
     }
@@ -474,7 +475,7 @@ void IntraIO::enforceQueueLimits() {
     }
 }
 
-void IntraIO::logPublish(const std::string& topic, const IDataNode& message) const {
+void IntraIO::logPublish(const std::string& topic, const IDataNode& /*message*/) const {
     if (logger) {
         logger->trace("Published to topic: {}", topic);
     }

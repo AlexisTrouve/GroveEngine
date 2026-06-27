@@ -142,7 +142,7 @@ std::shared_ptr<IntraIO> IntraIOManager::createInstance(const std::string& insta
 
 void IntraIOManager::registerInstance(const std::string& instanceId, std::shared_ptr<IIntraIODelivery> instance) {
     std::unique_lock lock(managerMutex);  // WRITE - exclusive access needed
-    instances[instanceId] = instance;
+    instances[instanceId] = std::move(instance);
     logger->info("📋 Registered instance: '{}'", instanceId);
 }
 
@@ -224,7 +224,7 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
 }
 
 void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic,
-                                  std::shared_ptr<const IDataNode> payload, uint64_t seq, uint64_t lamport) {
+                                  const std::shared_ptr<const IDataNode>& payload, uint64_t seq, uint64_t lamport) {
     // DEADLOCK FIX: Use scoped_lock for consistent lock ordering when both mutexes needed
     std::scoped_lock lock(managerMutex, batchMutex);
 
@@ -428,6 +428,7 @@ std::vector<std::string> IntraIOManager::getInstanceIds() const {
     std::shared_lock lock(managerMutex);  // READ - concurrent access allowed!
 
     std::vector<std::string> ids;
+    ids.reserve(instances.size());
     for (const auto& pair : instances) {
         ids.push_back(pair.first);
     }
