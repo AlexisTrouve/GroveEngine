@@ -689,6 +689,16 @@ target_include_directories(test_mapview_overlays PRIVATE
 target_link_libraries(test_mapview_overlays PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewOverlaysUnit test_mapview_overlays ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer P1: the CellDraw -> SpriteInstance adapter (modules/BgfxRenderer/MapView/SpriteAdapter.h) — the
+# one renderer-coupled bridge. Headless: FramePacket.h (SpriteInstance) is a plain struct, no GPU needed.
+add_executable(test_mapview_adapter unit/test_mapview_adapter.cpp)
+target_include_directories(test_mapview_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_adapter PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewAdapterUnit test_mapview_adapter ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
