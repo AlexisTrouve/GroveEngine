@@ -120,8 +120,12 @@ dependency / builds on a bare toolchain" property — and keeps the S0a test lin
   ramp/banded/categorical/**diverging**/**stepped**; `Filter` composable AND/OR/NOT **+ cross-field**
   (`cmpField`, sampler-resolved, absent named field fails franc); **Hillshade** (Lambertian relief) wired as
   a Layer modifier (`hillshadeField` + light) with **cross-chunk** gradient sampling in `MapView`.
+- `Overlays.h` — Region/Marker DATA PODs (split from styling so Manifest stays recipe-independent, S1j).
 - `Region.h`/`Marker.h` — overlay layers (S1i): RegionLayer (circles by type/value, disc/ring) + MarkerLayer
   (points by kind, scaled/rotated), global vector sets culled by viewport, emitting RegionDraw/MarkerDraw.
+  **Overlay format (S1j):** AREAS = a categorical field (already works, exact boundaries); only points/circles
+  are overlays, carried as inline JSON lists in the manifest (`regions`/`markers`) — no vector blob. Host reads
+  the manifest → `setRegions`/`setMarkers`.
 - `CellDraw.h` — the neutral emit unit. `Lens.h` — Layer/Lens (+ regionLayers/markerLayers). `MapView.h` — the orchestrator
   (cull→stream→compile→`drainCells`), **decoupled from Manifest/JSON** (takes a plain `vector<FieldDecl>` +
   `GridSpec`), so no nlohmann leaks into the core. Only active z-slice emitted; absent field = no draw (fail-franc).

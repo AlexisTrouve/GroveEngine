@@ -110,8 +110,8 @@ The "table of contents + recipe book". Describes the world; never holds bulk num
     { "name": "forest",      "encoding": "unorm8" },                 // 8-bit normalized 0..1
     { "name": "is_coastal",  "encoding": "bit" }                     // 1 bit/cell
   ],
-  "regions":  { "blob": "data/regions.bin" },   // vector overlays — circles+attrs (§3.4)
-  "markers":  { "blob": "data/markers.bin" },   // points (§3.4)
+  "regions":  [ /* {cx,cy,radius,type,value?} … inline, low-cardinality (S1j) */ ],
+  "markers":  [ /* {x,y,kind,angle?,scale?} … inline points (S1j) */ ],
   "palettes": [ /* §5 */ ],
   "lenses":   [ /* §5 */ ],
   "frames":   { /* §6 timeline index, optional */ },
@@ -257,6 +257,14 @@ Four composable bricks — the modular core, all **data-driven** (in the manifes
 > by a sampler — a named field absent at a cell fails franc). **Region & marker layers** done (S1i):
 > `regionSet × style` (circles by type/value, disc or ring → `RegionDraw`/render:sector) + `markerSet × icons`
 > (points by kind, scaled/rotated → `MarkerDraw`/render:sprite), global vector sets culled by viewport.
+>
+> **Overlay format / recentring (S1j, 2026-06-30):** AREAS (tectonic plates, biome zones) are NOT vector
+> overlays — they are a per-cell **categorical field** (`plate_id` + categorical palette), already rendered
+> by the chunked/streamed field pipeline with exact boundaries. So overlays need **no chunked vector format**.
+> Only genuine sub-cell **points** (markers) and abstract circles fall outside fields; being low-cardinality,
+> they live as **inline JSON lists in the manifest** (`regions`/`markers`), not a `regions.bin`/`markers.bin`
+> blob (the blob format described earlier was over-engineering and is NOT built). The host reads the manifest
+> and hands the sets to `MapView` via `setRegions`/`setMarkers`.
 
 > **The kicker (why phase-driven views matter for Theomen):** each worldgen phase has a *protagonist*
 > datum (P2 = drifting plates, P3 = the rising sea, P6B = crystallizing biomes). A `view_config` mapping
