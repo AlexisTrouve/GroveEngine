@@ -2847,6 +2847,27 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Engine-hosted capture tool 'capture_ui_on_engine' enabled")
 
+    # Map-viewer capture (P2): a synthetic procedural world -> grove::mapview (terrain palette + hillshade)
+    # -> SpriteAdapter (CellDraw->SpriteInstance) -> submitSpriteBatch -> offscreen PNG. The end-to-end
+    # render proof of the map viewer. Console exe (own main()) so SDL2 WITHOUT SDL2main; no UIModule.
+    add_executable(capture_mapview visual/capture_mapview.cpp)
+    target_include_directories(capture_mapview PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(capture_mapview PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_mapview POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_mapview>")
+    endif()
+    message(STATUS "Map-viewer capture tool 'capture_mapview' enabled")
+
     # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
     add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
     target_include_directories(capture_ship_inspector PRIVATE
