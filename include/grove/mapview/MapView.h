@@ -71,6 +71,9 @@ public:
     }
 
     void setLens(Lens lens) { lens_ = std::move(lens); }
+    // Region & marker overlays are global vector sets (not chunked) — the host loads them and hands them over.
+    void setRegions(std::vector<Region> regions) { regions_ = std::move(regions); }
+    void setMarkers(std::vector<Marker> markers) { markers_ = std::move(markers); }
     void setViewport(Viewport vp) { viewport_ = vp; }
     void setZSlice(int z) { zSlice_ = z; }
     void setPrefetchMargin(double worldMargin) { margin_ = worldMargin; }
@@ -78,6 +81,8 @@ public:
     // Run the per-frame pipeline; results are queryable via drainCells()/cells().
     void update() {
         cells_.clear();
+        regionDraws_.clear();
+        markerDraws_.clear();
 
         const int W = grid_.chunkW, H = grid_.chunkH, D = grid_.chunkD;
         if (W <= 0 || H <= 0 || D <= 0 || grid_.cellW <= 0.0 || grid_.cellH <= 0.0) return;
@@ -147,6 +152,37 @@ public:
                 }
             }
         }
+
+        // 5. compile the visible region & marker overlays (global vector sets, culled by the viewport).
+        const double vminX = viewport_.minX - margin_, vminY = viewport_.minY - margin_;
+        const double vmaxX = viewport_.maxX + margin_, vmaxY = viewport_.maxY + margin_;
+
+        for (const RegionLayer& rl : lens_.regionLayers) {
+            for (const Region& rg : regions_) {
+                // Cull by the circle's bounding box (conservative; regions are few). Partially-visible kept.
+                if (rg.cx + rg.radius < vminX || rg.cx - rg.radius > vmaxX ||
+                    rg.cy + rg.radius < vminY || rg.cy - rg.radius > vmaxY) continue;
+                const double key = rl.byValue ? rg.value : static_cast<double>(rg.type);
+                if (!rl.filter.eval(key)) continue;
+                Rgba color = rl.palette.eval(key);
+                color.a *= rl.opacity;
+                const RenderPos c = projection_.project(WorldPos{rg.cx, rg.cy, 0.0});
+                regionDraws_.push_back(RegionDraw{c.x, c.y, rl.innerRatio * rg.radius, rg.radius,
+                                                  0.0, kTwoPi, rl.layerZ, color});
+            }
+        }
+
+        for (const MarkerLayer& ml : lens_.markerLayers) {
+            for (const Marker& mk : markers_) {
+                if (mk.x < vminX || mk.x > vmaxX || mk.y < vminY || mk.y > vmaxY) continue;
+                const double key = static_cast<double>(mk.kind);
+                if (!ml.filter.eval(key)) continue;
+                Rgba color = ml.palette.eval(key);
+                color.a *= ml.opacity;
+                const RenderPos p = projection_.project(WorldPos{mk.x, mk.y, 0.0});
+                markerDraws_.push_back(MarkerDraw{p.x, p.y, mk.scale * ml.baseScale, mk.angle, ml.layerZ, color});
+            }
+        }
     }
 
     // Copy up to `cap` compiled cells into `out`; returns the number copied (no allocation).
@@ -160,6 +196,20 @@ public:
     const std::vector<CellDraw>& cells() const { return cells_; }
     size_t cellCount() const { return cells_.size(); }
     size_t residentChunks() const { return cache_.residentCount(); }
+
+    // Drain the compiled overlay draws (region ring-sectors / marker sprites) into caller buffers.
+    size_t drainRegions(RegionDraw* out, size_t cap) const {
+        const size_t k = std::min(cap, regionDraws_.size());
+        for (size_t i = 0; i < k; ++i) out[i] = regionDraws_[i];
+        return k;
+    }
+    size_t drainMarkers(MarkerDraw* out, size_t cap) const {
+        const size_t k = std::min(cap, markerDraws_.size());
+        for (size_t i = 0; i < k; ++i) out[i] = markerDraws_[i];
+        return k;
+    }
+    const std::vector<RegionDraw>& regionDraws() const { return regionDraws_; }
+    const std::vector<MarkerDraw>& markerDraws() const { return markerDraws_; }
 
 private:
     // Decoded physical value of `field` at global cell (gx,gy,gz); false if that chunk isn't resident or the
@@ -202,6 +252,10 @@ private:
     int zSlice_{0};
     double margin_{0.0};
     std::vector<CellDraw> cells_;
+    std::vector<Region> regions_;       // global region overlay set (host-provided)
+    std::vector<Marker> markers_;       // global marker overlay set (host-provided)
+    std::vector<RegionDraw> regionDraws_;
+    std::vector<MarkerDraw> markerDraws_;
 };
 
 } // namespace mapview

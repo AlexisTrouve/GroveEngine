@@ -21,7 +21,9 @@
 
 #include "grove/mapview/Filter.h"
 #include "grove/mapview/Hillshade.h"
+#include "grove/mapview/Marker.h"
 #include "grove/mapview/Palette.h"
+#include "grove/mapview/Region.h"
 
 namespace grove {
 namespace mapview {
@@ -41,8 +43,11 @@ struct Layer {
 };
 
 struct Lens {
-    std::string        name;
-    std::vector<Layer> layers;              // drawn in order (later = on top)
+    std::string              name;
+    std::vector<Layer>       layers;        // field (per-cell) layers, drawn in order (later = on top)
+    std::vector<RegionLayer> regionLayers;  // circular region overlays
+    std::vector<MarkerLayer> markerLayers;  // point markers
+    // Cross-type draw order is by each layer's layerZ (the renderer sorts by it), not by list order.
 };
 
 } // namespace mapview

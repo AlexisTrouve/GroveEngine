@@ -679,6 +679,16 @@ target_include_directories(test_mapview_hardening PRIVATE
 target_link_libraries(test_mapview_hardening PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewHardeningUnit test_mapview_hardening ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S1i: region & marker overlay layers (the §5 "regionSet × style" / "markerSet ×
+# icons"). Global vector sets, culled + styled by the viewport, emitting neutral RegionDraw (render:sector)
+# and MarkerDraw (render:sprite). Header-only, std-only — what makes a lens show a worldgen's structure.
+add_executable(test_mapview_overlays unit/test_mapview_overlays.cpp)
+target_include_directories(test_mapview_overlays PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_overlays PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewOverlaysUnit test_mapview_overlays ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
