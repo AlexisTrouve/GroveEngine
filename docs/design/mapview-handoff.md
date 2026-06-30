@@ -8,19 +8,32 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ## Status (2026-06-30) — RESUME HERE
 
-**SPEC ✅ locked & committed (`e142354`, pushed gitea/github/bitbucket). NO code yet. Resume at slice S0.**
+**SPEC ✅ locked. S0 ✅ DONE (format + reader, headless TDD, committed `d0ff166`→`49f9ed3`→`617a2f1`).
+The world-document format is now FROZEN. Resume at slice S1 (the pure `MapView` core).**
 
-The full definition is validated by Alexi (the mp4/VLC model, the 3 axes, the chunked/bit-packed/sparse/Z
-world-document, header-only host-driven core, bulk-sprite render). All of it is in `mapview.md`. Nothing is
-implemented — the next move is the first vertical slice.
+S0 shipped the whole contract, all green via ctest (`MapViewFormatUnit` / `MapViewCompressUnit` /
+`MapViewDiskUnit`), header-only + std-only so it builds/tests on WSL too:
+- **S0a** — pure bit codec + sparse chunk (de)serialize (`Coord.h`, `Field.h`, `ChunkCodec.h`,
+  `WorldDocument.h`). Portable LSB-first/little-endian; `absent ≠ 0` proven red via mutation; loud
+  negative controls (wrong bit-width at codec + document level, out-of-range value, corrupt/truncated blob).
+- **S0b** — optional per-chunk zlib compression, INJECTED (`Compression.h`, vendored miniz) so the core
+  stays dependency-free; compressed round-trips identically to raw; fails franc with no decompressor / on corruption.
+- **S0c** — JSON manifest (`Manifest.h`, vendored nlohmann) + reference disk transport
+  (`WorldDocumentDisk.h`, kept separate from the pure core); full document round-trips through a temp dir.
+- root `CMakeLists.txt` now `LANGUAGES CXX C` (miniz.c is C).
 
 | Piece | Status |
 |---|---|
 | Design spec (`mapview.md`) | ✅ locked, §9 decisions, §8 slice plan |
-| world-document format + reader (S0) | ❌ not started — **resume here** |
-| `MapView` pure core (S1) | ❌ not started |
-| viewer app (S2) | ❌ not started (a new project, another Claude) |
-| Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) |
+| world-document format + reader (S0) | ✅ **DONE** — frozen contract, `include/grove/mapview/` |
+| `MapView` pure core (S1) | ❌ not started — **resume here** |
+| viewer app (S2) | ❌ not started (a new project, another Claude) — needs S1 |
+| Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) — **UNBLOCKED** (format frozen) |
+
+> **Format frozen → S3 can start NOW, in parallel with S1.** Theomen static-links GroveEngine at HEAD, so
+> its adapter just `#include`s `grove/mapview/{WorldDocument,Manifest,WorldDocumentDisk}.h` and calls
+> `writeWorldDocument(dir, manifest, chunks)` — the headers ARE the contract (the mp4/VLC shared spec), no
+> separate byte-layout doc needed. The chunk blob format and manifest schema will not change under S1.
 
 ---
 
@@ -47,34 +60,45 @@ together. The format being a *file contract* is what makes the parallelism safe.
 
 ---
 
-## Resume: slice S0 (engine, me) — format + reader, headless TDD
+## Slice S0 — DONE (format + reader, headless TDD). As built:
 
-**Goal:** a tested world-document writer/reader: manifest (§3.1) + bit-packed sparse chunks (§3.2–3.4) +
-optional per-chunk compression (§3.5) + disk-pack/RAM-expand (§3.6). Renderer-independent → pure, headless.
+`include/grove/mapview/` (header-only, pure unless noted):
+- `Coord.h` — Z-aware `CellCoord`/`ChunkCoord` (flat producer pins z=0).
+- `Field.h` — self-describing `FieldDecl` (encoding + bits + scale/offset) + `decodePhysical`. Encodings:
+  `bit`, `uint{N}`, `int{N}`, `unorm8/16`, `float32`. **`float16` deliberately deferred** (no native type;
+  Theomen doesn't need it) — add a conversion routine when a producer asks.
+- `ChunkCodec.h` — pure LSB-first/little-endian bit packer (`packBits`/`unpackBits`). Portability is won here:
+  defined byte+bit order, never a memcpy of a wider int → endianness can't leak in.
+- `WorldDocument.h` — sparse `ChunkData` (`get()` returns `nullptr` for absent, never a zero vector) +
+  `serializeChunk`/`deserializeChunk`. Optional **injected** `Compressor*` (default = raw).
+- `Compression.h` — `zlibCompressor()` over the vendored miniz (kept OUT of the core so the format has zero
+  deps; only a consumer that compresses links `miniz.c`). `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` set to dodge
+  miniz's `compress`/`uncompress` macros.
+- `Manifest.h` — pure string↔`Manifest` via vendored nlohmann (coordinate + ordered field schema).
+- `WorldDocumentDisk.h` — reference disk transport (`std::filesystem`), SEPARATE from the pure core (the I/O
+  the S1 `ChunkProvider` will inject). `writeWorldDocument`/`readManifest`/`readChunk`/`hasChunk`.
 
-**Proposed file layout** (confirm as you go):
-- `include/grove/mapview/` — the **format** (renderer-independent, pure): `WorldDocument.h`, `Manifest.h`,
-  `ChunkCodec.h` (bit-pack + presence mask + compress), `Field.h`, `Coord.h`. Header-only.
-- `modules/BgfxRenderer/MapView/` — **later (S1)** the render-compiler that emits `SpriteInstance` (depends on
-  `Frame/FramePacket.h`), alongside `Scene/ZoneNavigator.h`. *Split rationale:* the format is reusable even
-  without a renderer (a headless analyzer, a PNG dumper); only the render-compiler couples to `SpriteInstance`.
-- `tests/unit/test_mapview_format.cpp` — headless (no `_gpu` suffix). Wire into `tests/CMakeLists.txt`.
+Tests (`tests/unit/`, all headless, registered in ctest): `test_mapview_format.cpp` (`MapViewFormatUnit`),
+`test_mapview_compress.cpp` (`MapViewCompressUnit`, links miniz.c), `test_mapview_disk.cpp` (`MapViewDiskUnit`,
+links miniz.c + nlohmann include). Build: `cmake --build build --target test_mapview_format test_mapview_compress test_mapview_disk`.
 
-**First TDD red test** (write this first, watch it fail, then implement):
-> Build a `WorldDocument` in memory: one `4×4×1` chunk, two fields — `elevation` (`int16`, **present**, a few
-> known values) and `temperature` (`float16`, **absent**). Write to a temp dir, read back. Assert: (a) manifest
-> round-trips (topology, `chunkDims`, field decls); (b) presence mask = elevation present, temperature absent;
-> (c) bit-unpacked elevation == the known values; (d) querying temperature returns **absent**, *not* `0`
-> (fail-franc); (e) **negative control** — a deliberately wrong declared bit-width fails *loudly* (no silent
-> garbage). Then add a compressed-chunk round-trip case.
+**Lessons banked:** (1) the project root was `LANGUAGES CXX` only — a vendored `.c` needs `LANGUAGES CXX C`.
+(2) miniz exposes zlib-compat `#define compress mz_compress` macros → name injected members `*Fn`, not `compress`.
+(3) compression as an injected `Compressor` (not a hardcoded dep) is what keeps the format core's "zero
+dependency / builds on a bare toolchain" property — and keeps the S0a test linking nothing.
 
-**Compressor call for S0:** use **miniz (zlib)** — it's already vendored (`deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/`),
-in-tree, zero new dependency. Compression is off the hot path (decompress once at chunk-load, §3.5) so zlib's
-speed is irrelevant. **Only** vendor an LZ4 single-header later if a profile ever shows chunk-load as a hitch.
+## Resume: slice S1 (engine, me) — the pure `MapView` core, headless TDD
 
-**Conventions to respect:** header-only like `include/grove/anim/`; 3-level comments (QUOI/POURQUOI/COMMENT);
-TDD red→green→commit per increment; build/test from `build/`. No GPU/SDL → builds & tests on WSL too (good for
-the sanitizer sweep later — fold mapview into the quality-hardening lenses, [[quality-hardening]]).
+**Goal (mapview.md §4, §8):** `MapView` + `SquareLayout` (① topology) + `TopDownProjection` (② projection) +
+`IChunkProvider` (③, host-injected — the disk reader above is one impl) + cull→stream→LRU + the recipe system
+(Palette/Filter/Layer/Lens, §5). Pure compute, host-driven (the `ZoneNavigator` shape), emits `SpriteInstance[]`
+via `drainCells`. Renderer-coupled part lives in `modules/BgfxRenderer/MapView/` (couples to `Frame/FramePacket.h`);
+the renderer-independent geometry/recipe math can stay in `include/grove/mapview/`. **Plan S1 with Alexi before
+building** (it's a bigger slice than S0's increments) — don't pre-commit the core↔SpriteInstance boundary alone.
+
+**Conventions (unchanged):** header-only like `include/grove/anim/`; 3-level comments (QUOI/POURQUOI/COMMENT);
+TDD red→green→commit per increment; build/test from `build/`. No GPU/SDL → builds & tests on WSL too (fold
+mapview into the quality-hardening lenses, [[quality-hardening]]).
 
 ---
 
@@ -110,5 +134,5 @@ the sanitizer sweep later — fold mapview into the quality-hardening lenses, [[
   infinite / Z multi-slice / tilemap fast-lane / extreme-zoom LOD / palette-LUT). S0→S3 = "see Theomen's world,
   generically"; everything after slots into S1's interfaces without rework.
 
-**One-line resume:** *write `tests/unit/test_mapview_format.cpp` (the red test above), implement
-`include/grove/mapview/` to make it green, commit — that's S0 underway.*
+**One-line resume:** *S0 is done & frozen (`include/grove/mapview/`, 3 ctest locks). Next = S1 (the pure
+`MapView` core) — plan it with Alexi first (mapview.md §4/§8); Theomen's S3 adapter can start in parallel now.*

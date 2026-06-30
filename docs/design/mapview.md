@@ -149,7 +149,8 @@ Columnar (field-major, not cell-major) → packing is uniform per field, decodes
 
 Two composing levels:
 1. **Bit-packing** (§3.2) = free "semantic" compression (no wasted bits).
-2. **Optional per-chunk** general compressor (LZ4 default, or zstd-low) on the blob — a **per-chunk flag**.
+2. **Optional per-chunk** general compressor on the blob — a **per-chunk flag**. v1 ships **zlib via the
+   vendored miniz** (in-tree, zero new dep); LZ4/zstd is a later swap only if a profile shows chunk-load hitching.
 
 **Why it doesn't slow rendering:** chunks load **on demand when the camera nears**, not per frame. Decompress
 cost is paid **once at chunk-load**, off the render path. LZ4 decompresses at GB/s → invisible. At the screen,
@@ -306,9 +307,12 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
 
 Build *for* all axes, ship **one combo first**; each later axis plugs into an interface that already exists.
 
+**Status (2026-06-30): S0 ✅ DONE & frozen** (`include/grove/mapview/`, 3 ctest locks — see
+[`mapview-handoff.md`](mapview-handoff.md)). Resume at S1; Theomen's S3 adapter is unblocked in parallel.
+
 | Slice | Delivers | New axis exercised |
 |---|---|---|
-| **S0 — format + reader** | world-document writer/reader (manifest + bit-packed sparse chunks + LZ4), headless tests | the contract |
+| **S0 — format + reader** ✅ | world-document writer/reader (manifest + bit-packed sparse chunks + zlib/miniz), headless tests | the contract |
 | **S1 — pure core** | `MapView` + `SquareLayout` + `TopDownProjection` + `ChunkProvider` + cull/stream/LRU + Palette/Filter/Layer/Lens, **headless TDD** | ① square, ② top-down, ③ provider |
 | **S2 — viewer app** | generic app: load a world-document file, camera (`grove::camera`), bulk-sprite emit, lens/layer UI | first pixels (E2E) |
 | **S3 — Theomen adapter** | `World` → world-document (Theomen-side); see a real generated world | real data |
@@ -333,7 +337,7 @@ S0→S3 = "see Theomen's world, generically". Everything after slots into S1's i
 - **Z-level in the format day 1** (`(x,y,z)`, `W×H×D` chunks, manifest-declared dims), **single-slice render
   in v1**; Theomen is flat (`D=1`). Drive: the planned DF-like. Cap ~16k–256k cells/chunk (chunk Z thinner for deep worlds).
 - **Format = chunked · columnar · bit-packed self-describing · sparse (absent≠zero, fail-franc) · compressed
-  (bit-pack + optional LZ4/zstd per chunk, off the hot path) · disk-packed/RAM-expanded.**
+  (bit-pack + optional zlib/miniz per chunk — LZ4/zstd later — off the hot path) · disk-packed/RAM-expanded.**
 
 ## 10. Open / deferred (don't foreclose)
 
