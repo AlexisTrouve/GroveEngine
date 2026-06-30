@@ -577,6 +577,19 @@ target_include_directories(test_mapview_format PRIVATE
 target_link_libraries(test_mapview_format PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewFormatUnit test_mapview_format ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S0b: per-chunk compression (zlib via the vendored miniz). The Compressor is
+# INJECTED so the format core stays dependency-free — only THIS target compiles miniz.c. Locks: compressed
+# round-trips identically to raw, and every failure (no decompressor, corrupt/truncated payload) fails franc.
+add_executable(test_mapview_compress
+    unit/test_mapview_compress.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(test_mapview_compress PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_compress PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewCompressUnit test_mapview_compress ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager

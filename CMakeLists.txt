@@ -1,5 +1,8 @@
 ﻿cmake_minimum_required(VERSION 3.20)
-project(GroveEngine VERSION 1.0.0 LANGUAGES CXX)
+# C is enabled alongside CXX so in-tree C sources (e.g. the vendored miniz/zlib used by the
+# mapview chunk compressor) can be compiled directly. bgfx already requires a C toolchain
+# transitively; this just makes the dependency explicit at the top level.
+project(GroveEngine VERSION 1.0.0 LANGUAGES CXX C)
 
 # C++ Standard
 set(CMAKE_CXX_STANDARD 17)

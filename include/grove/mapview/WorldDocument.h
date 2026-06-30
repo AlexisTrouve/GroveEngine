@@ -30,6 +30,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -63,6 +64,16 @@ struct ChunkData {
         }
         return nullptr;
     }
+};
+
+// An injected per-chunk compressor. POURQUOI: the format core stays dependency-free — it knows
+// nothing of miniz/zlib. A consumer that wants compression supplies these two functions (e.g.
+// grove::mapview::codec::zlibCompressor() from Compression.h, backed by the vendored miniz);
+// serialize/deserialize call them only when a compressor is provided. COMMENT: named *Fn to dodge
+// miniz's zlib-compat `compress`/`uncompress` macros. Passing none = uncompressed (the S0a path).
+struct Compressor {
+    std::function<std::vector<uint8_t>(const std::vector<uint8_t>&)>         compressFn;
+    std::function<std::vector<uint8_t>(const std::vector<uint8_t>&, size_t)> decompressFn;
 };
 
 namespace detail {
@@ -107,8 +118,13 @@ struct Reader {
 } // namespace detail
 
 // Serialize one chunk to a self-contained binary blob, per `schema` (the manifest's ordered fields).
+// Pass a Compressor to zlib the body (off the hot path — §3.5); pass nullptr (default) for raw S0a output.
 // THROWS std::invalid_argument if a present field is not in the schema, or its value count != cellCount.
-inline std::vector<uint8_t> serializeChunk(const ChunkData& chunk, const std::vector<FieldDecl>& schema) {
+inline std::vector<uint8_t> serializeChunk(const ChunkData& chunk, const std::vector<FieldDecl>& schema,
+                                           const Compressor* comp = nullptr) {
+    // Decide compression upfront: the flag is part of the header, written before the body.
+    const bool doCompress = (comp != nullptr && static_cast<bool>(comp->compressFn));
+
     std::vector<uint8_t> blob;
     blob.push_back('G');
     blob.push_back('M');
@@ -130,7 +146,7 @@ inline std::vector<uint8_t> serializeChunk(const ChunkData& chunk, const std::ve
         }
     }
     blob.insert(blob.end(), mask.begin(), mask.end());
-    blob.push_back(0);                       // compressionFlag: none in S0a
+    blob.push_back(doCompress ? 1 : 0);      // compressionFlag
 
     // Validate every present field is declared by the schema (no orphan fields on disk).
     for (const auto& f : chunk.fields) {
@@ -143,7 +159,9 @@ inline std::vector<uint8_t> serializeChunk(const ChunkData& chunk, const std::ve
         }
     }
 
+    // Build the body (the bulk numbers) separately, so it can be emitted raw OR compressed as a unit.
     // Per present field, in schema order: packedLen u32 | packed bytes.
+    std::vector<uint8_t> body;
     for (const auto& d : schema) {
         const std::vector<uint32_t>* vals = chunk.get(d.name);
         if (!vals) continue;  // absent => not stored
@@ -153,16 +171,31 @@ inline std::vector<uint8_t> serializeChunk(const ChunkData& chunk, const std::ve
                                         std::to_string(chunk.cellCount));
         }
         std::vector<uint8_t> packed = codec::packBits(*vals, d.storageBits());
-        detail::putU32(blob, static_cast<uint32_t>(packed.size()));
-        blob.insert(blob.end(), packed.begin(), packed.end());
+        detail::putU32(body, static_cast<uint32_t>(packed.size()));
+        body.insert(body.end(), packed.begin(), packed.end());
+    }
+
+    if (!doCompress) {
+        blob.insert(blob.end(), body.begin(), body.end());
+    } else {
+        // Compressed body section: uncompressedLen u32 | compressedLen u32 | compressed bytes.
+        // POURQUOI both lengths: uncompressedLen sizes the decode buffer; compressedLen keeps the
+        // chunk self-delimiting (so many chunks can later share one region file, S0c).
+        std::vector<uint8_t> packedBody = comp->compressFn(body);
+        detail::putU32(blob, static_cast<uint32_t>(body.size()));
+        detail::putU32(blob, static_cast<uint32_t>(packedBody.size()));
+        blob.insert(blob.end(), packedBody.begin(), packedBody.end());
     }
     return blob;
 }
 
-// Deserialize a chunk blob using `schema`. THROWS on a corrupt/truncated blob, on a schema field-count
-// mismatch, on an unsupported compression flag (S0a), or — the document-level negative control — when a
-// present field's stored byte length disagrees with the width the schema declares.
-inline ChunkData deserializeChunk(const std::vector<uint8_t>& blob, const std::vector<FieldDecl>& schema) {
+// Deserialize a chunk blob using `schema`. Pass the same Compressor used to write it if the chunk is
+// compressed (else it throws — a compressed chunk with no decompressor is an error, not a silent skip).
+// THROWS on a corrupt/truncated blob, a schema field-count mismatch, an unknown compression flag, or —
+// the document-level negative control — when a present field's stored byte length disagrees with the
+// width the schema declares.
+inline ChunkData deserializeChunk(const std::vector<uint8_t>& blob, const std::vector<FieldDecl>& schema,
+                                  const Compressor* comp = nullptr) {
     detail::Reader r{blob.data(), blob.size(), 0};
 
     uint8_t magic[4];
@@ -192,27 +225,48 @@ inline ChunkData deserializeChunk(const std::vector<uint8_t>& blob, const std::v
     r.read(mask.data(), maskBytes);
 
     const uint8_t compressionFlag = r.u8();
-    if (compressionFlag != 0) {
-        throw std::runtime_error("deserializeChunk: compression not supported in this build (flag " +
-                                 std::to_string(compressionFlag) + ")");
-    }
 
-    for (size_t fi = 0; fi < schema.size(); ++fi) {
-        const bool present = (mask[fi >> 3] >> (fi & 7)) & 1u;
-        if (!present) continue;
+    // The field-parse loop, identical whether the body is read raw (from `r`) or from the decompressed
+    // buffer. Cross-checks each present field's stored length against the schema width — the
+    // document-level negative control against a wrong bit-width (no silent garbage).
+    auto parseFields = [&](detail::Reader& src) {
+        for (size_t fi = 0; fi < schema.size(); ++fi) {
+            const bool present = (mask[fi >> 3] >> (fi & 7)) & 1u;
+            if (!present) continue;
 
-        const FieldDecl& d = schema[fi];
-        const uint32_t packedLen = r.u32();
-        const uint8_t bits = d.storageBits();
-        const size_t expected = codec::bytesForBits(static_cast<size_t>(c.cellCount) * bits);
-        if (packedLen != expected) {
-            throw std::runtime_error("deserializeChunk: field '" + d.name + "' blob/schema bit-width mismatch (blob " +
-                                     std::to_string(packedLen) + " bytes, schema implies " +
-                                     std::to_string(expected) + ")");
+            const FieldDecl& d = schema[fi];
+            const uint32_t packedLen = src.u32();
+            const uint8_t bits = d.storageBits();
+            const size_t expected = codec::bytesForBits(static_cast<size_t>(c.cellCount) * bits);
+            if (packedLen != expected) {
+                throw std::runtime_error("deserializeChunk: field '" + d.name +
+                                         "' blob/schema bit-width mismatch (blob " + std::to_string(packedLen) +
+                                         " bytes, schema implies " + std::to_string(expected) + ")");
+            }
+            std::vector<uint8_t> packed(packedLen);
+            src.read(packed.data(), packedLen);
+            c.fields.emplace_back(d.name, codec::unpackBits(packed, bits, c.cellCount));
         }
-        std::vector<uint8_t> packed(packedLen);
-        r.read(packed.data(), packedLen);
-        c.fields.emplace_back(d.name, codec::unpackBits(packed, bits, c.cellCount));
+    };
+
+    if (compressionFlag == 0) {
+        parseFields(r);
+    } else if (compressionFlag == 1) {
+        if (comp == nullptr || !static_cast<bool>(comp->decompressFn)) {
+            throw std::runtime_error("deserializeChunk: chunk is compressed but no decompressor was provided");
+        }
+        const uint32_t uncompLen = r.u32();
+        const uint32_t compLen = r.u32();
+        std::vector<uint8_t> packedBody(compLen);
+        r.read(packedBody.data(), compLen);  // throws if the blob is truncated (compLen > remaining)
+        std::vector<uint8_t> body = comp->decompressFn(packedBody, uncompLen);
+        if (body.size() != uncompLen) {
+            throw std::runtime_error("deserializeChunk: decompressed body size mismatch");
+        }
+        detail::Reader br{body.data(), body.size(), 0};
+        parseFields(br);
+    } else {
+        throw std::runtime_error("deserializeChunk: unknown compression flag " + std::to_string(compressionFlag));
     }
     return c;
 }
