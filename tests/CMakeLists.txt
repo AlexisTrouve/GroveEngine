@@ -641,6 +641,15 @@ target_include_directories(test_mapview_streaming PRIVATE
 target_link_libraries(test_mapview_streaming PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewStreamingUnit test_mapview_streaming ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S1c: the recipe bricks — Palette (value->Rgba: ramp/banded/categorical) + Filter
+# (minimal composable predicate value->bool). The modular colour/filter of §5. Header-only, std-only.
+add_executable(test_mapview_recipe unit/test_mapview_recipe.cpp)
+target_include_directories(test_mapview_recipe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_recipe PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewRecipeUnit test_mapview_recipe ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
