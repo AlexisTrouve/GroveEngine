@@ -8,7 +8,7 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ## Status (2026-06-30) — RESUME HERE
 
-**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 9 MapView ctests green.
+**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 10 MapView ctests green.
 Resume at S2 (the viewer app) — and/or the BgfxRenderer CellDraw→SpriteInstance adapter.**
 
 **S1 (pure core, headless TDD)** — `include/grove/mapview/`, commits `9c1fbb4`→`ee0702e`→`3be5f7c`→`5b969b9`:
@@ -124,8 +124,16 @@ dependency / builds on a bare toolchain" property — and keeps the S0a test lin
   (cull→stream→compile→`drainCells`), **decoupled from Manifest/JSON** (takes a plain `vector<FieldDecl>` +
   `GridSpec`), so no nlohmann leaks into the core. Only active z-slice emitted; absent field = no draw (fail-franc).
 
-Tests (`tests/unit/`, headless, ctest): `MapViewLayoutUnit`/`StreamingUnit`/`RecipeUnit`/`CoreUnit` (S1) +
-the four S0 locks. `ctest -R MapView` = 8/8 green.
+Tests (`tests/unit/`, headless, ctest): `MapViewLayoutUnit`/`StreamingUnit`/`RecipeUnit`/`CoreUnit`/
+`HillshadeUnit` (S1) + the four S0 locks + `MapViewHardeningUnit`. `ctest -R MapView` = 10/10 green.
+
+**Adversarial review done (S1 hardening, commit `05c0a01`).** A 4-way parallel review fixed 7 real bugs,
+each reproduced red then locked in `test_mapview_hardening.cpp`: cull `reserve` overflow/UB on zoom-out +
+missing cellW/H guard (Cull.h); `ChunkCache` exception-safety (load-before-mutate); `MapView` dangling
+schema pointer → owns a copy now; `Hillshade` NaN/Inf leak; `Palette` NaN→fallback (ramp/banded gained an
+optional fallback); `worldToCell` fractional-boundary round-trip (snapFloor). Minor invalid-input findings
+(zero light, stepped reversed, Eq epsilon at >4.5M, z>int16, get() lifetime) were consciously left as
+by-design/invalid-input, not real defects.
 
 **Resolved fork (was "core↔SpriteInstance"):** the core emits **neutral `CellDraw`**, NOT `SpriteInstance`.
 So ALL of mapview lives in `include/grove/mapview/` (renderer-independent); the only renderer-coupled piece
