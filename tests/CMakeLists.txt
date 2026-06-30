@@ -621,6 +621,16 @@ target_include_directories(test_mapview_roundtrip PRIVATE
 target_link_libraries(test_mapview_roundtrip PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewRoundtripUnit test_mapview_roundtrip ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S1a: pure geometry — SquareLayout (① topology) + TopDownProjection (② projection),
+# usable through the IGridLayout/IProjection interfaces (hex/iso plug in later, no rework). Header-only,
+# std-only — the renderer-independent foundation of the MapView core (docs/design/mapview.md §2/§4).
+add_executable(test_mapview_layout unit/test_mapview_layout.cpp)
+target_include_directories(test_mapview_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_layout PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewLayoutUnit test_mapview_layout ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
