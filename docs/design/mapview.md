@@ -254,7 +254,9 @@ Four composable bricks — the modular core, all **data-driven** (in the manifes
 > **Implemented (S1e–h, 2026-06-30):** Palette = ramp / banded / categorical / **diverging** / **stepped**;
 > **Hillshade** (Lambertian relief, `Hillshade.h`) wired as a Layer modifier (`hillshadeField` + light), with
 > cross-chunk gradient sampling; **Filter** is composable AND/OR/NOT **and cross-field** (`cmpField`, resolved
-> by a sampler — a named field absent at a cell fails franc). Region/marker layers remain future (S5+).
+> by a sampler — a named field absent at a cell fails franc). **Region & marker layers** done (S1i):
+> `regionSet × style` (circles by type/value, disc or ring → `RegionDraw`/render:sector) + `markerSet × icons`
+> (points by kind, scaled/rotated → `MarkerDraw`/render:sprite), global vector sets culled by viewport.
 
 > **The kicker (why phase-driven views matter for Theomen):** each worldgen phase has a *protagonist*
 > datum (P2 = drifting plates, P3 = the rising sea, P6B = crystallizing biomes). A `view_config` mapping
