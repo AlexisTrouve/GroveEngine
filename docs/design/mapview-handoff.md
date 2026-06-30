@@ -42,7 +42,8 @@ SpriteInstance) — grove::mapview is 100% renderer-independent.
 | `MapView` pure core (S1) | ✅ **DONE** — `include/grove/mapview/`, 8 ctests green |
 | CellDraw→SpriteInstance adapter (P1) | ✅ **DONE** — `modules/BgfxRenderer/MapView/SpriteAdapter.h`, `MapViewAdapterUnit` |
 | render proof (P2) | ✅ **DONE** — `tests/visual/capture_mapview.cpp` renders a synthetic world to a PNG (first pixels) |
-| viewer app (S2 — interactive) | ❌ not started (in groveengine) — **resume here**: camera pan/zoom + lens/z-slice UI |
+| viewer app (S2a — interactive) | ✅ **DONE** — `tests/visual/test_mapview_viewer.cpp`: live window, drag-pan + wheel-zoom (grove::camera) + H/B/R keys. Run: `./build/tests/test_mapview_viewer` |
+| real Theomen data (S3) / on-screen overlays / richer UI | ❌ not started — **resume here** |
 | Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) — **UNBLOCKED** (format frozen) |
 
 > **Format frozen → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its adapter just
