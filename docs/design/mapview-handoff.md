@@ -40,8 +40,9 @@ SpriteInstance) — grove::mapview is 100% renderer-independent.
 | Design spec (`mapview.md`) | ✅ locked, §9 decisions, §8 slice plan |
 | world-document format + reader (S0) | ✅ **DONE** — frozen contract, `include/grove/mapview/` |
 | `MapView` pure core (S1) | ✅ **DONE** — `include/grove/mapview/`, 8 ctests green |
-| CellDraw→SpriteInstance adapter | ❌ not started (BgfxRenderer-side, engine — small) |
-| viewer app (S2) | ❌ not started (a new project, decided to stay in groveengine — see below) — **resume here** |
+| CellDraw→SpriteInstance adapter (P1) | ✅ **DONE** — `modules/BgfxRenderer/MapView/SpriteAdapter.h`, `MapViewAdapterUnit` |
+| render proof (P2) | ✅ **DONE** — `tests/visual/capture_mapview.cpp` renders a synthetic world to a PNG (first pixels) |
+| viewer app (S2 — interactive) | ❌ not started (in groveengine) — **resume here**: camera pan/zoom + lens/z-slice UI |
 | Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) — **UNBLOCKED** (format frozen) |
 
 > **Format frozen → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its adapter just
@@ -194,5 +195,7 @@ mapview into the quality-hardening lenses, [[quality-hardening]]); the app/adapt
   infinite / Z multi-slice / tilemap fast-lane / extreme-zoom LOD / palette-LUT). S0→S3 = "see Theomen's world,
   generically"; everything after slots into S1's interfaces without rework.
 
-**One-line resume:** *S0 + S1 done (`include/grove/mapview/`, 8 ctest locks — the pure core is complete). Next =
-the tiny CellDraw→SpriteInstance adapter + the S2 viewer app (decided to live in groveengine); Theomen's S3 in parallel.*
+**One-line resume:** *S0 + S1 done (pure core, 12 ctest locks incl. the adapter). P1 adapter + P2 render proof
+DONE — `capture_mapview` renders a synthetic world to a PNG (first pixels). Next = the interactive S2 app
+(camera pan/zoom + lens/z-slice UI, in groveengine) and/or wiring real Theomen data (S3). Lesson banked:
+hillshade wants a finely-encoded field (coarse → gradient quantization contours, caught only by the real render).*
