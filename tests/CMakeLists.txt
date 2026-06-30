@@ -660,6 +660,15 @@ target_include_directories(test_mapview_core PRIVATE
 target_link_libraries(test_mapview_core PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewCoreUnit test_mapview_core ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S1e: Hillshade — fake-3D relief from a field gradient (Lambertian illumination
+# factor), the §5 colour modifier. Header-only, std-only. Pure shading math, locked before integration.
+add_executable(test_mapview_hillshade unit/test_mapview_hillshade.cpp)
+target_include_directories(test_mapview_hillshade PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_hillshade PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewHillshadeUnit test_mapview_hillshade ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager

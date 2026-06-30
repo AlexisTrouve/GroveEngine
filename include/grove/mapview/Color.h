@@ -32,5 +32,10 @@ inline Rgba lerp(const Rgba& a, const Rgba& b, float t) {
                 a.a + (b.a - a.a) * t};
 }
 
+// Scale the RGB channels by k (alpha untouched) — used to apply a hillshade illumination factor to a colour.
+inline Rgba multiplyRgb(const Rgba& c, float k) {
+    return Rgba{c.r * k, c.g * k, c.b * k, c.a};
+}
+
 } // namespace mapview
 } // namespace grove
