@@ -566,6 +566,17 @@ target_include_directories(test_flipbook PRIVATE
 target_link_libraries(test_flipbook PRIVATE Catch2::Catch2WithMain)
 grove_add_test(FlipbookUnit test_flipbook ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S0a: world-document format — pure bit codec + sparse chunk (de)serialize
+# (grove::mapview, include/grove/mapview/). Header-only, std-only — no GPU/SDL/IIO, so it builds + tests
+# on WSL too (folds into the sanitizer sweep later). The frozen on-disk contract that parallelizes the
+# engine core (S1) and the Theomen adapter (S3). Design: docs/design/mapview.md.
+add_executable(test_mapview_format unit/test_mapview_format.cpp)
+target_include_directories(test_mapview_format PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_format PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewFormatUnit test_mapview_format ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
