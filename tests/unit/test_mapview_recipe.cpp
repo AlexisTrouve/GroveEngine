@@ -103,6 +103,36 @@ TEST_CASE("mapview S1c - filter AND/OR/NOT composition", "[mapview][recipe][unit
     REQUIRE_FALSE(notLand.eval(500.0));
 }
 
+TEST_CASE("mapview S1g - cross-field filter resolves named fields via a sampler", "[mapview][recipe][unit]") {
+    // land = elevation > 0 (primary) AND biome == 2 (named field).
+    const Filter f = Filter::all({Filter::cmp(Filter::Op::Gt, 0.0),
+                                  Filter::cmpField("biome", Filter::Op::Eq, 2.0)});
+
+    auto biomeIs2 = [](const std::string& field, double& out) {
+        if (field == "biome") { out = 2.0; return true; }
+        return false;
+    };
+    REQUIRE(f.eval(biomeIs2, 50.0));         // elevation 50 > 0 AND biome 2 == 2
+    REQUIRE_FALSE(f.eval(biomeIs2, -5.0));   // elevation fails
+
+    // A different biome value fails the named leaf.
+    auto biomeIs3 = [](const std::string& field, double& out) {
+        if (field == "biome") { out = 3.0; return true; }
+        return false;
+    };
+    REQUIRE_FALSE(f.eval(biomeIs3, 50.0));
+
+    // biome ABSENT at this cell -> named leaf fails franc -> the whole AND is false.
+    auto noBiome = [](const std::string&, double&) { return false; };
+    REQUIRE_FALSE(f.eval(noBiome, 50.0));
+}
+
+TEST_CASE("mapview S1g - primary-only filters still evaluate without a sampler", "[mapview][recipe][unit]") {
+    // Backward compatibility: cmp() leaves use the primary value; eval(value) needs no sampler.
+    REQUIRE(Filter::cmp(Filter::Op::Ge, 10.0).eval(10.0));
+    REQUIRE(Filter::all({Filter::cmp(Filter::Op::Gt, 0.0), Filter::cmp(Filter::Op::Lt, 100.0)}).eval(50.0));
+}
+
 TEST_CASE("mapview S1f - diverging palette pivots low->mid->high", "[mapview][recipe][unit]") {
     // blue (deep) -> white (sea level, pivot 0) -> green (high), over [-100, 0, 100].
     const Palette p = Palette::diverging(kBlue, kWhite, kGreen, -100.0, 0.0, 100.0);
