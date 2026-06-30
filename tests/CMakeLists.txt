@@ -605,6 +605,22 @@ target_include_directories(test_mapview_disk PRIVATE
 target_link_libraries(test_mapview_disk PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewDiskUnit test_mapview_disk ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine S0 hardening: save/load ROUND-TRIP ROBUSTNESS. Runs save->load x3 in a row across three
+# distinct config "formats" (chunk size, field count, byte-unaligned bit widths, Z>1, sparsity) on every
+# transport (RAM raw, RAM zlib, disk raw, disk zlib), asserting binary idempotence + value fidelity vs the
+# original each iteration. Catches "works once, drifts later" and "works at 4x4, breaks at 17 bits".
+# Regression lock — re-run any time to re-verify the format after a change.
+add_executable(test_mapview_roundtrip
+    unit/test_mapview_roundtrip.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(test_mapview_roundtrip PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_roundtrip PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewRoundtripUnit test_mapview_roundtrip ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
