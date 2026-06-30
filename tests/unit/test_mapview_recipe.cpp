@@ -102,3 +102,34 @@ TEST_CASE("mapview S1c - filter AND/OR/NOT composition", "[mapview][recipe][unit
     REQUIRE(notLand.eval(-5.0));
     REQUIRE_FALSE(notLand.eval(500.0));
 }
+
+TEST_CASE("mapview S1f - diverging palette pivots low->mid->high", "[mapview][recipe][unit]") {
+    // blue (deep) -> white (sea level, pivot 0) -> green (high), over [-100, 0, 100].
+    const Palette p = Palette::diverging(kBlue, kWhite, kGreen, -100.0, 0.0, 100.0);
+    REQUIRE(p.eval(0.0).r == 1.0f);                 // pivot = white
+    REQUIRE(p.eval(0.0).g == 1.0f);
+    REQUIRE(p.eval(0.0).b == 1.0f);
+    REQUIRE_THAT(p.eval(-100.0).b, WithinAbs(1.0f, 1e-6));  // low end = blue
+    REQUIRE_THAT(p.eval(100.0).g, WithinAbs(1.0f, 1e-6));   // high end = green
+    // Halfway below the pivot: between blue and white -> blue stays 1, red/green rise to 0.5.
+    const Rgba lo = p.eval(-50.0);
+    REQUIRE_THAT(lo.b, WithinAbs(1.0f, 1e-6));
+    REQUIRE_THAT(lo.r, WithinAbs(0.5f, 1e-6));
+    // Ends clamp.
+    REQUIRE_THAT(p.eval(-999.0).b, WithinAbs(1.0f, 1e-6));
+    REQUIRE_THAT(p.eval(999.0).g, WithinAbs(1.0f, 1e-6));
+}
+
+TEST_CASE("mapview S1f - stepped palette quantizes a range into equal bands", "[mapview][recipe][unit]") {
+    // [0,300] into 3 flat bands: red [0,100), green [100,200), blue [200,300].
+    const Palette p = Palette::stepped(0.0, 300.0, {kRed, kGreen, kBlue});
+    REQUIRE(p.eval(50.0).r == 1.0f);    // band 0
+    REQUIRE(p.eval(150.0).g == 1.0f);   // band 1
+    REQUIRE(p.eval(250.0).b == 1.0f);   // band 2
+    // Boundaries go to the upper band (strict <).
+    REQUIRE(p.eval(100.0).g == 1.0f);
+    REQUIRE(p.eval(200.0).b == 1.0f);
+    // Below / above the range clamp to the first / last band.
+    REQUIRE(p.eval(-50.0).r == 1.0f);
+    REQUIRE(p.eval(9999.0).b == 1.0f);
+}

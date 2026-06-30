@@ -59,6 +59,25 @@ public:
         return p;
     }
 
+    // Diverging: a 3-stop ramp low -> mid (at the pivot) -> high. The natural palette for data read around a
+    // centre — elevation about sea level, a temperature anomaly about zero (low/high clamp at the ends).
+    static Palette diverging(Rgba low, Rgba mid, Rgba high, double lowVal, double pivot, double highVal) {
+        return ramp({{lowVal, low}, {pivot, mid}, {highVal, high}});
+    }
+
+    // Stepped: quantize [lo,hi] into colors.size() flat, equal-width bands (contour-style). A convenience over
+    // banded with evenly spaced thresholds; values below lo / at-or-above hi clamp to the first / last colour.
+    static Palette stepped(double lo, double hi, std::vector<Rgba> colors) {
+        if (colors.empty()) return banded({});
+        std::vector<std::pair<double, Rgba>> bands;
+        bands.reserve(colors.size());
+        const double step = (hi - lo) / static_cast<double>(colors.size());
+        for (size_t i = 0; i < colors.size(); ++i) {
+            bands.emplace_back(lo + static_cast<double>(i + 1) * step, colors[i]);
+        }
+        return banded(std::move(bands));
+    }
+
     Kind kind() const { return kind_; }
 
     // Map a (decoded) field value to a colour.
