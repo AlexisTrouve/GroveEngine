@@ -33,20 +33,23 @@ class Palette {
 public:
     enum class Kind { Ramp, Banded, Categorical };
 
-    // Continuous ramp between sorted (value, colour) stops. Needs >= 1 stop.
-    static Palette ramp(std::vector<std::pair<double, Rgba>> stops) {
+    // Continuous ramp between sorted (value, colour) stops. Needs >= 1 stop. `fallback` is returned for a
+    // nodata value (NaN) or an empty ramp.
+    static Palette ramp(std::vector<std::pair<double, Rgba>> stops, Rgba fallback = Rgba{}) {
         Palette p;
         p.kind_ = Kind::Ramp;
         p.stops_ = std::move(stops);
+        p.fallback_ = fallback;
         return p;
     }
 
     // Discrete bands: each (upperBound, colour) covers values < upperBound (ascending). Values >= the last
-    // bound take the last colour.
-    static Palette banded(std::vector<std::pair<double, Rgba>> bands) {
+    // bound take the last colour; a nodata value (NaN) / empty set takes `fallback`.
+    static Palette banded(std::vector<std::pair<double, Rgba>> bands, Rgba fallback = Rgba{}) {
         Palette p;
         p.kind_ = Kind::Banded;
         p.stops_ = std::move(bands);
+        p.fallback_ = fallback;
         return p;
     }
 
@@ -82,6 +85,7 @@ public:
 
     // Map a (decoded) field value to a colour.
     Rgba eval(double value) const {
+        if (std::isnan(value)) return fallback_;  // nodata -> fallback, consistently across every kind
         switch (kind_) {
             case Kind::Ramp:        return evalRamp(value);
             case Kind::Banded:      return evalBanded(value);

@@ -669,6 +669,16 @@ target_include_directories(test_mapview_hillshade PRIVATE
 target_link_libraries(test_mapview_hillshade PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewHillshadeUnit test_mapview_hillshade ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine S1 hardening: one regression lock per real bug from the adversarial review
+# (cull zoom-out overflow/UB, cull degenerate cell size, cache exception-safety, hillshade NaN/Inf,
+# palette NaN->fallback, worldToCell fractional-boundary round-trip, MapView schema ownership + cellW guard).
+add_executable(test_mapview_hardening unit/test_mapview_hardening.cpp)
+target_include_directories(test_mapview_hardening PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_hardening PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewHardeningUnit test_mapview_hardening ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager

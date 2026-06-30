@@ -61,11 +61,13 @@ struct GridSpec {
 
 class MapView {
 public:
-    // `schema` (the ordered field decls) is held by reference — it must outlive this MapView.
-    MapView(const std::vector<FieldDecl>& schema, GridSpec grid, IGridLayout& layout,
+    // The schema (ordered field decls) is COPIED and owned by the MapView, so fieldByName_ never dangles —
+    // a caller may pass a temporary (e.g. a function returning the schema by value) safely.
+    MapView(std::vector<FieldDecl> schema, GridSpec grid, IGridLayout& layout,
             IProjection& projection, IChunkProvider& provider, size_t chunkBudget)
-        : grid_(grid), layout_(layout), projection_(projection), cache_(provider, chunkBudget) {
-        for (const FieldDecl& f : schema) fieldByName_[f.name] = &f;
+        : grid_(grid), layout_(layout), projection_(projection), cache_(provider, chunkBudget),
+          schema_(std::move(schema)) {
+        for (const FieldDecl& f : schema_) fieldByName_[f.name] = &f;  // points into the owned copy
     }
 
     void setLens(Lens lens) { lens_ = std::move(lens); }
@@ -78,7 +80,7 @@ public:
         cells_.clear();
 
         const int W = grid_.chunkW, H = grid_.chunkH, D = grid_.chunkD;
-        if (W <= 0 || H <= 0 || D <= 0) return;
+        if (W <= 0 || H <= 0 || D <= 0 || grid_.cellW <= 0.0 || grid_.cellH <= 0.0) return;
         const int cellsPerLayer = W * H;
         const int chunkZ = static_cast<int>(std::floor(static_cast<double>(zSlice_) / D));
 
@@ -192,6 +194,7 @@ private:
     IGridLayout& layout_;
     IProjection& projection_;
     ChunkCache cache_;
+    std::vector<FieldDecl> schema_;  // owned copy of the schema; fieldByName_ points into it
     std::unordered_map<std::string, const FieldDecl*> fieldByName_;
 
     Lens lens_;

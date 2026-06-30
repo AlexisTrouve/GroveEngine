@@ -47,6 +47,9 @@ public:
         const double nz = 1.0;
         const double inv = 1.0 / std::sqrt(nx * nx + ny * ny + nz * nz);
         double d = (nx * lx_ + ny * ly_ + nz * lz_) * inv;
+        // A non-finite gradient (NaN nodata sentinel, or Inf from a zero cell pitch) would sail through the
+        // min/max clamps (NaN compares false to both) and poison the colour. Fold it to "no illumination".
+        if (!std::isfinite(d)) return 0.0;
         if (d < 0.0) d = 0.0;
         if (d > 1.0) d = 1.0;
         return d;

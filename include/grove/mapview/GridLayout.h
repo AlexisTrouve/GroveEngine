@@ -58,9 +58,9 @@ public:
     }
 
     CellCoord worldToCell(WorldPos w) const override {
-        // floor (not truncation) so the pick is correct on the negative side of the origin.
-        return CellCoord{static_cast<int32_t>(std::floor(w.x / sx_)),
-                         static_cast<int32_t>(std::floor(w.y / sy_)),
+        // floor (not truncation) so the pick is correct on the negative side of the origin; snapFloor adds a
+        // tiny relative snap so a cell's own min corner round-trips despite double rounding (see snapFloor).
+        return CellCoord{snapFloor(w.x, sx_), snapFloor(w.y, sy_),
                          static_cast<int16_t>(std::lround(w.z))};
     }
 
@@ -85,6 +85,19 @@ public:
     double cellSizeY() const { return sy_; }
 
 private:
+    // floor(world/size) with a tiny RELATIVE snap toward the nearest integer. POURQUOI: a cell's own min
+    // corner is computed elsewhere as cx*size; the float round-trip (cx*size) then /size lands ~1 ulp off,
+    // so a plain floor drops it a level and the documented half-open edge [cx*size,(cx+1)*size) is violated.
+    // COMMENT: the snap fires only within a few ulps of an integer (boundary-derived coords); interior
+    // points (cell centres, ≥ half a cell from an edge) are untouched. size <= 0 returns 0 (no div / no UB).
+    static int32_t snapFloor(double world, double size) {
+        if (size <= 0.0) return 0;
+        double q = world / size;
+        const double nearest = std::round(q);
+        if (std::fabs(q - nearest) < 1e-9 * (1.0 + std::fabs(q))) q = nearest;
+        return static_cast<int32_t>(std::floor(q));
+    }
+
     double sx_;
     double sy_;
 };

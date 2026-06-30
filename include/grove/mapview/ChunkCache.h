@@ -61,8 +61,12 @@ public:
                 continue;
             }
             if (!provider_.has(c)) continue;             // absent at source -> not resident (fail-franc)
+            // Load BEFORE mutating the LRU list: provider_.load() may throw (I/O / decode / OOM), and a
+            // push_front done first would leave a phantom node with no matching resident_ entry, desyncing
+            // the cache and breaking budget enforcement. Load-then-mutate = strong exception safety.
+            ChunkData data = provider_.load(c);
             lru_.push_front(c);
-            resident_.emplace(c, Entry{provider_.load(c), lru_.begin()});
+            resident_.emplace(c, Entry{std::move(data), lru_.begin()});
         }
 
         // Evict from the LRU back while over budget; stop if the back is visible (never thrash visible).
