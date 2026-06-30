@@ -307,13 +307,14 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
 
 Build *for* all axes, ship **one combo first**; each later axis plugs into an interface that already exists.
 
-**Status (2026-06-30): S0 ✅ DONE & frozen** (`include/grove/mapview/`, 3 ctest locks — see
-[`mapview-handoff.md`](mapview-handoff.md)). Resume at S1; Theomen's S3 adapter is unblocked in parallel.
+**Status (2026-06-30): S0 ✅ DONE & frozen, S1 ✅ DONE** (`include/grove/mapview/`, 8 ctest locks — see
+[`mapview-handoff.md`](mapview-handoff.md)). Resume at S2 (viewer app) + the small CellDraw→SpriteInstance
+adapter; Theomen's S3 adapter is unblocked in parallel.
 
 | Slice | Delivers | New axis exercised |
 |---|---|---|
 | **S0 — format + reader** ✅ | world-document writer/reader (manifest + bit-packed sparse chunks + zlib/miniz), headless tests | the contract |
-| **S1 — pure core** | `MapView` + `SquareLayout` + `TopDownProjection` + `ChunkProvider` + cull/stream/LRU + Palette/Filter/Layer/Lens, **headless TDD** | ① square, ② top-down, ③ provider |
+| **S1 — pure core** ✅ | `MapView` + `SquareLayout` + `TopDownProjection` + `ChunkProvider` + cull/stream/LRU + Palette/Filter/Layer/Lens, headless TDD. Emits neutral **CellDraw** (not SpriteInstance) → core is renderer-independent | ① square, ② top-down, ③ provider |
 | **S2 — viewer app** | generic app: load a world-document file, camera (`grove::camera`), bulk-sprite emit, lens/layer UI | first pixels (E2E) |
 | **S3 — Theomen adapter** | `World` → world-document (Theomen-side); see a real generated world | real data |
 | **S4 — timeline** | per-phase frames + scrub (deltas → targeted `tilemap:update`-style) | ⑥ time |

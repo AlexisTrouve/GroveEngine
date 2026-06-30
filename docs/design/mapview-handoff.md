@@ -8,11 +8,24 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ## Status (2026-06-30) — RESUME HERE
 
-**SPEC ✅ locked. S0 ✅ DONE (format + reader, headless TDD, committed `d0ff166`→`49f9ed3`→`617a2f1`).
-The world-document format is now FROZEN. Resume at slice S1 (the pure `MapView` core).**
+**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 8 MapView ctests green.
+Resume at S2 (the viewer app) — and/or the BgfxRenderer CellDraw→SpriteInstance adapter.**
 
-S0 shipped the whole contract, all green via ctest (`MapViewFormatUnit` / `MapViewCompressUnit` /
-`MapViewDiskUnit`), header-only + std-only so it builds/tests on WSL too:
+**S1 (pure core, headless TDD)** — `include/grove/mapview/`, commits `9c1fbb4`→`ee0702e`→`3be5f7c`→`5b969b9`:
+- **S1a** geometry — `Geometry.h` (WorldPos/RenderPos/CellQuad), `GridLayout.h` (IGridLayout + SquareLayout:
+  cell↔world, floor pick, quad, neighbours), `Projection.h` (IProjection + TopDownProjection = identity;
+  the renderer's camera does pan/zoom, mapview emits world-space). Interfaces day-one → hex/iso plug in later.
+- **S1b** streaming — `ChunkProvider.h` (IChunkProvider, host-injected), `Cull.h` (chunksInViewport → bounds
+  cost to screen×zoom), `ChunkCache.h` (LRU eviction under a budget; never reload resident / never evict visible).
+- **S1c** recipe — `Color.h` (Rgba), `Palette.h` (ramp/banded/categorical), `Filter.h` (composable predicate).
+- **S1d** orchestrator — `CellDraw.h` (neutral emit), `Lens.h` (Layer/Lens), `MapView.h` (cull→stream→compile
+  →drainCells). Decoupled from Manifest/JSON (takes a plain schema + GridSpec) → no nlohmann in the core.
+
+The chosen emit boundary is the neutral **CellDraw** (a thin BgfxRenderer-side adapter maps it to
+SpriteInstance) — grove::mapview is 100% renderer-independent.
+
+**S0 (format + reader, frozen)** — all green via ctest (`MapViewFormatUnit`/`CompressUnit`/`DiskUnit`/
+`RoundtripUnit`), header-only + std-only so it builds/tests on WSL too:
 - **S0a** — pure bit codec + sparse chunk (de)serialize (`Coord.h`, `Field.h`, `ChunkCodec.h`,
   `WorldDocument.h`). Portable LSB-first/little-endian; `absent ≠ 0` proven red via mutation; loud
   negative controls (wrong bit-width at codec + document level, out-of-range value, corrupt/truncated blob).
@@ -26,14 +39,19 @@ S0 shipped the whole contract, all green via ctest (`MapViewFormatUnit` / `MapVi
 |---|---|
 | Design spec (`mapview.md`) | ✅ locked, §9 decisions, §8 slice plan |
 | world-document format + reader (S0) | ✅ **DONE** — frozen contract, `include/grove/mapview/` |
-| `MapView` pure core (S1) | ❌ not started — **resume here** |
-| viewer app (S2) | ❌ not started (a new project, another Claude) — needs S1 |
+| `MapView` pure core (S1) | ✅ **DONE** — `include/grove/mapview/`, 8 ctests green |
+| CellDraw→SpriteInstance adapter | ❌ not started (BgfxRenderer-side, engine — small) |
+| viewer app (S2) | ❌ not started (a new project, decided to stay in groveengine — see below) — **resume here** |
 | Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) — **UNBLOCKED** (format frozen) |
 
-> **Format frozen → S3 can start NOW, in parallel with S1.** Theomen static-links GroveEngine at HEAD, so
-> its adapter just `#include`s `grove/mapview/{WorldDocument,Manifest,WorldDocumentDisk}.h` and calls
+> **Format frozen → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its adapter just
+> `#include`s `grove/mapview/{WorldDocument,Manifest,WorldDocumentDisk}.h` and calls
 > `writeWorldDocument(dir, manifest, chunks)` — the headers ARE the contract (the mp4/VLC shared spec), no
-> separate byte-layout doc needed. The chunk blob format and manifest schema will not change under S1.
+> separate byte-layout doc needed. The chunk blob format and manifest schema are frozen.
+>
+> **Repo decision (2026-06-30):** Alexi chose NOT to spin a separate repo for now — the viewer app (S2)
+> will live inside groveengine (e.g. a `tests/visual/` demo or an `examples/`/`tools/` target) rather than a
+> new neutral-named project. Revisit if/when it grows into a standalone product.
 
 ---
 
@@ -87,18 +105,42 @@ links miniz.c + nlohmann include). Build: `cmake --build build --target test_map
 (3) compression as an injected `Compressor` (not a hardcoded dep) is what keeps the format core's "zero
 dependency / builds on a bare toolchain" property — and keeps the S0a test linking nothing.
 
-## Resume: slice S1 (engine, me) — the pure `MapView` core, headless TDD
+## Slice S1 — DONE (pure `MapView` core, headless TDD). As built:
 
-**Goal (mapview.md §4, §8):** `MapView` + `SquareLayout` (① topology) + `TopDownProjection` (② projection) +
-`IChunkProvider` (③, host-injected — the disk reader above is one impl) + cull→stream→LRU + the recipe system
-(Palette/Filter/Layer/Lens, §5). Pure compute, host-driven (the `ZoneNavigator` shape), emits `SpriteInstance[]`
-via `drainCells`. Renderer-coupled part lives in `modules/BgfxRenderer/MapView/` (couples to `Frame/FramePacket.h`);
-the renderer-independent geometry/recipe math can stay in `include/grove/mapview/`. **Plan S1 with Alexi before
-building** (it's a bigger slice than S0's increments) — don't pre-commit the core↔SpriteInstance boundary alone.
+`include/grove/mapview/` (header-only, pure, renderer-independent — NO bgfx, NO nlohmann):
+- `Geometry.h` — `WorldPos` / `RenderPos` / `CellQuad` (double precision; cast to float only at emit).
+- `GridLayout.h` — `IGridLayout` (① topology) + `SquareLayout` (cellToWorld=centre, worldToCell=floor pick,
+  cellQuad=4 CCW corners, neighbours=4-orthogonal). Non-square via unequal cellSize.
+- `Projection.h` — `IProjection` (② projection) + `TopDownProjection` = identity in XY + depthKey 0. KEY:
+  projection is camera-INDEPENDENT — the renderer's `render:camera` (grove::camera/ZoneNavigator) does
+  pan/zoom; mapview emits world-space. Iso = a future non-identity projection + real depthKey.
+- `ChunkProvider.h` — `IChunkProvider` (③, host-injected: disk/generator/network). `Cull.h` — `chunksInViewport`
+  (bounds cost to screen×zoom). `ChunkCache.h` — LRU eviction under a budget (never reload resident, never evict visible).
+- `Color.h`/`Palette.h`/`Filter.h` — recipe: Rgba; Palette ramp/banded/categorical; minimal composable predicate.
+- `CellDraw.h` — the neutral emit unit. `Lens.h` — Layer/Lens. `MapView.h` — the orchestrator
+  (cull→stream→compile→`drainCells`), **decoupled from Manifest/JSON** (takes a plain `vector<FieldDecl>` +
+  `GridSpec`), so no nlohmann leaks into the core. Only active z-slice emitted; absent field = no draw (fail-franc).
+
+Tests (`tests/unit/`, headless, ctest): `MapViewLayoutUnit`/`StreamingUnit`/`RecipeUnit`/`CoreUnit` (S1) +
+the four S0 locks. `ctest -R MapView` = 8/8 green.
+
+**Resolved fork (was "core↔SpriteInstance"):** the core emits **neutral `CellDraw`**, NOT `SpriteInstance`.
+So ALL of mapview lives in `include/grove/mapview/` (renderer-independent); the only renderer-coupled piece
+left is a tiny **CellDraw→SpriteInstance adapter** (TODO, `modules/BgfxRenderer/MapView/`, couples to `Frame/FramePacket.h`).
+
+## Resume: S2 (viewer app) + the CellDraw→SpriteInstance adapter
+
+The pure core is done and locked. To see actual pixels:
+1. **Adapter (engine, small):** `modules/BgfxRenderer/MapView/` — map `CellDraw[]` → `SpriteInstance[]` (x,y←centre,
+   scaleX/Y←w/h, rotation, layer, rgba, + a white 1×1 texture / default UV for solid colour), then `submitSpriteBatch`.
+2. **App (S2, decided to live IN groveengine):** load a world-document (`WorldDocumentDisk`), build a `DiskChunkProvider`
+   (wrap `readChunk`), wire `grove::camera`/`ZoneNavigator` → feed `MapView.setViewport` from `visibleWorldBounds`,
+   `update()` → adapter → `submitSpriteBatch`. Lens/layer/z-slice UI later. A `tests/visual/` demo is the natural home.
+3. **Theomen S3 (parallel, its Claude):** `World` → `writeWorldDocument` using the frozen headers.
 
 **Conventions (unchanged):** header-only like `include/grove/anim/`; 3-level comments (QUOI/POURQUOI/COMMENT);
-TDD red→green→commit per increment; build/test from `build/`. No GPU/SDL → builds & tests on WSL too (fold
-mapview into the quality-hardening lenses, [[quality-hardening]]).
+TDD red→green→commit per increment; build/test from `build/`. The pure core builds & tests on WSL too (fold
+mapview into the quality-hardening lenses, [[quality-hardening]]); the app/adapter need GPU.
 
 ---
 
@@ -107,7 +149,8 @@ mapview into the quality-hardening lenses, [[quality-hardening]]).
 - **`SpriteInstance` (the bulk-path format, `modules/BgfxRenderer/Frame/FramePacket.h`) already carries
   per-cell** `x,y,scaleX,scaleY,rotation` + `layer` (z-order) + **`r,g,b,a`** + UVs/textureId. That's why the
   bulk path is topology/projection/color/layer-agnostic and **continuous color is free** (no shader, no banding).
-  The S1 compiler fills `SpriteInstance[]` and the app calls `submitSpriteBatch` (~100k–400k/frame, benchmarked).
+  The CellDraw→SpriteInstance adapter (TODO) fills `SpriteInstance[]` from the core's `CellDraw[]` and the app
+  calls `submitSpriteBatch` (~100k–400k/frame, benchmarked). The core itself never touches `SpriteInstance`.
 - **Header-only + host-driven** = the `ZoneNavigator` pattern (`modules/BgfxRenderer/Scene/ZoneNavigator.h`):
   the host feeds input/camera, calls `update(dt)`, drains output each frame. Copy that shape. Stateful is fine;
   **I/O is injected** (`ChunkProvider`) so the core stays pure → headless TDD.
@@ -134,5 +177,5 @@ mapview into the quality-hardening lenses, [[quality-hardening]]).
   infinite / Z multi-slice / tilemap fast-lane / extreme-zoom LOD / palette-LUT). S0→S3 = "see Theomen's world,
   generically"; everything after slots into S1's interfaces without rework.
 
-**One-line resume:** *S0 is done & frozen (`include/grove/mapview/`, 3 ctest locks). Next = S1 (the pure
-`MapView` core) — plan it with Alexi first (mapview.md §4/§8); Theomen's S3 adapter can start in parallel now.*
+**One-line resume:** *S0 + S1 done (`include/grove/mapview/`, 8 ctest locks — the pure core is complete). Next =
+the tiny CellDraw→SpriteInstance adapter + the S2 viewer app (decided to live in groveengine); Theomen's S3 in parallel.*
