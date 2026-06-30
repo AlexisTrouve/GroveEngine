@@ -650,6 +650,16 @@ target_include_directories(test_mapview_recipe PRIVATE
 target_link_libraries(test_mapview_recipe PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewRecipeUnit test_mapview_recipe ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S1d: the MapView orchestrator (the S1 capstone) — cull -> stream -> compile each
+# visible cell through the active Lens -> drainCells(CellDraw). Ties S1a/b/c together; decoupled from
+# Manifest/JSON (takes a plain schema + GridSpec). Header-only, std-only — full pipeline E2E, headless.
+add_executable(test_mapview_core unit/test_mapview_core.cpp)
+target_include_directories(test_mapview_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_core PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewCoreUnit test_mapview_core ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
