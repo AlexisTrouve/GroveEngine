@@ -8,7 +8,7 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ## Status (2026-06-30) — RESUME HERE
 
-**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 8 MapView ctests green.
+**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 9 MapView ctests green.
 Resume at S2 (the viewer app) — and/or the BgfxRenderer CellDraw→SpriteInstance adapter.**
 
 **S1 (pure core, headless TDD)** — `include/grove/mapview/`, commits `9c1fbb4`→`ee0702e`→`3be5f7c`→`5b969b9`:
@@ -116,7 +116,10 @@ dependency / builds on a bare toolchain" property — and keeps the S0a test lin
   pan/zoom; mapview emits world-space. Iso = a future non-identity projection + real depthKey.
 - `ChunkProvider.h` — `IChunkProvider` (③, host-injected: disk/generator/network). `Cull.h` — `chunksInViewport`
   (bounds cost to screen×zoom). `ChunkCache.h` — LRU eviction under a budget (never reload resident, never evict visible).
-- `Color.h`/`Palette.h`/`Filter.h` — recipe: Rgba; Palette ramp/banded/categorical; minimal composable predicate.
+- `Color.h`/`Palette.h`/`Filter.h`/`Hillshade.h` — recipe (deepened S1e–h): Rgba + multiplyRgb; Palette
+  ramp/banded/categorical/**diverging**/**stepped**; `Filter` composable AND/OR/NOT **+ cross-field**
+  (`cmpField`, sampler-resolved, absent named field fails franc); **Hillshade** (Lambertian relief) wired as
+  a Layer modifier (`hillshadeField` + light) with **cross-chunk** gradient sampling in `MapView`.
 - `CellDraw.h` — the neutral emit unit. `Lens.h` — Layer/Lens. `MapView.h` — the orchestrator
   (cull→stream→compile→`drainCells`), **decoupled from Manifest/JSON** (takes a plain `vector<FieldDecl>` +
   `GridSpec`), so no nlohmann leaks into the core. Only active z-slice emitted; absent field = no draw (fail-franc).

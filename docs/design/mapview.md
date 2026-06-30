@@ -251,6 +251,11 @@ Four composable bricks — the modular core, all **data-driven** (in the manifes
 - **Lens** — an **ordered stack of Layers** + camera + animation = one **named view**. E.g. the *tectonic
   lens* = greyed elevation-hillshade base + region circles (coloured by type) + drift-velocity arrows.
 
+> **Implemented (S1e–h, 2026-06-30):** Palette = ramp / banded / categorical / **diverging** / **stepped**;
+> **Hillshade** (Lambertian relief, `Hillshade.h`) wired as a Layer modifier (`hillshadeField` + light), with
+> cross-chunk gradient sampling; **Filter** is composable AND/OR/NOT **and cross-field** (`cmpField`, resolved
+> by a sampler — a named field absent at a cell fails franc). Region/marker layers remain future (S5+).
+
 > **The kicker (why phase-driven views matter for Theomen):** each worldgen phase has a *protagonist*
 > datum (P2 = drifting plates, P3 = the rising sea, P6B = crystallizing biomes). A `view_config` mapping
 > `phase → default lens` makes **looking at a phase = verifying it** (P3 must fill to ~30% land — if it
