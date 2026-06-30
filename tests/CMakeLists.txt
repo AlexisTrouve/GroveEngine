@@ -590,6 +590,21 @@ target_include_directories(test_mapview_compress PRIVATE
 target_link_libraries(test_mapview_compress PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewCompressUnit test_mapview_compress ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer engine slice S0c: disk + JSON manifest. Closes S0 ("format + reader") — manifest round-trips
+# through nlohmann (header-only, vendored) and a full document (manifest + sparse chunk blobs, raw and
+# zlib) round-trips through a real temp dir. Links miniz.c for the compressed-on-disk case. This is the
+# contract the Theomen adapter (S3) writes and the viewer app (S2) reads.
+add_executable(test_mapview_disk
+    unit/test_mapview_disk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(test_mapview_disk PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_disk PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewDiskUnit test_mapview_disk ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
