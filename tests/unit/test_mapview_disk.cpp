@@ -78,6 +78,29 @@ TEST_CASE("mapview S0c - manifest round-trips through JSON", "[mapview][disk][un
     requireSameSchema(back.fields, m.fields);
 }
 
+TEST_CASE("mapview S1i - manifest round-trips region & marker overlays (inline lists)", "[mapview][disk][unit]") {
+    Manifest m = demoManifest();
+    m.regions = {Region{5.0, 6.0, 3.0, 2, 0.0}, Region{-1.0, 2.0, 1.5, 0, 42.5}};
+    m.markers = {Marker{10.0, 20.0, 1, 0.5, 2.0}, Marker{0.0, 0.0, 0, 0.0, 1.0}};
+
+    const Manifest back = parseManifest(emitManifest(m));
+
+    REQUIRE(back.regions.size() == 2);
+    REQUIRE(back.regions[0].cx == 5.0);
+    REQUIRE(back.regions[0].radius == 3.0);
+    REQUIRE(back.regions[0].type == 2u);
+    REQUIRE(back.regions[1].value == 42.5);          // scalar value round-trips
+
+    REQUIRE(back.markers.size() == 2);
+    REQUIRE(back.markers[0].x == 10.0);
+    REQUIRE(back.markers[0].kind == 1u);
+    REQUIRE(back.markers[0].angle == 0.5);
+    REQUIRE(back.markers[0].scale == 2.0);
+    // marker[1] omits angle/scale in JSON (defaults) -> restored to 0 / 1.
+    REQUIRE(back.markers[1].angle == 0.0);
+    REQUIRE(back.markers[1].scale == 1.0);
+}
+
 TEST_CASE("mapview S0c - world-document round-trips through a temp directory", "[mapview][disk][unit]") {
     const std::string dir = freshDir("s0c_raw");
     const Manifest m = demoManifest();

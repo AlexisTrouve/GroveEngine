@@ -17,23 +17,14 @@
  */
 
 #include <cstdint>
-#include <vector>
 
 #include "grove/mapview/Color.h"
 #include "grove/mapview/Filter.h"
+#include "grove/mapview/Overlays.h"  // the Marker data struct
 #include "grove/mapview/Palette.h"
 
 namespace grove {
 namespace mapview {
-
-// A point marker.
-struct Marker {
-    double   x{0.0};
-    double   y{0.0};
-    uint32_t kind{0};      // category, for categorical styling / icon selection
-    double   angle{0.0};   // radians (directional markers, e.g. drift arrows)
-    double   scale{1.0};   // per-marker scale
-};
 
 // How a set of markers is drawn.
 struct MarkerLayer {

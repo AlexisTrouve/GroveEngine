@@ -19,25 +19,16 @@
  */
 
 #include <cstdint>
-#include <vector>
 
 #include "grove/mapview/Color.h"
 #include "grove/mapview/Filter.h"
+#include "grove/mapview/Overlays.h"  // the Region data struct
 #include "grove/mapview/Palette.h"
 
 namespace grove {
 namespace mapview {
 
 inline constexpr double kTwoPi = 6.283185307179586;
-
-// A circular region overlay.
-struct Region {
-    double   cx{0.0};
-    double   cy{0.0};
-    double   radius{0.0};
-    uint32_t type{0};      // category, for categorical styling
-    double   value{0.0};   // optional scalar, for ramp/banded styling
-};
 
 // How a set of regions is drawn.
 struct RegionLayer {

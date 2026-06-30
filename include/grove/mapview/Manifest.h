@@ -27,6 +27,7 @@
 #include <nlohmann/json.hpp>
 
 #include "grove/mapview/Field.h"
+#include "grove/mapview/Overlays.h"
 
 namespace grove {
 namespace mapview {
@@ -45,6 +46,8 @@ struct Manifest {
     Coordinate             coordinate{};
     std::vector<FieldDecl> fields;             // ordered schema (matches the chunk presence-mask order)
     std::string            chunksDir{"chunks"}; // path (relative to the manifest) holding chunk blobs
+    std::vector<Region>    regions;            // vector overlays — inline (low cardinality, no blob)
+    std::vector<Marker>    markers;            // point overlays — inline
 };
 
 // --- Encoding <-> string (the on-disk field-type names). -----------------------------------------
@@ -95,6 +98,27 @@ inline std::string emitManifest(const Manifest& m) {
     }
     j["fields"] = fields;
     j["chunks"] = m.chunksDir;
+
+    // Vector overlays — inline JSON lists (low cardinality; areas belong in a categorical field, not here).
+    if (!m.regions.empty()) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& r : m.regions) {
+            nlohmann::json jr{{"cx", r.cx}, {"cy", r.cy}, {"radius", r.radius}, {"type", r.type}};
+            if (r.value != 0.0) jr["value"] = r.value;
+            arr.push_back(jr);
+        }
+        j["regions"] = arr;
+    }
+    if (!m.markers.empty()) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& mk : m.markers) {
+            nlohmann::json jm{{"x", mk.x}, {"y", mk.y}, {"kind", mk.kind}};
+            if (mk.angle != 0.0) jm["angle"] = mk.angle;
+            if (mk.scale != 1.0) jm["scale"] = mk.scale;
+            arr.push_back(jm);
+        }
+        j["markers"] = arr;
+    }
     return j.dump(2);
 }
 
@@ -127,6 +151,29 @@ inline Manifest parseManifest(const std::string& text) {
     }
 
     m.chunksDir = j.value("chunks", std::string{"chunks"});
+
+    if (j.contains("regions")) {
+        for (const auto& jr : j.at("regions")) {
+            Region r;
+            r.cx = jr.at("cx").get<double>();
+            r.cy = jr.at("cy").get<double>();
+            r.radius = jr.at("radius").get<double>();
+            r.type = jr.value("type", static_cast<uint32_t>(0));
+            r.value = jr.value("value", 0.0);
+            m.regions.push_back(r);
+        }
+    }
+    if (j.contains("markers")) {
+        for (const auto& jm : j.at("markers")) {
+            Marker mk;
+            mk.x = jm.at("x").get<double>();
+            mk.y = jm.at("y").get<double>();
+            mk.kind = jm.value("kind", static_cast<uint32_t>(0));
+            mk.angle = jm.value("angle", 0.0);
+            mk.scale = jm.value("scale", 1.0);
+            m.markers.push_back(mk);
+        }
+    }
     return m;
 }
 
