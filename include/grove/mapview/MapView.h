@@ -110,14 +110,35 @@ public:
                     const int gz = cc.z * D + localZ;
                     if (gz != zSlice_) continue;                    // only the active z-slice
 
+                    const int gx = cc.x * W + (rem % W);
+                    const int gy = cc.y * H + (rem / W);
                     const double phys = decodePhysical(fd, (*vals)[idx]);
-                    if (!layer.filter.eval(phys)) continue;         // filtered out
+
+                    // Filter — a leaf may reference OTHER fields, resolved at this cell via the sampler.
+                    const auto sampler = [&](const std::string& name, double& out) {
+                        return sampleField(name, gx, gy, gz, out);
+                    };
+                    if (!layer.filter.eval(sampler, phys)) continue;
 
                     Rgba color = layer.palette.eval(phys);
                     color.a *= layer.opacity;
 
-                    const int gx = cc.x * W + (rem % W);
-                    const int gy = cc.y * H + (rem / W);
+                    // Optional relief shading from a (possibly different) field's gradient (central difference,
+                    // cross-chunk; a missing neighbour falls back to the centre so edges degrade gracefully).
+                    if (!layer.hillshadeField.empty()) {
+                        double center;
+                        if (sampleField(layer.hillshadeField, gx, gy, gz, center)) {
+                            double s;
+                            const double xm = sampleField(layer.hillshadeField, gx - 1, gy, gz, s) ? s : center;
+                            const double xp = sampleField(layer.hillshadeField, gx + 1, gy, gz, s) ? s : center;
+                            const double ym = sampleField(layer.hillshadeField, gx, gy - 1, gz, s) ? s : center;
+                            const double yp = sampleField(layer.hillshadeField, gx, gy + 1, gz, s) ? s : center;
+                            const double dzdx = (xp - xm) / (2.0 * grid_.cellW);
+                            const double dzdy = (yp - ym) / (2.0 * grid_.cellH);
+                            color = multiplyRgb(color, static_cast<float>(layer.hillshade.factor(dzdx, dzdy)));
+                        }
+                    }
+
                     const WorldPos wp = layout_.cellToWorld(CellCoord{gx, gy, static_cast<int16_t>(gz)});
                     const RenderPos rp = projection_.project(wp);
                     cells_.push_back(CellDraw{rp.x, rp.y, grid_.cellW, grid_.cellH, 0.0, layer.layerZ, color});
@@ -139,6 +160,34 @@ public:
     size_t residentChunks() const { return cache_.residentCount(); }
 
 private:
+    // Decoded physical value of `field` at global cell (gx,gy,gz); false if that chunk isn't resident or the
+    // field is absent there. Backs cross-field filters and cross-chunk hillshade gradient sampling.
+    bool sampleField(const std::string& field, int gx, int gy, int gz, double& out) const {
+        const int W = grid_.chunkW, H = grid_.chunkH, D = grid_.chunkD;
+        const int cx = floorDiv(gx, W), cy = floorDiv(gy, H), cz = floorDiv(gz, D);
+        const ChunkData* cd = cache_.get(ChunkCoord{cx, cy, static_cast<int16_t>(cz)});
+        if (cd == nullptr) return false;
+        const std::vector<uint32_t>* vals = cd->get(field);
+        if (vals == nullptr) return false;
+        const auto fit = fieldByName_.find(field);
+        if (fit == fieldByName_.end()) return false;
+        const int lx = gx - cx * W, ly = gy - cy * H, lz = gz - cz * D;
+        const size_t i = static_cast<size_t>(lz) * static_cast<size_t>(W * H)
+                       + static_cast<size_t>(ly) * static_cast<size_t>(W)
+                       + static_cast<size_t>(lx);
+        if (i >= vals->size()) return false;
+        out = decodePhysical(*fit->second, (*vals)[i]);
+        return true;
+    }
+
+    // Floor division (rounds toward -inf), correct for negative global coordinates.
+    static int floorDiv(int a, int b) {
+        int q = a / b;
+        const int r = a % b;
+        if ((r != 0) && ((r < 0) != (b < 0))) --q;
+        return q;
+    }
+
     GridSpec grid_;
     IGridLayout& layout_;
     IProjection& projection_;

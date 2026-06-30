@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "grove/mapview/Filter.h"
+#include "grove/mapview/Hillshade.h"
 #include "grove/mapview/Palette.h"
 
 namespace grove {
@@ -31,6 +32,12 @@ struct Layer {
     Filter      filter{Filter::always()};   // which cells this layer draws (default: all)
     int32_t     layerZ{0};                  // render z-order
     float       opacity{1.0f};              // multiplies the palette colour's alpha
+
+    // Optional relief shading: when hillshadeField is non-empty, the palette colour is multiplied by
+    // Hillshade.factor() of that field's gradient at the cell (it may differ from `field` — e.g. colour by
+    // biome, shade by elevation). Empty = no hillshade.
+    std::string hillshadeField;
+    Hillshade   hillshade{0.0, 0.0, 1.0};   // light direction (overhead by default)
 };
 
 struct Lens {

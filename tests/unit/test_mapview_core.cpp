@@ -13,6 +13,7 @@
  * HOW    : Catch2; a SimpleProvider holds prepared ChunkData; colours/positions checked with WithinAbs.
  */
 
+#include <cmath>
 #include <unordered_map>
 #include <vector>
 
@@ -176,4 +177,90 @@ TEST_CASE("mapview S1d - z-slice selects only cells on the active layer of a dee
     bool sawBright = false;
     for (const auto& d : mv.cells()) if (d.color.r >= 0.39f) sawBright = true;
     REQUIRE(sawBright);
+}
+
+TEST_CASE("mapview S1h - a cross-field filter drops cells via another field", "[mapview][core][unit]") {
+    SimpleProvider provider;
+    // elevation {10,-5,20,30}, biome {2,2,5,2}. Keep cells where elevation>0 AND biome==2 -> idx0 + idx3.
+    provider.chunks[ChunkCoord{0, 0, 0}] =
+        makeChunk({0, 0, 0}, 4, {{"elevation", {10, /*-5 as raw is irrelevant; use 0 to fail >0*/ 0, 20, 30}},
+                                 {"biome", {2, 2, 5, 2}}});
+
+    SquareLayout layout(1.0, 1.0);
+    TopDownProjection proj;
+    MapView mv(kSchema, GridSpec{2, 2, 1, 1.0, 1.0}, layout, proj, provider, 16);
+    Layer layer{"elevation", Palette::ramp({{0.0, Rgba{0, 0, 0, 1}}, {100.0, Rgba{1, 1, 1, 1}}}),
+                Filter::all({Filter::cmp(Filter::Op::Gt, 0.0),
+                             Filter::cmpField("biome", Filter::Op::Eq, 2.0)}),
+                0, 1.0f};
+    mv.setLens(Lens{"land", {layer}});
+    mv.setViewport(Viewport{0.0, 0.0, 2.0, 2.0});
+    mv.update();
+
+    // idx0 (elev10,biome2) pass; idx1 (elev0) fails >0; idx2 (biome5) fails ==2; idx3 (elev30,biome2) pass.
+    REQUIRE(mv.cellCount() == 2);
+}
+
+TEST_CASE("mapview S1h - hillshade darkens a sloped cell vs the unshaded colour", "[mapview][core][unit]") {
+    SimpleProvider provider;
+    // 3x3 chunk, elevation = column index (0,1,2 per row) -> a constant slope dz/dx = 1 in the interior.
+    provider.chunks[ChunkCoord{0, 0, 0}] =
+        makeChunk({0, 0, 0}, 9, {{"elevation", {0, 1, 2, 0, 1, 2, 0, 1, 2}}});
+
+    SquareLayout layout(1.0, 1.0);
+    TopDownProjection proj;
+    const std::vector<FieldDecl> schema = {FieldDecl{"elevation", Encoding::Int, 16, 1.0, 0.0}};
+
+    // Constant-white palette so any colour change is purely the hillshade.
+    const Palette white = Palette::ramp({{0.0, Rgba{1, 1, 1, 1}}, {1000.0, Rgba{1, 1, 1, 1}}});
+
+    // (A) no hillshade -> the centre cell stays white.
+    MapView a(schema, GridSpec{3, 3, 1, 1.0, 1.0}, layout, proj, provider, 16);
+    a.setLens(Lens{"flat", {Layer{"elevation", white, Filter::always(), 0, 1.0f}}});
+    a.setViewport(Viewport{0.0, 0.0, 3.0, 3.0});
+    a.update();
+    const CellDraw* aCentre = findCell(a.cells(), 1.5, 1.5, 0);
+    REQUIRE(aCentre != nullptr);
+    REQUIRE_THAT(aCentre->color.r, WithinAbs(1.0f, 1e-5));
+
+    // (B) overhead hillshade on elevation -> the centre cell (dz/dx=1) dims to 1/sqrt(2).
+    MapView b(schema, GridSpec{3, 3, 1, 1.0, 1.0}, layout, proj, provider, 16);
+    Layer shaded{"elevation", white, Filter::always(), 0, 1.0f};
+    shaded.hillshadeField = "elevation";
+    shaded.hillshade = Hillshade(0.0, 0.0, 1.0);  // straight overhead
+    b.setLens(Lens{"relief", {shaded}});
+    b.setViewport(Viewport{0.0, 0.0, 3.0, 3.0});
+    b.update();
+    const CellDraw* bCentre = findCell(b.cells(), 1.5, 1.5, 0);
+    REQUIRE(bCentre != nullptr);
+    REQUIRE(bCentre->color.r < aCentre->color.r);                       // shaded is darker
+    REQUIRE_THAT(bCentre->color.r, WithinAbs(1.0f / std::sqrt(2.0f), 1e-4));  // factor for dz/dx=1
+}
+
+TEST_CASE("mapview S1h - hillshade gradient samples ACROSS chunk boundaries", "[mapview][core][unit]") {
+    const std::vector<FieldDecl> schema = {FieldDecl{"elevation", Encoding::Int, 16, 1.0, 0.0}};
+    SimpleProvider provider;
+    // Two adjacent 2x2 chunks; elevation = global x, continuous across the seam (chunk0: x 0,1; chunk1: x 2,3).
+    provider.chunks[ChunkCoord{0, 0, 0}] = makeChunk({0, 0, 0}, 4, {{"elevation", {0, 1, 0, 1}}});
+    provider.chunks[ChunkCoord{1, 0, 0}] = makeChunk({1, 0, 0}, 4, {{"elevation", {2, 3, 2, 3}}});
+
+    SquareLayout layout(1.0, 1.0);
+    TopDownProjection proj;
+    const Palette white = Palette::ramp({{0.0, Rgba{1, 1, 1, 1}}, {1000.0, Rgba{1, 1, 1, 1}}});
+
+    MapView mv(schema, GridSpec{2, 2, 1, 1.0, 1.0}, layout, proj, provider, 16);
+    Layer shaded{"elevation", white, Filter::always(), 0, 1.0f};
+    shaded.hillshadeField = "elevation";
+    shaded.hillshade = Hillshade(0.0, 0.0, 1.0);  // overhead
+    mv.setLens(Lens{"relief", {shaded}});
+    mv.setViewport(Viewport{0.0, 0.0, 4.0, 1.0});  // both chunks visible & resident
+    mv.update();
+    REQUIRE(mv.residentChunks() == 2);
+
+    // The right-edge cell of chunk 0 is global (1,0) at centre (1.5,0.5). Its +x neighbour is global (2,0),
+    // which lives in chunk 1. Cross-chunk sampling => dz/dx = (2-0)/2 = 1 => factor 1/sqrt(2). WITHOUT it the
+    // missing neighbour would fall back to the centre (=1) => dz/dx = 0.5 => factor ~0.894. So 0.707 proves it.
+    const CellDraw* edge = findCell(mv.cells(), 1.5, 0.5, 0);
+    REQUIRE(edge != nullptr);
+    REQUIRE_THAT(edge->color.r, WithinAbs(1.0f / std::sqrt(2.0f), 1e-4));
 }
