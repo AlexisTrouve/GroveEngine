@@ -35,9 +35,10 @@
 #include "grove/mapview/WorldDocumentDisk.h"
 #include "grove/mapview/WorldDocumentProvider.h"
 
-#include "MapViewDemoScene.h"     // demoSchema (Int16 elevation @0.25m), makeTerrainLens
+#include "MapViewDemoScene.h"     // demoSchema (Int16 elevation @0.25m), makeTerrainLens, makeTileLens, demoRegions
 #include "MapViewViewerApp.h"
 #include "PngCapture.h"
+#include "TerrainTileset.h"       // writeTerrainTileset (for the 'T' tiling mode)
 
 #include <cmath>
 #include <cstdint>
@@ -142,6 +143,19 @@ int main(int argc, char** argv) {
     mvdemo::ViewerApp app(&engine, renderer, gIO.get(), W, H, provider, provider.schema(), provider.gridSpec(),
                           mvdemo::makeTerrainLens, resetCam);
 
+    // Region overlays (render:sector) + the 'T' tiling mode, so the E2E exercises both new paths for real.
+    const int tilesetTexId = 7;
+    {
+        const std::string tsPath = (std::filesystem::temp_directory_path() / "mapview_e2e_tileset.png").string();
+        mvdemo::writeTerrainTileset(tsPath);
+        auto ts = std::make_unique<JsonDataNode>("tileset");
+        ts->setInt("textureId", tilesetTexId); ts->setString("path", tsPath);
+        ts->setInt("tileW", mvdemo::kTerrainTileW); ts->setInt("tileH", mvdemo::kTerrainTileW);
+        gIO->publish("render:tilemap:tileset", std::move(ts));
+    }
+    app.setRegions(mvdemo::demoRegions());
+    app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);
+
     // Offscreen: redirect the world + HUD views so the render is captured headless.
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
@@ -156,6 +170,8 @@ int main(int argc, char** argv) {
     const size_t cellsFit = app.cellCount();
     const camera::CameraView cam0 = app.camera();
     CHECK(cellsFit > 0, "disk world renders cells at fit (—load path live)");
+    // Region overlays: the demo regions fall inside the fit view -> they compile to draws (render:sector).
+    CHECK(app.regionDrawCount() > 0, "regions compile to ring-sector draws in view (render:sector path)");
 
     // 1. Left-drag: press at (300,300), move 40 px left, release. Grab-pan -> camera x follows the cursor.
     pushButton(SDL_MOUSEBUTTONDOWN, 300, 300);
@@ -183,6 +199,43 @@ int main(int argc, char** argv) {
     pushKey(SDLK_h);
     app.pumpEvents();
     CHECK(app.hillshade() != hs0, "H toggles the hillshade lens");
+
+    // 4b. 'T' switches to LIVE TILING: the retained-tilemap path streams chunks in/out as the camera moves.
+    pushKey(SDLK_t);
+    app.pumpEvents();
+    app.renderFrame(dt);
+    CHECK(app.tiling(), "T switches the viewer to the tiling path");
+    CHECK(app.residentTileChunks() > 0, "tiling streams in the visible tile chunks");
+    CHECK(app.residentTileChunks() == app.tileChunkCount(), "the resident set equals the visible tile chunks");
+
+    // Zoom in so the viewport is smaller than the world (guarantees chunks churn on pan).
+    for (int i = 0; i < 4; ++i) pushWheel(1);
+    app.pumpEvents();
+    app.renderFrame(dt);
+
+    // Pan west several chunks then back east: chunks LEAVE the retained tilemap (remove) on the way out and
+    // RE-ENTER (add) on the way back — the enter/leave lifecycle a static capture can never exercise.
+    size_t removedSeen = 0, addedSeen = 0;
+    auto drag = [&](int fromX, int toX) {
+        pushButton(SDL_MOUSEBUTTONDOWN, fromX, 360);
+        pushMotion(toX, 360);
+        pushButton(SDL_MOUSEBUTTONUP, toX, 360);
+        app.pumpEvents();
+        app.renderFrame(dt);
+        removedSeen += app.lastTileRemoved();
+        addedSeen  += app.lastTileAdded();
+    };
+    for (int i = 0; i < 4; ++i) drag(300, 640);   // pan west
+    for (int i = 0; i < 4; ++i) drag(640, 300);   // pan back east
+    CHECK(removedSeen > 0, "panning removes tile chunks that left the viewport (retained lifecycle)");
+    CHECK(addedSeen  > 0, "panning re-adds tile chunks that entered the viewport");
+
+    // 'T' again -> back to the sprite path; every retained chunk is flushed (no leak).
+    pushKey(SDLK_t);
+    app.pumpEvents();
+    app.renderFrame(dt);
+    CHECK(!app.tiling(), "T toggles tiling back off");
+    CHECK(app.residentTileChunks() == 0, "leaving tiling flushes all retained chunks (no leak)");
 
     // 5. 'R' restores the EXACT reset view (camera + the same cell set as the fit baseline).
     pushKey(SDLK_r);

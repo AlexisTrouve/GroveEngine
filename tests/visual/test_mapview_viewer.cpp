@@ -10,7 +10,8 @@
  * SDL events (see test_mapview_viewer_e2e) — this main() is just the window + provider wiring around it.
  *
  * Controls: left-drag = pan (grab), mouse wheel = zoom toward cursor, H = toggle hillshade,
- *           B = toggle banded/continuous palette, R = reset camera, Esc = quit.
+ *           B = toggle banded/continuous palette, T = toggle tiling (retained textured tiles),
+ *           R = reset camera, Esc = quit.
  *
  * Usage: test_mapview_viewer                          (interactive, synthetic world)
  *        test_mapview_viewer --load <dir>             (interactive, a world-document on disk)
@@ -38,9 +39,11 @@
 #include "MapViewDemoScene.h"
 #include "MapViewViewerApp.h"
 #include "PngCapture.h"
+#include "TerrainTileset.h"
 
 #include <cstdio>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -91,6 +94,7 @@ int main(int argc, char** argv) {
     mapview::GridSpec grid{};
     camera::CameraView resetCam;
     std::vector<mapview::Marker> markers;
+    std::vector<mapview::Region> regions;
 
     if (!loadDir.empty()) {
         // Open the .world dir. Pass a zlib compressor so both raw AND compressed documents load (readChunk
@@ -104,6 +108,7 @@ int main(int argc, char** argv) {
         resetCam = mvdemo::fitCamera(coord.boundsMin[0] * coord.cellSize[0], coord.boundsMin[1] * coord.cellSize[1],
                                      worldW, worldH, W, H);
         markers = p->manifest().markers;                       // overlays declared in the document (may be empty)
+        regions = p->manifest().regions;                       // circular region overlays declared in the doc
         providerOwned = std::move(p);
         std::fprintf(stdout, "loaded world-document from %s (%.0fx%.0f world units)\n", loadDir.c_str(), worldW, worldH);
     } else {
@@ -113,7 +118,19 @@ int main(int argc, char** argv) {
         resetCam.x = 0.0f; resetCam.y = 0.0f; resetCam.zoom = static_cast<float>(W) / 256.0f;
         resetCam.viewportW = static_cast<float>(W); resetCam.viewportH = static_cast<float>(H); resetCam.rotation = 0.0f;
         markers = mvdemo::demoMarkers();
+        regions = mvdemo::demoRegions();
         providerOwned = std::move(p);
+    }
+
+    // Generate + load the terrain tileset so the 'T' tiling mode has textures (render:tilemap:tileset).
+    const int tilesetTexId = 7;
+    {
+        const std::string tsPath = (std::filesystem::temp_directory_path() / "mapview_viewer_tileset.png").string();
+        mvdemo::writeTerrainTileset(tsPath);
+        auto ts = std::make_unique<JsonDataNode>("tileset");
+        ts->setInt("textureId", tilesetTexId); ts->setString("path", tsPath);
+        ts->setInt("tileW", mvdemo::kTerrainTileW); ts->setInt("tileH", mvdemo::kTerrainTileW);
+        gIO->publish("render:tilemap:tileset", std::move(ts));
     }
 
     // Register the PNG marker icon with the streaming AssetManager (resolved by render:sprite{asset}).
@@ -128,6 +145,8 @@ int main(int argc, char** argv) {
     mvdemo::ViewerApp app(&engine, renderer, gIO.get(), W, H, *providerOwned, schema, grid,
                           mvdemo::makeTerrainLens, resetCam);
     app.setMarkers(markers);
+    app.setRegions(regions);
+    app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);   // 'T' switches terrain to the retained-tile path
 
     if (selftest) {
         // Scripted pan + zoom-to-centre over N frames, captured to a PNG — proves the live pipeline responds
@@ -153,7 +172,7 @@ int main(int argc, char** argv) {
         if (!mvdemo::writeRgbaAsPng(outPath, W, H, rgba)) { std::fprintf(stderr, "cannot write %s\n", outPath.c_str()); return 4; }
         std::fprintf(stdout, "wrote %s — scripted pan+zoom through the live viewer pipeline\n", outPath.c_str());
     } else {
-        std::fprintf(stdout, "grove::mapview viewer — drag=pan, wheel=zoom, H=hillshade, B=banded, R=reset, Esc=quit\n");
+        std::fprintf(stdout, "grove::mapview viewer — drag=pan, wheel=zoom, H=hillshade, B=banded, T=tiling, R=reset, Esc=quit\n");
         Uint32 last = SDL_GetTicks();
         while (app.running()) {
             app.pumpEvents();

@@ -80,6 +80,43 @@ inline std::vector<std::pair<double, mapview::Rgba>> terrainStops() {
     };
 }
 
+// A handful of abstract circular regions over the initial view — drawn as coloured RING overlays (the §5
+// "regionSet × style"). Styled by `type` (categorical) so the three kinds read as three colours; rendered by
+// a host that drains MapView::regionDraws() -> render:sector (world space, so they pan/zoom with the map).
+inline std::vector<mapview::Region> demoRegions() {
+    return {
+        mapview::Region{60.0,  45.0,  28.0, 0, 0.0},
+        mapview::Region{150.0, 80.0,  34.0, 1, 0.0},
+        mapview::Region{100.0, 115.0, 22.0, 2, 0.0},
+        mapview::Region{205.0, 52.0,  26.0, 1, 0.0},
+    };
+}
+
+// How the demo regions are styled: colour by type (3 categories), drawn as rings (innerRatio 0.72) so the
+// terrain shows through, on layerZ 900 (over terrain, under the marker icons at 1000).
+inline mapview::RegionLayer demoRegionLayer() {
+    mapview::Palette pal = mapview::Palette::categorical({
+        mapview::Rgba{0.96f, 0.24f, 0.24f, 1.0f},   // type 0 = red
+        mapview::Rgba{0.24f, 0.86f, 0.96f, 1.0f},   // type 1 = cyan
+        mapview::Rgba{0.98f, 0.86f, 0.22f, 1.0f},   // type 2 = yellow
+    });
+    return mapview::RegionLayer{pal, /*byValue*/ false, /*innerRatio*/ 0.72, /*layerZ*/ 900, /*opacity*/ 0.9f};
+}
+
+// A TILING lens: draw the terrain as textured tiles (retained tilemap) instead of flat-colour cells. The
+// TileMapper's metre thresholds match the terrain palette's sea/coast/land/rock/peak bands (water/sand/grass/
+// rock/snow -> tile ids 1..5); the last band's huge upper bound sends everything >= 800 m to snow. Pairs with
+// TerrainTileset.h's tileset. Used by the viewer's 'T' toggle (live tiling) and the tiled-map capture.
+inline mapview::Lens makeTileLens() {
+    mapview::Lens lens;
+    lens.name = "tiles";
+    lens.tileLayers.push_back(mapview::TileLayer{
+        "elevation",
+        mapview::TileMapper::banded({{300.0, 1}, {340.0, 2}, {520.0, 3}, {800.0, 4}, {1.0e12, 5}}),
+        /*layerZ*/ 0});
+    return lens;
+}
+
 // A handful of point markers scattered over the initial view — rendered as PNG icons by the viewer.
 inline std::vector<mapview::Marker> demoMarkers() {
     return {
@@ -104,7 +141,8 @@ inline mapview::Lens makeTerrainLens(bool hillshade, bool banded) {
         layer.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);  // NW sun ~54deg, gentle
     }
     mapview::MarkerLayer markers{mapview::Palette::categorical({mapview::Rgba{1, 1, 1, 1}}), /*baseScale*/ 8.0, /*layerZ*/ 1000, 1.0f};
-    return mapview::Lens{"terrain", {layer}, {}, {markers}};
+    // Includes the demo region-ring layer; harmless when no regions are set (a host must setRegions to see any).
+    return mapview::Lens{"terrain", {layer}, {demoRegionLayer()}, {markers}};
 }
 
 } // namespace mvdemo

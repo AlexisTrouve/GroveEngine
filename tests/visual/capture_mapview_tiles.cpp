@@ -35,7 +35,9 @@
 #include "grove/mapview/TileMapper.h"
 #include "grove/mapview/WorldDocument.h"
 
+#include "MapViewDemoScene.h"   // makeTileLens (elevation -> tile bands)
 #include "PngCapture.h"
+#include "TerrainTileset.h"     // writeTerrainTileset (the shared 5-tile tileset)
 
 #include <cmath>
 #include <cstdint>
@@ -46,55 +48,6 @@
 #include <vector>
 
 using namespace grove;
-
-// ------------------------------------------------------------------------------------------------
-// Generate a 5-tile terrain tileset (16x16 each, in a row -> 80x16) with procedural texture, write a PNG.
-// loadArrayFromFile(path,16,16) then slices it into 5 array layers: tile ids 1..5 = water/sand/grass/rock/snow.
-// ------------------------------------------------------------------------------------------------
-static void writeTileset(const std::string& path) {
-    const int TW = 16, N = 5, W = TW * N, H = TW;
-    std::vector<uint8_t> rgba(static_cast<size_t>(W) * H * 4, 255);
-    auto put = [&](int x, int y, int r, int g, int b) {
-        const size_t i = (static_cast<size_t>(y) * W + x) * 4;
-        rgba[i] = static_cast<uint8_t>(r < 0 ? 0 : r > 255 ? 255 : r);
-        rgba[i + 1] = static_cast<uint8_t>(g < 0 ? 0 : g > 255 ? 255 : g);
-        rgba[i + 2] = static_cast<uint8_t>(b < 0 ? 0 : b > 255 ? 255 : b);
-        rgba[i + 3] = 255;
-    };
-    for (int t = 0; t < N; ++t) {
-        for (int ly = 0; ly < TW; ++ly) {
-            for (int lx = 0; lx < TW; ++lx) {
-                const uint32_t h = (static_cast<uint32_t>(lx) * 73856093u) ^ (static_cast<uint32_t>(ly) * 19349663u) ^ (static_cast<uint32_t>(t) * 83492791u);
-                int r, g, b;
-                switch (t) {
-                    case 0: {  // water: horizontal wave bands
-                        const int wave = ((ly + static_cast<int>(3.0 * std::sin(lx * 0.6))) % 4 < 2) ? 45 : 0;
-                        r = 35 + wave; g = 95 + wave; b = 185 + wave; break;
-                    }
-                    case 1: {  // sand: scattered darker grains
-                        const int grain = (h & 7u) == 0 ? -35 : 0;
-                        r = 216 + grain; g = 200 + grain; b = 150 + grain; break;
-                    }
-                    case 2: {  // grass: bright blades + dark speckle
-                        const int d = (h & 3u) == 0 ? 55 : ((h & 7u) == 1 ? -35 : 0);
-                        r = 60 + d; g = 135 + d; b = 50 + d; break;
-                    }
-                    case 3: {  // rock: cracks + grain
-                        const bool crack = ((lx + ly) % 6 == 0) || ((lx - ly + 16) % 7 == 0);
-                        const int d = crack ? -48 : static_cast<int>(h & 15u) - 8;
-                        r = 128 + d; g = 122 + d; b = 116 + d; break;
-                    }
-                    default: {  // snow: mostly white with sparkle
-                        const int s = (h & 31u) == 0 ? 255 : 236 + static_cast<int>(h & 7u);
-                        r = s; g = s; b = (s > 250 ? 255 : s + 6); break;
-                    }
-                }
-                put(t * TW + lx, ly, r, g, b);
-            }
-        }
-    }
-    mvdemo::writeRgbaAsPng(path, W, H, rgba);
-}
 
 // Demo terrain tuned for TILE variety: an ISLAND field centred on the visible window (~64x36 world units
 // at this zoom), so a single frame sweeps the whole water->snow range as concentric bands = all five
@@ -138,7 +91,7 @@ int main(int argc, char** argv) {
     const int SW = 1280, SH = 720;
 
     const std::string tilesetPath = (std::filesystem::temp_directory_path() / "mapview_tileset.png").string();
-    writeTileset(tilesetPath);
+    mvdemo::writeTerrainTileset(tilesetPath);
 
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { std::fprintf(stderr, "no SDL: %s\n", SDL_GetError()); return 1; }
@@ -165,7 +118,7 @@ int main(int argc, char** argv) {
     {
         auto ts = std::make_unique<JsonDataNode>("tileset");
         ts->setInt("textureId", 7); ts->setString("path", tilesetPath);
-        ts->setInt("tileW", 16); ts->setInt("tileH", 16);
+        ts->setInt("tileW", mvdemo::kTerrainTileW); ts->setInt("tileH", mvdemo::kTerrainTileW);
         gIO->publish("render:tilemap:tileset", std::move(ts));
     }
 
@@ -189,15 +142,9 @@ int main(int argc, char** argv) {
     std::vector<mapview::FieldDecl> schema{ mapview::FieldDecl{"elevation", mapview::Encoding::Int, 16, 1.0, 0.0} };
     mapview::MapView mv(schema, mapview::GridSpec{world.W, world.H, 1, 1.0, 1.0}, layout, proj, world, /*budget*/ 64);
 
-    mapview::Lens lens;
-    lens.name = "tiles";
-    // Elevation (metres) -> tile id: water/sand/grass/rock/snow. Last band's upper bound is a huge sentinel so
-    // everything >= 800 m maps to snow (5). Same thresholds the demo-local elevToTile used.
-    lens.tileLayers.push_back(mapview::TileLayer{
-        "elevation",
-        mapview::TileMapper::banded({{300.0, 1}, {340.0, 2}, {520.0, 3}, {800.0, 4}, {1.0e12, 5}}),
-        /*layerZ*/ 0});
-    mv.setLens(lens);
+    // Elevation (metres) -> tile id (water/sand/grass/rock/snow): the shared tiling lens, same one the viewer's
+    // 'T' mode uses, so the capture and the live viewer can't drift on the band thresholds.
+    mv.setLens(mvdemo::makeTileLens());
 
     mv.setViewport(mapview::Viewport{camX, camY, camX + SW / zoom, camY + SH / zoom});
     mv.update();

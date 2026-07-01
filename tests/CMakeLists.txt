@@ -723,6 +723,16 @@ target_include_directories(test_mapview_tilemapper PRIVATE
 target_link_libraries(test_mapview_tilemapper PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewTileMapperUnit test_mapview_tilemapper ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer live-tiling brick (T4): TileChunkStreamer — diffs successive visible tile-chunk sets into
+# retained render:tilemap:add/remove deltas (the enter/leave bookkeeping that makes tiling work as the camera
+# pans). Pure logic, no GPU — the hard part of live tiling, proven headless. Header-only, std-only.
+add_executable(test_mapview_tilestreamer unit/test_mapview_tilestreamer.cpp)
+target_include_directories(test_mapview_tilestreamer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_tilestreamer PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewTileStreamerUnit test_mapview_tilestreamer ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
