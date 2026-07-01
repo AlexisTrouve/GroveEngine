@@ -83,6 +83,7 @@ public:
         cells_.clear();
         regionDraws_.clear();
         markerDraws_.clear();
+        tileChunks_.clear();
 
         const int W = grid_.chunkW, H = grid_.chunkH, D = grid_.chunkD;
         if (W <= 0 || H <= 0 || D <= 0 || grid_.cellW <= 0.0 || grid_.cellH <= 0.0) return;
@@ -153,6 +154,47 @@ public:
             }
         }
 
+        // 4b. compile the tile layers: each visible chunk -> one TileChunkDraw per tile layer (the retained-
+        // tilemap path). Independent of the per-cell colour path above — a lens may use either or both. This
+        // path is TopDown / axis-aligned only (a rectangular tilemap can't follow a rotated/iso projection),
+        // so it reads the chunk's world corner straight from the grid rather than through the projection.
+        if (!lens_.tileLayers.empty()) {
+            const int localZ = zSlice_ - chunkZ * D;                 // the z-layer within a visible chunk
+            if (localZ >= 0 && localZ < D) {
+                const size_t sliceOff = static_cast<size_t>(localZ) * static_cast<size_t>(cellsPerLayer);
+                for (const ChunkCoord& cc : visible) {
+                    const ChunkData* cd = cache_.get(cc);
+                    if (cd == nullptr) continue;                     // absent chunk -> no tiles (fail-franc)
+                    for (const TileLayer& tl : lens_.tileLayers) {
+                        const auto fit = fieldByName_.find(tl.field);
+                        if (fit == fieldByName_.end()) continue;     // field not in schema
+                        const FieldDecl& fd = *fit->second;
+                        const std::vector<uint32_t>* vals = cd->get(tl.field);
+                        if (vals == nullptr) continue;               // field absent in this chunk (fail-franc)
+                        // Guard a ragged/short chunk: the active z-slice's dense W*H block must fit.
+                        if (sliceOff + static_cast<size_t>(cellsPerLayer) > vals->size()) continue;
+
+                        TileChunkDraw tc;
+                        tc.chunkX = cc.x;
+                        tc.chunkY = cc.y;
+                        tc.width  = W;
+                        tc.height = H;
+                        tc.worldX = static_cast<double>(cc.x) * W * grid_.cellW;  // chunk top-left corner
+                        tc.worldY = static_cast<double>(cc.y) * H * grid_.cellH;
+                        tc.tileW  = grid_.cellW;
+                        tc.tileH  = grid_.cellH;
+                        tc.layer  = tl.layerZ;
+                        tc.tiles.resize(static_cast<size_t>(cellsPerLayer));
+                        for (int i = 0; i < cellsPerLayer; ++i) {
+                            const double phys = decodePhysical(fd, (*vals)[sliceOff + static_cast<size_t>(i)]);
+                            tc.tiles[static_cast<size_t>(i)] = tl.mapper.map(phys);
+                        }
+                        tileChunks_.push_back(std::move(tc));
+                    }
+                }
+            }
+        }
+
         // 5. compile the visible region & marker overlays (global vector sets, culled by the viewport).
         const double vminX = viewport_.minX - margin_, vminY = viewport_.minY - margin_;
         const double vmaxX = viewport_.maxX + margin_, vmaxY = viewport_.maxY + margin_;
@@ -211,6 +253,11 @@ public:
     const std::vector<RegionDraw>& regionDraws() const { return regionDraws_; }
     const std::vector<MarkerDraw>& markerDraws() const { return markerDraws_; }
 
+    // The compiled tile-grid chunks (retained-tilemap path): one per visible chunk × tile layer. The host
+    // turns each into a render:tilemap:add. Empty unless the active lens declares tileLayers.
+    const std::vector<TileChunkDraw>& tileChunks() const { return tileChunks_; }
+    size_t tileChunkCount() const { return tileChunks_.size(); }
+
 private:
     // Decoded physical value of `field` at global cell (gx,gy,gz); false if that chunk isn't resident or the
     // field is absent there. Backs cross-field filters and cross-chunk hillshade gradient sampling.
@@ -256,6 +303,7 @@ private:
     std::vector<Marker> markers_;       // global marker overlay set (host-provided)
     std::vector<RegionDraw> regionDraws_;
     std::vector<MarkerDraw> markerDraws_;
+    std::vector<TileChunkDraw> tileChunks_;  // compiled tile-grid chunks (tiling path); empty if no tileLayers
 };
 
 } // namespace mapview

@@ -713,6 +713,16 @@ target_include_directories(test_mapview_provider PRIVATE
 target_link_libraries(test_mapview_provider PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewProviderUnit test_mapview_provider ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer tiling path (T3): TileMapper (value->tile-id band mapper, the recipe counterpart of Palette) +
+# MapView's tile-chunk emit (a TileLayer -> one TileChunkDraw per visible chunk). Productizes what was a
+# demo-local elevToTile into the core. Header-only, std-only — drives a MapView headless, asserts exact ids.
+add_executable(test_mapview_tilemapper unit/test_mapview_tilemapper.cpp)
+target_include_directories(test_mapview_tilemapper PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_tilemapper PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewTileMapperUnit test_mapview_tilemapper ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager

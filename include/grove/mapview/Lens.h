@@ -24,6 +24,7 @@
 #include "grove/mapview/Marker.h"
 #include "grove/mapview/Palette.h"
 #include "grove/mapview/Region.h"
+#include "grove/mapview/TileMapper.h"
 
 namespace grove {
 namespace mapview {
@@ -42,11 +43,22 @@ struct Layer {
     Hillshade   hillshade{0.0, 0.0, 1.0};   // light direction (overhead by default)
 };
 
+// A tiling layer: a field rendered as textured TILES (retained tilemap) instead of flat-colour cells. The
+// TileMapper turns each cell's value into a tileset id. Kept SEPARATE from Layer because the output is a
+// per-chunk tile grid (TileChunkDraw), not a per-cell colour, so none of Layer's colour machinery
+// (Palette/Filter/Hillshade/opacity) applies. TopDown / axis-aligned only (see TileChunkDraw).
+struct TileLayer {
+    std::string field;      // which field to map to tile ids
+    TileMapper  mapper;     // value -> tileset id
+    int32_t     layerZ{0};  // render z-order
+};
+
 struct Lens {
     std::string              name;
-    std::vector<Layer>       layers;        // field (per-cell) layers, drawn in order (later = on top)
+    std::vector<Layer>       layers;        // field (per-cell) colour layers, drawn in order (later = on top)
     std::vector<RegionLayer> regionLayers;  // circular region overlays
     std::vector<MarkerLayer> markerLayers;  // point markers
+    std::vector<TileLayer>   tileLayers;    // field(s) rendered as textured tiles (retained tilemap path)
     // Cross-type draw order is by each layer's layerZ (the renderer sorts by it), not by list order.
 };
 

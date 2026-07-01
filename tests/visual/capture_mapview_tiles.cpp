@@ -2,10 +2,13 @@
  * Headless CAPTURE of grove::mapview rendered as a TILED MAP (PNG tileset) — to a PNG.
  *
  * The "tiling" path (vs the flat-colour bulk-sprite cells): the terrain is drawn by the engine's retained
- * TilemapPass from a PNG tileset (water/sand/grass/rock/snow), one tile per elevation band. Chain:
- *   ProceduralWorld (mapview ChunkData) -> per-cell elevation -> tile id (band) -> render:tilemap:add
- *   {tileData, tileset} -> TilemapPass -> GPU. The tileset PNG is generated at runtime and loaded via the
- *   new render:tilemap:tileset topic.
+ * TilemapPass from a PNG tileset (water/sand/grass/rock/snow), one tile per elevation band. Chain (now through
+ * the mapview CORE, not a demo-local mapper):
+ *   IChunkProvider (island elevation) -> MapView + a Lens with a TileLayer(TileMapper: elevation -> tile id)
+ *   -> MapView::tileChunks() (one TileChunkDraw per visible chunk) -> render:tilemap:add {tileData, tileset}
+ *   -> TilemapPass -> GPU. The tileset PNG is generated at runtime and loaded via the render:tilemap:tileset
+ *   topic. This proves the productized tiling path end-to-end: the exact same tile ids the unit test asserts
+ *   (MapViewTileMapperUnit) become pixels here.
  *
  * Usage: capture_mapview_tiles [out.png]
  */
@@ -23,7 +26,14 @@
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 
-#include "grove/mapview/Cull.h"
+#include "grove/mapview/ChunkProvider.h"
+#include "grove/mapview/Field.h"
+#include "grove/mapview/GridLayout.h"
+#include "grove/mapview/Lens.h"
+#include "grove/mapview/MapView.h"
+#include "grove/mapview/Projection.h"
+#include "grove/mapview/TileMapper.h"
+#include "grove/mapview/WorldDocument.h"
 
 #include "PngCapture.h"
 
@@ -101,14 +111,27 @@ static double tileElevation(double gx, double gy) {
     return v < 0.0 ? 0.0 : (v > 1000.0 ? 1000.0 : v);
 }
 
-// Elevation (metres) -> tile id (1..5). Bands roughly match the colour palette's sea/land/peak thresholds.
-static uint16_t elevToTile(double e) {
-    if (e < 300.0) return 1;   // water
-    if (e < 340.0) return 2;   // sand (coast)
-    if (e < 520.0) return 3;   // grass
-    if (e < 800.0) return 4;   // rock
-    return 5;                  // snow
-}
+// A provider that serves the island `tileElevation` as an "elevation" field, so the mapview core (not this
+// demo) does the value->tile-id mapping. Encodes metres as a 16-bit int (scale 1) — decode is a no-op, so the
+// TileMapper's metre thresholds read the raw value directly. has() is always true; the MapView cull bounds it.
+struct TileIslandWorld final : mapview::IChunkProvider {
+    int W{64}, H{64};
+    bool has(mapview::ChunkCoord) const override { return true; }
+    mapview::ChunkData load(mapview::ChunkCoord c) override {
+        mapview::ChunkData d;
+        d.coord = c;
+        d.cellCount = static_cast<uint32_t>(W * H);
+        std::vector<uint32_t> elev(static_cast<size_t>(W) * H);
+        for (int ly = 0; ly < H; ++ly) {
+            for (int lx = 0; lx < W; ++lx) {
+                const double e = tileElevation(static_cast<double>(c.x * W + lx), static_cast<double>(c.y * H + ly));
+                elev[static_cast<size_t>(ly) * W + lx] = static_cast<uint32_t>(e + 0.5);  // metres, rounded
+            }
+        }
+        d.fields.emplace_back("elevation", std::move(elev));
+        return d;
+    }
+};
 
 int main(int argc, char** argv) {
     const std::string outPath = argc > 1 ? argv[1] : "mapview_tiles_capture.png";
@@ -156,25 +179,42 @@ int main(int argc, char** argv) {
         gIO->publish("render:camera", std::move(cam));
     };
 
-    // Build the tiled map: cull the visible chunks, and for each publish a retained tilemap chunk whose
-    // tileData is the per-cell elevation band. cellSize 1 -> tileW/tileH 1 world unit, so tiles align to cells.
-    const int W = 64, H = 64;  // chunk dims (tiles per chunk)
-    const auto visible = mapview::chunksInViewport(camX, camY, camX + SW / zoom, camY + SH / zoom, 1.0, 1.0, W, H, 0);
-    for (const mapview::ChunkCoord& cc : visible) {
+    // Build the tiled map THROUGH THE MAPVIEW CORE: a provider serves the island elevation, a lens declares a
+    // single TileLayer (elevation -> tile id via a TileMapper whose bands match the old elevToTile), and MapView
+    // emits one TileChunkDraw per visible chunk. The host just turns each into a render:tilemap:add. The
+    // TileChunkDraw carries the chunk's world corner + tile size, so tiles align 1:1 with cells (cellSize 1).
+    TileIslandWorld world;
+    mapview::SquareLayout layout(1.0, 1.0);
+    mapview::TopDownProjection proj;
+    std::vector<mapview::FieldDecl> schema{ mapview::FieldDecl{"elevation", mapview::Encoding::Int, 16, 1.0, 0.0} };
+    mapview::MapView mv(schema, mapview::GridSpec{world.W, world.H, 1, 1.0, 1.0}, layout, proj, world, /*budget*/ 64);
+
+    mapview::Lens lens;
+    lens.name = "tiles";
+    // Elevation (metres) -> tile id: water/sand/grass/rock/snow. Last band's upper bound is a huge sentinel so
+    // everything >= 800 m maps to snow (5). Same thresholds the demo-local elevToTile used.
+    lens.tileLayers.push_back(mapview::TileLayer{
+        "elevation",
+        mapview::TileMapper::banded({{300.0, 1}, {340.0, 2}, {520.0, 3}, {800.0, 4}, {1.0e12, 5}}),
+        /*layerZ*/ 0});
+    mv.setLens(lens);
+
+    mv.setViewport(mapview::Viewport{camX, camY, camX + SW / zoom, camY + SH / zoom});
+    mv.update();
+
+    for (const mapview::TileChunkDraw& tc : mv.tileChunks()) {
         std::string tileData;
-        tileData.reserve(static_cast<size_t>(W) * H * 3);
-        for (int gy = 0; gy < H; ++gy) {
-            for (int gx = 0; gx < W; ++gx) {
-                if (gx || gy) tileData.push_back(',');
-                tileData += std::to_string(elevToTile(tileElevation(cc.x * W + gx, cc.y * H + gy)));
-            }
+        tileData.reserve(tc.tiles.size() * 3);
+        for (size_t i = 0; i < tc.tiles.size(); ++i) {
+            if (i) tileData.push_back(',');
+            tileData += std::to_string(tc.tiles[i]);
         }
         auto tm = std::make_unique<JsonDataNode>("tilemap");
-        tm->setInt("id", (cc.x + 500) * 1000 + (cc.y + 500) + 1);  // non-zero, unique per chunk
-        tm->setDouble("x", static_cast<double>(cc.x) * W);
-        tm->setDouble("y", static_cast<double>(cc.y) * H);
-        tm->setInt("width", W); tm->setInt("height", H);
-        tm->setInt("tileW", 1); tm->setInt("tileH", 1);
+        tm->setInt("id", (tc.chunkX + 500) * 1000 + (tc.chunkY + 500) + 1);  // non-zero, unique per chunk
+        tm->setDouble("x", tc.worldX);
+        tm->setDouble("y", tc.worldY);
+        tm->setInt("width", tc.width); tm->setInt("height", tc.height);
+        tm->setInt("tileW", static_cast<int>(tc.tileW)); tm->setInt("tileH", static_cast<int>(tc.tileH));
         tm->setInt("textureId", 7);
         tm->setString("tileData", tileData);
         gIO->publish("render:tilemap:add", std::move(tm));
@@ -196,7 +236,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "readback failed\n"); return 3;
     }
     if (!mvdemo::writeRgbaAsPng(outPath, SW, SH, rgba)) { std::fprintf(stderr, "cannot write %s\n", outPath.c_str()); return 4; }
-    std::fprintf(stdout, "wrote %s — %zu tiled chunks from a PNG tileset\n", outPath.c_str(), visible.size());
+    std::fprintf(stdout, "wrote %s — %zu tiled chunks from a PNG tileset (via mapview core)\n", outPath.c_str(), mv.tileChunkCount());
 
     engine.shutdown();
     mgr.removeInstance("mv_tiles");
