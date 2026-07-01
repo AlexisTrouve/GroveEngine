@@ -699,6 +699,20 @@ target_include_directories(test_mapview_adapter PRIVATE
 target_link_libraries(test_mapview_adapter PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewAdapterUnit test_mapview_adapter ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer disk↔core bridge: WorldDocumentProvider (include/grove/mapview/WorldDocumentProvider.h) — the
+# file-backed IChunkProvider. Drives a MapView entirely from a world-document on disk (the "file is the
+# interface" seam, proven E2E in a unit test). Links miniz.c + nlohmann like the disk test (compressed case).
+add_executable(test_mapview_provider
+    unit/test_mapview_provider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(test_mapview_provider PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_provider PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewProviderUnit test_mapview_provider ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 1: SoundManagerModule topic/bus logic via MockSoundBackend. No SDL_mixer —
 # the real SDLMixerBackend + audio is slice 2. Compiles the module + the test only.
 add_executable(test_sound_manager
@@ -2907,6 +2921,32 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_mapview_tiles>")
     endif()
     message(STATUS "Tiled-map capture tool 'capture_mapview_tiles' enabled")
+
+    # From-disk capture: the "file is the interface" thesis, pixels-out. WRITES a world-document to disk
+    # (manifest + zlib chunks), then LOADS it via WorldDocumentProvider and renders it — proving the full
+    # disk -> provider -> MapView chain. Needs nlohmann (Manifest) + miniz.c (compression), unlike the sprite
+    # captures. This is the E2E lock the pure-core unit tests couldn't see (they never touch a live renderer).
+    add_executable(capture_mapview_from_disk
+        visual/capture_mapview_from_disk.cpp
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    target_include_directories(capture_mapview_from_disk PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    )
+    target_link_libraries(capture_mapview_from_disk PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_mapview_from_disk POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_mapview_from_disk>")
+    endif()
+    message(STATUS "From-disk map-viewer capture tool 'capture_mapview_from_disk' enabled")
 
     # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
     add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
