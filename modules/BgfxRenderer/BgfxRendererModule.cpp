@@ -155,6 +155,27 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                                        static_cast<float>(d.getDouble("fps", 0.0)));
         });
 
+        // Runtime topic: load a PNG tileset GRID as a texture2DArray (one tile per layer) and bind it to a
+        // tileset id, so render:tilemap:add {textureId} can draw with real tile images. Handled here (the
+        // pass + device live here, like render:tilemap:anim). TextureHandle is a POD id — the device owns
+        // the texture and frees it on shutdown, so no per-tileset lifetime bookkeeping is needed here.
+        m_io->subscribe("render:tilemap:tileset", [this](const Message& msg) {
+            if (!msg.data || !m_tilemapPass || !m_device) return;
+            const IDataNode& d = *msg.data;
+            const std::string path = d.getString("path", "");
+            const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
+            const int tw = static_cast<int>(d.getInt("tileW", 16));
+            const int th = static_cast<int>(d.getInt("tileH", 16));
+            if (path.empty() || texId == 0) return;  // 0 is reserved for the procedural colour atlas
+            TextureLoader::LoadResult res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
+            if (res.success) {
+                m_tilemapPass->setTileset(texId, res.handle);
+                m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId, path, res.layers, res.width, res.height);
+            } else {
+                m_logger->warn("Tileset load failed for '{}': {}", path, res.error);
+            }
+        });
+
         // Runtime topic: capture du backbuffer pour le devlog. La scene publie
         // render:screenshot {path} ; on relaie au device (qui demande la capture a
         // bgfx, ecrite au prochain frame()). Ce handler tourne pendant collect()

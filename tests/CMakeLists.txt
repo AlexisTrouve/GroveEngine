@@ -2888,6 +2888,26 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Interactive map viewer 'test_mapview_viewer' enabled")
 
+    # Tiled-map capture: the terrain drawn as a TILEMAP from a generated PNG tileset (elevation band -> tile),
+    # via render:tilemap:add + the new render:tilemap:tileset topic. The "tiling" path proof (vs sprite cells).
+    add_executable(capture_mapview_tiles visual/capture_mapview_tiles.cpp)
+    target_include_directories(capture_mapview_tiles PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(capture_mapview_tiles PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_mapview_tiles POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_mapview_tiles>")
+    endif()
+    message(STATUS "Tiled-map capture tool 'capture_mapview_tiles' enabled")
+
     # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
     add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
     target_include_directories(capture_ship_inspector PRIVATE
