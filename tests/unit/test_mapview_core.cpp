@@ -234,7 +234,9 @@ TEST_CASE("mapview S1h - hillshade darkens a sloped cell vs the unshaded colour"
     const CellDraw* bCentre = findCell(b.cells(), 1.5, 1.5, 0);
     REQUIRE(bCentre != nullptr);
     REQUIRE(bCentre->color.r < aCentre->color.r);                       // shaded is darker
-    REQUIRE_THAT(bCentre->color.r, WithinAbs(1.0f / std::sqrt(2.0f), 1e-4));  // factor for dz/dx=1
+    // Model-agnostic: the centre cell has dz/dx=1, so its shade must equal factor(1,0) for THIS light —
+    // whatever the shading curve. (Locks the gradient, not the curve; the curve is locked in the hillshade test.)
+    REQUIRE_THAT(bCentre->color.r, WithinAbs(static_cast<float>(Hillshade(0.0, 0.0, 1.0).factor(1.0, 0.0)), 1e-4));
 }
 
 TEST_CASE("mapview S1h - hillshade gradient samples ACROSS chunk boundaries", "[mapview][core][unit]") {
@@ -258,9 +260,10 @@ TEST_CASE("mapview S1h - hillshade gradient samples ACROSS chunk boundaries", "[
     REQUIRE(mv.residentChunks() == 2);
 
     // The right-edge cell of chunk 0 is global (1,0) at centre (1.5,0.5). Its +x neighbour is global (2,0),
-    // which lives in chunk 1. Cross-chunk sampling => dz/dx = (2-0)/2 = 1 => factor 1/sqrt(2). WITHOUT it the
-    // missing neighbour would fall back to the centre (=1) => dz/dx = 0.5 => factor ~0.894. So 0.707 proves it.
+    // which lives in chunk 1. Cross-chunk sampling => dz/dx = (2-0)/2 = 1 (=> factor(1,0)). WITHOUT it the
+    // missing neighbour would fall back to the centre (=1) => dz/dx = 0.5 (=> factor(0.5,0), brighter). So
+    // matching factor(1,0) — not factor(0.5,0) — proves the cross-chunk sample (model-agnostic).
     const CellDraw* edge = findCell(mv.cells(), 1.5, 0.5, 0);
     REQUIRE(edge != nullptr);
-    REQUIRE_THAT(edge->color.r, WithinAbs(1.0f / std::sqrt(2.0f), 1e-4));
+    REQUIRE_THAT(edge->color.r, WithinAbs(static_cast<float>(Hillshade(0.0, 0.0, 1.0).factor(1.0, 0.0)), 1e-4));
 }
