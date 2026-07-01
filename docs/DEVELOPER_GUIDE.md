@@ -1021,6 +1021,7 @@ Two modes:
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
+| `render:tilemap:tileset` | `{textureId, path, tileW, tileH}` | **Bind a PNG tileset** to `textureId`: loads the image and slices its `tileW×tileH` grid into a texture2DArray (tile id `T` → layer `T-1`; id `0` = transparent). Load **once** before the chunks that reference this `textureId` |
 | `render:tilemap` | `{x, y, width, height, tileW, tileH, textureId, tileData}` | Ephemeral chunk (re-uploaded each frame) |
 | `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?, layers?}` | Retained chunk by `id` (≠0) — upload-once. `layers?` = **multi-layer** (see below) |
 | `render:tilemap:update` | full: `{id, tileData, fogData?}` · partial: `{id, x, y, w, h, tileData}` | Update a retained chunk (see *Update semantics*) |

@@ -1,7 +1,12 @@
 # Map View — design (`grove::mapview`)
 
-**Status:** SPEC — definition validated by Alexi (2026-06-30), **no code yet**. This doc is the source
-of truth to build from; redline here before implementing.
+**Status:** BUILT through S3-seam + tiling + overlays (2026-07-01). Shipped: S0 format, S1 pure core, S2
+interactive viewer (`--load` a world-document from disk), the file-backed `WorldDocumentProvider` (the "file
+is the interface" proven E2E), the productized **tiling path** (`TileMapper` + retained **live tiling**), and
+**regions/markers on screen** — all in `include/grove/mapview/` + `tests/`, 16 MapView ctests. This doc is the
+design **spec** (the three axes, the format contract, the locked decisions); the running implementation log +
+resume state live in [`mapview-handoff.md`](mapview-handoff.md) and the engine memory. Redline design changes
+here first.
 **One-line:** a header-only, **generator-agnostic** engine that turns any chunked world of named fields
 into colored cells on screen — square / hex / rect, top-down / isometric, finite / infinite, layered, Z-aware.
 
@@ -291,11 +296,20 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
 | `layer` | z-order → render layering **and** iso depth-sort |
 | `u0,v0,u1,v1, textureId` | textured cells later (sprite-tiles, iso diamond art) |
 
-- **Regions** → `render:sector` (rings/wedges) + lines/`render:rect`; **markers** → `render:sprite{asset}`
-  (streamed icons) + UIModule tooltips.
-- **Tilemap fast-lane (later, optional):** the retained `render:tilemap` pass (LOD + chunked) is the
-  *specialized* optimization for the **square · top-down · static** case only — hex/iso break its grid
-  assumption. Not v1.
+- **Regions** → `render:sector` (rings/wedges) — **BUILT (2026-07-01):** `MapView::regionDraws()` compiled
+  from `regionSet × style`, published by the viewer as **world-space ring-sectors** (pan/zoom with the map,
+  `packRGBA8` → the renderer's `0xRRGGBBAA`). **Markers** → `render:sprite{asset}` (streamed icons) — built.
+  E2E: `MapViewViewerE2E` (regions compile at the fit view) + `mapview_viewer_selftest.png` (coloured rings
+  on screen over the terrain).
+- **Tilemap fast-lane — BUILT & productized into the core (T2/T3, 2026-07-01):** the retained `render:tilemap`
+  pass is the *specialized* optimization for the **square · top-down** case (hex/iso break its grid assumption).
+  `render:tilemap:tileset` binds a PNG tileset; **`TileMapper`** (value → tile id — the tiling sibling of
+  Palette, same `banded` semantics) on a **`TileLayer`** makes `MapView` emit one neutral **`TileChunkDraw`**
+  per visible chunk (`tileChunks()`); the viewer streams those into the retained tilemap via
+  **`TileChunkStreamer`** (add newly-visible / remove departed chunks as the camera pans — the 'T' toggle =
+  **live tiling**). TopDown/axis-aligned only. Locked by `MapViewTileMapperUnit` + `MapViewTileStreamerUnit`;
+  E2E in `capture_mapview_tiles` (pixels) + `MapViewViewerE2E` (live 'T' + pan lifecycle). A retained tilemap
+  still beats the bulk path for huge **static** square terrain (millions of tiles).
 - **Honest limit:** the bulk path decouples cost from world size *via culling*, but at **extreme zoom-out**
   the visible static cell count can blow up → needs **LOD / a downsampled overview** (tilemap LOD, or a
   mip/summary texture). **Deferred, not v1** — but the interfaces must not foreclose it (don't bake "one
@@ -322,18 +336,22 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
 
 Build *for* all axes, ship **one combo first**; each later axis plugs into an interface that already exists.
 
-**Status (2026-06-30): S0 ✅ DONE & frozen, S1 ✅ DONE** (`include/grove/mapview/`, 8 ctest locks — see
-[`mapview-handoff.md`](mapview-handoff.md)). Resume at S2 (viewer app) + the small CellDraw→SpriteInstance
-adapter; Theomen's S3 adapter is unblocked in parallel.
+**Status (2026-07-01): S0 ✅ · S1 ✅ · S2 ✅ (interactive viewer, disk-load) · S3-seam ✅ (file-backed
+provider — "the file is the interface" proven E2E) · tiling path ✅ (T2/T3 + live retained tiling) · overlays
+on screen ✅ (regions/markers)** — 16 MapView ctests (see [`mapview-handoff.md`](mapview-handoff.md) + memory).
+Remaining: **S3 Theomen adapter** (cross-project — its Claude writes a real `.world`; the engine already
+consumes any `.world` dir), then S4 timeline + S5 plug-ins.
 
 | Slice | Delivers | New axis exercised |
 |---|---|---|
 | **S0 — format + reader** ✅ | world-document writer/reader (manifest + bit-packed sparse chunks + zlib/miniz), headless tests | the contract |
 | **S1 — pure core** ✅ | `MapView` + `SquareLayout` + `TopDownProjection` + `ChunkProvider` + cull/stream/LRU + Palette/Filter/Layer/Lens, headless TDD. Emits neutral **CellDraw** (not SpriteInstance) → core is renderer-independent | ① square, ② top-down, ③ provider |
-| **S2 — viewer app** | generic app: load a world-document file, camera (`grove::camera`), bulk-sprite emit, lens/layer UI | first pixels (E2E) |
+| **S2 — viewer app** ✅ | in-engine `test_mapview_viewer` (drag-pan / zoom-to-cursor / H·B·T·R keys), **`--load <dir>`** opens a world-document from disk, CellDraw→SpriteInstance adapter, bulk-sprite emit; real input **E2E** (`MapViewViewerE2E`, injected SDL events) | first pixels (E2E) |
+| **S3-seam — file-backed provider** ✅ | `WorldDocumentProvider` bridges the on-disk world-document → the pure `MapView` (the "file is the interface" thesis, proven E2E in a unit test + a from-disk capture) | the contract, live |
+| **T2/T3 — tiling + overlays on screen** ✅ | `render:tilemap:tileset` + `TileMapper` (value→tile id) + `MapView` tile-chunk emit + **live retained tiling** in the viewer (`TileChunkStreamer`: add/remove chunks on pan, 'T' toggle) + **regions/markers drawn** (`render:sector`/`render:sprite`) | textured tiles + overlays |
 | **S3 — Theomen adapter** | `World` → world-document (Theomen-side); see a real generated world | real data |
 | **S4 — timeline** | per-phase frames + scrub (deltas → targeted `tilemap:update`-style) | ⑥ time |
-| **S5+ — plug-ins** | hex layout · iso projection + depth-sort · infinite/procedural provider · Z multi-slice render · tilemap fast-lane · extreme-zoom LOD · palette-LUT | the deferred axes |
+| **S5+ — plug-ins** | hex layout · iso projection + depth-sort · infinite/procedural provider · Z multi-slice render · extreme-zoom LOD · palette-LUT | the deferred axes |
 
 S0→S3 = "see Theomen's world, generically". Everything after slots into S1's interfaces without rework.
 

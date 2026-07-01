@@ -184,6 +184,7 @@ io->publish("render:debug:rect", std::move(rect));
 | `render:rect` | Rectangle plein coloré `{x,y,w,h,color,layer}` (coin haut-gauche) — quad **layeré** (sprite-pass, avant le texte), pour fonds de HUD. ≠ `render:debug:rect` (toujours au-dessus, sans layer) |
 | `render:sprite:batch` | Batch de sprites |
 | `render:tilemap` | Chunk **éphémère** (ré-uploadé chaque frame) — `{x,y,width,height,tileW,tileH,textureId,tileData}` |
+| `render:tilemap:tileset` | **Bind un tileset PNG** à `textureId` : `{textureId,path,tileW,tileH}` — charge l'image et découpe sa grille `tileW×tileH` en texture2DArray (tile id `T` → layer `T-1` ; id `0` = transparent). À charger **avant** les chunks qui réfèrent ce `textureId` |
 | `render:tilemap:add` | Chunk **retained** par `id` (upload-once), `+fogData?` (fog-of-war), LOD/zoom seamless. ⚠️ `x,y`=monde, **pas** de `chunkX`/`tileSize`/`layer` |
 | `render:tilemap:update` | MAJ chunk retained : full `{id,tileData}` ou patch partiel `{id,x,y,w,h,tileData}` (coords-tuiles) |
 | `render:tilemap:remove` | Retire un chunk retained `{id}` |
