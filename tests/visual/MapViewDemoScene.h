@@ -80,8 +80,21 @@ inline std::vector<std::pair<double, mapview::Rgba>> terrainStops() {
     };
 }
 
+// A handful of point markers scattered over the initial view — rendered as PNG icons by the viewer.
+inline std::vector<mapview::Marker> demoMarkers() {
+    return {
+        mapview::Marker{40.0, 30.0, 0, 0.0, 1.0},
+        mapview::Marker{110.0, 55.0, 0, 0.0, 1.0},
+        mapview::Marker{190.0, 45.0, 0, 0.0, 1.0},
+        mapview::Marker{70.0, 110.0, 0, 0.0, 1.0},
+        mapview::Marker{150.0, 118.0, 0, 0.0, 1.0},
+        mapview::Marker{220.0, 80.0, 0, 0.0, 1.0},
+    };
+}
+
 // Build the terrain lens. `banded` switches the palette from a continuous ramp to discrete altitude bands;
-// `hillshade` toggles the relief shading.
+// `hillshade` toggles the relief shading. Includes a marker layer (drawn on top, layerZ 1000) so a host that
+// setMarkers() + renders MarkerDraw as sprites shows point icons over the terrain.
 inline mapview::Lens makeTerrainLens(bool hillshade, bool banded) {
     const auto stops = terrainStops();
     mapview::Palette pal = banded ? mapview::Palette::banded(stops) : mapview::Palette::ramp(stops);
@@ -90,7 +103,8 @@ inline mapview::Lens makeTerrainLens(bool hillshade, bool banded) {
         layer.hillshadeField = "elevation";
         layer.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);  // NW sun ~54deg, gentle
     }
-    return mapview::Lens{"terrain", {layer}};
+    mapview::MarkerLayer markers{mapview::Palette::categorical({mapview::Rgba{1, 1, 1, 1}}), /*baseScale*/ 8.0, /*layerZ*/ 1000, 1.0f};
+    return mapview::Lens{"terrain", {layer}, {}, {markers}};
 }
 
 } // namespace mvdemo

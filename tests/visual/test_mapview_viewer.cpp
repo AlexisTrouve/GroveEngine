@@ -79,6 +79,15 @@ int main(int argc, char** argv) {
     bool hillshade = true, banded = false;
     auto rebuildLens = [&] { mv.setLens(mvdemo::makeTerrainLens(hillshade, banded)); };
     rebuildLens();
+    mv.setMarkers(mvdemo::demoMarkers());
+
+    // Register the PNG marker icon with the streaming AssetManager (resolved by render:sprite{asset}).
+    {
+        auto a = std::make_unique<JsonDataNode>("asset");
+        a->setString("id", "mvicon");
+        a->setString("path", "assets/textures/1f440.png");
+        gIO->publish("asset:register", std::move(a));
+    }
 
     // Camera: world (0,0) at top-left, ~256 world units across the width.
     auto resetCam = [&] {
@@ -100,6 +109,18 @@ int main(int argc, char** argv) {
         if (!cells.empty()) mapview::render::toSpriteInstances(cells.data(), cells.size(), sprites.data());
         renderer->submitSpriteBatch(sprites.data(), sprites.size());
 
+        // Markers -> PNG icon sprites (world-space; they pin to the terrain and scale with zoom).
+        for (const auto& md : mv.markerDraws()) {
+            auto s = std::make_unique<JsonDataNode>("sprite");
+            s->setString("asset", "mvicon");
+            s->setDouble("x", md.x); s->setDouble("y", md.y);
+            s->setDouble("scaleX", md.scale); s->setDouble("scaleY", md.scale);
+            s->setDouble("rotation", md.rotation);
+            s->setInt("layer", md.layer);
+            s->setInt("color", static_cast<int>(0xFFFFFFFFu));  // white tint -> the PNG as-is
+            gIO->publish("render:sprite", std::move(s));
+        }
+
         auto camNode = std::make_unique<JsonDataNode>("camera");
         camNode->setDouble("x", cam.x); camNode->setDouble("y", cam.y); camNode->setDouble("zoom", cam.zoom);
         camNode->setInt("viewportX", 0); camNode->setInt("viewportY", 0); camNode->setInt("viewportW", W); camNode->setInt("viewportH", H);
@@ -116,9 +137,9 @@ int main(int argc, char** argv) {
         rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
         dev->setViewFramebuffer(0, fb);
         dev->setViewFramebuffer(1, fb);
-        for (int i = 0; i < 60; ++i) {
-            cam.x += 1.5f;  // pan east
-            cam = camera::zoomAt(cam, camera::clampZoom(cam.zoom * 1.015f, 0.5f, 64.0f),
+        for (int i = 0; i < 45; ++i) {
+            cam.x += 0.4f;  // gentle pan east (keeps the markers in frame)
+            cam = camera::zoomAt(cam, camera::clampZoom(cam.zoom * 1.006f, 0.5f, 64.0f),
                                  static_cast<float>(W) * 0.5f, static_cast<float>(H) * 0.5f);  // zoom to centre
             renderFrame(1.0f / 60.0f);
         }
