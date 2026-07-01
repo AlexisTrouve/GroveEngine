@@ -2882,13 +2882,18 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Map-viewer capture tool 'capture_mapview' enabled")
 
-    # Interactive map viewer (S2a): a real window with pan (drag) + zoom (wheel-to-cursor) over the synthetic
-    # world. --selftest scripts a pan+zoom and captures a PNG (headless proof the live pipeline responds).
-    add_executable(test_mapview_viewer visual/test_mapview_viewer.cpp)
+    # Interactive map viewer (S2a + disk-load): a real window with pan (drag) + zoom (wheel-to-cursor) over the
+    # synthetic world OR a world-document on disk (--load <dir>, via WorldDocumentProvider). --selftest scripts a
+    # pan+zoom and captures a PNG. Needs nlohmann (Manifest) + miniz.c (compression) for the disk-load path.
+    add_executable(test_mapview_viewer
+        visual/test_mapview_viewer.cpp
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
     target_include_directories(test_mapview_viewer PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/modules
         ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
     )
     target_link_libraries(test_mapview_viewer PRIVATE
         SDL2::SDL2
@@ -2901,6 +2906,32 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer>")
     endif()
     message(STATUS "Interactive map viewer 'test_mapview_viewer' enabled")
+
+    # Viewer INPUT E2E: injects real SDL events (drag/wheel/keys via SDL_PushEvent) through the app's own event
+    # pump and asserts the camera + culled cell set respond — the proof the viewer's interactivity exists (not
+    # just reads-as-correct). Real GPU (hidden window + offscreen FB + PNG). Registered as a ctest.
+    add_executable(test_mapview_viewer_e2e
+        visual/test_mapview_viewer_e2e.cpp
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    target_include_directories(test_mapview_viewer_e2e PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
+        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    )
+    target_link_libraries(test_mapview_viewer_e2e PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET test_mapview_viewer_e2e POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer_e2e>")
+    endif()
+    grove_add_test(MapViewViewerE2E test_mapview_viewer_e2e ${CMAKE_CURRENT_BINARY_DIR} 60)
+    message(STATUS "Map viewer input E2E 'test_mapview_viewer_e2e' enabled")
 
     # Tiled-map capture: the terrain drawn as a TILEMAP from a generated PNG tileset (elevation band -> tile),
     # via render:tilemap:add + the new render:tilemap:tileset topic. The "tiling" path proof (vs sprite cells).
