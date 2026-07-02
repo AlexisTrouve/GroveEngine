@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "IIO.h"
+#include "ReplaySink.h"
 #include <topictree/TopicTree.h>
 
 using json = nlohmann::json;
@@ -107,6 +108,12 @@ private:
     static constexpr size_t LOG_BATCH_SIZE = 100;
     mutable std::atomic<size_t> messagesSinceLastLog{0};
 
+    // Structured replay sink (IO contract §8, part 3): OPT-IN capture of the stamped control-plane stream.
+    // routeMessage() taps it once, right after completing the envelope. Off by default — when disabled it
+    // costs a single atomic-bool check per routed message (see ReplaySink::record). Its own mutex, independent
+    // of the routing locks (no lock-ordering cycle).
+    ReplaySink m_replaySink;
+
     // -------------------------------------------------------------------------
     // Destruction sentinel -- set to true at the very end of ~IntraIOManager().
     // Purpose: allows IntraIO::~IntraIO() (and any other post-exit code) to
@@ -168,6 +175,14 @@ public:
     // Debug and monitoring
     json getRoutingStats() const;
     void setLogLevel(spdlog::level::level_enum level);
+
+    // Structured replay log (IO contract §8, part 3). enableReplaySink turns ON capture with a bounded ring
+    // of `capacity` events (drop-oldest): every routed control-plane message's envelope + topic is recorded.
+    // Inspect via replaySink().timeline() (canonical (tick,lamport) order) / .bySource(id) (per-module view).
+    // Off by default → zero routing cost. A debug/replay tool: async-safe (bounded, never stalls routing).
+    void enableReplaySink(size_t capacity) { m_replaySink.enable(capacity); }
+    void disableReplaySink() { m_replaySink.disable(); }
+    const ReplaySink& replaySink() const { return m_replaySink; }
 
     // Singleton access (for global routing)
     static IntraIOManager& getInstance();

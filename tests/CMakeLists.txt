@@ -1086,6 +1086,18 @@ target_include_directories(test_lamport_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(test_lamport_clock PRIVATE Catch2::Catch2WithMain)
 grove_add_test(LamportClockUnit test_lamport_clock ${CMAKE_CURRENT_BINARY_DIR})
 
+# grove::ReplaySink — the structured replay log (grove/ReplaySink.h). Pure, header-only: an opt-in,
+# bounded (drop-oldest), thread-safe sink over the stamped control-plane stream, with the two §8 views
+# (per-source filter + merge-sorted canonical timeline). Part 3 of the IO contract build order
+# (docs/design/iio-contract.md §8). Objective oracle test incl. a concurrent-record thread-safety case.
+add_executable(test_replay_sink unit/test_replay_sink.cpp)
+target_include_directories(test_replay_sink PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(test_replay_sink PRIVATE Catch2::Catch2WithMain)
+if(NOT WIN32)
+    target_link_libraries(test_replay_sink PRIVATE pthread)  # std::thread on Linux/WSL (MinGW gets it via winpthread)
+endif()
+grove_add_test(ReplaySinkUnit test_replay_sink ${CMAKE_CURRENT_BINARY_DIR})
+
 # Message envelope E2E (IO contract §5, part 2b/2c): the transport stamps source/seq/lamport/
 # tick/simTime on delivered messages, with Lamport causality across a publish chain, and the
 # engine's step() wire pushes the tick the envelope is stamped from. In-process, Catch2, no GPU.
@@ -1096,6 +1108,17 @@ target_link_libraries(test_message_envelope PRIVATE
     Catch2::Catch2WithMain
 )
 grove_add_test(MessageEnvelope test_message_envelope ${CMAKE_CURRENT_BINARY_DIR})
+
+# Structured replay sink E2E (IO contract §8, part 3): the IntraIOManager taps its ReplaySink at
+# routeMessage, so an enabled sink captures the real stamped stream (publish -> route). Proves the tap is
+# WIRED (envelope completed, two query views, opt-in, bounded) — not just the pure ring (ReplaySinkUnit).
+add_executable(test_replay_sink_capture integration/test_replay_sink_capture.cpp)
+target_link_libraries(test_replay_sink_capture PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(ReplaySinkCapture test_replay_sink_capture ${CMAKE_CURRENT_BINARY_DIR})
 
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED

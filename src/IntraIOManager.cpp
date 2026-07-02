@@ -239,6 +239,12 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
     env.tick    = m_currentTick.load(std::memory_order_relaxed);
     env.simTime = m_currentSimTime.load(std::memory_order_relaxed);
 
+    // Structured replay sink (IO contract §8, part 3): tap the canonical stamped stream ONCE here — the
+    // central route point every high-freq control-plane message passes through exactly once with a complete
+    // envelope. Opt-in (no-op + one atomic check when disabled); its own mutex, so it neither extends nor
+    // deadlocks the routing critical section. Payload-free by design in v1 (envelope+topic = the timeline).
+    m_replaySink.record(env, topic);
+
     totalRoutedMessages++;
     messagesSinceLastLog++;
     size_t deliveredCount = 0;
