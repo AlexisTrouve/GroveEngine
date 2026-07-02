@@ -4,12 +4,14 @@ Companion to **[iio-contract.md](iio-contract.md)** (the permanent doctrine). Th
 *resume point*: how the contract was reached, what to build first, and the design questions still
 open. Read the contract for the *what/why*; read this for *where we are and what's next*.
 
-**Status: doctrine decided + documented; Parts 1 (EngineClock) + 2 (message envelope) now BUILT.**
-The contract started as a design agreement; two build slices are shipped: the EngineClock (1a class
-+ 1b engine wiring + 1c `setClock` injection) and the message envelope (2a `Envelope`/`LamportClock`
-+ 2b publish/route/deliver stamping + 2c E2E), the latter **WSL-TSan-clean**. Locked by
-`EngineClockUnit`/`EngineClockHosting` + `LamportClockUnit`/`MessageEnvelope`. Next is the structured
-replay sink. The status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
+**Status: doctrine decided + documented; Parts 1 (EngineClock) + 2 (message envelope) + 3 (replay sink)
+now BUILT.** The contract started as a design agreement; three build slices are shipped: the EngineClock
+(1a class + 1b engine wiring + 1c `setClock` injection), the message envelope (2a `Envelope`/`LamportClock`
++ 2b publish/route/deliver stamping + 2c E2E), and the structured replay sink (`ReplaySink` tapped in
+`routeMessage`). Locked by `EngineClockUnit`/`EngineClockHosting` + `LamportClockUnit`/`MessageEnvelope` +
+`ReplaySinkUnit`/`ReplaySinkCapture`, all **WSL-TSan-clean**. Next: per-topic backpressure policy, and the
+sink follow-ons (payload digest, seq dedup/gap-detection, `causedBy`). The status ledger in the contract
+marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
 ## What this session decided (the trail)
 
@@ -55,9 +57,12 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
    Locked by `MessageEnvelope` (4 cases / 18 assertions) + `LamportClockUnit` (7 cases / 25). **WSL
    TSan re-run CLEAN** — threaded + pool hosting chains, 6 runs, 0 races, real workload (600 routed).
    `causedBy` field present but not populated; consumer-side seq-dedup deferred.
-3. **Structured replay sink** ← *next* — once stamped, per-module + centralized logs fall out as two
-   queries; build the async, droppable structured sink. Natural home for `causedBy` + seq-dedup.
-4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with
+3. ✅ **Structured replay sink — DONE.** `grove::ReplaySink` (pure, header-only: opt-in, bounded drop-oldest
+   ring, thread-safe) tapped in `IntraIOManager::routeMessage`; `bySource()` = per-module view, `timeline()`
+   = merge-sorted `(tick,lamport)` central log. `enableReplaySink(capacity)` on the manager. v1 = envelope +
+   topic. Locked by `ReplaySinkUnit` (7 cases) + `ReplaySinkCapture` (E2E, 4); **WSL TSan-clean** (record-via-
+   route vs concurrent query, 5 runs, 0 races). Follow-ons: payload digest, seq dedup/gap-detection, `causedBy`.
+4. **Per-topic backpressure policy** ← *next* — extend the existing bounded-queue infra with
    coalesce (latest-wins) / reject (critical) alongside the current global drop-oldest.
 5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task;
    independent, benefits all control-plane traffic.

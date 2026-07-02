@@ -295,7 +295,7 @@ Therefore:
 
 ---
 
-## 8. Logging & replay 🟡 (one stamped stream, two views)
+## 8. Logging & replay ✅ (structured sink built) / 🟡 (domain-logger fan-out, exec-order)
 
 Per-module logging and a centralized log are **not two systems** — the centralized log *is* the
 per-module logs merged on the envelope metadata:
@@ -318,6 +318,15 @@ Three rules so it stays sound:
 recording the stamped stream and replaying it sorted is *the* single most valuable debugging
 tool: it reproduces the heisenbug that "only happens sometimes". This justifies the stamping cost
 now, independent of any future lockstep.
+
+> **✅ BUILT (part 3).** `grove::ReplaySink` (`include/grove/ReplaySink.h`) implements rules 1–3: a
+> **structured** ring of `{Envelope, topic}` (not a formatted string), **async/droppable** (opt-in, bounded,
+> drop-oldest, its own mutex so it never stalls routing), **control-plane only** (tapped in
+> `IntraIOManager::routeMessage`, which the data plane bypasses). `bySource()` = the per-module view;
+> `timeline()` = the merge-sorted `(tick, lamport)` central replay log. Enable via
+> `IntraIOManager::enableReplaySink(capacity)`. v1 stores envelope + topic; the **payload digest** and the
+> **exec-order** view + fan-out into the human `spdlog` domain loggers remain 🟡. Locked by `ReplaySinkUnit` +
+> `ReplaySinkCapture`, WSL TSan-clean.
 
 ---
 
@@ -369,8 +378,9 @@ under the low-trust doctrine. The pattern:
 | Clock → module handoff: `setClock` injection + `IEngine::clock()` host accessor | ✅ BUILT |
 | Pause / slow-mo / time-scale via the clock | ✅ BUILT |
 | Lamport logical clock (per-node) + per-source seq, stamped | ✅ BUILT |
-| Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED |
-| Dual logging = stamped stream, two views; structured replay sink; exec-order | 🟡 DECIDED |
+| Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED (follow-on to the sink) |
+| Structured replay sink (bounded, opt-in, thread-safe; per-source + (tick,lamport) timeline views) | ✅ BUILT (`ReplaySink.h`, tapped in `routeMessage`; v1 = envelope+topic; TSan-clean) |
+| Dual logging into the human domain loggers; exec-order view; payload digest in the sink | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
 | Intra zero-copy delivery (`shared_ptr<const>`) | ✅ BUILT (fan-out O(N)→O(1); coreResident = true 0-copy) |
 | Per-topic backpressure policy (coalesce / reject) | 🟡 DECIDED |
@@ -388,9 +398,12 @@ under the low-trust doctrine. The pattern:
    through publish/route/deliver; per-node `LamportClock`; engine pushes the tick/simTime snapshot).
    Locked by `MessageEnvelope` + `LamportClockUnit`; **WSL TSan re-run clean** (threaded + pool chains,
    0 races). `causedBy` reserved; consumer-side dedup/gap-detection deferred to the replay sink.
-3. **Structured replay sink** ← *next* — messages are now stamped, so the per-module + centralized
-   logs fall out as two queries; build the structured sink (async, droppable). Natural home for
-   `causedBy` + seq-based dedup (they need a consumer that reads the stamped stream).
+3. ~~**Structured replay sink**~~ ✅ **DONE** — `grove::ReplaySink` (pure, header-only: opt-in, bounded
+   drop-oldest ring, thread-safe) tapped in `IntraIOManager::routeMessage`; the per-module + centralized
+   logs are the `bySource()` / `timeline()` queries over the captured stamped stream. v1 records envelope +
+   topic; `causedBy` + seq-based dedup/gap-detection + a payload digest are follow-ons (they read the payload
+   / correlate across events). Locked by `ReplaySinkUnit` + `ReplaySinkCapture` (E2E); **WSL TSan re-run clean**
+   (record-via-route vs concurrent query, 5 runs, 0 races).
 4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with coalesce/reject.
 5. ~~**Intra zero-copy delivery**~~ ✅ **DONE** (`Message::data` = `shared_ptr<const IDataNode>`; one
    immutable node shared across N subscribers, fan-out O(N)→O(1); `coreResident` instances share the
@@ -407,6 +420,9 @@ under the low-trust doctrine. The pattern:
 - `tests/unit/test_engine_clock.cpp` + `tests/integration/test_engine_clock_hosting.cpp` — the locks.
 - `include/grove/IIO.h` — ✅ `Envelope` struct + `Message::env` (the message header).
 - `include/grove/LamportClock.h` — ✅ per-node logical clock (pure, header-only).
+- `include/grove/ReplaySink.h` — ✅ the structured replay sink (pure, header-only: bounded ring + the two
+  §8 views). Tapped in `src/IntraIOManager.cpp::routeMessage`; enabled via `IntraIOManager::enableReplaySink`.
+- `tests/unit/test_replay_sink.cpp` + `tests/integration/test_replay_sink_capture.cpp` — the sink locks.
 - `include/grove/IOFactory.h` + `src/IOFactory.cpp` — the intra/local/network tiers (local/network are stubs).
 - `src/IntraIO.cpp` — publish stamps source/seq/lamport; deliver lands the envelope + folds lamport
   (receive rule); json deep-copy delivery (zero-copy target) + bounded queue / drop-oldest / IOHealth.
