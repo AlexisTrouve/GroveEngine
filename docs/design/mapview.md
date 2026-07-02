@@ -109,20 +109,24 @@ The "table of contents + recipe book". Describes the world; never holds bulk num
     "bounds": { "min": [0,0,0], "max": [1000,1000,1] },  // null on an axis = infinite
     "chunkDims": [128, 128, 1]       // W×H×D, power-of-two; Theomen = 128×128×1 (flat)
   },
-  "fields": [                        // the "layers of info" — each declares its BIT encoding
-    { "name": "elevation",   "encoding": "int16",  "scale": 0.5, "offset": -5000, "unit": "m" },
-    { "name": "biome",       "encoding": "uint5",  "categories": ["tundra","grassland", "..."] },
-    { "name": "forest",      "encoding": "unorm8" },                 // 8-bit normalized 0..1
-    { "name": "is_coastal",  "encoding": "bit" }                     // 1 bit/cell
+  "fields": [                        // ordered schema — each declares its BIT encoding (see §3.2)
+    { "name": "elevation",  "encoding": "int",   "bits": 16, "scale": 0.5, "offset": -5000 },
+    { "name": "biome",      "encoding": "uint",  "bits": 5 },        // categorical id per cell
+    { "name": "forest",     "encoding": "unorm8" },                  // 8-bit normalized 0..1
+    { "name": "is_coastal", "encoding": "bit" }                      // 1 bit/cell
   ],
   "regions":  [ /* {cx,cy,radius,type,value?} … inline, low-cardinality (S1j) */ ],
   "markers":  [ /* {x,y,kind,angle?,scale?} … inline points (S1j) */ ],
-  "palettes": [ /* §5 */ ],
-  "lenses":   [ /* §5 */ ],
-  "frames":   { /* §6 timeline index, optional */ },
-  "chunks":   "data/chunks/"          // where the per-chunk blobs live
+  "chunks":   "chunks"                // dir (relative to the manifest) holding the per-chunk blobs
 }
 ```
+
+> **As implemented** (`Manifest.h`, `emitManifest`/`parseManifest`): `int`/`uint` carry a separate **`bits`**
+> (there is no `"int16"` token); `scale`/`offset`/region `value`/marker `angle`,`scale` are omitted when
+> identity. **Producers should use the C++ writer** (`emitManifest`/`disk::writeWorldDocument`), not hand-roll
+> this JSON. **`palettes`/`lenses`/`frames` are NOT in the manifest yet** — the §5 data-driven recipe is spec;
+> today the **consumer builds the lens in C++** (e.g. `makeTerrainLens`). A producer writes fields + overlays;
+> the viewer/game picks the lens.
 
 ### 3.2 Fields are bit-packed and self-describing ("bit par bit")
 
@@ -130,8 +134,11 @@ Each field declares **how many bits and how to decode** — no wasted width. A f
 category costs 5 bits, elevation 16 bits scaled to metres. The viewer reads the declaration and knows how
 to unpack any field **without knowing what it means**.
 
-Encodings (v1 set): `bit`, `uint{N}` (N≤32), `int{N}`, `unorm8/16` (normalized 0..1), `float16/32`,
-`enum`/`categorical` (uint with a category table). Optional `scale`+`offset` maps an int to a physical range.
+Encodings (v1, **as implemented**): `bit` (1 bit), `uint`/`int` (carry a `bits` field, N≤32), `unorm8`/
+`unorm16` (normalized 0..1), `float32`. A **categorical** field is just a `uint` (the id per cell; the category
+→ colour table lives in the palette, not the field). Optional `scale`+`offset` maps a stored int to a physical
+range (`phys = raw·scale + offset`; a producer stores `raw = round((phys − offset)/scale)`). **`float16` is
+deferred** (no native type — add a conversion routine when a producer needs it).
 
 ### 3.3 Chunks are sparse — `absent ≠ zero` (fail-franc)
 

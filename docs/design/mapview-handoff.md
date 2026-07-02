@@ -6,10 +6,15 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ---
 
-## Status (2026-06-30) — RESUME HERE
+## Status (2026-07-01) — ENGINE SIDE COMPLETE; only S3 (Theomen adapter) remains
 
-**SPEC ✅ locked. S0 ✅ DONE (format, frozen). S1 ✅ DONE (pure `MapView` core). 11 MapView ctests green.
-Resume at S2 (the viewer app) — and/or the BgfxRenderer CellDraw→SpriteInstance adapter.**
+**SPEC ✅ · S0 format ✅ (frozen) · S1 pure core ✅ · S2 interactive viewer ✅ (disk-load) · S3-seam ✅
+(file-backed provider) · tiling path ✅ (T2/T3 + live retained tiling) · overlays on screen ✅ (regions/
+markers) — 16 MapView ctests green.** The consumer side is DONE and proven E2E: a `.world` written to disk is
+loaded (`WorldDocumentProvider`) and rendered (cells + textured tiles + regions + markers) — `MapViewViewerE2E`
+writes a doc + `--load`s + drives it with real input, all green in ctest. **The only remaining slice is S3:
+Theomen's own adapter that WRITES a `.world`** (its Claude, cross-project). See the "Theomen: write a `.world`"
+recipe below — the contract is frozen and the engine consumes any `.world` dir today.
 
 **S1 (pure core, headless TDD)** — `include/grove/mapview/`, commits `9c1fbb4`→`ee0702e`→`3be5f7c`→`5b969b9`:
 - **S1a** geometry — `Geometry.h` (WorldPos/RenderPos/CellQuad), `GridLayout.h` (IGridLayout + SquareLayout:
@@ -39,21 +44,71 @@ SpriteInstance) — grove::mapview is 100% renderer-independent.
 |---|---|
 | Design spec (`mapview.md`) | ✅ locked, §9 decisions, §8 slice plan |
 | world-document format + reader (S0) | ✅ **DONE** — frozen contract, `include/grove/mapview/` |
-| `MapView` pure core (S1) | ✅ **DONE** — `include/grove/mapview/`, 8 ctests green |
+| `MapView` pure core (S1) | ✅ **DONE** — `include/grove/mapview/` |
 | CellDraw→SpriteInstance adapter (P1) | ✅ **DONE** — `modules/BgfxRenderer/MapView/SpriteAdapter.h`, `MapViewAdapterUnit` |
-| render proof (P2) | ✅ **DONE** — `tests/visual/capture_mapview.cpp` renders a synthetic world to a PNG (first pixels) |
-| viewer app (S2a — interactive) | ✅ **DONE** — `tests/visual/test_mapview_viewer.cpp`: live window, drag-pan + wheel-zoom (grove::camera) + H/B/R keys. Run: `./build/tests/test_mapview_viewer` |
-| real Theomen data (S3) / on-screen overlays / richer UI | ❌ not started — **resume here** |
-| Theomen adapter (S3) | ❌ not started (Theomen-side, its Claude) — **UNBLOCKED** (format frozen) |
+| render proof (P2) | ✅ **DONE** — `tests/visual/capture_mapview.cpp` renders a synthetic world to a PNG |
+| viewer app (S2 — interactive) | ✅ **DONE** — `tests/visual/test_mapview_viewer.cpp`: live window, drag-pan + wheel-zoom + H/B/T/R keys, **`--load <dir>`** opens a `.world` from disk. Input **E2E** = `MapViewViewerE2E` |
+| file-backed provider (S3-seam) | ✅ **DONE** — `WorldDocumentProvider.h` bridges a `.world` on disk → the pure `MapView` (the "file is the interface" thesis, proven E2E: write→load→render) |
+| tiling path (T2/T3) | ✅ **DONE** — `render:tilemap:tileset` + `TileMapper` (value→tile id) + `MapView` tile-chunk emit + **live retained tiling** in the viewer (`TileChunkStreamer`, 'T' toggle). Locks: `MapViewTileMapperUnit`/`MapViewTileStreamerUnit` + capture |
+| overlays on screen | ✅ **DONE** — regions → `render:sector` (rings) + markers → `render:sprite` (icons), drawn world-space by the viewer |
+| **Theomen adapter (S3)** | ❌ **not started (Theomen-side, its Claude) — UNBLOCKED**: format frozen, engine consumes any `.world` today. Recipe ↓ |
 
-> **Format frozen → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its adapter just
-> `#include`s `grove/mapview/{WorldDocument,Manifest,WorldDocumentDisk}.h` and calls
-> `writeWorldDocument(dir, manifest, chunks)` — the headers ARE the contract (the mp4/VLC shared spec), no
-> separate byte-layout doc needed. The chunk blob format and manifest schema are frozen.
+> **Format frozen + consumer proven → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its
+> adapter just `#include`s the mapview headers and calls `disk::writeWorldDocument(...)` — the **headers ARE
+> the contract** (the mp4/VLC shared spec), no separate byte-layout doc. See the recipe below.
 >
-> **Repo decision (2026-06-30):** Alexi chose NOT to spin a separate repo for now — the viewer app (S2)
-> will live inside groveengine (e.g. a `tests/visual/` demo or an `examples/`/`tools/` target) rather than a
-> new neutral-named project. Revisit if/when it grows into a standalone product.
+> **Repo decision (2026-06-30):** NO separate repo — the viewer lives inside groveengine (`tests/visual/`).
+
+---
+
+## Theomen: write a `.world` (S3 recipe — the ONLY thing left)
+
+The engine reads **any** `.world` dir. Theomen's adapter builds a `Manifest` + a `vector<ChunkData>` and calls
+the writer. **Use the C++ writer — do NOT hand-roll the manifest JSON** (the JSON keys/encoding names are an
+internal detail; the emitter owns them, and hand-writing `"encoding":"int16"` will fail-franc — the real names
+are `int`/`uint` + a separate `bits`).
+
+**Copy the worked example verbatim:** `tests/visual/test_mapview_viewer_e2e.cpp` → `writeTestDoc()` writes a
+complete multi-chunk compressed doc; `tests/visual/capture_mapview_from_disk.cpp` writes one with an island +
+renders it. Both are the template.
+
+```cpp
+#include "grove/mapview/Field.h"             // FieldDecl, Encoding
+#include "grove/mapview/WorldDocument.h"      // ChunkData
+#include "grove/mapview/Manifest.h"           // Manifest, Coordinate
+#include "grove/mapview/WorldDocumentDisk.h"  // disk::writeWorldDocument
+#include "grove/mapview/Compression.h"        // codec::zlibCompressor  (link deps/.../miniz.c)
+
+using namespace grove::mapview;
+
+Manifest m;
+m.coordinate.topology  = "square";
+m.coordinate.cellSize  = {{1.0, 1.0}};              // world units per cell
+m.coordinate.boundsMin = {{0, 0, 0}};               // inclusive min cell (x,y,z)
+m.coordinate.boundsMax = {{W-1, H-1, 0}};           // inclusive max cell (flat world: z=0)
+m.coordinate.chunkDims = {{CW, CH, 1}};             // cells per chunk (aim 16k–256k cells: 128×128×1 ok)
+m.fields = { FieldDecl{"elevation", Encoding::Int, 16, /*scale*/0.25, /*offset*/0.0} };  // add biome/etc.
+// optional overlays (low-cardinality, inline): m.regions = {...}; m.markers = {...};
+
+std::vector<ChunkData> chunks;
+for (each chunk cc) {
+    ChunkData d; d.coord = {cc.x, cc.y, 0}; d.cellCount = CW * CH;
+    std::vector<uint32_t> vals(CW * CH);            // RAW encoded values, row-major (then z-major)
+    for (each cell) vals[i] = (uint32_t)std::llround((phys - offset) / scale);  // inverse of decodePhysical
+    d.fields.emplace_back("elevation", std::move(vals));   // omit a field entirely = absent (fail-franc, ≠ 0)
+    chunks.push_back(std::move(d));
+}
+
+const Compressor z = codec::zlibCompressor();
+disk::writeWorldDocument(dir, m, chunks, &z);         // pass nullptr for uncompressed
+```
+
+**Gotchas:** (1) store **raw** values (`(phys-offset)/scale` rounded to int), not physical — the engine
+`decodePhysical`s them back. (2) A field absent from a chunk is **not stored** and reads back as "no data" (the
+layer doesn't draw) — never write zeros to mean "missing". (3) `boundsMin/Max` are **inclusive cell indices**.
+(4) Encodings: `bit`/`uint`/`int` (int/uint carry `bits`) / `unorm8`/`unorm16`/`float32` — **no `float16`**.
+(5) The viewer frames the world from `bounds`; put a `terrain` field named `"elevation"` to reuse the demo lens,
+or the game supplies its own lens. **Verify:** `./build/tests/test_mapview_viewer --load <yourDir>`.
 
 ---
 
@@ -196,7 +251,8 @@ mapview into the quality-hardening lenses, [[quality-hardening]]); the app/adapt
   infinite / Z multi-slice / tilemap fast-lane / extreme-zoom LOD / palette-LUT). S0→S3 = "see Theomen's world,
   generically"; everything after slots into S1's interfaces without rework.
 
-**One-line resume:** *S0 + S1 done (pure core, 12 ctest locks incl. the adapter). P1 adapter + P2 render proof
-DONE — `capture_mapview` renders a synthetic world to a PNG (first pixels). Next = the interactive S2 app
-(camera pan/zoom + lens/z-slice UI, in groveengine) and/or wiring real Theomen data (S3). Lesson banked:
-hillshade wants a finely-encoded field (coarse → gradient quantization contours, caught only by the real render).*
+**One-line resume:** *Engine side COMPLETE — S0 format + S1 core + S2 viewer (`--load`) + S3-seam provider +
+tiling (T2/T3, incl. live retained tiling) + regions/markers on screen, 16 MapView ctests, write→load→render
+proven E2E. The ONLY thing left is S3 = Theomen's adapter that WRITES a `.world` (its Claude, cross-project) —
+see the "Theomen: write a `.world`" recipe above (copy `writeTestDoc`). Everything else (S4 timeline, S5 hex/
+iso/Z/LOD) slots into S1's interfaces without rework.*
