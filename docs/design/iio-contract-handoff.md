@@ -9,9 +9,10 @@ now BUILT.** The contract started as a design agreement; three build slices are 
 (1a class + 1b engine wiring + 1c `setClock` injection), the message envelope (2a `Envelope`/`LamportClock`
 + 2b publish/route/deliver stamping + 2c E2E), and the structured replay sink (`ReplaySink` tapped in
 `routeMessage`). Locked by `EngineClockUnit`/`EngineClockHosting` + `LamportClockUnit`/`MessageEnvelope` +
-`ReplaySinkUnit`/`ReplaySinkCapture`, all **WSL-TSan-clean**. Next: per-topic backpressure policy, and the
-sink follow-ons (payload digest, seq dedup/gap-detection, `causedBy`). The status ledger in the contract
-marks every line ✅ built / 🟡 decided / 🔵 deferred.
+`ReplaySinkUnit`/`ReplaySinkCapture`, all **WSL-TSan-clean**. Part 4 (per-topic backpressure — DropOldest/
+Coalesce/Reject on the high-freq inbox) is also **BUILT** (`IntraIO::setTopicPolicy`, `BackpressurePolicy`
+E2E + WSL-TSan-clean). Next: the sink follow-ons (payload digest, seq dedup/gap-detection, `causedBy`) +
+pattern-based topic policies. The status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
 ## What this session decided (the trail)
 
@@ -62,8 +63,12 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
    = merge-sorted `(tick,lamport)` central log. `enableReplaySink(capacity)` on the manager. v1 = envelope +
    topic. Locked by `ReplaySinkUnit` (7 cases) + `ReplaySinkCapture` (E2E, 4); **WSL TSan-clean** (record-via-
    route vs concurrent query, 5 runs, 0 races). Follow-ons: payload digest, seq dedup/gap-detection, `causedBy`.
-4. **Per-topic backpressure policy** ← *next* — extend the existing bounded-queue infra with
-   coalesce (latest-wins) / reject (critical) alongside the current global drop-oldest.
+4. ✅ **Per-topic backpressure policy — DONE.** `IntraIO::setTopicPolicy(topic, BackpressurePolicy)` on the
+   high-freq inbox: DropOldest (default) / Coalesce (latest-wins, supersede pending same-topic at enqueue) /
+   Reject (protect a queued critical; reject-newest-at-door on all-Reject overflow). Queues moved to
+   `std::deque` for scan/erase; opt-in so the default path is unchanged. Locked by `BackpressurePolicy` (E2E,
+   5 cases) + **WSL TSan-clean** (all branches under concurrent deliver-vs-pull). Follow-on: pattern policies
+   (`render:*`) + a manager-level broadcast (today per-instance).
 5. **Intra zero-copy delivery** (`shared_ptr<const>`) — the rendering-handoff open task;
    independent, benefits all control-plane traffic.
 

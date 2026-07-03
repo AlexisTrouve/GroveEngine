@@ -330,7 +330,7 @@ now, independent of any future lockstep.
 
 ---
 
-## 9. Backpressure ✅ (partially built) / 🟡 (per-topic policy)
+## 9. Backpressure ✅ (bounded queue + per-topic policy) / 🟡 (pattern policies)
 
 Async + resilience *forces* bounded queues. **This is already partly built** (recently revived —
 the metrics had gone dead):
@@ -341,10 +341,16 @@ the metrics had gone dead):
   `averageProcessingRate`; `DebugEngine` warns at 80% full.
 - ✅ High-freq / low-freq queue split exists.
 
-🟡 **Missing: a per-topic policy.** Global drop-oldest is one strategy; some topics want
-**coalesce** (latest-wins — e.g. `render:camera`, a tension intent) and some want **reject**
-(never drop a critical command). The contract: backpressure policy is a *per-topic* property, not
-one global rule. This is what turns "resilience" from a word into a property.
+✅ **BUILT: a per-topic policy** (`IntraIO::setTopicPolicy(topic, BackpressurePolicy)`). The high-freq inbox
+now honors, per topic: **DropOldest** (default — the historical global rule), **Coalesce** (latest-wins — a
+flooding state topic like `render:camera` / an `audio:intent` never piles up; the pending same-topic message
+is superseded at enqueue), and **Reject** (a queued critical command is never collaterally dropped when
+another topic floods; on a genuine all-Reject overflow the *newest* is rejected at the door — loud + counted
+— rather than losing an accepted critical or growing unbounded). Opt-in: unset topics keep drop-oldest, so
+the default hot path is unchanged. The queues moved `std::queue → std::deque` so a policy can scan/erase.
+Locked by `BackpressurePolicy` (E2E) + WSL TSan (concurrent deliver-vs-pull, all branches). 🟡 **Follow-on:**
+pattern-based policies (`render:*`) + a manager-level "apply to all inboxes" broadcast (today it is per-instance).
+This is what turns "resilience" from a word into a property.
 
 ---
 
@@ -383,7 +389,8 @@ under the low-trust doctrine. The pattern:
 | Dual logging into the human domain loggers; exec-order view; payload digest in the sink | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
 | Intra zero-copy delivery (`shared_ptr<const>`) | ✅ BUILT (fan-out O(N)→O(1); coreResident = true 0-copy) |
-| Per-topic backpressure policy (coalesce / reject) | 🟡 DECIDED |
+| Per-topic backpressure policy (DropOldest / Coalesce / Reject) on the high-freq inbox | ✅ BUILT (`IntraIO::setTopicPolicy`; exact-topic; TSan-clean) |
+| Pattern-based topic policies + manager-level "set on all inboxes" broadcast | 🟡 DECIDED (follow-on) |
 | Live determinism enforcement (sort + apply canonical order) | 🔵 DEFERRED |
 | Vector clocks | 🔵 DEFERRED |
 | Flat payload / shared-memory zero-copy cross-process | 🔵 DEFERRED |
@@ -404,7 +411,10 @@ under the low-trust doctrine. The pattern:
    topic; `causedBy` + seq-based dedup/gap-detection + a payload digest are follow-ons (they read the payload
    / correlate across events). Locked by `ReplaySinkUnit` + `ReplaySinkCapture` (E2E); **WSL TSan re-run clean**
    (record-via-route vs concurrent query, 5 runs, 0 races).
-4. **Per-topic backpressure policy** — extend the existing bounded-queue infra with coalesce/reject.
+4. ~~**Per-topic backpressure policy**~~ ✅ **DONE** — `IntraIO::setTopicPolicy` gives the high-freq inbox
+   DropOldest / Coalesce / Reject (exact-topic, opt-in; queues moved to `std::deque` for scan/erase). Locked by
+   `BackpressurePolicy` (E2E, 5 cases) + WSL TSan-clean (all branches under concurrent deliver-vs-pull).
+   Follow-on: pattern policies + a manager-level broadcast.
 5. ~~**Intra zero-copy delivery**~~ ✅ **DONE** (`Message::data` = `shared_ptr<const IDataNode>`; one
    immutable node shared across N subscribers, fan-out O(N)→O(1); `coreResident` instances share the
    original with 0 copies, others re-home once for cross-`.so` safety). Locked by `MessageEnvelope`
@@ -425,7 +435,9 @@ under the low-trust doctrine. The pattern:
 - `tests/unit/test_replay_sink.cpp` + `tests/integration/test_replay_sink_capture.cpp` — the sink locks.
 - `include/grove/IOFactory.h` + `src/IOFactory.cpp` — the intra/local/network tiers (local/network are stubs).
 - `src/IntraIO.cpp` — publish stamps source/seq/lamport; deliver lands the envelope + folds lamport
-  (receive rule); json deep-copy delivery (zero-copy target) + bounded queue / drop-oldest / IOHealth.
+  (receive rule) + applies the per-topic backpressure policy (§9: Coalesce at enqueue, Reject-aware eviction
+  in `enforceQueueLimits`); shared-payload delivery + bounded `std::deque` inbox / IOHealth. `setTopicPolicy`.
+- `tests/integration/test_backpressure_policy.cpp` — the per-topic policy locks (§9).
 - `src/IntraIOManager.cpp` — `routeMessage` completes the envelope (tick/simTime) + `setSimTime`
   atomic snapshot; per-delivery re-wrap (zero-copy target).
 - `tests/integration/test_message_envelope.cpp` + `tests/unit/test_lamport_clock.cpp` — the envelope locks.
