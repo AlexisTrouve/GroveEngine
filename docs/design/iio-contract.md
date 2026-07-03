@@ -349,9 +349,14 @@ is superseded at enqueue), and **Reject** (a queued critical command is never co
 another topic floods; on a genuine all-Reject overflow the *newest* is rejected at the door — loud + counted
 — rather than losing an accepted critical or growing unbounded). Opt-in: unset topics keep drop-oldest, so
 the default hot path is unchanged. The queues moved `std::queue → std::deque` so a policy can scan/erase.
-Locked by `BackpressurePolicy` (E2E) + WSL TSan (concurrent deliver-vs-pull, all branches). 🟡 **Follow-on:**
-pattern-based policies (`render:*`) + a manager-level "apply to all inboxes" broadcast (today it is per-instance).
-This is what turns "resilience" from a word into a property.
+Locked by `BackpressurePolicy` (E2E) + WSL TSan (concurrent deliver-vs-pull, all branches). An opt-in per-inbox
+**drop log** (`IntraIO::enableDropLog(cap)` / `getRecentDrops()`) records each dropped message's `{source, seq,
+topic, reason}` — the direct WHICH+WHY behind the existing `droppedMessageCount`. (Note: seq-gap detection can
+NOT reveal these drops — the replay sink taps at `routeMessage`, *before* any subscriber inbox drops, and the
+per-source `seq` spans all a producer's topics, so a topic-filtered subscriber sees seq "gaps" with zero loss.
+Recording the drop directly is the false-positive-free answer.) 🟡 **Follow-on:** pattern-based policies
+(`render:*`) + a manager-level "apply to all inboxes" broadcast (today it is per-instance). This is what turns
+"resilience" from a word into a property.
 
 ---
 
@@ -385,12 +390,14 @@ under the low-trust doctrine. The pattern:
 | Clock → module handoff: `setClock` injection + `IEngine::clock()` host accessor | ✅ BUILT |
 | Pause / slow-mo / time-scale via the clock | ✅ BUILT |
 | Lamport logical clock (per-node) + per-source seq, stamped | ✅ BUILT |
-| Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED (follow-on to the sink) |
+| Consumer-side dedup USING (source, seq) | 🟡 DECIDED (no redelivery trigger in the intra transport yet) |
 | Structured replay sink (bounded, opt-in, thread-safe; per-source + (tick,lamport) views; opt-in payload snapshot) | ✅ BUILT (`ReplaySink.h`, tapped in `routeMessage`; `IDataNode::serialize()`; TSan-clean) |
 | Dual logging into the human domain loggers; exec-order view; `causedBy` correlation | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
 | Intra zero-copy delivery (`shared_ptr<const>`) | ✅ BUILT (fan-out O(N)→O(1); coreResident = true 0-copy) |
 | Per-topic backpressure policy (DropOldest / Coalesce / Reject) on the high-freq inbox | ✅ BUILT (`IntraIO::setTopicPolicy`; exact-topic; TSan-clean) |
+| Per-inbox drop log — which/why messages were dropped (`{source,seq,topic,reason}`) | ✅ BUILT (`IntraIO::enableDropLog`/`getRecentDrops`; opt-in; TSan-clean) |
+| Consumer-side seq gap-detection | 🔵 DROPPED — seq is per-source-across-topics + the sink taps pre-drop, so gaps are ambiguous; the drop log replaces it |
 | Pattern-based topic policies + manager-level "set on all inboxes" broadcast | 🟡 DECIDED (follow-on) |
 | Live determinism enforcement (sort + apply canonical order) | 🔵 DEFERRED |
 | Vector clocks | 🔵 DEFERRED |
