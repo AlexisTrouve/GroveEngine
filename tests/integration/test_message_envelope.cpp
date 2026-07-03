@@ -105,6 +105,35 @@ TEST_CASE("Envelope - Lamport obeys the receive rule across an A->B->A chain", "
 }
 
 // ============================================================================
+// Transport: causedBy links a handler's publish to the message that triggered it
+// ============================================================================
+
+TEST_CASE("Envelope - causedBy correlates a handler's reply to its cause", "[envelope][iio]") {
+    auto& mgr = IntraIOManager::getInstance();
+    auto a = mgr.createInstance("CauseA");
+    auto b = mgr.createInstance("CauseB");
+
+    Envelope aMsg;      // A's original message, as B received it
+    Envelope bReply;    // B's reply, as A received it
+    b->subscribe("cz:a2b", [&](const Message& m) {
+        aMsg = m.env;
+        b->publish("cz:b2a", emptyNode());     // B replies FROM INSIDE its handler
+    });
+    a->subscribe("cz:b2a", [&](const Message& m) { bReply = m.env; });
+
+    a->publish("cz:a2b", emptyNode());          // A publishes spontaneously (outside any handler)
+    while (b->hasMessages() > 0) b->pullAndDispatch();   // B receives -> replies (cause = A's message)
+    while (a->hasMessages() > 0) a->pullAndDispatch();   // A receives the reply
+
+    // A's spontaneous publish has no cause; B's reply is stamped with A's message id "CauseA#<seq>".
+    REQUIRE(aMsg.causedBy.empty());
+    REQUIRE(bReply.causedBy == "CauseA#" + std::to_string(aMsg.seq));
+
+    mgr.removeInstance("CauseA");
+    mgr.removeInstance("CauseB");
+}
+
+// ============================================================================
 // Transport: tick/simTime come from the pushed engine snapshot
 // ============================================================================
 

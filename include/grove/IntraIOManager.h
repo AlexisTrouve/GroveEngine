@@ -158,7 +158,8 @@ public:
     // forwarded by pointer to each high-freq subscriber, no per-delivery json copy. seq + lamport
     // are the sender's envelope send-stamp (from IntraIO::publish); routeMessage adds tick/simTime.
     void routeMessage(const std::string& sourceid, const std::string& topic,
-                      const std::shared_ptr<const IDataNode>& payload, uint64_t seq, uint64_t lamport);
+                      const std::shared_ptr<const IDataNode>& payload, uint64_t seq, uint64_t lamport,
+                      const std::string& causedBy = "");
 
     // Engine-pushed simulation-time snapshot for envelope stamping (IO contract §5/§6). The engine
     // calls this once per step() right after the EngineClock advances; routeMessage() reads it to

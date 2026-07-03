@@ -224,7 +224,8 @@ std::shared_ptr<IntraIO> IntraIOManager::getInstance(const std::string& instance
 }
 
 void IntraIOManager::routeMessage(const std::string& sourceId, const std::string& topic,
-                                  const std::shared_ptr<const IDataNode>& payload, uint64_t seq, uint64_t lamport) {
+                                  const std::shared_ptr<const IDataNode>& payload, uint64_t seq, uint64_t lamport,
+                                  const std::string& causedBy) {
     // DEADLOCK FIX: Use scoped_lock for consistent lock ordering when both mutexes needed
     std::scoped_lock lock(managerMutex, batchMutex);
 
@@ -238,6 +239,7 @@ void IntraIOManager::routeMessage(const std::string& sourceId, const std::string
     env.lamport = lamport;
     env.tick    = m_currentTick.load(std::memory_order_relaxed);
     env.simTime = m_currentSimTime.load(std::memory_order_relaxed);
+    env.causedBy = causedBy;   // "source#seq" of the message a handler was processing when it published this (§5)
 
     // Structured replay sink (IO contract §8, part 3): tap the canonical stamped stream ONCE here — the
     // central route point every high-freq control-plane message passes through exactly once with a complete

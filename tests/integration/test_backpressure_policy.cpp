@@ -209,6 +209,41 @@ TEST_CASE("Backpressure - the drop log records WHICH messages were lost and WHY"
     }
 }
 
+TEST_CASE("Backpressure - a wildcard pattern policy applies to matching topics (exact wins)", "[backpressure][iio]") {
+    auto& mgr = IntraIOManager::getInstance();
+
+    SECTION("a pattern coalesces every matching topic, each on its own") {
+        auto prod = mgr.createInstance("PPp1");
+        auto cons = mgr.createInstance("PPc1");
+        cons->setTopicPolicy("bp:cam:*", BackpressurePolicy::Coalesce);   // pattern rule
+        cons->subscribe("bp:.*", [](const Message&) {});
+        REQUIRE(cons->getTopicPolicy("bp:cam:left") == BackpressurePolicy::Coalesce);   // resolved via pattern
+
+        for (int v = 1; v <= 3; ++v) prod->publish("bp:cam:left", nodeV(v));
+        for (int v = 1; v <= 3; ++v) prod->publish("bp:cam:right", nodeV(v));
+        // Coalesce is per-topic: left collapses to 1, right collapses to 1 -> 2 total (not 1, not 6).
+        REQUIRE(cons->hasMessages() == 2);
+        REQUIRE(cons->getCoalescedCount() == 4);
+
+        mgr.removeInstance("PPp1");
+        mgr.removeInstance("PPc1");
+    }
+
+    SECTION("an exact topic policy beats a pattern that also matches") {
+        auto cons = mgr.createInstance("PPc2");
+        cons->setTopicPolicy("bp:*", BackpressurePolicy::Coalesce);       // pattern: everything coalesces...
+        cons->setTopicPolicy("bp:crit", BackpressurePolicy::Reject);      // ...except the exact critical topic
+        REQUIRE(cons->getTopicPolicy("bp:crit") == BackpressurePolicy::Reject);     // exact wins
+        REQUIRE(cons->getTopicPolicy("bp:other") == BackpressurePolicy::Coalesce);  // pattern applies
+        // Clearing the pattern back to default removes the rule.
+        cons->setTopicPolicy("bp:*", BackpressurePolicy::DropOldest);
+        REQUIRE(cons->getTopicPolicy("bp:other") == BackpressurePolicy::DropOldest);
+        REQUIRE(cons->getTopicPolicy("bp:crit") == BackpressurePolicy::Reject);     // exact rule untouched
+
+        mgr.removeInstance("PPc2");
+    }
+}
+
 TEST_CASE("Backpressure - setTopicPolicy round-trips; default is DropOldest", "[backpressure][iio]") {
     auto& mgr = IntraIOManager::getInstance();
     auto io = mgr.createInstance("BPset");

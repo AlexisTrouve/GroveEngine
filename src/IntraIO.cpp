@@ -12,6 +12,16 @@ std::shared_ptr<IntraIO> createIntraIOInstance(const std::string& instanceId, bo
     return std::make_shared<IntraIO>(instanceId, coreResident);
 }
 
+namespace {
+// The correlation id ("source#seq") of the message THIS thread is currently dispatching to a handler (empty
+// if none). Set around each handler invocation in pullAndDispatch(); read in publish() to stamp env.causedBy,
+// so a message a handler publishes IN RESPONSE is causally linked to the message that triggered it (IO
+// contract §5). thread_local = per-thread, so it needs no lock and never races across worker threads. NOTE:
+// this links publishes made from within a subscription HANDLER; a module that instead buffers in its handler
+// and publishes later from process() is not auto-correlated (the transport can't see that causal hop).
+thread_local std::string t_currentCauseId;
+}
+
 IntraIO::IntraIO(const std::string& id, bool coreResident) : instanceId(id), coreResident_(coreResident) {
     std::cout << "[IntraIO] Created instance: " << instanceId << std::endl;
     lastHealthCheck = std::chrono::high_resolution_clock::now();
@@ -100,10 +110,11 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     }
     // operationMutex is now released — safe to call routeMessage()
 
-    // Route the SHARED payload via central manager.
+    // Route the SHARED payload via central manager. Pass the current cause id (set if we're publishing from
+    // inside a handler) so the router stamps env.causedBy — the causal request->response link (§5).
     // NOTE: routeMessage() acquires managerMutex internally.
     //       We must NOT hold operationMutex here (see ABBA comment above).
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport);
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport, t_currentCauseId);
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
@@ -234,7 +245,12 @@ void IntraIO::pullAndDispatch() {
     // If a handler calls publish() → routeMessage(), it will acquire managerMutex
     // freely, with no risk of deadlock against batchFlushLoop.
     for (const auto& entry : toDispatch) {
+        // Mark the message being processed as the "cause" for anything the handler publishes (§5 causedBy).
+        // Save/restore supports a handler that itself pumps another inbox (nested dispatch).
+        std::string prev = std::move(t_currentCauseId);
+        t_currentCauseId = entry.msgPtr->env.source + "#" + std::to_string(entry.msgPtr->env.seq);
         entry.handler(*entry.msgPtr);
+        t_currentCauseId = std::move(prev);
     }
 }
 
@@ -521,18 +537,34 @@ void IntraIO::enforceQueueLimits() {
 }
 
 BackpressurePolicy IntraIO::policyFor(const std::string& topic) const {
-    // Exact-topic lookup; absent => the default global drop-oldest. Caller holds operationMutex.
+    // Exact topic first (O(1) fast path). Caller holds operationMutex.
     auto it = topicPolicies_.find(topic);
-    return it != topicPolicies_.end() ? it->second : BackpressurePolicy::DropOldest;
+    if (it != topicPolicies_.end()) return it->second;
+    // Then wildcard patterns, in set order (first match wins). Scanned only when no exact rule matched — and
+    // the list is empty in the default case, so this loop is a no-op unless the host set pattern policies.
+    for (const auto& rule : topicPolicyPatterns_) {
+        if (matchesPattern(topic, rule.pattern)) return rule.policy;
+    }
+    return BackpressurePolicy::DropOldest;
 }
 
 void IntraIO::setTopicPolicy(const std::string& topic, BackpressurePolicy policy) {
     std::lock_guard<std::mutex> lock(operationMutex);
-    // Only store non-default policies (keeps the map — and the default hot path — minimal).
-    if (policy == BackpressurePolicy::DropOldest) {
-        topicPolicies_.erase(topic);
+    // A '*' makes it a wildcard PATTERN rule; otherwise an EXACT topic. Only store non-default policies
+    // (keeps the map/list — and the default hot path — minimal).
+    const bool isPattern = topic.find('*') != std::string::npos;
+    if (isPattern) {
+        // Replace-or-remove any existing rule for this exact source string, then add (unless it's the default).
+        for (auto rit = topicPolicyPatterns_.begin(); rit != topicPolicyPatterns_.end();) {
+            if (rit->rawPattern == topic) rit = topicPolicyPatterns_.erase(rit);
+            else ++rit;
+        }
+        if (policy != BackpressurePolicy::DropOldest) {
+            topicPolicyPatterns_.push_back(TopicPolicyRule{compileTopicPattern(topic), topic, policy});
+        }
     } else {
-        topicPolicies_[topic] = policy;
+        if (policy == BackpressurePolicy::DropOldest) topicPolicies_.erase(topic);
+        else topicPolicies_[topic] = policy;
     }
 }
 

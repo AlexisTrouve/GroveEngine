@@ -105,7 +105,15 @@ private:
 
     // Per-topic backpressure policy (§9), resolved at enqueue + eviction. Only NON-default topics are stored
     // (absent => DropOldest), so the default hot path is one empty-map lookup. Read/written under operationMutex.
+    // Two tiers: EXACT topics in a map (O(1) fast path), and wildcard PATTERNS ("render:*") in a small ordered
+    // list scanned only when no exact match hits (first match wins). Exact beats pattern.
     std::unordered_map<std::string, BackpressurePolicy> topicPolicies_;
+    struct TopicPolicyRule {
+        std::regex         pattern;     // compiled matcher
+        std::string        rawPattern;  // the source string (for replace/remove)
+        BackpressurePolicy policy;
+    };
+    std::vector<TopicPolicyRule> topicPolicyPatterns_;
 
     // Per-inbox DROP LOG (§9 observability): a bounded ring of the most recent DroppedRecords, so a debugging
     // host can see exactly which messages backpressure lost (and why). Opt-in: dropLogCap_ == 0 disables it,
@@ -188,8 +196,10 @@ public:
     void clearAllSubscriptions();
 
     // Per-topic backpressure policy (IO contract §9). Declare how THIS inbox handles a topic under pressure:
-    // Coalesce (latest-wins) for flooding state topics, Reject to protect a critical command. Setting a topic
-    // back to DropOldest removes its entry. Opt-in: unset topics keep the default global drop-oldest behavior.
+    // Coalesce (latest-wins) for flooding state topics, Reject to protect a critical command. `topic` may be an
+    // EXACT topic ("render:camera") or a WILDCARD pattern ("render:*") — a '*' in the string makes it a pattern
+    // rule (exact topics take precedence over patterns; among patterns, first-set wins). Setting back to
+    // DropOldest removes the entry/rule. Opt-in: unset topics keep the default global drop-oldest behavior.
     void setTopicPolicy(const std::string& topic, BackpressurePolicy policy);
     BackpressurePolicy getTopicPolicy(const std::string& topic) const;
     size_t getCoalescedCount() const { return totalCoalesced.load(); }
