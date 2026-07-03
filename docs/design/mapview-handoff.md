@@ -132,6 +132,23 @@ off-by-one), a **chunk outside the bounds** (dead weight / coord bug), an **empt
 WorldCheck.h` (pure checks) + `WorldCheckDisk.h` (disk driver); locked by `MapViewWorldCheckUnit`. Only AFTER
 `worldcheck` is clean is `./build/tests/test_mapview_viewer --load <yourDir>` worth opening (to eyeball the lens).
 
+### Capture the WHOLE world to a PNG — `--shot` (docs / blog / a quick look)
+
+For a headless "here is the entire world, framed" image (not the scripted `--selftest` pan+zoom), use `--shot`:
+
+```bash
+./build/tests/test_mapview_viewer --load <yourDir> --shot out.png                 # 1280x720
+./build/tests/test_mapview_viewer --load <yourDir> --shot out.png --size 1600x1600 # bigger = cells not sub-pixel
+```
+
+It renders ONE static frame at the reset/fit camera — the full extent, **letterboxed** for non-square worlds
+(nothing cropped) — to an offscreen framebuffer, then writes the PNG (exit 0 ok / 2 usage). `--size WxH` drives
+the output resolution (the hidden window/backbuffer grows to match, so it works above 1280x720). **Cell-count
+ceiling:** the flat-colour sprite path renders up to ≈**131 k cells/frame** (the bgfx transient instance-buffer
+cap); a larger world comes back blank (it falls to a 10 000-sprite fallback buffer). So **downsample the `.world`
+below ~131 k cells** before shooting a whole continent, then use `--size` to enlarge — raising that ceiling is a
+renderer change (bgfx transient limits + `SpritePass::MAX_SPRITES_PER_BATCH`), out of the viewer's scope.
+
 ---
 
 ## Cross-Claude coordination (the thing this handoff exists for)

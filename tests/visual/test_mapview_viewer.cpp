@@ -17,6 +17,9 @@
  *        test_mapview_viewer --load <dir>             (interactive, a world-document on disk)
  *        test_mapview_viewer --selftest [out.png]     (headless: scripted pan+zoom over N frames -> PNG)
  *        test_mapview_viewer --load <dir> --selftest [out.png]
+ *        test_mapview_viewer --load <dir> --shot [out.png] [--size WxH]
+ *                                                     (headless: ONE frame of the WHOLE world at the reset/fit
+ *                                                      view — no pan/zoom, letterboxed for non-square worlds -> PNG)
  */
 
 #define SDL_MAIN_HANDLED
@@ -51,25 +54,51 @@
 using namespace grove;
 
 int main(int argc, char** argv) {
-    // --- args: --selftest [out.png], --load <dir> (any order) ---
+    // --- args: --selftest [out.png] | --shot [out.png] [--size WxH], --load <dir> (any order) ---
+    const int W = 1280, H = 720;            // window / backbuffer size (fixed; headless shots render OFFSCREEN)
     bool selftest = false;
+    bool shot = false;                      // --shot: one static frame of the WHOLE world at the reset/fit view
     std::string outPath = "mapview_viewer_selftest.png";
     std::string loadDir;
+    int outW = W, outH = H;                 // --shot output resolution (default = window size)
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--selftest") {
             selftest = true;
             if (i + 1 < argc && argv[i + 1][0] != '-') outPath = argv[++i];
+        } else if (a == "--shot") {
+            shot = true;
+            outPath = "mapview_shot.png";
+            if (i + 1 < argc && argv[i + 1][0] != '-') outPath = argv[++i];
+        } else if (a == "--size") {
+            // Parse WxH (e.g. 1600x1600) -> the offscreen shot resolution. Bigger = cells no longer sub-pixel.
+            if (i + 1 < argc) {
+                int sw = 0, sh = 0;
+                if (std::sscanf(argv[i + 1], "%dx%d", &sw, &sh) == 2 && sw > 0 && sh > 0) { outW = sw; outH = sh; }
+                else std::fprintf(stderr, "bad --size '%s' (want WxH, e.g. 1600x1600) — keeping %dx%d\n",
+                                  argv[i + 1], outW, outH);
+                ++i;
+            }
         } else if (a == "--load") {
             if (i + 1 < argc) loadDir = argv[++i];
         }
     }
-    const int W = 1280, H = 720;
+    // Clamp the shot size to a safe range (uint16 framebuffer + GPU texture limits).
+    outW = outW < 64 ? 64 : (outW > 8192 ? 8192 : outW);
+    outH = outH < 64 ? 64 : (outH > 8192 ? 8192 : outH);
+    const bool headless = selftest || shot;
+    // The window/backbuffer + camera size. The shot renders at --size; every other mode keeps the 1280x720
+    // window (so --selftest and interactive are byte-for-byte unchanged — vpW/vpH == W/H there). POURQUOI size
+    // the WINDOW too, not just the offscreen framebuffer: bgfx's backbuffer is created at this resolution, and
+    // rendering into an offscreen framebuffer LARGER than the backbuffer comes back blank — so for a shot we
+    // grow the (hidden) window/backbuffer to match the requested output.
+    const int vpW = shot ? outW : W;
+    const int vpH = shot ? outH : H;
 
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { std::fprintf(stderr, "no SDL: %s\n", SDL_GetError()); return 1; }
-    const Uint32 flags = selftest ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
-    SDL_Window* win = SDL_CreateWindow("grove::mapview viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, flags);
+    const Uint32 flags = headless ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
+    SDL_Window* win = SDL_CreateWindow("grove::mapview viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, vpW, vpH, flags);
     if (!win) { std::fprintf(stderr, "no window\n"); SDL_Quit(); return 1; }
     SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); SDL_GetWindowWMInfo(win, &wmi);
 
@@ -84,7 +113,7 @@ int main(int argc, char** argv) {
     {
         auto rCfg = std::make_unique<JsonDataNode>("config");
         rCfg->setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
-        rCfg->setInt("windowWidth", W); rCfg->setInt("windowHeight", H); rCfg->setBool("vsync", !selftest);
+        rCfg->setInt("windowWidth", vpW); rCfg->setInt("windowHeight", vpH); rCfg->setBool("vsync", !headless);
         engine.registerStaticModule("renderer", std::move(rendererOwned), ModuleSystemType::SEQUENTIAL, std::move(rCfg));
     }
 
@@ -106,7 +135,7 @@ int main(int argc, char** argv) {
         const double worldW = static_cast<double>(coord.boundsMax[0] - coord.boundsMin[0] + 1) * coord.cellSize[0];
         const double worldH = static_cast<double>(coord.boundsMax[1] - coord.boundsMin[1] + 1) * coord.cellSize[1];
         resetCam = mvdemo::fitCamera(coord.boundsMin[0] * coord.cellSize[0], coord.boundsMin[1] * coord.cellSize[1],
-                                     worldW, worldH, W, H);
+                                     worldW, worldH, vpW, vpH);
         markers = p->manifest().markers;                       // overlays declared in the document (may be empty)
         regions = p->manifest().regions;                       // circular region overlays declared in the doc
         providerOwned = std::move(p);
@@ -115,8 +144,8 @@ int main(int argc, char** argv) {
         auto p = std::make_unique<mvdemo::ProceduralWorld>();
         schema = mvdemo::demoSchema();
         grid = mvdemo::demoGrid(*p);
-        resetCam.x = 0.0f; resetCam.y = 0.0f; resetCam.zoom = static_cast<float>(W) / 256.0f;
-        resetCam.viewportW = static_cast<float>(W); resetCam.viewportH = static_cast<float>(H); resetCam.rotation = 0.0f;
+        resetCam.x = 0.0f; resetCam.y = 0.0f; resetCam.zoom = static_cast<float>(vpW) / 256.0f;
+        resetCam.viewportW = static_cast<float>(vpW); resetCam.viewportH = static_cast<float>(vpH); resetCam.rotation = 0.0f;
         markers = mvdemo::demoMarkers();
         regions = mvdemo::demoRegions();
         providerOwned = std::move(p);
@@ -142,13 +171,38 @@ int main(int argc, char** argv) {
     }
 
     // The interaction + render object (drives the same code the E2E test injects events into).
-    mvdemo::ViewerApp app(&engine, renderer, gIO.get(), W, H, *providerOwned, schema, grid,
+    mvdemo::ViewerApp app(&engine, renderer, gIO.get(), vpW, vpH, *providerOwned, schema, grid,
                           mvdemo::makeTerrainLens, resetCam);
     app.setMarkers(markers);
     app.setRegions(regions);
     app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);   // 'T' switches terrain to the retained-tile path
 
-    if (selftest) {
+    if (shot) {
+        // WHOLE-WORLD shot: render ONE static frame at the reset/fit camera (the entire world framed,
+        // letterboxed for non-square worlds — NO pan/zoom, so nothing is cropped) to an offscreen framebuffer
+        // sized to --size, then PNG. Reuses the selftest's device/readback/writeRgbaAsPng path; the only
+        // differences are that the camera is left at its fit (app.camera() == resetCam) and the framebuffer is
+        // sized to the requested output. The camera never moves -> deterministic.
+        rhi::IRHIDevice* dev = renderer->getDevice();
+        if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
+        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(outW), static_cast<uint16_t>(outH));
+        dev->setViewFramebuffer(0, fb);
+        dev->setViewFramebuffer(1, fb);
+        // A few identical frames so any async texture upload (marker icons) lands before readback; the camera
+        // is untouched (the fit), so every frame is the same static shot.
+        for (int i = 0; i < 3; ++i) app.renderFrame(1.0f / 60.0f);
+        const camera::CameraView c = app.camera();
+        std::fprintf(stdout, "shot: %dx%d cells=%zu zoom=%.4f cam=(%.1f,%.1f)\n",
+                     outW, outH, app.cellCount(), c.zoom, c.x, c.y);
+        std::vector<uint8_t> rgba(static_cast<size_t>(outW) * outH * 4, 0);
+        if (!dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size()))) {
+            std::fprintf(stderr, "readback failed\n"); return 3;
+        }
+        if (!mvdemo::writeRgbaAsPng(outPath, outW, outH, rgba)) {
+            std::fprintf(stderr, "cannot write %s\n", outPath.c_str()); return 4;
+        }
+        std::fprintf(stdout, "wrote %s — the whole world at the reset/fit view (%dx%d)\n", outPath.c_str(), outW, outH);
+    } else if (selftest) {
         // Scripted pan + zoom-to-centre over N frames, captured to a PNG — proves the live pipeline responds
         // with no input. Offscreen so it's headless. (Input responsiveness is proven by test_mapview_viewer_e2e.)
         rhi::IRHIDevice* dev = renderer->getDevice();
