@@ -366,7 +366,7 @@ void IntraIO::deliverMessage(const std::string& topic, std::shared_ptr<const IDa
         // message of the SAME topic so only the freshest survives (a flooding state topic never piles up).
         if (policyFor(topic) == BackpressurePolicy::Coalesce) {
             for (auto it = messageQueue.begin(); it != messageQueue.end();) {
-                if (it->topic == topic) { it = messageQueue.erase(it); totalCoalesced++; }
+                if (it->topic == topic) { logDrop(*it, DropReason::Coalesced); it = messageQueue.erase(it); totalCoalesced++; }
                 else ++it;
             }
         }
@@ -484,6 +484,7 @@ void IntraIO::enforceQueueLimits() {
 
         auto hi = findDroppable(messageQueue);
         if (hi != messageQueue.end()) {
+            logDrop(*hi, DropReason::DropOldest);
             messageQueue.erase(hi);
             totalDropped++;
             totalSize--;
@@ -491,6 +492,7 @@ void IntraIO::enforceQueueLimits() {
         }
         auto lo = findDroppable(lowFreqMessageQueue);
         if (lo != lowFreqMessageQueue.end()) {
+            logDrop(*lo, DropReason::DropOldest);
             lowFreqMessageQueue.erase(lo);
             totalDropped++;
             totalSize--;
@@ -501,8 +503,10 @@ void IntraIO::enforceQueueLimits() {
         // critical command → reject the NEWEST at the door instead (bounds memory, protects the earlier-
         // queued criticals), and surface it loudly: a critical-topic flood is a bug, not normal traffic.
         if (!messageQueue.empty()) {
+            logDrop(messageQueue.back(), DropReason::Rejected);
             messageQueue.pop_back();
         } else if (!lowFreqMessageQueue.empty()) {
+            logDrop(lowFreqMessageQueue.back(), DropReason::Rejected);
             lowFreqMessageQueue.pop_back();
         } else {
             break;  // nothing left to drop (defensive)
@@ -535,6 +539,31 @@ void IntraIO::setTopicPolicy(const std::string& topic, BackpressurePolicy policy
 BackpressurePolicy IntraIO::getTopicPolicy(const std::string& topic) const {
     std::lock_guard<std::mutex> lock(operationMutex);
     return policyFor(topic);
+}
+
+void IntraIO::logDrop(const Message& m, DropReason reason) {
+    // No-op when the drop log is disabled (the common case). Caller holds operationMutex, so the deque is
+    // safe. Bounded: drop the oldest RECORD when full (a diagnostic window of the most recent drops).
+    if (dropLogCap_ == 0) return;
+    if (dropLog_.size() >= dropLogCap_) dropLog_.pop_front();
+    dropLog_.push_back(DroppedRecord{m.env.source, m.env.seq, m.topic, reason});
+}
+
+void IntraIO::enableDropLog(size_t capacity) {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    dropLogCap_ = capacity;
+    dropLog_.clear();  // fresh diagnostic session
+}
+
+void IntraIO::disableDropLog() {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    dropLogCap_ = 0;
+    dropLog_.clear();
+}
+
+std::vector<DroppedRecord> IntraIO::getRecentDrops() const {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    return std::vector<DroppedRecord>(dropLog_.begin(), dropLog_.end());  // oldest -> newest
 }
 
 void IntraIO::logPublish(const std::string& topic, const IDataNode& /*message*/) const {

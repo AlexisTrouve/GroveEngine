@@ -134,6 +134,81 @@ TEST_CASE("Backpressure - Reject rejects the NEWEST at the door on an all-Reject
     mgr.removeInstance("BPRRcons");
 }
 
+TEST_CASE("Backpressure - the drop log records WHICH messages were lost and WHY", "[backpressure][iio]") {
+    auto& mgr = IntraIOManager::getInstance();
+
+    SECTION("DropOldest: the evicted oldest messages are logged") {
+        auto prod = mgr.createInstance("DLp1");
+        auto cons = mgr.createInstance("DLc1");
+        cons->setMaxQueueSize(3);
+        cons->enableDropLog(16);
+        cons->subscribe("bp:.*", [](const Message&) {});
+
+        for (int v = 1; v <= 5; ++v) prod->publish("bp:x", nodeV(v));  // seq 1..5; oldest 2 evicted
+        const auto drops = cons->getRecentDrops();
+        REQUIRE(drops.size() == 2);
+        REQUIRE(drops[0].reason == DropReason::DropOldest);
+        REQUIRE(drops[0].source == "DLp1");
+        REQUIRE(drops[0].topic == "bp:x");
+        REQUIRE(drops[0].seq == 1u);   // the two oldest published
+        REQUIRE(drops[1].seq == 2u);
+
+        mgr.removeInstance("DLp1");
+        mgr.removeInstance("DLc1");
+    }
+
+    SECTION("Coalesce: each superseded message is logged with reason Coalesced") {
+        auto prod = mgr.createInstance("DLp2");
+        auto cons = mgr.createInstance("DLc2");
+        cons->setTopicPolicy("bp:cam", BackpressurePolicy::Coalesce);
+        cons->enableDropLog(16);
+        cons->subscribe("bp:.*", [](const Message&) {});
+
+        for (int v = 1; v <= 4; ++v) prod->publish("bp:cam", nodeV(v));  // 3 superseded, seq 1..3
+        const auto drops = cons->getRecentDrops();
+        REQUIRE(drops.size() == 3);
+        for (const auto& d : drops) { REQUIRE(d.reason == DropReason::Coalesced); REQUIRE(d.topic == "bp:cam"); }
+        REQUIRE(drops.front().seq == 1u);
+        REQUIRE(drops.back().seq == 3u);
+
+        mgr.removeInstance("DLp2");
+        mgr.removeInstance("DLc2");
+    }
+
+    SECTION("Reject: the newest-at-the-door rejections are logged with reason Rejected") {
+        auto prod = mgr.createInstance("DLp3");
+        auto cons = mgr.createInstance("DLc3");
+        cons->setMaxQueueSize(2);
+        cons->setTopicPolicy("bp:crit", BackpressurePolicy::Reject);
+        cons->enableDropLog(16);
+        cons->subscribe("bp:.*", [](const Message&) {});
+
+        for (int v = 1; v <= 4; ++v) prod->publish("bp:crit", nodeV(v));  // seq 3,4 rejected at the door
+        const auto drops = cons->getRecentDrops();
+        REQUIRE(drops.size() == 2);
+        for (const auto& d : drops) REQUIRE(d.reason == DropReason::Rejected);
+        REQUIRE(drops[0].seq == 3u);
+        REQUIRE(drops[1].seq == 4u);
+
+        mgr.removeInstance("DLp3");
+        mgr.removeInstance("DLc3");
+    }
+
+    SECTION("off by default: no records without enableDropLog") {
+        auto prod = mgr.createInstance("DLp4");
+        auto cons = mgr.createInstance("DLc4");
+        cons->setMaxQueueSize(2);
+        cons->subscribe("bp:.*", [](const Message&) {});
+
+        for (int v = 1; v <= 5; ++v) prod->publish("bp:x", nodeV(v));   // drops happen (count > 0)...
+        REQUIRE(cons->getHealth().droppedMessageCount > 0);
+        REQUIRE(cons->getRecentDrops().empty());                        // ...but nothing logged (opt-in)
+
+        mgr.removeInstance("DLp4");
+        mgr.removeInstance("DLc4");
+    }
+}
+
 TEST_CASE("Backpressure - setTopicPolicy round-trips; default is DropOldest", "[backpressure][iio]") {
     auto& mgr = IntraIOManager::getInstance();
     auto io = mgr.createInstance("BPset");

@@ -21,6 +21,23 @@ using json = nlohmann::json;
 
 namespace grove {
 
+// Why a message was dropped from an inbox (IO contract §9 observability). Pairs with BackpressurePolicy.
+enum class DropReason : uint8_t {
+    DropOldest = 0,  // evicted as the oldest droppable message when the inbox overflowed
+    Coalesced,       // superseded by a newer same-topic message (latest-wins)
+    Rejected,        // a Reject-policy message rejected at the door on an all-Reject overflow
+};
+
+// A diagnostic record of ONE dropped message: enough to answer "which message did my inbox lose, and why?"
+// (the direct, false-positive-free counterpart of inferring loss from seq gaps). Populated only while the
+// per-inbox drop log is enabled (IntraIO::enableDropLog).
+struct DroppedRecord {
+    std::string source;  // publisher instance id (from the dropped message's envelope)
+    uint64_t    seq;     // per-source sequence of the dropped message
+    std::string topic;   // the topic it was published to
+    DropReason  reason;  // why it was dropped
+};
+
 // Interface for message delivery to avoid circular include
 class IIntraIODelivery {
 public:
@@ -90,6 +107,12 @@ private:
     // (absent => DropOldest), so the default hot path is one empty-map lookup. Read/written under operationMutex.
     std::unordered_map<std::string, BackpressurePolicy> topicPolicies_;
 
+    // Per-inbox DROP LOG (§9 observability): a bounded ring of the most recent DroppedRecords, so a debugging
+    // host can see exactly which messages backpressure lost (and why). Opt-in: dropLogCap_ == 0 disables it,
+    // so the drop path costs one size check when off. All access under operationMutex (drops happen there).
+    std::deque<DroppedRecord> dropLog_;
+    size_t                    dropLogCap_ = 0;  // 0 = disabled
+
     // Subscription management
     struct Subscription {
         std::regex pattern;
@@ -136,6 +159,8 @@ private:
     void enforceQueueLimits();
     // Resolve a topic's backpressure policy (default DropOldest). Caller holds operationMutex.
     BackpressurePolicy policyFor(const std::string& topic) const;
+    // Record a dropped message into the drop log (no-op if the log is disabled). Caller holds operationMutex.
+    void logDrop(const Message& m, DropReason reason);
     void logPublish(const std::string& topic, const IDataNode& message) const;
     void logSubscription(const std::string& pattern, bool isLowFreq) const;
     void logPull(const Message& message) const;
@@ -169,6 +194,13 @@ public:
     BackpressurePolicy getTopicPolicy(const std::string& topic) const;
     size_t getCoalescedCount() const { return totalCoalesced.load(); }
     size_t getRejectedCount() const { return totalRejected.load(); }
+
+    // Per-inbox drop log (IO contract §9). enableDropLog turns ON a bounded ring recording each dropped
+    // message's {source, seq, topic, reason} — the direct answer to "what did backpressure lose here?".
+    // Off by default (a count is always in getHealth().droppedMessageCount; this adds the WHICH + WHY).
+    void enableDropLog(size_t capacity);
+    void disableDropLog();
+    std::vector<DroppedRecord> getRecentDrops() const;
 
     // Debug and monitoring
     json getDetailedMetrics() const;
