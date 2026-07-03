@@ -51,6 +51,7 @@ SpriteInstance) — grove::mapview is 100% renderer-independent.
 | file-backed provider (S3-seam) | ✅ **DONE** — `WorldDocumentProvider.h` bridges a `.world` on disk → the pure `MapView` (the "file is the interface" thesis, proven E2E: write→load→render) |
 | tiling path (T2/T3) | ✅ **DONE** — `render:tilemap:tileset` + `TileMapper` (value→tile id) + `MapView` tile-chunk emit + **live retained tiling** in the viewer (`TileChunkStreamer`, 'T' toggle). Locks: `MapViewTileMapperUnit`/`MapViewTileStreamerUnit` + capture |
 | overlays on screen | ✅ **DONE** — regions → `render:sector` (rings) + markers → `render:sprite` (icons), drawn world-space by the viewer |
+| **`worldcheck` validator** | ✅ **DONE** — headless semantic checker (`WorldCheck.h`/`WorldCheckDisk.h` + `worldcheck` CLI): the deterministic proof a `.world` is correct, so S3 has a feedback loop that is NOT "render + eyeball". Locked by `MapViewWorldCheckUnit`. See "Verify with `worldcheck`" ↓ |
 | **Theomen adapter (S3)** | ❌ **not started (Theomen-side, its Claude) — UNBLOCKED**: format frozen, engine consumes any `.world` today. Recipe ↓ |
 
 > **Format frozen + consumer proven → S3 can start NOW.** Theomen static-links GroveEngine at HEAD, so its
@@ -108,7 +109,28 @@ disk::writeWorldDocument(dir, m, chunks, &z);         // pass nullptr for uncomp
 layer doesn't draw) — never write zeros to mean "missing". (3) `boundsMin/Max` are **inclusive cell indices**.
 (4) Encodings: `bit`/`uint`/`int` (int/uint carry `bits`) / `unorm8`/`unorm16`/`float32` — **no `float16`**.
 (5) The viewer frames the world from `bounds`; put a `terrain` field named `"elevation"` to reuse the demo lens,
-or the game supplies its own lens. **Verify:** `./build/tests/test_mapview_viewer --load <yourDir>`.
+or the game supplies its own lens.
+
+### Verify with `worldcheck` (do THIS, not "render + eyeball")
+
+**The proof a `.world` is correct is `worldcheck`, not the viewer.** Looking at pixels is not a test — the
+doctrine forbids it as proof. `worldcheck` is a **headless, deterministic** validator (`build/tests/worldcheck`,
+built by default): it names the exact offending declaration. Run it after every write:
+
+```bash
+./build/tests/worldcheck <yourDir>            # human report; exit 0 = ok, 1 = errors, 2 = usage
+./build/tests/worldcheck <yourDir> --strict   # warnings fail too (tighten for CI)
+./build/tests/worldcheck <yourDir> --json     # machine-readable, for a build script / gate
+```
+
+It catches the mistakes the **reader accepts silently** (the codec already fail-francs a corrupt blob / unknown
+encoding / bit-width disagreement — `worldcheck` adds the *semantic* layer): unsupported topology, non-positive
+cell/chunk size, **inverted bounds**, empty/duplicate field names, a **`uint`/`int` field with `bits=0`** (the
+classic "forgot to set bits"), **`scale=0`**, a chunk whose **`cellCount` ≠ `chunkDims` product** (a fill-loop
+off-by-one), a **chunk outside the bounds** (dead weight / coord bug), an **empty chunk**, and **NaN/Inf** in a
+`float32` field (uninitialized floats the palette would silently hide). Engine impl: `include/grove/mapview/
+WorldCheck.h` (pure checks) + `WorldCheckDisk.h` (disk driver); locked by `MapViewWorldCheckUnit`. Only AFTER
+`worldcheck` is clean is `./build/tests/test_mapview_viewer --load <yourDir>` worth opening (to eyeball the lens).
 
 ---
 

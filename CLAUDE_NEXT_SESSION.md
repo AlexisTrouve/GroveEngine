@@ -32,7 +32,7 @@ and **Theomen** (procedural worldgen). Stay engine-side; don't reach into their 
 | **InputModule** | ✅ SDL backend (mouse/keyboard/gamepad), `ActionMap` (scancode bindings) | `modules/InputModule/README.md` |
 | **SoundManager** | ✅ `sound:*` (SFX/music via SDL_mixer behind `ISoundBackend`) + adaptive music `audio:*` (logic; real stems = content) | CLAUDE.md §SoundManager |
 | **Header-only helpers** | ✅ `grove::camera` (zoom/pan/cull), `grove::anim` (2D), `ActionMap`, `ZoneNavigator` | DEVELOPER_GUIDE |
-| **grove::mapview** | ✅ **engine-side complete** — generic world-viewer (S0 format → S1 core → S2 viewer `--load` → S3-seam provider → tiling T2/T3 + live 'T' tiling → regions/markers on screen). Only remainder = **S3 Theomen adapter (cross-project)** | `docs/design/mapview.md` (+ `-handoff`) |
+| **grove::mapview** | ✅ **engine-side complete** — generic world-viewer (S0 format → S1 core → S2 viewer `--load` → S3-seam provider → tiling T2/T3 + live 'T' tiling → regions/markers on screen) + **`worldcheck`** (headless `.world` validator). Only remainder = **S3 Theomen adapter (cross-project)** | `docs/design/mapview.md` (+ `-handoff`) |
 | **Quality hardening** | 🟡 Phase 1 (ASan/UBSan/TSan) ✅ + Phase 2 (clang-tidy `src/`) ✅ — core swept clean. Phase 3 (CI) + `modules/` sweep OPEN | `docs/design/quality-hardening-handoff.md` |
 
 Test suite: **~137 ctests** (excl. 3 slow: StressTest/MemoryLeakHunter/ChaosMonkey) all green as of this handoff.
@@ -76,7 +76,9 @@ deferred by design: LocalIO/NetworkIO tiers (stubs), live determinism enforcemen
    MinGW has no sanitizers → this likely needs a Linux port of the GPU modules first. Assess before committing.
 3. **mapview S3 — Theomen's adapter (cross-project, its Claude).** The engine consumes any `.world` dir today;
    Theomen must WRITE one. A ready-to-paste recipe + prompt is in `docs/design/mapview-handoff.md` ("Theomen:
-   write a `.world`"). Nothing to do engine-side unless the contract needs a change.
+   write a `.world`"). Theomen's verify loop is now **`worldcheck <dir>`** (headless, deterministic — names the
+   exact bad declaration; `--strict`/`--json` for CI), NOT "render + eyeball". Nothing to do engine-side unless
+   the contract needs a change.
 4. **Low-ROI IO follow-ons** (see above) — only on explicit request.
 5. **mapview deferred plug-ins** — S4 timeline scrub, S5 hex/iso/Z-multislice/LOD, palette-LUT. Do when a consumer
    asks (`mapview.md` §8/§10).
@@ -93,6 +95,8 @@ cmake -B build -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON -DGROVE
 cmake --build build -j4
 # Tests (run the fast suite; the 3 slow ones are StressTest/MemoryLeakHunter/ChaosMonkey)
 ctest --test-dir build -E "StressTest|MemoryLeakHunter|ChaosMonkey" -j4
+# Headless world-document validator (no GPU) — the deterministic proof a `.world` is well-formed
+./build/tests/worldcheck <world-dir>         # exit 0 ok / 1 errors / 2 usage; --strict (warns fail) / --json (CI)
 # Visual/interactive demos: run from the PROJECT ROOT (cwd-relative asset paths)
 ./build/tests/test_mapview_viewer            # drag=pan wheel=zoom H/B/T=lens R=reset  (--load <dir> opens a .world)
 ./build/tests/test_ui_showcase

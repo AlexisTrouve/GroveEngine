@@ -605,6 +605,35 @@ target_include_directories(test_mapview_disk PRIVATE
 target_link_libraries(test_mapview_disk PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewDiskUnit test_mapview_disk ${CMAKE_CURRENT_BINARY_DIR})
 
+# Map-viewer world-document VALIDATOR (grove::mapview::WorldCheck). A headless semantic checker: it catches
+# the producer mistakes the reader accepts SILENTLY — inverted bounds, cellCount != chunkDims, a Uint/Int
+# field with bits=0, dead chunks outside the world, NaN floats — none of which the codec's fail-franc guards
+# reject. Pure checks are unit-locked in RAM; a disk E2E drives checkWorldDir through a temp dir (raw + zlib
+# + a corrupt case). This is the DETERMINISTIC proof a `.world` is correct without launching the GPU viewer —
+# the S3 support tool that de-risks the Theomen adapter. Links miniz.c + nlohmann like the disk test.
+add_executable(test_mapview_worldcheck
+    unit/test_mapview_worldcheck.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(test_mapview_worldcheck PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mapview_worldcheck PRIVATE Catch2::Catch2WithMain)
+grove_add_test(MapViewWorldCheckUnit test_mapview_worldcheck ${CMAKE_CURRENT_BINARY_DIR})
+
+# The productized CLI wrapping the same validator: `worldcheck <dir> [--strict] [--json]`. Headless
+# (std + miniz + nlohmann, no GPU/SDL) so a producer or CI can run it anywhere to prove a `.world` is
+# well-formed; exit 0 = ok, 1 = errors (or warnings under --strict), 2 = usage. Not a ctest (it needs a
+# world dir as input) — a hand-run/CI tool, built to build/tests/worldcheck.
+add_executable(worldcheck
+    tools/worldcheck.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+target_include_directories(worldcheck PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
+
 # Map-viewer engine S0 hardening: save/load ROUND-TRIP ROBUSTNESS. Runs save->load x3 in a row across three
 # distinct config "formats" (chunk size, field count, byte-unaligned bit widths, Z>1, sparsity) on every
 # transport (RAM raw, RAM zlib, disk raw, disk zlib), asserting binary idempotence + value fidelity vs the
