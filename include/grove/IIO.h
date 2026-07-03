@@ -23,6 +23,22 @@ struct SubscriptionConfig {
 };
 
 /**
+ * @brief Per-topic backpressure policy for a bounded inbox (IO contract §9).
+ *
+ * Async + resilience forces bounded queues; but ONE global drop rule is wrong — different topics want
+ * different behavior under pressure (docs/design/iio-contract.md §9). This is a per-topic property: the host
+ * declares it as topics are added (IntraIO::setTopicPolicy). Default is DropOldest (the historical global rule).
+ */
+enum class BackpressurePolicy : uint8_t {
+    DropOldest = 0,  // (default) when the inbox overflows, drop the oldest message first. FIFO-lossy.
+    Coalesce,        // latest-wins: a new message of this topic REPLACES the pending one (state topics —
+                     // render:camera, an audio:intent — where only the freshest value matters; never piles up).
+    Reject,          // protect a critical command: never evict a queued Reject message to make room for
+                     // another topic's flood. On a genuine all-Reject overflow, reject the NEWEST at the door
+                     // (loud + counted) rather than silently losing an accepted critical or growing unbounded.
+};
+
+/**
  * @brief Transport-owned metadata header stamped on every control-plane message — the "envelope".
  *
  * The envelope (IO contract §5, docs/design/iio-contract.md) carries ordering/causality metadata

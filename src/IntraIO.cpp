@@ -207,10 +207,10 @@ void IntraIO::pullAndDispatch() {
         msgHolder = std::make_shared<Message>();
         if (!messageQueue.empty()) {
             *msgHolder = std::move(messageQueue.front());
-            messageQueue.pop();
+            messageQueue.pop_front();
         } else {
             *msgHolder = std::move(lowFreqMessageQueue.front());
-            lowFreqMessageQueue.pop();
+            lowFreqMessageQueue.pop_front();
             isLowFreq = true;
         }
 
@@ -266,8 +266,8 @@ size_t IntraIO::getMaxQueueSize() const {
 
 void IntraIO::clearAllMessages() {
     std::lock_guard<std::mutex> lock(operationMutex);
-    while (!messageQueue.empty()) messageQueue.pop();
-    while (!lowFreqMessageQueue.empty()) lowFreqMessageQueue.pop();
+    messageQueue.clear();
+    lowFreqMessageQueue.clear();
 }
 
 void IntraIO::clearAllSubscriptions() {
@@ -284,6 +284,8 @@ nlohmann::json IntraIO::getDetailedMetrics() const {
     metrics["total_published"] = totalPublished.load();
     metrics["total_pulled"] = totalPulled.load();
     metrics["total_dropped"] = totalDropped.load();
+    metrics["total_coalesced"] = totalCoalesced.load();  // §9 latest-wins supersessions (by design)
+    metrics["total_rejected"] = totalRejected.load();    // §9 critical messages rejected at the door
     metrics["queue_size"] = messageQueue.size() + lowFreqMessageQueue.size();
     metrics["max_queue_size"] = maxQueueSize;
     metrics["high_freq_subscriptions"] = highFreqSubscriptions.size();
@@ -356,9 +358,19 @@ void IntraIO::deliverMessage(const std::string& topic, std::shared_ptr<const IDa
     msg.env = env;   // transport-owned header lands on the delivered Message
 
     if (isLowFreq) {
-        lowFreqMessageQueue.push(std::move(msg));
+        // Low-freq coalescing is handled upstream (SubscriptionConfig.replaceable -> batchedMessages); the
+        // per-topic policy below governs the HIGH-freq inbox, the one that had no policy but drop-oldest.
+        lowFreqMessageQueue.push_back(std::move(msg));
     } else {
-        messageQueue.push(std::move(msg));
+        // Per-topic backpressure policy (§9). Coalesce = latest-wins: before enqueuing, drop any pending
+        // message of the SAME topic so only the freshest survives (a flooding state topic never piles up).
+        if (policyFor(topic) == BackpressurePolicy::Coalesce) {
+            for (auto it = messageQueue.begin(); it != messageQueue.end();) {
+                if (it->topic == topic) { it = messageQueue.erase(it); totalCoalesced++; }
+                else ++it;
+            }
+        }
+        messageQueue.push_back(std::move(msg));
     }
 
     // BACKPRESSURE: cap the queue here, under operationMutex. Without this call the
@@ -431,12 +443,12 @@ void IntraIO::processLowFreqSubscriptions() {
 void IntraIO::flushBatchedMessages(Subscription& sub) {
     // Move accumulated messages to low-freq queue
     for (auto& [topic, msg] : sub.batchedMessages) {
-        lowFreqMessageQueue.push(std::move(msg));
+        lowFreqMessageQueue.push_back(std::move(msg));
     }
     sub.batchedMessages.clear();
 
     for (auto& msg : sub.accumulatedMessages) {
-        lowFreqMessageQueue.push(std::move(msg));
+        lowFreqMessageQueue.push_back(std::move(msg));
     }
     sub.accumulatedMessages.clear();
 }
@@ -454,25 +466,75 @@ void IntraIO::updateHealthMetrics() const {
 }
 
 void IntraIO::enforceQueueLimits() {
-    // Bound the TOTAL queued messages to maxQueueSize. Drop the OLDEST first
-    // (front of queue), draining the high-freq queue before the low-freq one, so a
-    // stalled consumer causes BOUNDED, COUNTED message loss (totalDropped) instead of
-    // unbounded memory growth → OOM. Caller holds operationMutex.
-    // (Previously this drained only messageQueue, leaving lowFreqMessageQueue
-    // unbounded; now both are capped.)
+    // Bound the TOTAL queued messages to maxQueueSize, per-topic-policy-aware (§9). Caller holds
+    // operationMutex. Victim choice: the OLDEST DROPPABLE (policy != Reject) message, high-freq before
+    // low-freq. Reject-policy messages are PROTECTED — a queued critical command is never collaterally
+    // dropped when another topic floods. In the default case (no policies set) policyFor() is DropOldest for
+    // every message, so this degenerates exactly to the old drop-oldest (erase front == pop_front, O(1)).
     size_t totalSize = messageQueue.size() + lowFreqMessageQueue.size();
 
     while (totalSize > maxQueueSize) {
-        if (!messageQueue.empty()) {
-            messageQueue.pop();
-        } else if (!lowFreqMessageQueue.empty()) {
-            lowFreqMessageQueue.pop();
-        } else {
-            break;
+        // Find the oldest non-Reject message (high-freq first, then low-freq).
+        auto findDroppable = [this](std::deque<Message>& q) {
+            for (auto it = q.begin(); it != q.end(); ++it) {
+                if (policyFor(it->topic) != BackpressurePolicy::Reject) return it;
+            }
+            return q.end();
+        };
+
+        auto hi = findDroppable(messageQueue);
+        if (hi != messageQueue.end()) {
+            messageQueue.erase(hi);
+            totalDropped++;
+            totalSize--;
+            continue;
         }
-        totalDropped++;
+        auto lo = findDroppable(lowFreqMessageQueue);
+        if (lo != lowFreqMessageQueue.end()) {
+            lowFreqMessageQueue.erase(lo);
+            totalDropped++;
+            totalSize--;
+            continue;
+        }
+
+        // Over cap with ONLY Reject-policy (critical) messages. We refuse to silently evict an accepted
+        // critical command → reject the NEWEST at the door instead (bounds memory, protects the earlier-
+        // queued criticals), and surface it loudly: a critical-topic flood is a bug, not normal traffic.
+        if (!messageQueue.empty()) {
+            messageQueue.pop_back();
+        } else if (!lowFreqMessageQueue.empty()) {
+            lowFreqMessageQueue.pop_back();
+        } else {
+            break;  // nothing left to drop (defensive)
+        }
+        totalRejected++;
         totalSize--;
+        if (logger) {
+            logger->warn("⚠️ Backpressure: inbox '{}' over cap with only Reject-policy (critical) messages — "
+                         "rejecting newest at the door (totalRejected={})", instanceId, totalRejected.load());
+        }
     }
+}
+
+BackpressurePolicy IntraIO::policyFor(const std::string& topic) const {
+    // Exact-topic lookup; absent => the default global drop-oldest. Caller holds operationMutex.
+    auto it = topicPolicies_.find(topic);
+    return it != topicPolicies_.end() ? it->second : BackpressurePolicy::DropOldest;
+}
+
+void IntraIO::setTopicPolicy(const std::string& topic, BackpressurePolicy policy) {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    // Only store non-default policies (keeps the map — and the default hot path — minimal).
+    if (policy == BackpressurePolicy::DropOldest) {
+        topicPolicies_.erase(topic);
+    } else {
+        topicPolicies_[topic] = policy;
+    }
+}
+
+BackpressurePolicy IntraIO::getTopicPolicy(const std::string& topic) const {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    return policyFor(topic);
 }
 
 void IntraIO::logPublish(const std::string& topic, const IDataNode& /*message*/) const {

@@ -1120,6 +1120,16 @@ target_link_libraries(test_replay_sink_capture PRIVATE
 )
 grove_add_test(ReplaySinkCapture test_replay_sink_capture ${CMAKE_CURRENT_BINARY_DIR})
 
+# Per-topic backpressure policy (IO contract §9, part 4): the high-freq inbox honors DropOldest (default) /
+# Coalesce (latest-wins) / Reject (protect a critical) through the real publish->route->deliver path.
+add_executable(test_backpressure_policy integration/test_backpressure_policy.cpp)
+target_link_libraries(test_backpressure_policy PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(BackpressurePolicy test_backpressure_policy ${CMAKE_CURRENT_BINARY_DIR})
+
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
 # strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it

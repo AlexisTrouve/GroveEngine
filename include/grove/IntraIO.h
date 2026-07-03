@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <queue>
+#include <deque>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -78,9 +79,16 @@ private:
     // static modules (registerStaticModule). Hot-loaded .so modules + ad-hoc instances stay false.
     bool coreResident_ = false;
 
-    // Message storage
-    std::queue<Message> messageQueue;
-    std::queue<Message> lowFreqMessageQueue;
+    // Message storage. std::deque (not std::queue) so the per-topic backpressure policy (§9) can scan/erase
+    // a middle element: Coalesce removes a pending same-topic message at enqueue, and the overflow eviction
+    // skips Reject-policy messages to pick a droppable victim. Front = oldest, back = newest (FIFO via
+    // push_back / pop_front) — identical order to the old std::queue.
+    std::deque<Message> messageQueue;
+    std::deque<Message> lowFreqMessageQueue;
+
+    // Per-topic backpressure policy (§9), resolved at enqueue + eviction. Only NON-default topics are stored
+    // (absent => DropOldest), so the default hot path is one empty-map lookup. Read/written under operationMutex.
+    std::unordered_map<std::string, BackpressurePolicy> topicPolicies_;
 
     // Subscription management
     struct Subscription {
@@ -109,6 +117,8 @@ private:
     mutable std::atomic<size_t> totalPublished{0};
     mutable std::atomic<size_t> totalPulled{0};
     mutable std::atomic<size_t> totalDropped{0};
+    mutable std::atomic<size_t> totalCoalesced{0};  // §9 Coalesce: pending same-topic messages superseded (by design)
+    mutable std::atomic<size_t> totalRejected{0};   // §9 Reject: critical messages rejected at the door on all-Reject overflow
     mutable std::chrono::high_resolution_clock::time_point lastHealthCheck;
     mutable float averageProcessingRate = 0.0f;
 
@@ -124,6 +134,8 @@ private:
     void flushBatchedMessages(Subscription& sub);
     void updateHealthMetrics() const;
     void enforceQueueLimits();
+    // Resolve a topic's backpressure policy (default DropOldest). Caller holds operationMutex.
+    BackpressurePolicy policyFor(const std::string& topic) const;
     void logPublish(const std::string& topic, const IDataNode& message) const;
     void logSubscription(const std::string& pattern, bool isLowFreq) const;
     void logPull(const Message& message) const;
@@ -149,6 +161,14 @@ public:
     size_t getMaxQueueSize() const;
     void clearAllMessages();
     void clearAllSubscriptions();
+
+    // Per-topic backpressure policy (IO contract §9). Declare how THIS inbox handles a topic under pressure:
+    // Coalesce (latest-wins) for flooding state topics, Reject to protect a critical command. Setting a topic
+    // back to DropOldest removes its entry. Opt-in: unset topics keep the default global drop-oldest behavior.
+    void setTopicPolicy(const std::string& topic, BackpressurePolicy policy);
+    BackpressurePolicy getTopicPolicy(const std::string& topic) const;
+    size_t getCoalescedCount() const { return totalCoalesced.load(); }
+    size_t getRejectedCount() const { return totalRejected.load(); }
 
     // Debug and monitoring
     json getDetailedMetrics() const;
