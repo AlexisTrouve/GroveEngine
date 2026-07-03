@@ -14,9 +14,12 @@ Coalesce/Reject on the high-freq inbox) is also **BUILT** (`IntraIO::setTopicPol
 E2E + WSL-TSan-clean), and the sink now captures an **opt-in payload snapshot** (`IDataNode::serialize()`) so
 the replay log is replayable, not just a timeline. And a per-inbox **drop log** (`IntraIO::enableDropLog`/
 `getRecentDrops`) records which/why messages backpressure dropped — replacing seq gap-detection, which was
-DROPPED (seq is per-source-across-topics + the sink taps pre-drop → gaps are ambiguous). Next (all follow-ons):
-`causedBy` correlation, exec-order view + domain-logger fan-out, pattern-based topic policies, consumer-side
-dedup (no redelivery trigger yet). The status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
+DROPPED (seq is per-source-across-topics + the sink taps pre-drop → gaps are ambiguous). **`causedBy`
+correlation** (thread-local cause id → env.causedBy for a handler's in-response publish) and **wildcard topic
+policies** (`setTopicPolicy("render:*", …)`) are now BUILT too. Remaining are LOW-ROI (see the report): exec-
+order needs new receive-side infra (forensic only); domain-logger fan-out is spammy/marginal; consumer-side
+dedup has no redelivery trigger; a manager-level policy broadcast (today per-instance). The contract is complete
+for practical purposes. The status ledger marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
 ## What this session decided (the trail)
 

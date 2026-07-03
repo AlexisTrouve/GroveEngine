@@ -174,7 +174,15 @@ Envelope fields (control-plane only — see §3):
 | `lamport` | logical clock (scalar) | **causal total order**, tie-broken by source — canonical reconstructable order for replay | ✅ |
 | `tick` | engine epoch (§6) | coarse debug/replay axis ("show me tick 4096"); cheap, kept even where unsynced | ✅ |
 | `simTime` | deterministic sim time (= `tick·dt`) | shipped so a **remote module needs no clock sync** — it reads the tick's time from the message | ✅ |
-| `causedBy?` | optional correlation id | ties response→request; traces the causal DAG across a relocated module | 🟡 reserved (field present, not yet populated) |
+| `causedBy?` | optional correlation id (`"source#seq"`) | ties response→request; traces the causal DAG across a relocated module | ✅ populated (from the handler's current message; §5 impl below) |
+
+**`causedBy` is populated ✅ (BUILT).** A `thread_local` "current cause id" (`"source#seq"`) is set around
+each handler invocation in `pullAndDispatch`; `publish()` reads it and threads it to `routeMessage`, which
+stamps `env.causedBy`. So a message a handler publishes IN RESPONSE is causally linked to the message that
+triggered it — the request→response DAG, reconstructable from the replay log. thread_local ⇒ per-thread, no
+shared state, race-free. Limitation: it links publishes from within a subscription HANDLER; a module that
+buffers in its handler and publishes later from `process()` is not auto-correlated (the transport can't see
+that hop). Locked by `MessageEnvelope` (E2E: a spontaneous publish has no cause; an in-handler reply carries it).
 
 **Lamport is per-node, not a shared counter.** Each `IntraIO` owns a `LamportClock`: `tick()` on
 publish (send-stamp), `update(received) = max(local, received)+1` on deliver (receive rule) — both
@@ -354,9 +362,9 @@ Locked by `BackpressurePolicy` (E2E) + WSL TSan (concurrent deliver-vs-pull, all
 topic, reason}` — the direct WHICH+WHY behind the existing `droppedMessageCount`. (Note: seq-gap detection can
 NOT reveal these drops — the replay sink taps at `routeMessage`, *before* any subscriber inbox drops, and the
 per-source `seq` spans all a producer's topics, so a topic-filtered subscriber sees seq "gaps" with zero loss.
-Recording the drop directly is the false-positive-free answer.) 🟡 **Follow-on:** pattern-based policies
-(`render:*`) + a manager-level "apply to all inboxes" broadcast (today it is per-instance). This is what turns
-"resilience" from a word into a property.
+Recording the drop directly is the false-positive-free answer.) `setTopicPolicy` also accepts a **wildcard
+pattern** (`render:*`; exact topics take precedence). 🟡 **Follow-on:** a manager-level "apply to all inboxes"
+broadcast (today policies are per-instance). This is what turns "resilience" from a word into a property.
 
 ---
 
@@ -385,7 +393,7 @@ under the low-trust doctrine. The pattern:
 | Data-plane direct path (`submitSpriteBatch`) | ✅ BUILT |
 | TSan harness (WSL) | ✅ BUILT |
 | Message envelope `{source, seq, lamport, tick, simTime}` stamped (intra, control plane, TSan-clean) | ✅ BUILT |
-| `causedBy` correlation id (field present, not yet populated) | 🟡 DECIDED |
+| `causedBy` correlation id — populated for a handler's in-response publish (thread-local cause id) | ✅ BUILT (E2E; a module that publishes from `process()` not auto-correlated) |
 | EngineClock (fixed timestep, exposes tick/simTime/dt/realTime to modules) | ✅ BUILT |
 | Clock → module handoff: `setClock` injection + `IEngine::clock()` host accessor | ✅ BUILT |
 | Pause / slow-mo / time-scale via the clock | ✅ BUILT |
@@ -398,7 +406,8 @@ under the low-trust doctrine. The pattern:
 | Per-topic backpressure policy (DropOldest / Coalesce / Reject) on the high-freq inbox | ✅ BUILT (`IntraIO::setTopicPolicy`; exact-topic; TSan-clean) |
 | Per-inbox drop log — which/why messages were dropped (`{source,seq,topic,reason}`) | ✅ BUILT (`IntraIO::enableDropLog`/`getRecentDrops`; opt-in; TSan-clean) |
 | Consumer-side seq gap-detection | 🔵 DROPPED — seq is per-source-across-topics + the sink taps pre-drop, so gaps are ambiguous; the drop log replaces it |
-| Pattern-based topic policies + manager-level "set on all inboxes" broadcast | 🟡 DECIDED (follow-on) |
+| Wildcard/pattern-based topic policies (`render:*`; exact beats pattern) | ✅ BUILT (`setTopicPolicy` accepts a `*` pattern; TSan-clean) |
+| Manager-level "set a policy on all inboxes" broadcast | 🟡 DECIDED (today policies are per-instance) |
 | Live determinism enforcement (sort + apply canonical order) | 🔵 DEFERRED |
 | Vector clocks | 🔵 DEFERRED |
 | Flat payload / shared-memory zero-copy cross-process | 🔵 DEFERRED |
