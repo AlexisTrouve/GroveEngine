@@ -11,8 +11,10 @@ now BUILT.** The contract started as a design agreement; three build slices are 
 `routeMessage`). Locked by `EngineClockUnit`/`EngineClockHosting` + `LamportClockUnit`/`MessageEnvelope` +
 `ReplaySinkUnit`/`ReplaySinkCapture`, all **WSL-TSan-clean**. Part 4 (per-topic backpressure — DropOldest/
 Coalesce/Reject on the high-freq inbox) is also **BUILT** (`IntraIO::setTopicPolicy`, `BackpressurePolicy`
-E2E + WSL-TSan-clean). Next: the sink follow-ons (payload digest, seq dedup/gap-detection, `causedBy`) +
-pattern-based topic policies. The status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
+E2E + WSL-TSan-clean), and the sink now captures an **opt-in payload snapshot** (`IDataNode::serialize()`) so
+the replay log is replayable, not just a timeline. Next (all follow-ons, no big chantier): seq dedup/gap-
+detection, `causedBy` correlation, exec-order view + domain-logger fan-out, pattern-based topic policies. The
+status ledger in the contract marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
 ## What this session decided (the trail)
 
@@ -60,9 +62,10 @@ Foundations found in the code that shaped the contract (so it's faithful, not as
    `causedBy` field present but not populated; consumer-side seq-dedup deferred.
 3. ✅ **Structured replay sink — DONE.** `grove::ReplaySink` (pure, header-only: opt-in, bounded drop-oldest
    ring, thread-safe) tapped in `IntraIOManager::routeMessage`; `bySource()` = per-module view, `timeline()`
-   = merge-sorted `(tick,lamport)` central log. `enableReplaySink(capacity)` on the manager. v1 = envelope +
-   topic. Locked by `ReplaySinkUnit` (7 cases) + `ReplaySinkCapture` (E2E, 4); **WSL TSan-clean** (record-via-
-   route vs concurrent query, 5 runs, 0 races). Follow-ons: payload digest, seq dedup/gap-detection, `causedBy`.
+   = merge-sorted `(tick,lamport)` central log. `enableReplaySink(capacity, capturePayload)` on the manager;
+   records envelope + topic + (opt-in) a JSON payload snapshot (`IDataNode::serialize()`). Locked by
+   `ReplaySinkUnit` (8 cases) + `ReplaySinkCapture` (E2E, 5); **WSL TSan-clean** (record + serialize vs
+   concurrent query, 5 runs, 0 races). Follow-ons: seq dedup/gap-detection, `causedBy`.
 4. ✅ **Per-topic backpressure policy — DONE.** `IntraIO::setTopicPolicy(topic, BackpressurePolicy)` on the
    high-freq inbox: DropOldest (default) / Coalesce (latest-wins, supersede pending same-topic at enqueue) /
    Reject (protect a queued critical; reject-newest-at-door on all-Reject overflow). Queues moved to

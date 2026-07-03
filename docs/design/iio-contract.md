@@ -324,9 +324,10 @@ now, independent of any future lockstep.
 > drop-oldest, its own mutex so it never stalls routing), **control-plane only** (tapped in
 > `IntraIOManager::routeMessage`, which the data plane bypasses). `bySource()` = the per-module view;
 > `timeline()` = the merge-sorted `(tick, lamport)` central replay log. Enable via
-> `IntraIOManager::enableReplaySink(capacity)`. v1 stores envelope + topic; the **payload digest** and the
-> **exec-order** view + fan-out into the human `spdlog` domain loggers remain 🟡. Locked by `ReplaySinkUnit` +
-> `ReplaySinkCapture`, WSL TSan-clean.
+> `IntraIOManager::enableReplaySink(capacity, capturePayload)`. Records envelope + topic + (opt-in) a JSON
+> **payload snapshot** (`IDataNode::serialize()`, dumped off the ring lock) — the log is now replayable, not
+> just a timeline. The **exec-order** view + fan-out into the human `spdlog` domain loggers + seq-dedup/`causedBy`
+> remain 🟡. Locked by `ReplaySinkUnit` + `ReplaySinkCapture`, WSL TSan-clean (incl. capture on the route).
 
 ---
 
@@ -385,8 +386,8 @@ under the low-trust doctrine. The pattern:
 | Pause / slow-mo / time-scale via the clock | ✅ BUILT |
 | Lamport logical clock (per-node) + per-source seq, stamped | ✅ BUILT |
 | Dedup / gap-detection logic USING seq (consumer side) | 🟡 DECIDED (follow-on to the sink) |
-| Structured replay sink (bounded, opt-in, thread-safe; per-source + (tick,lamport) timeline views) | ✅ BUILT (`ReplaySink.h`, tapped in `routeMessage`; v1 = envelope+topic; TSan-clean) |
-| Dual logging into the human domain loggers; exec-order view; payload digest in the sink | 🟡 DECIDED |
+| Structured replay sink (bounded, opt-in, thread-safe; per-source + (tick,lamport) views; opt-in payload snapshot) | ✅ BUILT (`ReplaySink.h`, tapped in `routeMessage`; `IDataNode::serialize()`; TSan-clean) |
+| Dual logging into the human domain loggers; exec-order view; `causedBy` correlation | 🟡 DECIDED |
 | RNG seeding discipline | 🟡 DECIDED |
 | Intra zero-copy delivery (`shared_ptr<const>`) | ✅ BUILT (fan-out O(N)→O(1); coreResident = true 0-copy) |
 | Per-topic backpressure policy (DropOldest / Coalesce / Reject) on the high-freq inbox | ✅ BUILT (`IntraIO::setTopicPolicy`; exact-topic; TSan-clean) |
@@ -407,10 +408,11 @@ under the low-trust doctrine. The pattern:
    0 races). `causedBy` reserved; consumer-side dedup/gap-detection deferred to the replay sink.
 3. ~~**Structured replay sink**~~ ✅ **DONE** — `grove::ReplaySink` (pure, header-only: opt-in, bounded
    drop-oldest ring, thread-safe) tapped in `IntraIOManager::routeMessage`; the per-module + centralized
-   logs are the `bySource()` / `timeline()` queries over the captured stamped stream. v1 records envelope +
-   topic; `causedBy` + seq-based dedup/gap-detection + a payload digest are follow-ons (they read the payload
-   / correlate across events). Locked by `ReplaySinkUnit` + `ReplaySinkCapture` (E2E); **WSL TSan re-run clean**
-   (record-via-route vs concurrent query, 5 runs, 0 races).
+   logs are the `bySource()` / `timeline()` queries over the captured stamped stream. Records envelope + topic
+   + (opt-in) a JSON **payload snapshot** (`IDataNode::serialize()`) — a replayable log, not just a timeline.
+   `causedBy` + seq-based dedup/gap-detection remain follow-ons (they correlate across events). Locked by
+   `ReplaySinkUnit` + `ReplaySinkCapture` (E2E); **WSL TSan re-run clean** (record-via-route + payload
+   serialize vs concurrent query, 5 runs, 0 races).
 4. ~~**Per-topic backpressure policy**~~ ✅ **DONE** — `IntraIO::setTopicPolicy` gives the high-freq inbox
    DropOldest / Coalesce / Reject (exact-topic, opt-in; queues moved to `std::deque` for scan/erase). Locked by
    `BackpressurePolicy` (E2E, 5 cases) + WSL TSan-clean (all branches under concurrent deliver-vs-pull).
