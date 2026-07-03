@@ -1,112 +1,134 @@
-# GroveEngine - Session Successor Prompt
+# GroveEngine — Session Successor Handoff
 
-## Context
-GroveEngine is a C++17 hot-reload game engine with a 2D bgfx-based renderer module.
+**Purpose:** resume work on GroveEngine in a FRESH session with zero prior chat context. Read this top-to-bottom
+once; it is the map. Each subsystem points to its own design + handoff doc under `docs/design/` for the detail —
+this file does NOT duplicate them, it indexes them and states what is done / open / blocked.
 
-## Current State - BgfxRenderer (27 Nov 2025)
+**Last updated:** 2026-07-03. **Branch:** `master`. **Remotes:** gitea (primary) + github + bitbucket (all three
+kept in sync — see *Git* below). Working tree should be clean except `Testing/Temporary/CTestCostData.txt`
+(a ctest artifact — NEVER stage it).
 
-### Completed Phases
+---
 
-| Phase | Feature | Status |
-|-------|---------|--------|
-| 5 | IIO Pipeline (messages → SceneCollector → RenderGraph) | Done |
-| 5.5 | Sprite shader with GPU instancing (80-byte SpriteInstance) | Done |
-| 6 | Texture loading via stb_image | Done |
-| 6.5 | Debug overlay (FPS/stats via bgfx debug text) | Done |
-| 7 | Text rendering with embedded 8x8 bitmap font | Done |
-| 8A | Multi-texture support (sorted batching by textureId) | Done |
-| 8B | Tilemap rendering (TilemapPass with instanced tiles) | Done |
+## What GroveEngine is
 
-### Key Files
-```
-modules/BgfxRenderer/
-├── BgfxRendererModule.cpp       # Main module entry
-├── Shaders/
-│   ├── vs_sprite.sc, fs_sprite.sc  # Instanced sprite shader
-│   ├── varying.def.sc              # Shader inputs/outputs
-│   └── *.bin.h                     # Compiled shader bytecode
-├── Passes/
-│   ├── ClearPass.cpp            # Clear framebuffer
-│   ├── TilemapPass.cpp          # Tilemap grid rendering
-│   ├── SpritePass.cpp           # Instanced sprite rendering (sorted by texture)
-│   ├── TextPass.cpp             # Text rendering (glyph quads)
-│   └── DebugPass.cpp            # Debug lines/shapes
-├── Text/
-│   └── BitmapFont.h/.cpp        # Embedded 8x8 CP437-style font
-├── Resources/
-│   ├── TextureLoader.cpp        # stb_image PNG/JPG loading
-│   └── ResourceCache.cpp        # Texture cache with numeric IDs
-├── Scene/
-│   └── SceneCollector.cpp       # IIO message parsing (render:*)
-├── Debug/
-│   └── DebugOverlay.cpp         # FPS/stats display
-└── Frame/
-    └── FramePacket.h            # SpriteInstance, TextCommand, TilemapChunk
-```
+A **C++17 hot-reload module system** for game engines: dynamic load/unload of modules (.so) with state
+preservation across reload, modules communicating **only via IIO topics** (pub/sub). Primary dev toolchain =
+**Windows / MinGW** (Ninja, `-O3`); concurrency rigor (sanitizers) runs via **WSL** (MinGW ships none). Two
+external consumers static-link the engine at HEAD and each have **their own Claude** — **Drifterra** (a game)
+and **Theomen** (procedural worldgen). Stay engine-side; don't reach into their repos.
 
-### ResourceCache - Texture ID System
-```cpp
-// Load texture and get numeric ID
-uint16_t texId = resourceCache->loadTextureWithId(device, "path/to/image.png");
+---
 
-// Get texture by ID (for sprite rendering)
-rhi::TextureHandle tex = resourceCache->getTextureById(texId);
-```
+## Status snapshot — what's built
 
-### IIO Message Formats
+| Subsystem | State | Detail doc |
+|---|---|---|
+| **Module systems** | ✅ Sequential + Threaded (Phase 2) + ThreadPool/work-stealing (Phase 3), TSan-proven. Cluster (Phase 4, MMO-scale) = planned only | `docs/design/threaded-pool-handoff.md` |
+| **IO contract (the spine)** | ✅ **complete for practical purposes** — see below | `docs/design/iio-contract.md` (+ `-handoff`) |
+| **Rendering throughput** | ✅ bulk `submitSpriteBatch` (~100k–400k sprites/frame) + IIO zero-copy delivery (`shared_ptr<const>`, fan-out O(N)→O(1)) | `docs/design/rendering-throughput-handoff.md` |
+| **BgfxRenderer** | ✅ sprites/text/tilemap(+LOD/fog/anim/multi-layer)/particles/`render:sector`/HUD overlay/runtime textures + streaming **asset system** (registry+cache+LRU, atlases, async decode) | `modules/BgfxRenderer/README.md`, `docs/design/assets.md`, `tilemap-renderer.md` |
+| **UIModule** | ✅ full game-UI framework: layout/clipping/z-order/in-app window/tabs/drawers/modal, E2E-tested | `docs/design/ui-framework.md` (+ `-handoff`), `docs/UI_*.md` |
+| **InputModule** | ✅ SDL backend (mouse/keyboard/gamepad), `ActionMap` (scancode bindings) | `modules/InputModule/README.md` |
+| **SoundManager** | ✅ `sound:*` (SFX/music via SDL_mixer behind `ISoundBackend`) + adaptive music `audio:*` (logic; real stems = content) | CLAUDE.md §SoundManager |
+| **Header-only helpers** | ✅ `grove::camera` (zoom/pan/cull), `grove::anim` (2D), `ActionMap`, `ZoneNavigator` | DEVELOPER_GUIDE |
+| **grove::mapview** | ✅ **engine-side complete** — generic world-viewer (S0 format → S1 core → S2 viewer `--load` → S3-seam provider → tiling T2/T3 + live 'T' tiling → regions/markers on screen). Only remainder = **S3 Theomen adapter (cross-project)** | `docs/design/mapview.md` (+ `-handoff`) |
+| **Quality hardening** | 🟡 Phase 1 (ASan/UBSan/TSan) ✅ + Phase 2 (clang-tidy `src/`) ✅ — core swept clean. Phase 3 (CI) + `modules/` sweep OPEN | `docs/design/quality-hardening-handoff.md` |
 
-**Sprite** (`render:sprite`)
-```cpp
-{ "x": 100.0, "y": 50.0, "scaleX": 32.0, "scaleY": 32.0,
-  "rotation": 0.0, "u0": 0.0, "v0": 0.0, "u1": 1.0, "v1": 1.0,
-  "textureId": 1, "color": 0xFFFFFFFF, "layer": 0 }
-```
+Test suite: **~137 ctests** (excl. 3 slow: StressTest/MemoryLeakHunter/ChaosMonkey) all green as of this handoff.
 
-**Text** (`render:text`)
-```cpp
-{ "x": 10.0, "y": 10.0, "text": "Hello",
-  "fontSize": 16, "color": 0xFFFFFFFF, "layer": 100 }
-```
+---
 
-**Tilemap** (`render:tilemap`)
-```cpp
-{ "x": 0.0, "y": 0.0, "width": 10, "height": 10,
-  "tileW": 16, "tileH": 16, "textureId": 0,
-  "tileData": "1,0,1,0,1,0,..." }  // comma-separated tile indices
-```
+## The IO contract — freshly completed (the last big chantier)
 
-## Next Task: Phase 9 - Choose One
+The engine's communication spine (`docs/design/iio-contract.md` has the doctrine + a per-line ✅/🟡/🔵 ledger).
+**All substantive parts are BUILT** (each locked by tests + **WSL TSan-clean**):
 
-### Option A: Layer Sorting
-- Currently sprites are sorted by textureId only
-- Add proper layer sorting (render back-to-front)
-- Sort key: `(layer << 16) | textureId` for efficient batching
+- **Async, non-deterministic by default**, carrying the *tools of determinism* (stamp, don't enforce).
+- **EngineClock** — fixed timestep, pause/slow-mo/fast-forward, injected read-only into modules (`setClock`).
+- **Message envelope** `{source, seq, lamport, tick, simTime, causedBy}` stamped through publish→route→deliver.
+  Per-node `LamportClock`. **`causedBy`** populated for a message a handler publishes *in response* (thread-local
+  cause id; a module publishing from `process()` is not auto-correlated — documented limit).
+- **Zero-copy intra delivery** (`Message::data = shared_ptr<const IDataNode>`).
+- **Structured replay sink** (`ReplaySink.h`, tapped in `routeMessage`): opt-in bounded ring, `bySource()` /
+  `timeline()` views, **opt-in payload snapshot** (`IDataNode::serialize()`) → a replayable log, not just a timeline.
+- **Per-topic backpressure** (`IntraIO::setTopicPolicy`): DropOldest / **Coalesce** (latest-wins) / **Reject**
+  (protect a critical); **wildcard patterns** (`render:*`, exact beats pattern); + a **per-inbox drop log**
+  (`enableDropLog`/`getRecentDrops` → which/why messages were dropped).
 
-### Option B: Dynamic Texture Loading via IIO
-- `render:texture:load` message to load textures at runtime
-- Returns textureId that can be used in sprites
-- Useful for dynamically loaded assets
+**Remaining IO items are LOW-ROI (recommend NOT building without a concrete need):** exec-order view (needs new
+*receive-side* log infra, forensic-only); domain-logger fan-out (spammy at ~100 msg/frame); consumer-side dedup
+(no redelivery trigger in the intra transport); manager-level "set a policy on all inboxes" broadcast. Also 🔵
+deferred by design: LocalIO/NetworkIO tiers (stubs), live determinism enforcement, vector clocks, lockstep.
 
-### Option C: Particle System
-- ParticlePass for particle effects
-- GPU instanced particles with lifetime/velocity
-- FramePacket already has ParticleInstance struct
+> **Note banked:** consumer-side *seq gap-detection* was DROPPED — the sink taps pre-drop and `seq` is
+> per-source-across-topics, so gaps are ambiguous; the **drop log** is the direct, false-positive-free answer.
 
-### Option D: Camera Features
-- Zoom and pan support (already in ViewInfo)
-- Screen shake effects
-- Smooth camera following
+---
 
-### Build & Test
+## Open work & decisions — pick the next move
+
+1. **CI (auto-run on push) — BLOCKED ON ALEXI'S DECISION: github / gitea / none.** Highest leverage: it makes the
+   whole rigor stack (137 ctests + ASan/UBSan/TSan + clang-tidy) automatic instead of manual. Nothing else needed
+   — just the host call, then wire it. (`docs/design/quality-hardening-handoff.md` Phase 3.)
+2. **Quality — widen the sanitizer + clang-tidy sweep to `modules/` (GPU/bgfx).** The one uncovered area.
+   **Caveat:** GPU modules do NOT currently compile on Linux (only `grove_impl` + core are Linux-verified), and
+   MinGW has no sanitizers → this likely needs a Linux port of the GPU modules first. Assess before committing.
+3. **mapview S3 — Theomen's adapter (cross-project, its Claude).** The engine consumes any `.world` dir today;
+   Theomen must WRITE one. A ready-to-paste recipe + prompt is in `docs/design/mapview-handoff.md` ("Theomen:
+   write a `.world`"). Nothing to do engine-side unless the contract needs a change.
+4. **Low-ROI IO follow-ons** (see above) — only on explicit request.
+5. **mapview deferred plug-ins** — S4 timeline scrub, S5 hex/iso/Z-multislice/LOD, palette-LUT. Do when a consumer
+   asks (`mapview.md` §8/§10).
+
+---
+
+## Build & test
+
 ```bash
-cd build-bgfx
-cmake --build . -j4
-cd tests && ./test_23_bgfx_sprites_visual
+# Core only
+cmake -B build && cmake --build build -j4
+# With modules (SoundManager needs SDL2_mixer; drop its flag if absent)
+cmake -B build -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON -DGROVE_BUILD_INPUT_MODULE=ON -DGROVE_BUILD_SOUND_MODULE=ON
+cmake --build build -j4
+# Tests (run the fast suite; the 3 slow ones are StressTest/MemoryLeakHunter/ChaosMonkey)
+ctest --test-dir build -E "StressTest|MemoryLeakHunter|ChaosMonkey" -j4
+# Visual/interactive demos: run from the PROJECT ROOT (cwd-relative asset paths)
+./build/tests/test_mapview_viewer            # drag=pan wheel=zoom H/B/T=lens R=reset  (--load <dir> opens a .world)
+./build/tests/test_ui_showcase
 ```
 
-## Notes
-- Shaders are pre-compiled (embedded in .bin.h)
-- shaderc at: `build-bgfx/_deps/bgfx-build/cmake/bgfx/shaderc`
-- All passes reuse sprite shader (same instancing layout)
-- TilemapPass: tile index 0 = empty, 1+ = actual tiles
-- SpritePass: stable_sort by textureId preserves layer order within same texture
+**Sanitizers (WSL only — MinGW has none):** a wrapper project + `setarch $(uname -m) -R ./exe` disables ASLR so
+TSan runs. Recipe: memory `tsan-via-wsl-recipe` + `docs/design/quality-hardening-handoff.md`. **Re-run WSL TSan
+after ANY change to the IIO publish/route/deliver path** (doctrine §10).
+
+---
+
+## How this repo is tracked (important)
+
+- **NOT in ProjectMind.** State lives in `docs/design/*.md` + the file-based **memory** at
+  `~/.claude/projects/.../memory/` (index = `MEMORY.md`). Keep BOTH current on every change.
+- **TDD is non-negotiable:** red test first → impl → green → commit; a fix = a test that locks the bug; prove a
+  test bites (mutate → fail → revert). **UI/render "works" only with an E2E that clicks/renders it** — reading
+  code is not proof.
+- **Git:** commit+push after each implementation. **No force push** (never on master). Push to all three remotes:
+  ```
+  git -c http.proxy=http://127.0.0.1:7897 push https://git.etheryale.com/StillHammer/groveengine.git master:master && git update-ref refs/remotes/gitea/master refs/heads/master
+  git push github master:master
+  GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin master:master
+  ```
+  Commit messages end with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` line (write
+  multi-line via a heredoc to `.git/GROVE_COMMIT_MSG.txt` + `git commit -F`, then `rm`). Never stage
+  `Testing/Temporary/CTestCostData.txt`.
+- **Cross-project boundary:** the engine speaks only generic (`field`/`region`/`chunk`/topics). Drifterra + Theomen
+  vocabulary stays in their repos; if engine code starts knowing their words, it stopped being reusable.
+
+---
+
+## Gotchas banked (memory)
+
+- **Shader edit** → a `.sc` change needs a manual `shaderc --bin2c` regen of its `.bin.h` (build won't auto-compile).
+- **Visual demos** run from the project root (cwd-relative `../assets`); the exe is locked while its window is open.
+- **Never `taskkill /F /IM python.exe`** — kill by PID only.
+- **TankModule.h linter bug** — a linter sometimes merges lines 35-36 ("logger not declared"); check if a build fails there.
+```
