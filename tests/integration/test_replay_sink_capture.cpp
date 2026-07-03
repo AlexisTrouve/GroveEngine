@@ -101,6 +101,35 @@ TEST_CASE("ReplaySink E2E - the two views: per-source filter + canonical timelin
     mgr.disableReplaySink();
 }
 
+TEST_CASE("ReplaySink E2E - payload capture snapshots the real message JSON", "[replay][iio]") {
+    auto& mgr = IntraIOManager::getInstance();
+    mgr.enableReplaySink(64, /*capturePayload=*/true);   // capture the payload content too
+    mgr.setSimTime(7, 7.0 / 60.0);
+
+    auto a = mgr.createInstance("PA");
+    auto b = mgr.createInstance("PB");
+    b->subscribe("p:topic", [](const Message&) {});
+
+    a->publish("p:topic", std::make_unique<JsonDataNode>("d", nlohmann::json{{"x", 5}, {"y", 3}}));
+
+    const auto ev = mgr.replaySink().snapshot();
+    REQUIRE(ev.size() == 1);
+    REQUIRE_FALSE(ev[0].payload.empty());
+    // The snapshot is the real payload JSON (parse it back and check the values round-trip).
+    const auto parsed = nlohmann::json::parse(ev[0].payload);
+    REQUIRE(parsed["x"] == 5);
+    REQUIRE(parsed["y"] == 3);
+
+    // And with capture OFF, the payload field stays empty (opt-in cost).
+    mgr.enableReplaySink(64, /*capturePayload=*/false);
+    a->publish("p:topic", std::make_unique<JsonDataNode>("d", nlohmann::json{{"x", 9}}));
+    REQUIRE(mgr.replaySink().snapshot().back().payload.empty());
+
+    mgr.removeInstance("PA");
+    mgr.removeInstance("PB");
+    mgr.disableReplaySink();
+}
+
 TEST_CASE("ReplaySink E2E - disabled = opt-in: no capture when off", "[replay][iio]") {
     auto& mgr = IntraIOManager::getInstance();
     mgr.disableReplaySink();                        // ensure OFF

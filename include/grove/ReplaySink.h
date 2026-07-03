@@ -39,20 +39,23 @@
 
 namespace grove {
 
-// One recorded control-plane message: the transport envelope (ordering/causality metadata) + its topic.
-// Deliberately payload-free in v1 — the envelope + topic IS the replay timeline; capturing payload content
-// is a flagged follow-on (a digest, to avoid pinning hot-loaded .so memory / dumping json on the hot path).
+// One recorded control-plane message: the transport envelope (ordering/causality metadata), its topic, and
+// (when payload capture is enabled) a JSON snapshot of the payload. `payload` is empty unless the sink was
+// enabled with capturePayload=true — the envelope + topic alone is the replay TIMELINE; the payload snapshot
+// makes it a replay LOG you can inspect ("tick 42: module X published render:camera with {x:5,y:3}").
 struct ReplayEvent {
-    Envelope    env;    // source / seq / lamport / tick / simTime — the ordering metadata
-    std::string topic;  // where the message was published
+    Envelope    env;      // source / seq / lamport / tick / simTime — the ordering metadata
+    std::string topic;    // where the message was published
+    std::string payload;  // JSON snapshot of the payload (empty unless capturePayload was enabled)
 };
 
 class ReplaySink {
 public:
     // Turn recording ON and (re)initialize the ring to `capacity` events, clearing any prior contents +
-    // counters. A capacity of 0 is treated as disabled (nothing can be stored). Idempotent-ish: calling
-    // enable() again resizes + clears (a fresh capture session).
-    void enable(size_t capacity) {
+    // counters. A capacity of 0 is treated as disabled (nothing can be stored). `capturePayload` = also
+    // snapshot each message's JSON payload (heavier — a dump() per record; leave off for a pure timeline).
+    // Idempotent-ish: calling enable() again resizes + clears (a fresh capture session).
+    void enable(size_t capacity, bool capturePayload = false) {
         std::lock_guard<std::mutex> lock(mutex_);
         capacity_ = capacity;
         ring_.assign(capacity, ReplayEvent{});
@@ -60,6 +63,7 @@ public:
         count_ = 0;
         captured_ = 0;
         dropped_ = 0;
+        capturePayload_.store(capturePayload, std::memory_order_release);
         enabled_.store(capacity > 0, std::memory_order_release);
     }
 
@@ -68,12 +72,19 @@ public:
     void disable() { enabled_.store(false, std::memory_order_release); }
 
     bool enabled() const { return enabled_.load(std::memory_order_acquire); }
+    bool capturesPayload() const { return capturePayload_.load(std::memory_order_acquire); }
 
     // HOT PATH (called from routeMessage under the routing locks): record one stamped message. O(1),
     // thread-safe via the sink's own mutex, and a cheap atomic no-op when disabled (so tapping the router
     // costs one predictable-not-taken branch when the sink is off). Drop-oldest when the ring is full.
-    void record(const Envelope& env, const std::string& topic) {
+    // If payload capture is on and `payload` is non-null, its JSON is snapshotted BEFORE the lock (so the
+    // dump — the expensive part — never holds the ring mutex; the node is alive during the route, no pinning).
+    void record(const Envelope& env, const std::string& topic, const IDataNode* payload = nullptr) {
         if (!enabled_.load(std::memory_order_acquire)) return;  // opt-in: zero work when off
+        std::string payloadJson;
+        if (payload != nullptr && capturePayload_.load(std::memory_order_acquire)) {
+            payloadJson = payload->serialize();                 // dump outside the lock (node alive here)
+        }
         std::lock_guard<std::mutex> lock(mutex_);
         if (capacity_ == 0) return;                             // disabled between the gate and the lock
         if (count_ == capacity_) {
@@ -81,7 +92,7 @@ public:
         } else {
             ++count_;
         }
-        ring_[head_] = ReplayEvent{env, topic};
+        ring_[head_] = ReplayEvent{env, topic, std::move(payloadJson)};
         head_ = (head_ + 1) % capacity_;
         ++captured_;
     }
@@ -146,6 +157,7 @@ private:
     size_t                   count_ = 0;     // live entries (<= capacity_)
     size_t                   capacity_ = 0;
     std::atomic<bool>        enabled_{false};
+    std::atomic<bool>        capturePayload_{false};  // also snapshot each message's JSON payload
     uint64_t                 captured_ = 0;  // total recorded (incl. overwritten)
     uint64_t                 dropped_ = 0;   // total overwritten (ring-full drops)
 };

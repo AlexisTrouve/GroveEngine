@@ -312,6 +312,20 @@ public:
      * Only works for data/ and runtime/ nodes. Config nodes are read-only.
      */
     virtual void clearChildren() = 0;
+
+    // ========================================
+    // SERIALIZATION
+    // ========================================
+
+    /**
+     * @brief Serialize this node (and its subtree) to a JSON string.
+     * @return A compact JSON representation of the node's data.
+     *
+     * The "json everywhere" contract capability (docs/design/iio-contract.md §4): a payload must be
+     * expressible as a portable string so it can cross the Local/Network tiers (dump/parse) and be captured
+     * by the structured replay sink (§8). A const read — it never mutates the node.
+     */
+    virtual std::string serialize() const = 0;
 };
 
 } // namespace grove

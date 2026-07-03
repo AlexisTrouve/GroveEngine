@@ -180,7 +180,7 @@ public:
     // of `capacity` events (drop-oldest): every routed control-plane message's envelope + topic is recorded.
     // Inspect via replaySink().timeline() (canonical (tick,lamport) order) / .bySource(id) (per-module view).
     // Off by default → zero routing cost. A debug/replay tool: async-safe (bounded, never stalls routing).
-    void enableReplaySink(size_t capacity) { m_replaySink.enable(capacity); }
+    void enableReplaySink(size_t capacity, bool capturePayload = false) { m_replaySink.enable(capacity, capturePayload); }
     void disableReplaySink() { m_replaySink.disable(); }
     const ReplaySink& replaySink() const { return m_replaySink; }
 

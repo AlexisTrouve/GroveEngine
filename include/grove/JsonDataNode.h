@@ -91,6 +91,11 @@ public:
     bool removeChild(const std::string& name) override;
     void clearChildren() override;
 
+    // Serialization: the node's own JSON data as a compact string (IO contract §4/§8). IIO payloads carry
+    // their content here (the typed get/set operate on m_data), so this is exactly the payload a subscriber
+    // reads or the replay sink captures. Const, no mutation.
+    std::string serialize() const override { return m_data.dump(); }
+
     // Direct JSON access (for internal use by JsonDataTree)
     const json& getJsonData() const { return m_data; }
     json& getJsonData() { return m_data; }

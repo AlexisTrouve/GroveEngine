@@ -130,6 +130,20 @@ TEST_CASE("ReplaySink - disable stops recording; enable clears for a fresh sessi
     REQUIRE(sink.capturedCount() == 0);
 }
 
+TEST_CASE("ReplaySink - payload capture is opt-in; off by default, no snapshot without a node", "[replay][unit]") {
+    ReplaySink sink;
+    sink.enable(8);                                   // default: capture OFF
+    REQUIRE_FALSE(sink.capturesPayload());
+    sink.record(env("a", 1, 1, 0), "t:x");            // no payload passed -> payload field stays empty
+    REQUIRE(sink.snapshot()[0].payload.empty());
+
+    sink.enable(8, /*capturePayload=*/true);          // fresh session with capture ON
+    REQUIRE(sink.capturesPayload());
+    sink.record(env("a", 1, 1, 0), "t:x");            // capture on but a NULL node -> still nothing to snapshot
+    REQUIRE(sink.snapshot()[0].payload.empty());
+    // (Serializing a real payload node is exercised E2E in ReplaySinkCapture, which links JsonDataNode.)
+}
+
 TEST_CASE("ReplaySink - concurrent record() is thread-safe (exact counts, no loss/double)", "[replay][unit]") {
     ReplaySink sink;
     constexpr int kThreads = 8;
