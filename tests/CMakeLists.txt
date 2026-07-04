@@ -3468,6 +3468,7 @@ if(GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     # Interactive map viewer + headless PNG export (--shot / --poster). Runs on Linux under Xvfb + software GL.
     add_executable(test_mapview_viewer
         visual/test_mapview_viewer.cpp
+        visual/SdlNativeHandle.cpp   # isolates SDL_syswm.h/X11 so it can't collide with RHITypes.h
         ${GROVE_MINIZ_DIR}/miniz.c)
     target_include_directories(test_mapview_viewer PRIVATE
         ${CMAKE_SOURCE_DIR}/include

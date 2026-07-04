@@ -27,7 +27,9 @@
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-#include <SDL_syswm.h>
+// NOTE: <SDL_syswm.h> is intentionally NOT included here — on Linux it drags in X11 macros that collide with
+// the renderer's RHITypes.h. The native window/display handle is fetched via SdlNativeHandle.h, whose .cpp is
+// the only place SDL_syswm.h lives.
 
 #include "BgfxRendererModule.h"
 #include "RHI/RHIDevice.h"
