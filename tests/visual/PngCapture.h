@@ -64,8 +64,26 @@ inline void svpng(FILE* fp, unsigned w, unsigned h, const unsigned char* img, in
 #undef SVPNG_END
 }
 
-// Write an RGBA framebuffer (w*h*4 bytes) as an opaque RGB PNG. Returns false if the file can't be opened.
+// svpng's HARD limits (it has no 64-bit/multi-block path): each row is ONE stored-DEFLATE block whose byte
+// length is a 16-bit field (p = w·3 + 1 ≤ 65535 for RGB → width ≤ 21844), and the IDAT chunk length is a 32-bit
+// field (2 + h·(5+p) + 4 ≤ 2^32). PAST EITHER, svpng writes a CORRUPT file — so writeRgbaAsPng REFUSES rather
+// than returning a broken PNG (it used to return true even then, silently). Bigger images need a real PNG
+// encoder (stb_image_write — the "productize PNG write" gap). 21844 = (65535-1)/3.
+inline constexpr int kSvpngMaxWidth = 21844;
+
+// Would svpng produce a VALID PNG for this w×h RGB image? (width fits the 16-bit stored block AND the IDAT
+// length fits 32 bits). Exposed so a caller can fail-franc BEFORE doing expensive work.
+inline bool svpngCanEncode(int w, int h) {
+    if (w <= 0 || h <= 0 || w > kSvpngMaxWidth) return false;
+    const unsigned long long p    = static_cast<unsigned long long>(w) * 3ull + 1ull;
+    const unsigned long long idat = 2ull + static_cast<unsigned long long>(h) * (5ull + p) + 4ull;
+    return idat <= 0xFFFFFFFFull;
+}
+
+// Write an RGBA framebuffer (w*h*4 bytes) as an opaque RGB PNG. Returns false if the file can't be opened, OR
+// if the image exceeds svpng's encodable size (see svpngCanEncode) — never writes a corrupt file.
 inline bool writeRgbaAsPng(const std::string& path, int w, int h, const std::vector<uint8_t>& rgba) {
+    if (!svpngCanEncode(w, h)) return false;   // HARD limit — refuse instead of emitting a broken PNG
     std::vector<uint8_t> rgb(static_cast<size_t>(w) * h * 3);
     for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
         rgb[i * 3 + 0] = rgba[i * 4 + 0];

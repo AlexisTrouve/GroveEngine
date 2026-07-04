@@ -211,6 +211,18 @@ int main(int argc, char** argv) {
         const long long pxH = static_cast<long long>(posterCellsY) * ppc;
         std::fprintf(stdout, "poster: %dx%d cells @ %d px/cell -> %lldx%lld px (tiles %d cells = %d px)\n",
                      posterCellsX, posterCellsY, ppc, pxW, pxH, tileCells, tilePx);
+        // HARD limit — the PNG encoder (svpng) tops out at 21844 px WIDTH (16-bit stored block) + a 32-bit IDAT
+        // length. Refuse BEFORE rendering thousands of tiles / allocating the full image (past the limit the
+        // writer would emit a CORRUPT file). Actionable: lower --ppc. (Bigger output needs a real PNG encoder.)
+        if (!mvdemo::svpngCanEncode(pxW > INT32_MAX ? INT32_MAX : static_cast<int>(pxW),
+                                    pxH > INT32_MAX ? INT32_MAX : static_cast<int>(pxH))) {
+            const int maxPpc = posterCellsX > 0 ? mvdemo::kSvpngMaxWidth / posterCellsX : 0;
+            std::fprintf(stderr,
+                "--poster: %lldx%lld px exceeds the PNG encoder's limit (max width %d px). Lower --ppc to <= %d"
+                " (bigger output needs a real PNG encoder like stb_image_write).\n",
+                pxW, pxH, mvdemo::kSvpngMaxWidth, maxPpc);
+            return 3;
+        }
         const mvdemo::PosterResult pr = mvdemo::renderPoster(app, renderer, posterMinCellX, posterMinCellY,
                                                              posterCellsX, posterCellsY, posterCellSize, ppc, tileCells);
         if (!pr.ok) {

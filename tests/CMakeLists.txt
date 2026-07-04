@@ -577,6 +577,16 @@ target_include_directories(test_mapview_format PRIVATE
 target_link_libraries(test_mapview_format PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewFormatUnit test_mapview_format ${CMAKE_CURRENT_BINARY_DIR})
 
+# PNG writer hard size limit (svpng): writeRgbaAsPng must REFUSE an over-limit image (width > 21844 / 32-bit
+# IDAT overflow) instead of writing a corrupt file — the guard behind --poster. Header-only (PngCapture.h under
+# tests/visual), no GPU, so it folds into the sanitizer lenses.
+add_executable(test_png_limit integration/test_png_limit.cpp)
+target_include_directories(test_png_limit PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/visual
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_png_limit PRIVATE Catch2::Catch2WithMain)
+grove_add_test(PngLimitUnit test_png_limit ${CMAKE_CURRENT_BINARY_DIR})
+
 # Map-viewer engine slice S0b: per-chunk compression (zlib via the vendored miniz). The Compressor is
 # INJECTED so the format core stays dependency-free — only THIS target compiles miniz.c. Locks: compressed
 # round-trips identically to raw, and every failure (no decompressor, corrupt/truncated payload) fails franc.

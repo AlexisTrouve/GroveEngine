@@ -161,9 +161,13 @@ letterbox (the image is the map, edge to edge):
 ./build/tests/test_mapview_viewer --load <yourDir> --poster map.png --ppc 8    # 8 px/cell -> bigger, crisper
 ```
 
-Output = `cells × ppc` on each axis, **uncapped** — a 1024² world at 4 px/cell is a 4096×4096 PNG; a 4096² world
-at 8 px/cell is 32768×32768 (~4 GB in RAM → it **fails franc** with an out-of-memory message rather than degrading
-silently). Impl: `tests/visual/MapViewPoster.h` (`renderPoster`, header-only) drives a poster-sized `ViewerApp` +
+Output = `cells × ppc` on each axis — a 1024² world at 4 px/cell is a 4096×4096 PNG. **Hard limit:** the vendored
+PNG encoder (svpng) tops out at **21844 px wide** (16-bit stored-DEFLATE block) + a 32-bit IDAT length, so
+`--poster` **fails-franc BEFORE rendering** if `cells·ppc` would exceed that ("Lower --ppc to <= N") — it never
+writes a corrupt file (`writeRgbaAsPng`/`svpngCanEncode` refuse; locked by `PngLimitUnit`). RAM is the other wall
+(the full image is held in CPU memory; `renderPoster` fails-franc on `bad_alloc`). To go past 21844 px, productise
+a real PNG encoder (stb_image_write — the standing "PNG write" gap). Impl: `tests/visual/MapViewPoster.h`
+(`renderPoster`, header-only) drives a poster-sized `ViewerApp` +
 the RHI offscreen readback; tile = min(256 cells, 8192/ppc px) per side. Locked by `MapViewViewerE2E` (poster
 render → dims == cells·ppc + the stitched image is varied terrain, not blank). Verified by eye: a 1M-cell world
 that `--shot` rendered blank comes out as a seamless 4096² poster. **This is the way to export a full-res map;
