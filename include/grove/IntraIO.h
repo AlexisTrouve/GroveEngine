@@ -108,8 +108,19 @@ private:
     // Two tiers: EXACT topics in a map (O(1) fast path), and wildcard PATTERNS ("render:*") in a small ordered
     // list scanned only when no exact match hits (first match wins). Exact beats pattern.
     std::unordered_map<std::string, BackpressurePolicy> topicPolicies_;
+    // Matcher de topic COMPILÉ : fast-path PRÉFIXE/EXACT (99% des patterns) au lieu d'un std::regex_match par message.
+    //   POURQUOI : le dispatch teste CHAQUE message contre CHAQUE sub -> le regex_match était le mur perf render (des
+    //   milliers de matchs/frame quand une scène publie N sprites). Les patterns réels sont soit EXACTS ("game:x"),
+    //   soit PRÉFIXE ("render:.*", "ai:*"), soit -- rare -- un '*' au MILIEU ("a:*:c") gardé en REGEX. Exact/Prefix =
+    //   comparaison O(len), zéro regex. Sémantique IDENTIQUE (compileTopicPattern classe, regex en fallback).
+    struct TopicMatcher {
+        enum class Kind { Exact, Prefix, Regex };
+        Kind        kind = Kind::Regex;
+        std::string literal;   // Exact : le topic entier ; Prefix : le préfixe (le reste est matché)
+        std::regex  re;        // Regex : le fallback (wildcard au milieu uniquement)
+    };
     struct TopicPolicyRule {
-        std::regex         pattern;     // compiled matcher
+        TopicMatcher       matcher;     // compiled matcher (fast-path prefix/exact)
         std::string        rawPattern;  // the source string (for replace/remove)
         BackpressurePolicy policy;
     };
@@ -123,7 +134,7 @@ private:
 
     // Subscription management
     struct Subscription {
-        std::regex pattern;
+        TopicMatcher matcher;
         std::string originalPattern;
         MessageHandler handler;  // Callback for this subscription
         SubscriptionConfig config;
@@ -159,8 +170,8 @@ private:
 
     // Helper methods
     void logIOStart();
-    bool matchesPattern(const std::string& topic, const std::regex& pattern) const;
-    std::regex compileTopicPattern(const std::string& pattern) const;
+    bool matchesPattern(const std::string& topic, const TopicMatcher& matcher) const;
+    TopicMatcher compileTopicPattern(const std::string& pattern) const;
     void processLowFreqSubscriptions();
     void flushBatchedMessages(Subscription& sub);
     void updateHealthMetrics() const;

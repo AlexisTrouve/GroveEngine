@@ -105,7 +105,9 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
             // node carries a core vtable, safe to dispose at any later point regardless of module
             // load/unload. (The old per-delivery re-copy gave this cross-.so safety implicitly.)
             // Named "message" to match the old delivered node (name-inspecting consumers stay compatible).
-            payload = std::make_shared<const JsonDataNode>("message", jsonNode->getJsonData());
+            // toFullJson() (not getJsonData()) : fusionne m_children -> les enfants setChild() SURVIVENT au re-home
+            //   (sinon un message batch construit par setChild arrive VIDE). Sans enfant = == m_data (zéro surcoût).
+            payload = std::make_shared<const JsonDataNode>("message", jsonNode->toFullJson());
         }
     }
     // operationMutex is now released — safe to call routeMessage()
@@ -126,7 +128,7 @@ void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler,
 
         Subscription sub;
         sub.originalPattern = topicPattern;
-        sub.pattern = compileTopicPattern(topicPattern);
+        sub.matcher = compileTopicPattern(topicPattern);
         sub.handler = handler;  // Store callback
         sub.config = config;
         sub.lastBatch = std::chrono::high_resolution_clock::now();
@@ -147,7 +149,7 @@ void IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler h
 
         Subscription sub;
         sub.originalPattern = topicPattern;
-        sub.pattern = compileTopicPattern(topicPattern);
+        sub.matcher = compileTopicPattern(topicPattern);
         sub.handler = handler;  // Store callback
         sub.config = config;
         sub.lastBatch = std::chrono::high_resolution_clock::now();
@@ -233,7 +235,7 @@ void IntraIO::pullAndDispatch() {
         // the message stays alive via msgHolder (shared_ptr).
         const auto& subscriptions = isLowFreq ? lowFreqSubscriptions : highFreqSubscriptions;
         for (const auto& sub : subscriptions) {
-            if (matchesPattern(msgHolder->topic, sub.pattern) && sub.handler) {
+            if (matchesPattern(msgHolder->topic, sub.matcher) && sub.handler) {
                 toDispatch.push_back({ sub.handler, msgHolder.get() });
             }
         }
@@ -407,46 +409,50 @@ void IntraIO::logIOStart() {
     }
 }
 
-bool IntraIO::matchesPattern(const std::string& topic, const std::regex& pattern) const {
-    return std::regex_match(topic, pattern);
+bool IntraIO::matchesPattern(const std::string& topic, const TopicMatcher& m) const {
+    // Fast-path prefix/exact (O(len), aucune regex) ; regex UNIQUEMENT pour un wildcard au milieu (rare).
+    switch (m.kind) {
+        case TopicMatcher::Kind::Exact:
+            return topic == m.literal;
+        case TopicMatcher::Kind::Prefix:
+            return topic.size() >= m.literal.size() &&
+                   topic.compare(0, m.literal.size(), m.literal) == 0;
+        case TopicMatcher::Kind::Regex:
+        default:
+            return std::regex_match(topic, m.re);
+    }
 }
 
-std::regex IntraIO::compileTopicPattern(const std::string& pattern) const {
-    // Patterns can be:
-    // 1. Simple wildcard: "*" → convert to ".*" regex
-    // 2. Regex patterns: "player:.*", "test:.*" → use as-is
-
-    // If the pattern contains ".*", align with how the manager's TopicTree matches it:
-    // ".*" is a TERMINAL multi-segment wildcard (it matches the REST of the topic and
-    // TopicTree drops anything written after it). The old code used the whole pattern
-    // as a raw regex, so a pattern like "a:.*:z" honored the ":z" suffix and
-    // regex_match() FAILED on "a:1:b" — even though TopicTree had ROUTED that topic to
-    // us. The message was then dequeued in pullAndDispatch() without firing any handler:
-    // silently SWALLOWED. Mirror TopicTree by keeping only the literal prefix up to
-    // ".*" and letting ".*" match the rest.
+IntraIO::TopicMatcher IntraIO::compileTopicPattern(const std::string& pattern) const {
+    // CLASSE le pattern -> matcher fast-path. Sémantique IDENTIQUE à l'ancien regex (voir cas ci-dessous).
+    // 1) ".*" (wildcard multi-segment TERMINAL, aligné sur TopicTree : le SUFFIXE après ".*" est DROPPÉ -- ainsi
+    //    "a:.*:z" routé pour "a:1:b" matche bien) -> PRÉFIXE jusqu'à ".*".
     size_t multiPos = pattern.find(".*");
-    if (multiPos != std::string::npos) {
-        return std::regex(pattern.substr(0, multiPos) + ".*");
-    }
+    if (multiPos != std::string::npos)
+        return { TopicMatcher::Kind::Prefix, pattern.substr(0, multiPos), std::regex() };
 
-    // Otherwise, convert simple wildcards to regex
+    // 2) wildcard simple '*'. Absent -> EXACT. Final ("ai:*", "*") -> PRÉFIXE. Au MILIEU ("a:*:c") -> REGEX.
+    size_t star = pattern.find('*');
+    if (star == std::string::npos)
+        return { TopicMatcher::Kind::Exact, pattern, std::regex() };
+    if (star == pattern.size() - 1)
+        return { TopicMatcher::Kind::Prefix, pattern.substr(0, star), std::regex() };
+
+    // 3) '*' au milieu -> on garde le regex (même conversion qu'avant : escape + '*' -> '.*').
     std::string escaped;
     for (char c : pattern) {
         if (c == '*') {
-            // Simple wildcard: convert to regex ".*"
             escaped += ".*";
         } else if (c == '+' || c == '?' || c == '^' || c == '$' ||
                    c == '(' || c == ')' || c == '[' || c == ']' || c == '{' ||
                    c == '}' || c == '|' || c == '\\' || c == '.') {
-            // Escape special regex characters
             escaped += '\\';
             escaped += c;
         } else {
             escaped += c;
         }
     }
-
-    return std::regex(escaped);
+    return { TopicMatcher::Kind::Regex, std::string(), std::regex(escaped) };
 }
 
 void IntraIO::processLowFreqSubscriptions() {
@@ -543,7 +549,7 @@ BackpressurePolicy IntraIO::policyFor(const std::string& topic) const {
     // Then wildcard patterns, in set order (first match wins). Scanned only when no exact rule matched — and
     // the list is empty in the default case, so this loop is a no-op unless the host set pattern policies.
     for (const auto& rule : topicPolicyPatterns_) {
-        if (matchesPattern(topic, rule.pattern)) return rule.policy;
+        if (matchesPattern(topic, rule.matcher)) return rule.policy;
     }
     return BackpressurePolicy::DropOldest;
 }

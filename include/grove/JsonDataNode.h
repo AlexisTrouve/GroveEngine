@@ -101,6 +101,18 @@ public:
     json& getJsonData() { return m_data; }
     const std::map<std::string, std::unique_ptr<JsonDataNode>>& getChildren() const { return m_children; }
 
+    // QUOI : sérialise l'ARBRE COMPLET (m_data scalaires + m_children RÉCURSIF) en un seul json.
+    // POURQUOI : `getJsonData()` ne renvoie QUE m_data -- les enfants ajoutés par `setChild()` vivent dans
+    //   m_children (map séparée) et étaient PERDUS quand IntraIO::publish() re-home le message via getJsonData()
+    //   (chemin non-core-resident). Résultat : un message "batch" (render:sprite:batch construit par setChild)
+    //   arrivait VIDE chez l'abonné. toFullJson() fusionne les deux -> le re-home préserve les enfants. Pour un
+    //   nœud sans enfant (99% des messages) c'est == copie de m_data (zéro surcoût). Utilisé par le re-home.
+    json toFullJson() const {
+        json result = m_data;
+        for (const auto& [name, child] : m_children) result[name] = child->toFullJson();
+        return result;
+    }
+
 private:
     std::string m_name;
     json m_data;
