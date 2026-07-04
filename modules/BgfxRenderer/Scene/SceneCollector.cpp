@@ -550,17 +550,42 @@ void SceneCollector::parseRect(const IDataNode& data) {
 }
 
 void SceneCollector::parseSpriteBatch(const IDataNode& data) {
-    // Get sprites child node and iterate
-    // Note: const_cast needed because IDataNode::getChildReadOnly() is not const
-    // (it should be, but changing the interface requires broader refactoring)
+    // FAST PATH -- blob PLAT "spriteData" : un tableau de floats packés (stride 8 par sprite :
+    //   x, y, scaleX, scaleY, rotation, textureId, layer, colorBits[uint32 réinterprété]). ZÉRO nœud par sprite ->
+    //   ni alloc ni matérialisation JSON : le build (côté scène) et ce parse sont O(N) memcpy. C'est le chemin bulk
+    //   PERF pour des milliers de sprites/frame (le path child-nodes ci-dessous reste pour la compat/petits lots).
+    //   textureId 0 => quad blanc teinté (solide) ; couleur = 0xRRGGBBAA. UVs plein quad.
+    const std::string blob = data.getString("spriteData", "");
+    if (!blob.empty()) {
+        constexpr size_t STRIDE = 8;
+        const size_t count = blob.size() / (STRIDE * sizeof(float));
+        std::vector<float> f(count * STRIDE);                       // copie ALIGNÉE (blob non garanti aligné 4o)
+        std::memcpy(f.data(), blob.data(), count * STRIDE * sizeof(float));
+        auto& bucket = isScreenSpace(data) ? m_hudSprites : m_sprites;
+        bucket.reserve(bucket.size() + count);
+        for (size_t i = 0; i < count; ++i) {
+            const float* s = f.data() + i * STRIDE;
+            SpriteInstance sp;
+            sp.x = s[0]; sp.y = s[1]; sp.scaleX = s[2]; sp.scaleY = s[3];
+            sp.rotation = s[4]; sp.u0 = 0.0f; sp.v0 = 0.0f; sp.u1 = 1.0f; sp.v1 = 1.0f;
+            sp.textureId = s[5]; sp.layer = s[6]; sp.padding0 = 0.0f;
+            sp.reserved[0] = sp.reserved[1] = sp.reserved[2] = sp.reserved[3] = 0.0f;
+            uint32_t color; std::memcpy(&color, &s[7], sizeof(uint32_t));   // bits, pas cast numérique
+            sp.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+            sp.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+            sp.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+            sp.a = static_cast<float>(color & 0xFF) / 255.0f;
+            bucket.push_back(sp);
+        }
+        return;
+    }
+
+    // FALLBACK -- child-nodes : un sous-nœud "sprites/<i>" par sprite (compat ; plus lourd que le blob).
     IDataNode* spritesNode = const_cast<IDataNode&>(data).getChildReadOnly("sprites");
     if (!spritesNode) return;
-
     for (const auto& name : spritesNode->getChildNames()) {
         IDataNode* spriteData = spritesNode->getChildReadOnly(name);
-        if (spriteData) {
-            parseSprite(*spriteData);
-        }
+        if (spriteData) parseSprite(*spriteData);
     }
 }
 
