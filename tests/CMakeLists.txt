@@ -2995,30 +2995,9 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Map-viewer capture tool 'capture_mapview' enabled")
 
-    # Interactive map viewer (S2a + disk-load): a real window with pan (drag) + zoom (wheel-to-cursor) over the
-    # synthetic world OR a world-document on disk (--load <dir>, via WorldDocumentProvider). --selftest scripts a
-    # pan+zoom and captures a PNG. Needs nlohmann (Manifest) + miniz.c (compression) for the disk-load path.
-    add_executable(test_mapview_viewer
-        visual/test_mapview_viewer.cpp
-        ${GROVE_MINIZ_DIR}/miniz.c)
-    target_include_directories(test_mapview_viewer PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/modules
-        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
-        ${GROVE_NLOHMANN_DIR}
-        ${GROVE_MINIZ_DIR}
-    )
-    target_link_libraries(test_mapview_viewer PRIVATE
-        SDL2::SDL2
-        GroveEngine::impl
-        BgfxRenderer_static
-        spdlog::spdlog
-    )
-    if(GROVE_SDL2_DLL)
-        add_custom_command(TARGET test_mapview_viewer POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer>")
-    endif()
-    message(STATUS "Interactive map viewer 'test_mapview_viewer' enabled")
+    # NOTE: test_mapview_viewer moved to a CROSS-PLATFORM block at the END of this file — it is now Linux-clean
+    # (SdlNativeHandle.h for the window/display handle + the renderer's OpenGL backend), so it must NOT be gated
+    # to WIN32 like the rest of this block. The E2E below still reads the win32 handle directly -> stays here.
 
     # Viewer INPUT E2E: injects real SDL events (drag/wheel/keys via SDL_PushEvent) through the app's own event
     # pump and asserts the camera + culled cell set respond — the proof the viewer's interactivity exists (not
@@ -3477,4 +3456,35 @@ if(GROVE_BUILD_INPUT_MODULE)
     )
     grove_add_test(InputModuleStatic test_input_module ${CMAKE_CURRENT_BINARY_DIR})
     message(STATUS "Headless test 'test_input_module' enabled (InputModule_static, B1)")
+endif()
+
+# ================================================================================
+# Cross-platform GPU tools (Windows + Linux). Unlike the WIN32-guarded visual block above, these mains are
+# platform-clean — SdlNativeHandle.h resolves the window/display handle per OS, and the renderer picks
+# Direct3D11 on Windows / OpenGL on Linux — so they build AND run on Linux too (headless via Xvfb + Mesa
+# software GL). Port more visual tools into this block as each is made Linux-clean.
+# ================================================================================
+if(GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    # Interactive map viewer + headless PNG export (--shot / --poster). Runs on Linux under Xvfb + software GL.
+    add_executable(test_mapview_viewer
+        visual/test_mapview_viewer.cpp
+        ${GROVE_MINIZ_DIR}/miniz.c)
+    target_include_directories(test_mapview_viewer PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${GROVE_NLOHMANN_DIR}
+        ${GROVE_MINIZ_DIR}
+    )
+    target_link_libraries(test_mapview_viewer PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)  # Windows: copy SDL2.dll next to the exe (no-op on Linux — SDL2 is a system lib)
+        add_custom_command(TARGET test_mapview_viewer POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer>")
+    endif()
+    message(STATUS "Cross-platform map viewer 'test_mapview_viewer' enabled")
 endif()
