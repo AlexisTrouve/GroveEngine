@@ -21,6 +21,15 @@ order needs new receive-side infra (forensic only); domain-logger fan-out is spa
 dedup has no redelivery trigger; a manager-level policy broadcast (today per-instance). The contract is complete
 for practical purposes. The status ledger marks every line ✅ built / 🟡 decided / 🔵 deferred.
 
+**Binary payload (blobs) — BUILT.** A message now carries first-class **binary** beside the json:
+`IDataNode::setBlob/getBlob` (raw `vector<uint8_t>`, stored OUTSIDE `m_data` — not smuggled in a UTF-8 string),
+zero-copy in-process, carried across the non-core re-home by `JsonDataNode::rehomed()` (blobs copied raw, like
+`setChild` children). `serialize()` is now **throw-proof** (`error_handler::replace`) and base64-encodes blobs
+under `__blobs__`, so replay/network stay valid — this **closed the replay crash** where the `render:sprite:batch`
+flat float blob smuggled non-UTF8 bytes in a JSON string and `dump()` threw. `parseSpriteBatch` reads
+`getBlob("spriteData")` (the string path kept as back-compat). Locked by `DataNodeBlobUnit` + `SceneCollectorTest
+[batch]`; **WSL-TSan-clean** (`tsan_blob`, 5 runs, 0 races).
+
 ## What this session decided (the trail)
 
 The arc, so a fresh reader understands *why* the contract says what it does:

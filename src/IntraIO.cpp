@@ -105,9 +105,9 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
             // node carries a core vtable, safe to dispose at any later point regardless of module
             // load/unload. (The old per-delivery re-copy gave this cross-.so safety implicitly.)
             // Named "message" to match the old delivered node (name-inspecting consumers stay compatible).
-            // toFullJson() (not getJsonData()) : fusionne m_children -> les enfants setChild() SURVIVENT au re-home
-            //   (sinon un message batch construit par setChild arrive VIDE). Sans enfant = == m_data (zéro surcoût).
-            payload = std::make_shared<const JsonDataNode>("message", jsonNode->toFullJson());
+            // rehomed() : toFullJson() (fusionne m_children -> les enfants setChild() survivent) + les BLOBS bruts
+            //   copiés (setBlob) -> le binaire survit aussi au re-home. Sans enfant/blob (99%) = == copie de m_data.
+            payload = jsonNode->rehomed("message");
         }
     }
     // operationMutex is now released — safe to call routeMessage()

@@ -1159,6 +1159,17 @@ target_link_libraries(test_backpressure_policy PRIVATE
 )
 grove_add_test(BackpressurePolicy test_backpressure_policy ${CMAKE_CURRENT_BINARY_DIR})
 
+# JsonDataNode BINARY PAYLOAD (blobs) + throw-proof serialize() — the first-class binary that lets the bulk
+# fast path stop abusing a JSON string and closes the replay/network crash on non-UTF8 bytes. Header-only-ish
+# (pure JsonDataNode + nlohmann), folds into the sanitizer lenses.
+add_executable(test_datanode_blob integration/test_datanode_blob.cpp)
+target_link_libraries(test_datanode_blob PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(DataNodeBlobUnit test_datanode_blob ${CMAKE_CURRENT_BINARY_DIR})
+
 # Threaded hosting E2E: a cross-module IIO chain (Producer->Relay->Sink) hosted via
 # registerStaticModule(THREADED) and driven by engine.step(). Locks the THREADED
 # strategy + cross-thread IIO delivery. Plain main(), no GPU/SDL/.so/Catch2 — so it

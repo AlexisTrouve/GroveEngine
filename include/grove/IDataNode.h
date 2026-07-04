@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <cstdint>
 #include "IDataValue.h"
 
 namespace grove {
@@ -323,9 +324,34 @@ public:
      *
      * The "json everywhere" contract capability (docs/design/iio-contract.md §4): a payload must be
      * expressible as a portable string so it can cross the Local/Network tiers (dump/parse) and be captured
-     * by the structured replay sink (§8). A const read — it never mutates the node.
+     * by the structured replay sink (§8). A const read — it never mutates the node. Must be THROW-PROOF even
+     * when the node carries binary (a blob smuggled as bytes) — see getBlob/setBlob.
      */
     virtual std::string serialize() const = 0;
+
+    // ========================================
+    // BINARY PAYLOAD (blobs) — first-class binary beside the JSON
+    // ========================================
+
+    /**
+     * @brief Attach a named RAW binary buffer to this node's payload.
+     *
+     * POURQUOI: a hot bulk payload (e.g. a packed sprite/transform array) must not pay a JSON parse per
+     * element, and must NOT be smuggled inside a JSON string (raw bytes are not valid UTF-8 — dump() then
+     * throws, breaking replay/network). A blob rides BESIDE the json: raw + zero-copy in-process, and
+     * serialize() base64-encodes it so the text stays valid + round-trippable. Default no-op for impls that
+     * carry no binary. (docs/design/iio-contract.md §4 — binary payload capability.)
+     */
+    virtual void setBlob(const std::string& name, const uint8_t* data, size_t size) {
+        (void)name; (void)data; (void)size;
+    }
+
+    /**
+     * @brief Get a named binary buffer, or nullptr if ABSENT (never an empty-vector fallback — fail-franc).
+     */
+    virtual const std::vector<uint8_t>* getBlob(const std::string& name) const {
+        (void)name; return nullptr;
+    }
 };
 
 } // namespace grove

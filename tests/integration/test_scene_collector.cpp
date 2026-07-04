@@ -180,6 +180,36 @@ TEST_CASE("SceneCollector - sprite batch: flat float blob parses N sprites with 
     REQUIRE_THAT(p.sprites[2].b, WithinAbs(1.0f, 0.01f));   // blue
 }
 
+TEST_CASE("SceneCollector - sprite batch: FIRST-CLASS blob (setBlob) delivers through IIO", "[scene_collector][batch]") {
+    // The clean path: the batch rides as a first-class binary blob (setBlob), NOT a JSON string. Published
+    // across two IntraIO instances, so this also proves the re-home (rehomed()) CARRIES the raw blob — the
+    // whole reason the flat-blob hack got cleaned up. Same bytes/layout as the string case above.
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto pack = [](std::vector<float>& out, float x, float y, uint32_t rgba) {
+        out.push_back(x);    out.push_back(y);
+        out.push_back(1.0f); out.push_back(1.0f);
+        out.push_back(0.0f); out.push_back(0.0f); out.push_back(5.0f);
+        float bits; std::memcpy(&bits, &rgba, sizeof(float)); out.push_back(bits);
+    };
+    std::vector<float> f;
+    pack(f, 11.0f, 22.0f, 0xFF0000FFu);  // red
+    pack(f, 33.0f, 44.0f, 0x0000FFFFu);  // blue
+
+    auto batch = std::make_unique<JsonDataNode>("b");
+    batch->setBlob("spriteData", reinterpret_cast<const uint8_t*>(f.data()), f.size() * sizeof(float));
+    fx.ioPublisher->publish("render:sprite:batch", std::move(batch));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 2);                            // blob survived publish -> route -> re-home -> parse
+    REQUIRE_THAT(p.sprites[0].x, WithinAbs(11.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[0].r, WithinAbs(1.0f, 0.01f));   // red
+    REQUIRE_THAT(p.sprites[1].x, WithinAbs(33.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[1].b, WithinAbs(1.0f, 0.01f));   // blue
+}
+
 TEST_CASE("SceneCollector - retained tilemap: add persists + dirty cycle + update + remove (A4.1)", "[scene_collector][retained]") {
     RetainedFixture fx;
     FrameAllocator allocator;

@@ -550,17 +550,26 @@ void SceneCollector::parseRect(const IDataNode& data) {
 }
 
 void SceneCollector::parseSpriteBatch(const IDataNode& data) {
-    // FAST PATH -- blob PLAT "spriteData" : un tableau de floats packés (stride 8 par sprite :
-    //   x, y, scaleX, scaleY, rotation, textureId, layer, colorBits[uint32 réinterprété]). ZÉRO nœud par sprite ->
-    //   ni alloc ni matérialisation JSON : le build (côté scène) et ce parse sont O(N) memcpy. C'est le chemin bulk
-    //   PERF pour des milliers de sprites/frame (le path child-nodes ci-dessous reste pour la compat/petits lots).
-    //   textureId 0 => quad blanc teinté (solide) ; couleur = 0xRRGGBBAA. UVs plein quad.
-    const std::string blob = data.getString("spriteData", "");
-    if (!blob.empty()) {
+    // FAST PATH -- packed float blob "spriteData", stride 8 per sprite (x, y, scaleX, scaleY, rotation,
+    //   textureId, layer, colorBits[uint32 reinterpreted]). ZERO node per sprite -> no alloc / no JSON
+    //   materialisation: O(N) memcpy. The bulk PERF path (thousands of sprites/frame). Two sources, in order:
+    //   (1) a first-class BINARY blob (getBlob -- raw bytes BESIDE the json: no UTF-8 abuse, replay-safe);
+    //   (2) LEGACY -- the same bytes smuggled in a JSON string (getString), kept for back-compat.
+    //   textureId 0 => tinted white quad (solid); colour = 0xRRGGBBAA; full-quad UVs.
+    const uint8_t* bytes = nullptr;
+    size_t byteLen = 0;
+    std::string legacy;                                             // owns the bytes IFF the string path is taken
+    if (const std::vector<uint8_t>* blob = data.getBlob("spriteData")) {
+        bytes = blob->data(); byteLen = blob->size();
+    } else {
+        legacy = data.getString("spriteData", "");
+        bytes = reinterpret_cast<const uint8_t*>(legacy.data()); byteLen = legacy.size();
+    }
+    if (byteLen > 0) {
         constexpr size_t STRIDE = 8;
-        const size_t count = blob.size() / (STRIDE * sizeof(float));
-        std::vector<float> f(count * STRIDE);                       // copie ALIGNÉE (blob non garanti aligné 4o)
-        std::memcpy(f.data(), blob.data(), count * STRIDE * sizeof(float));
+        const size_t count = byteLen / (STRIDE * sizeof(float));
+        std::vector<float> f(count * STRIDE);                       // ALIGNED copy (blob not guaranteed 4-byte aligned)
+        std::memcpy(f.data(), bytes, count * STRIDE * sizeof(float));
         auto& bucket = isScreenSpace(data) ? m_hudSprites : m_sprites;
         bucket.reserve(bucket.size() + count);
         for (size_t i = 0; i < count; ++i) {
