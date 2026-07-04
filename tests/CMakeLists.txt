@@ -1,6 +1,16 @@
 # Hot-reload test suite
 
 # ================================================================================
+# Vendored single-file deps (git-tracked in third_party/) — miniz (zlib) + nlohmann/json single header.
+# POURQUOI : several tests compile miniz.c / include nlohmann directly. They USED to point into deps/bgfx/…
+#   and deps/nlohmann_json/… — but deps/ is GITIGNORED (it holds FetchContent's copies), so those paths exist
+#   only on a machine that has already fetched them. A CLEAN CLONE (a fresh Linux box, or a new Windows checkout)
+#   then fails to configure. Vendoring the two single-file libs under third_party/ makes every clone build.
+# ================================================================================
+set(GROVE_MINIZ_DIR    ${CMAKE_SOURCE_DIR}/third_party/miniz)
+set(GROVE_NLOHMANN_DIR ${CMAKE_SOURCE_DIR}/third_party/json)
+
+# ================================================================================
 # SDL2 Detection (used by visual tests, demos, and InputModule-dependent tests)
 # ================================================================================
 find_package(SDL2 QUIET)
@@ -592,10 +602,10 @@ grove_add_test(PngLimitUnit test_png_limit ${CMAKE_CURRENT_BINARY_DIR})
 # round-trips identically to raw, and every failure (no decompressor, corrupt/truncated payload) fails franc.
 add_executable(test_mapview_compress
     unit/test_mapview_compress.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(test_mapview_compress PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${GROVE_MINIZ_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_mapview_compress PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewCompressUnit test_mapview_compress ${CMAKE_CURRENT_BINARY_DIR})
@@ -606,11 +616,11 @@ grove_add_test(MapViewCompressUnit test_mapview_compress ${CMAKE_CURRENT_BINARY_
 # contract the Theomen adapter (S3) writes and the viewer app (S2) reads.
 add_executable(test_mapview_disk
     unit/test_mapview_disk.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(test_mapview_disk PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${GROVE_NLOHMANN_DIR}
+    ${GROVE_MINIZ_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_mapview_disk PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewDiskUnit test_mapview_disk ${CMAKE_CURRENT_BINARY_DIR})
@@ -623,11 +633,11 @@ grove_add_test(MapViewDiskUnit test_mapview_disk ${CMAKE_CURRENT_BINARY_DIR})
 # the S3 support tool that de-risks the Theomen adapter. Links miniz.c + nlohmann like the disk test.
 add_executable(test_mapview_worldcheck
     unit/test_mapview_worldcheck.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(test_mapview_worldcheck PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${GROVE_NLOHMANN_DIR}
+    ${GROVE_MINIZ_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_mapview_worldcheck PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewWorldCheckUnit test_mapview_worldcheck ${CMAKE_CURRENT_BINARY_DIR})
@@ -638,11 +648,11 @@ grove_add_test(MapViewWorldCheckUnit test_mapview_worldcheck ${CMAKE_CURRENT_BIN
 # world dir as input) — a hand-run/CI tool, built to build/tests/worldcheck.
 add_executable(worldcheck
     tools/worldcheck.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(worldcheck PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz)
+    ${GROVE_NLOHMANN_DIR}
+    ${GROVE_MINIZ_DIR})
 
 # Map-viewer engine S0 hardening: save/load ROUND-TRIP ROBUSTNESS. Runs save->load x3 in a row across three
 # distinct config "formats" (chunk size, field count, byte-unaligned bit widths, Z>1, sparsity) on every
@@ -651,11 +661,11 @@ target_include_directories(worldcheck PRIVATE
 # Regression lock — re-run any time to re-verify the format after a change.
 add_executable(test_mapview_roundtrip
     unit/test_mapview_roundtrip.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(test_mapview_roundtrip PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${GROVE_NLOHMANN_DIR}
+    ${GROVE_MINIZ_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_mapview_roundtrip PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewRoundtripUnit test_mapview_roundtrip ${CMAKE_CURRENT_BINARY_DIR})
@@ -743,11 +753,11 @@ grove_add_test(MapViewAdapterUnit test_mapview_adapter ${CMAKE_CURRENT_BINARY_DI
 # interface" seam, proven E2E in a unit test). Links miniz.c + nlohmann like the disk test (compressed case).
 add_executable(test_mapview_provider
     unit/test_mapview_provider.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+    ${GROVE_MINIZ_DIR}/miniz.c)
 target_include_directories(test_mapview_provider PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/nlohmann_json/single_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+    ${GROVE_NLOHMANN_DIR}
+    ${GROVE_MINIZ_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_mapview_provider PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewProviderUnit test_mapview_provider ${CMAKE_CURRENT_BINARY_DIR})
@@ -2990,13 +3000,13 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     # pan+zoom and captures a PNG. Needs nlohmann (Manifest) + miniz.c (compression) for the disk-load path.
     add_executable(test_mapview_viewer
         visual/test_mapview_viewer.cpp
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+        ${GROVE_MINIZ_DIR}/miniz.c)
     target_include_directories(test_mapview_viewer PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/modules
         ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
-        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+        ${GROVE_NLOHMANN_DIR}
+        ${GROVE_MINIZ_DIR}
     )
     target_link_libraries(test_mapview_viewer PRIVATE
         SDL2::SDL2
@@ -3015,13 +3025,13 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     # just reads-as-correct). Real GPU (hidden window + offscreen FB + PNG). Registered as a ctest.
     add_executable(test_mapview_viewer_e2e
         visual/test_mapview_viewer_e2e.cpp
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+        ${GROVE_MINIZ_DIR}/miniz.c)
     target_include_directories(test_mapview_viewer_e2e PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/modules
         ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
-        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+        ${GROVE_NLOHMANN_DIR}
+        ${GROVE_MINIZ_DIR}
     )
     target_link_libraries(test_mapview_viewer_e2e PRIVATE
         SDL2::SDL2
@@ -3062,13 +3072,13 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     # captures. This is the E2E lock the pure-core unit tests couldn't see (they never touch a live renderer).
     add_executable(capture_mapview_from_disk
         visual/capture_mapview_from_disk.cpp
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz/miniz.c)
+        ${GROVE_MINIZ_DIR}/miniz.c)
     target_include_directories(capture_mapview_from_disk PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/modules
         ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
-        ${CMAKE_SOURCE_DIR}/deps/nlohmann_json/single_include
-        ${CMAKE_SOURCE_DIR}/deps/bgfx/bimg/3rdparty/tinyexr/deps/miniz
+        ${GROVE_NLOHMANN_DIR}
+        ${GROVE_MINIZ_DIR}
     )
     target_link_libraries(capture_mapview_from_disk PRIVATE
         SDL2::SDL2
