@@ -43,7 +43,14 @@ public:
 #endif
 
         bgfx::Init init;
+        // Renderer backend per platform: Direct3D11 on Windows (unchanged), OpenGL on Linux (X11 + Mesa —
+        // a real GPU driver, or llvmpipe/software for headless Xvfb). Keeping it explicit (not Count/auto)
+        // preserves the exact Windows behavior this module was tuned for while enabling the Linux build to RUN.
+#ifdef _WIN32
         init.type = bgfx::RendererType::Direct3D11;
+#else
+        init.type = bgfx::RendererType::OpenGL;
+#endif
         init.resolution.width = width;
         init.resolution.height = height;
         init.resolution.reset = m_resetFlags;

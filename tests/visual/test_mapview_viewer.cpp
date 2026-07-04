@@ -46,6 +46,7 @@
 #include "MapViewViewerApp.h"
 #include "MapViewPoster.h"
 #include "PngCapture.h"
+#include "SdlNativeHandle.h"
 #include "TerrainTileset.h"
 
 #include <algorithm>
@@ -118,7 +119,11 @@ int main(int argc, char** argv) {
     const Uint32 flags = headless ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
     SDL_Window* win = SDL_CreateWindow("grove::mapview viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, vpW, vpH, flags);
     if (!win) { std::fprintf(stderr, "no window\n"); SDL_Quit(); return 1; }
-    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); SDL_GetWindowWMInfo(win, &wmi);
+    // Native handles for bgfx, cross-platform: HWND on Windows, X11 Window + Display* on Linux.
+    void* nwh = nullptr; void* ndt = nullptr;
+    if (!mvdemo::getSdlNativeHandles(win, &nwh, &ndt)) {
+        std::fprintf(stderr, "no native window handle (unsupported windowing subsystem)\n"); SDL_Quit(); return 1;
+    }
 
     auto& mgr = IntraIOManager::getInstance();
     auto gIO = mgr.createInstance("mv_view");
@@ -130,7 +135,8 @@ int main(int argc, char** argv) {
     BgfxRendererModule* renderer = rendererOwned.get();
     {
         auto rCfg = std::make_unique<JsonDataNode>("config");
-        rCfg->setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        rCfg->setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nwh)));
+        rCfg->setDouble("nativeDisplayHandle", static_cast<double>(reinterpret_cast<uintptr_t>(ndt)));
         rCfg->setInt("windowWidth", vpW); rCfg->setInt("windowHeight", vpH); rCfg->setBool("vsync", !headless);
         engine.registerStaticModule("renderer", std::move(rendererOwned), ModuleSystemType::SEQUENTIAL, std::move(rCfg));
     }
