@@ -24,6 +24,9 @@
 #include <memory>
 #include <chrono>
 #include <sstream>
+#include <cstring>
+#include <cstdint>
+#include <vector>
 
 using namespace grove;
 using Catch::Matchers::WithinAbs;
@@ -132,6 +135,49 @@ TEST_CASE("SceneCollector - retained sprite: remove deletes it", "[scene_collect
     fx.pump();
 
     REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone
+}
+
+// ============================================================================
+// render:sprite:batch — the bulk path. Accepts a FLAT float blob ("spriteData",
+// stride 8, the perf path added by c5c9e4d) with a child-node fallback. Publishing
+// THROUGH a real IntraIO also guards the b846225 IO changes (compiled topic matcher
+// + toFullJson re-home): a batch message must arrive intact, non-UTF8 blob and all.
+// ============================================================================
+TEST_CASE("SceneCollector - sprite batch: flat float blob parses N sprites with colors", "[scene_collector][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Pack 3 sprites into a flat blob, stride 8: x, y, scaleX, scaleY, rotation, textureId, layer, colorBits(uint32).
+    auto pack = [](std::vector<float>& out, float x, float y, uint32_t rgba) {
+        out.push_back(x);    out.push_back(y);
+        out.push_back(1.0f); out.push_back(1.0f);   // scaleX, scaleY
+        out.push_back(0.0f);                         // rotation
+        out.push_back(0.0f);                         // textureId (0 = white/solid)
+        out.push_back(5.0f);                         // layer
+        float bits; std::memcpy(&bits, &rgba, sizeof(float)); out.push_back(bits);  // color BITS, not a numeric cast
+    };
+    std::vector<float> f;
+    pack(f, 10.0f, 20.0f, 0xFF0000FFu);  // red
+    pack(f, 30.0f, 40.0f, 0x00FF00FFu);  // green
+    pack(f, 50.0f, 60.0f, 0x0000FFFFu);  // blue
+    const std::string blob(reinterpret_cast<const char*>(f.data()), f.size() * sizeof(float));
+
+    auto batch = std::make_unique<JsonDataNode>("b");
+    batch->setString("spriteData", blob);
+    fx.ioPublisher->publish("render:sprite:batch", std::move(batch));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 3);                            // all three survived publish -> route -> parse
+    // Order is preserved (the parser appends in blob order).
+    REQUIRE_THAT(p.sprites[0].x, WithinAbs(10.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[0].y, WithinAbs(20.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[0].r, WithinAbs(1.0f, 0.01f));   // red
+    REQUIRE_THAT(p.sprites[0].g, WithinAbs(0.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[1].x, WithinAbs(30.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[1].g, WithinAbs(1.0f, 0.01f));   // green
+    REQUIRE_THAT(p.sprites[2].x, WithinAbs(50.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[2].b, WithinAbs(1.0f, 0.01f));   // blue
 }
 
 TEST_CASE("SceneCollector - retained tilemap: add persists + dirty cycle + update + remove (A4.1)", "[scene_collector][retained]") {
