@@ -99,6 +99,8 @@ ctest --test-dir build -E "StressTest|MemoryLeakHunter|ChaosMonkey" -j4
 ./build/tests/worldcheck <world-dir>         # exit 0 ok / 1 errors / 2 usage; --strict (warns fail) / --json (CI)
 # Visual/interactive demos: run from the PROJECT ROOT (cwd-relative asset paths)
 ./build/tests/test_mapview_viewer            # drag=pan wheel=zoom H/B/T=lens R=reset  (--load <dir> opens a .world)
+#   --shot out.png [--size WxH]   : ONE frame of the whole world at the fit view (capped ~131k cells)
+#   --poster out.png [--ppc N]    : the WHOLE map tiled+stitched to one PNG at N px/cell — no ceiling, big map=big PNG
 ./build/tests/test_ui_showcase
 ```
 

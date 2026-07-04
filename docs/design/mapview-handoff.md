@@ -149,6 +149,26 @@ cap); a larger world comes back blank (it falls to a 10 000-sprite fallback buff
 below ~131 k cells** before shooting a whole continent, then use `--size` to enlarge — raising that ceiling is a
 renderer change (bgfx transient limits + `SpritePass::MAX_SPRITES_PER_BATCH`), out of the viewer's scope.
 
+### `--poster` — the WHOLE map at full resolution, ANY size (no ceiling)
+
+When you want the entire map at full detail — including a huge world `--shot` can't do (blank past ~131 k
+cells) — use `--poster`. It **tiles** the world and **stitches** the tiles into one big PNG, so it has NO cell
+ceiling (each tile stays under it), NO texture-size limit (each tile ≤ one framebuffer), NO sub-pixel and NO
+letterbox (the image is the map, edge to edge):
+
+```bash
+./build/tests/test_mapview_viewer --load <yourDir> --poster map.png            # 4 px/cell (default)
+./build/tests/test_mapview_viewer --load <yourDir> --poster map.png --ppc 8    # 8 px/cell -> bigger, crisper
+```
+
+Output = `cells × ppc` on each axis, **uncapped** — a 1024² world at 4 px/cell is a 4096×4096 PNG; a 4096² world
+at 8 px/cell is 32768×32768 (~4 GB in RAM → it **fails franc** with an out-of-memory message rather than degrading
+silently). Impl: `tests/visual/MapViewPoster.h` (`renderPoster`, header-only) drives a poster-sized `ViewerApp` +
+the RHI offscreen readback; tile = min(256 cells, 8192/ppc px) per side. Locked by `MapViewViewerE2E` (poster
+render → dims == cells·ppc + the stitched image is varied terrain, not blank). Verified by eye: a 1M-cell world
+that `--shot` rendered blank comes out as a seamless 4096² poster. **This is the way to export a full-res map;
+`--shot` stays the quick fit-view thumbnail.**
+
 ---
 
 ## Cross-Claude coordination (the thing this handoff exists for)

@@ -20,6 +20,9 @@
  *        test_mapview_viewer --load <dir> --shot [out.png] [--size WxH]
  *                                                     (headless: ONE frame of the WHOLE world at the reset/fit
  *                                                      view — no pan/zoom, letterboxed for non-square worlds -> PNG)
+ *        test_mapview_viewer --load <dir> --poster [out.png] [--ppc N]
+ *                                                     (headless: the WHOLE map tiled+stitched to ONE PNG at N
+ *                                                      pixels/cell — no cell ceiling, no size cap: big map -> big PNG)
  */
 
 #define SDL_MAIN_HANDLED
@@ -41,9 +44,11 @@
 
 #include "MapViewDemoScene.h"
 #include "MapViewViewerApp.h"
+#include "MapViewPoster.h"
 #include "PngCapture.h"
 #include "TerrainTileset.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <filesystem>
@@ -58,6 +63,8 @@ int main(int argc, char** argv) {
     const int W = 1280, H = 720;            // window / backbuffer size (fixed; headless shots render OFFSCREEN)
     bool selftest = false;
     bool shot = false;                      // --shot: one static frame of the WHOLE world at the reset/fit view
+    bool poster = false;                    // --poster: the WHOLE map tiled+stitched to one PNG at N px/cell
+    int  ppc = 4;                           // --ppc: pixels per cell for the poster (bigger map -> bigger PNG)
     std::string outPath = "mapview_viewer_selftest.png";
     std::string loadDir;
     int outW = W, outH = H;                 // --shot output resolution (default = window size)
@@ -70,6 +77,13 @@ int main(int argc, char** argv) {
             shot = true;
             outPath = "mapview_shot.png";
             if (i + 1 < argc && argv[i + 1][0] != '-') outPath = argv[++i];
+        } else if (a == "--poster") {
+            poster = true;
+            outPath = "mapview_poster.png";
+            if (i + 1 < argc && argv[i + 1][0] != '-') outPath = argv[++i];
+        } else if (a == "--ppc") {
+            // Pixels per cell for --poster. No upper cap on the resulting image (a huge map -> a huge PNG).
+            if (i + 1 < argc) { const int v = std::atoi(argv[++i]); if (v > 0) ppc = v; }
         } else if (a == "--size") {
             // Parse WxH (e.g. 1600x1600) -> the offscreen shot resolution. Bigger = cells no longer sub-pixel.
             if (i + 1 < argc) {
@@ -86,14 +100,18 @@ int main(int argc, char** argv) {
     // Clamp the shot size to a safe range (uint16 framebuffer + GPU texture limits).
     outW = outW < 64 ? 64 : (outW > 8192 ? 8192 : outW);
     outH = outH < 64 ? 64 : (outH > 8192 ? 8192 : outH);
-    const bool headless = selftest || shot;
-    // The window/backbuffer + camera size. The shot renders at --size; every other mode keeps the 1280x720
-    // window (so --selftest and interactive are byte-for-byte unchanged — vpW/vpH == W/H there). POURQUOI size
-    // the WINDOW too, not just the offscreen framebuffer: bgfx's backbuffer is created at this resolution, and
-    // rendering into an offscreen framebuffer LARGER than the backbuffer comes back blank — so for a shot we
-    // grow the (hidden) window/backbuffer to match the requested output.
-    const int vpW = shot ? outW : W;
-    const int vpH = shot ? outH : H;
+    const bool headless = selftest || shot || poster;
+    // Poster tile geometry: tile the world so each tile stays UNDER the sprite ceiling (~131k cells/frame) AND
+    // under the fb/texture size. Cap the tile at 256 cells/side (65k cells, safe) and at 8192 px/side.
+    const int tileCells = poster ? std::min(256, std::max(1, 8192 / ppc)) : 0;
+    const int tilePx    = tileCells * ppc;
+    // The window/backbuffer + camera size. The shot renders at --size; the poster renders one TILE at a time
+    // (tilePx); every other mode keeps the 1280x720 window (so --selftest and interactive are byte-for-byte
+    // unchanged — vpW/vpH == W/H there). POURQUOI size the WINDOW too, not just the offscreen framebuffer: bgfx's
+    // backbuffer is created at this resolution, and rendering into an offscreen framebuffer LARGER than the
+    // backbuffer comes back blank — so for a shot/poster we grow the (hidden) window/backbuffer to match.
+    const int vpW = poster ? tilePx : (shot ? outW : W);
+    const int vpH = poster ? tilePx : (shot ? outH : H);
 
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { std::fprintf(stderr, "no SDL: %s\n", SDL_GetError()); return 1; }
@@ -124,6 +142,9 @@ int main(int argc, char** argv) {
     camera::CameraView resetCam;
     std::vector<mapview::Marker> markers;
     std::vector<mapview::Region> regions;
+    // World extent in CELLS, for --poster (filled from the manifest on the --load path; poster requires --load).
+    int posterMinCellX = 0, posterMinCellY = 0, posterCellsX = 0, posterCellsY = 0;
+    double posterCellSize = 1.0;
 
     if (!loadDir.empty()) {
         // Open the .world dir. Pass a zlib compressor so both raw AND compressed documents load (readChunk
@@ -132,6 +153,10 @@ int main(int argc, char** argv) {
         schema = p->schema();
         grid = p->gridSpec();
         const auto& coord = p->manifest().coordinate;
+        posterMinCellX = coord.boundsMin[0];  posterMinCellY = coord.boundsMin[1];
+        posterCellsX = coord.boundsMax[0] - coord.boundsMin[0] + 1;
+        posterCellsY = coord.boundsMax[1] - coord.boundsMin[1] + 1;
+        posterCellSize = coord.cellSize[0];
         const double worldW = static_cast<double>(coord.boundsMax[0] - coord.boundsMin[0] + 1) * coord.cellSize[0];
         const double worldH = static_cast<double>(coord.boundsMax[1] - coord.boundsMin[1] + 1) * coord.cellSize[1];
         resetCam = mvdemo::fitCamera(coord.boundsMin[0] * coord.cellSize[0], coord.boundsMin[1] * coord.cellSize[1],
@@ -177,7 +202,27 @@ int main(int argc, char** argv) {
     app.setRegions(regions);
     app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);   // 'T' switches terrain to the retained-tile path
 
-    if (shot) {
+    if (poster) {
+        // WHOLE-MAP poster: tile the world + stitch to ONE PNG at `ppc` px/cell — no per-frame cell ceiling,
+        // no texture-size limit, no sub-pixel, no letterbox. A big map yields a big PNG (the point). Requires a
+        // loaded .world (the cell extent comes from its manifest).
+        if (loadDir.empty()) { std::fprintf(stderr, "--poster requires --load <dir>\n"); return 2; }
+        const long long pxW = static_cast<long long>(posterCellsX) * ppc;
+        const long long pxH = static_cast<long long>(posterCellsY) * ppc;
+        std::fprintf(stdout, "poster: %dx%d cells @ %d px/cell -> %lldx%lld px (tiles %d cells = %d px)\n",
+                     posterCellsX, posterCellsY, ppc, pxW, pxH, tileCells, tilePx);
+        const mvdemo::PosterResult pr = mvdemo::renderPoster(app, renderer, posterMinCellX, posterMinCellY,
+                                                             posterCellsX, posterCellsY, posterCellSize, ppc, tileCells);
+        if (!pr.ok) {
+            std::fprintf(stderr, "poster failed (out of memory or readback) for %lldx%lld px\n", pxW, pxH);
+            return 3;
+        }
+        if (!mvdemo::writeRgbaAsPng(outPath, pr.width, pr.height, pr.rgba)) {
+            std::fprintf(stderr, "cannot write %s\n", outPath.c_str()); return 4;
+        }
+        std::fprintf(stdout, "wrote %s — the WHOLE map, %dx%d px (%d px/cell), tiled+stitched\n",
+                     outPath.c_str(), pr.width, pr.height, ppc);
+    } else if (shot) {
         // WHOLE-WORLD shot: render ONE static frame at the reset/fit camera (the entire world framed,
         // letterboxed for non-square worlds — NO pan/zoom, so nothing is cropped) to an offscreen framebuffer
         // sized to --size, then PNG. Reuses the selftest's device/readback/writeRgbaAsPng path; the only

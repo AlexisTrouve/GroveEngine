@@ -37,6 +37,7 @@
 
 #include "MapViewDemoScene.h"     // demoSchema (Int16 elevation @0.25m), makeTerrainLens, makeTileLens, demoRegions
 #include "MapViewViewerApp.h"
+#include "MapViewPoster.h"        // renderPoster (the --poster tiled+stitched whole-map export)
 #include "PngCapture.h"
 #include "TerrainTileset.h"       // writeTerrainTileset (for the 'T' tiling mode)
 
@@ -257,6 +258,29 @@ int main(int argc, char** argv) {
     if (dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size()))) {
         mvdemo::writeRgbaAsPng(outPath, W, H, rgba);
         std::fprintf(stdout, "wrote %s\n", outPath.c_str());
+    }
+
+    // 7. POSTER export: tile the WHOLE map + stitch to one buffer (the --poster path). A poster-sized ViewerApp
+    //    (so its render:camera viewport == the tile fb) drives renderPoster over the 384x256-cell world in 3x2
+    //    tiles at 2 px/cell. Locks: it succeeds, dims == cells*ppc with NO cap, and the STITCHED image is real
+    //    varied terrain (not blank/uniform) — i.e. the tiles composited actual content, not one gray frame.
+    {
+        const int ppc = 2, tileCells = 128, tilePx = tileCells * ppc;    // 256px tiles <= the 720 backbuffer
+        const int cellsX = coord.boundsMax[0] - coord.boundsMin[0] + 1;   // 384
+        const int cellsY = coord.boundsMax[1] - coord.boundsMin[1] + 1;   // 256
+        mvdemo::ViewerApp posterApp(&engine, renderer, gIO.get(), tilePx, tilePx, provider,
+                                    provider.schema(), provider.gridSpec(), mvdemo::makeTerrainLens, resetCam);
+        const mvdemo::PosterResult pr = mvdemo::renderPoster(posterApp, renderer, coord.boundsMin[0], coord.boundsMin[1],
+                                                             cellsX, cellsY, coord.cellSize[0], ppc, tileCells);
+        CHECK(pr.ok, "poster render succeeds");
+        CHECK(pr.width == cellsX * ppc && pr.height == cellsY * ppc, "poster dims == cells * px-per-cell (no size cap)");
+        uint8_t lo = 255, hi = 0;                                         // spread on the green channel = varied terrain
+        for (size_t i = 0; i + 4 <= pr.rgba.size(); i += 4) {
+            const uint8_t g = pr.rgba[i + 1];
+            if (g < lo) lo = g;
+            if (g > hi) hi = g;
+        }
+        CHECK(hi - lo > 40, "poster is not blank/uniform — real terrain rendered across the stitched tiles");
     }
 
     engine.shutdown();
