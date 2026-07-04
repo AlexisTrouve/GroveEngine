@@ -4,9 +4,14 @@
 once; it is the map. Each subsystem points to its own design + handoff doc under `docs/design/` for the detail —
 this file does NOT duplicate them, it indexes them and states what is done / open / blocked.
 
-**Last updated:** 2026-07-03. **Branch:** `master`. **Remotes:** gitea (primary) + github + bitbucket (all three
-kept in sync — see *Git* below). Working tree should be clean except `Testing/Temporary/CTestCostData.txt`
-(a ctest artifact — NEVER stage it).
+**Last updated:** 2026-07-04. **Branch:** `master` (HEAD `dc89746`). **Remotes:** gitea (primary) + github +
+bitbucket (all three kept in sync — see *Git* below). Working tree should be clean except
+`Testing/Temporary/CTestCostData.txt` (a ctest artifact — NEVER stage it).
+
+**Since the last handoff (this session):** verified + locked two inbound perf commits (compiled topic
+matcher replacing per-message regex; `render:sprite:batch` flat-float-blob fast path) — added the missing
+batch regression test; **binary payload (blobs)** added to the IO contract (below); **mapview PNG export**
+(`--shot` + `--poster`) + a **hard PNG size limit**. All WSL-TSan-clean where the publish path was touched.
 
 ---
 
@@ -32,10 +37,12 @@ and **Theomen** (procedural worldgen). Stay engine-side; don't reach into their 
 | **InputModule** | ✅ SDL backend (mouse/keyboard/gamepad), `ActionMap` (scancode bindings) | `modules/InputModule/README.md` |
 | **SoundManager** | ✅ `sound:*` (SFX/music via SDL_mixer behind `ISoundBackend`) + adaptive music `audio:*` (logic; real stems = content) | CLAUDE.md §SoundManager |
 | **Header-only helpers** | ✅ `grove::camera` (zoom/pan/cull), `grove::anim` (2D), `ActionMap`, `ZoneNavigator` | DEVELOPER_GUIDE |
-| **grove::mapview** | ✅ **engine-side complete** — generic world-viewer (S0 format → S1 core → S2 viewer `--load` → S3-seam provider → tiling T2/T3 + live 'T' tiling → regions/markers on screen) + **`worldcheck`** (headless `.world` validator). Only remainder = **S3 Theomen adapter (cross-project)** | `docs/design/mapview.md` (+ `-handoff`) |
+| **grove::mapview** | ✅ **engine-side complete** — generic world-viewer (S0 format → S1 core → S2 viewer `--load` → S3-seam provider → tiling T2/T3 + live 'T' tiling → regions/markers on screen) + **`worldcheck`** (headless `.world` validator) + **PNG export** (`--shot` = one fit-view frame; **`--poster`** = the WHOLE map tiled+stitched to one uncapped PNG at N px/cell, guarded by a hard 21844 px limit). Only remainder = **S3 Theomen adapter (cross-project)** | `docs/design/mapview.md` (+ `-handoff`) |
 | **Quality hardening** | 🟡 Phase 1 (ASan/UBSan/TSan) ✅ + Phase 2 (clang-tidy `src/`) ✅ — core swept clean. Phase 3 (CI) + `modules/` sweep OPEN | `docs/design/quality-hardening-handoff.md` |
 
-Test suite: **~137 ctests** (excl. 3 slow: StressTest/MemoryLeakHunter/ChaosMonkey) all green as of this handoff.
+Test suite: **~142 ctests** (excl. 3 slow: StressTest/MemoryLeakHunter/ChaosMonkey) all green as of this handoff.
+Note: `LimitsTest` (test_07_limits, 14 s, loads a hot-reload module) is **flaky under `-j4`** (parallel contention
+→ occasional SEGFAULT); it passes in isolation. Re-run before assuming a real regression there.
 
 ---
 
@@ -55,6 +62,10 @@ The engine's communication spine (`docs/design/iio-contract.md` has the doctrine
 - **Per-topic backpressure** (`IntraIO::setTopicPolicy`): DropOldest / **Coalesce** (latest-wins) / **Reject**
   (protect a critical); **wildcard patterns** (`render:*`, exact beats pattern); + a **per-inbox drop log**
   (`enableDropLog`/`getRecentDrops` → which/why messages were dropped).
+- **Binary payload (blobs)** (`IDataNode::setBlob/getBlob`): first-class raw bytes BESIDE the json (not smuggled
+  in a UTF-8 string), zero-copy in-process, carried across the non-core re-home by `JsonDataNode::rehomed()`.
+  `serialize()` is now **throw-proof** + base64s blobs under `__blobs__` (closed the replay/network crash on a
+  non-UTF8 payload). `render:sprite:batch` uses it (`getBlob`, string path kept for back-compat).
 
 **Remaining IO items are LOW-ROI (recommend NOT building without a concrete need):** exec-order view (needs new
 *receive-side* log infra, forensic-only); domain-logger fan-out (spammy at ~100 msg/frame); consumer-side dedup
@@ -82,6 +93,9 @@ deferred by design: LocalIO/NetworkIO tiers (stubs), live determinism enforcemen
 4. **Low-ROI IO follow-ons** (see above) — only on explicit request.
 5. **mapview deferred plug-ins** — S4 timeline scrub, S5 hex/iso/Z-multislice/LOD, palette-LUT. Do when a consumer
    asks (`mapview.md` §8/§10).
+6. **Productise a real PNG encoder (stb_image_write)** — the vendored `svpng` caps PNG width at **21844 px**
+   (`--poster` fails-franc past it; documented). Only needed if a consumer wants posters wider than that.
+   Bounded increment; the "PNG write" gap noted across the mapview docs.
 
 ---
 
@@ -137,4 +151,10 @@ after ANY change to the IIO publish/route/deliver path** (doctrine §10).
 - **Visual demos** run from the project root (cwd-relative `../assets`); the exe is locked while its window is open.
 - **Never `taskkill /F /IM python.exe`** — kill by PID only.
 - **TankModule.h linter bug** — a linter sometimes merges lines 35-36 ("logger not declared"); check if a build fails there.
+- **`sed -i` mangles line endings** on this repo (Git-Bash CRLF→LF → the whole file shows as changed). Use the
+  Edit tool for in-place edits; if `sed` churn already happened, `git checkout -- <file>` restores it.
+- **Adding a virtual to `IDataNode`**: APPEND it (default impl) — the vtable grows, existing slots stay put, so
+  not-rebuilt hot-load module `.dll`s remain ABI-safe. Inserting in the middle would break them.
+- **`svpng` (PngCapture.h)** caps PNG width at **21844 px** + a 32-bit IDAT length; `writeRgbaAsPng` refuses past
+  that (no corrupt file). Bigger needs stb_image_write.
 ```
