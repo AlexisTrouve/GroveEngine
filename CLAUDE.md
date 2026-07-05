@@ -40,6 +40,7 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 | **InputModule** | ✅ Production Ready | Input handling (mouse, keyboard, SDL backend) | `-DGROVE_BUILD_INPUT_MODULE=ON` |
 | **SoundManager** | ✅ Slices 1-3 | Music + SFX via `sound:*` (SDL_mixer behind `ISoundBackend`) | `-DGROVE_BUILD_SOUND_MODULE=ON` (needs SDL2_mixer) |
 | **DialogueModule** | ✅ Slice 7 MVP | VN/cutscene runtime — data-driven node/choice/branch script via `scene:*`, binding-driven (pushes `ui:data`) | `-DGROVE_BUILD_DIALOGUE_MODULE=ON` (SDL-free) |
+| **VideoModule** | 🚧 Slice 6c-0 seam | Video playback + A/V sync (`video:*`); decode behind `IVideoBackend` (ffmpeg CLI in 6c-1). Renderer pixel-upload + MP4 backend remain | `-DGROVE_BUILD_VIDEO_MODULE=ON` (SDL-free) |
 
 **Header-only helpers** (no module/build flag — `#include` and go): `grove::camera` (zoom/pan/cull, `Scene/Camera.h`), `grove::anim` (2D animation, `include/grove/anim/`), `grove::input::ActionMap` (scancode bindings, `modules/InputModule/ActionMap.h`). See the quick-reference + DEVELOPER_GUIDE.
 

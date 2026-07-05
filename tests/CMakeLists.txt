@@ -552,6 +552,14 @@ target_include_directories(test_dialogue_runtime PRIVATE
 target_link_libraries(test_dialogue_runtime PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(DialogueRuntimeUnit test_dialogue_runtime ${CMAKE_CURRENT_BINARY_DIR})
 
+# UI framework slice 6c: VideoSync — A/V synchronisation math (header-only, std-only).
+add_executable(test_video_sync unit/test_video_sync.cpp)
+target_include_directories(test_video_sync PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/VideoModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_video_sync PRIVATE Catch2::Catch2WithMain)
+grove_add_test(VideoSyncUnit test_video_sync ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system slice 2b: Keyframe/Track/Clip sampling (grove::anim). Header-only, std-only.
 add_executable(test_clip unit/test_clip.cpp)
 target_include_directories(test_clip PRIVATE
@@ -811,6 +819,18 @@ target_include_directories(IT_057_dialogue_e2e PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(IT_057_dialogue_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(DialogueE2E IT_057_dialogue_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+# UI framework slice 6c: VideoModule E2E (playback + A/V sync). Compiles the module source directly
+# (dependency-free — the decode backend is mocked), so it always builds regardless of GROVE_BUILD_VIDEO_MODULE.
+add_executable(IT_058_video_e2e
+    integration/IT_058_video_e2e.cpp
+    ../modules/VideoModule/VideoModule.cpp)
+target_include_directories(IT_058_video_e2e PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/VideoModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(IT_058_video_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(VideoE2E IT_058_video_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
 # Sound system slice 2: real SDLMixerBackend + manual audio demo (verified by ear). Gated on
 # SDL2 + SDL2_mixer being available. Not a ctest (no headless audio assertion).

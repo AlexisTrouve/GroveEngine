@@ -256,6 +256,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_DIALOGUE_MODULE)
         add_subdirectory(modules/DialogueModule)
     endif()
+
+    # VideoModule (video playback — A/V sync; decode behind IVideoBackend, ffmpeg CLI in 6c-1)
+    option(GROVE_BUILD_VIDEO_MODULE "Build VideoModule" OFF)
+    if(GROVE_BUILD_VIDEO_MODULE)
+        add_subdirectory(modules/VideoModule)
+    endif()
 endif()
 
 # Testing
