@@ -36,9 +36,11 @@ void VideoModule::process(const IDataNode& input) {
 
     if (!m_playing || !m_backend || m_paused) return;
 
-    // Master clock: the audio track's position when the clip has sound, else our own dt clock.
+    // Master clock. With audio: DEAD-RECKON — advance by dt each frame for smooth 60fps video, and let
+    // sound:music:position SNAP m_audioClock back to the true audio time (it arrives throttled ~15 Hz, so
+    // dead-reckoning between snaps keeps the picture fluid without drifting off the audio). Silent: dt clock.
     const double dt = input.getDouble("deltaTime", 0.016);
-    const double clock = m_hasAudio ? m_audioClock : (m_dtClock += dt);
+    const double clock = m_hasAudio ? (m_audioClock += dt) : (m_dtClock += dt);
 
     const video::FrameTick t = m_sync.update(clock);
     if (t.changed) presentFrame(t.index);
@@ -56,6 +58,7 @@ void VideoModule::handleMessage(const Message& msg) {
     else if (msg.topic == "video:stop")   stopPlayback();
     else if (msg.topic == "video:pause")  m_paused = d.getBool("paused", true);
     else if (msg.topic == "sound:music:position") {
+        // SNAP the dead-reckoned clock back to the true audio position (corrects accumulated dt drift).
         if (m_hasAudio) m_audioClock = d.getDouble("elapsed", m_audioClock);
     }
 }

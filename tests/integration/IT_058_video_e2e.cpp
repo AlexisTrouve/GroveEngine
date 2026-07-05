@@ -106,20 +106,21 @@ TEST_CASE("IT_058: VideoModule plays a silent clip frame-by-frame to the end (sl
     REQUIRE(h.mock->fetchedFrames == std::vector<int>{0, 1, 2, 3, 4, 5});
 }
 
-TEST_CASE("IT_058b: the audio track is the master clock, and a clock jump DROPS skipped frames", "[integration][video][e2e]") {
-    Harness h(/*frames=*/30, /*fps=*/30.0, /*audio=*/"vo/clip.ogg");   // 1 s, with audio
+TEST_CASE("IT_058b: audio clip — dead-reckon between positions, SNAP on position, DROP on a jump", "[integration][video][e2e]") {
+    Harness h(/*frames=*/60, /*fps=*/30.0, /*audio=*/"vo/clip.ogg");   // 2 s, with audio
 
     h.send("video:play", json{{"path", "clip.mp4"}});
     REQUIRE(h.musicCount == 1);
     REQUIRE(h.musicPath == "vo/clip.ogg");   // the module handed the audio to SoundManager as the clock
     REQUIRE(h.frameIndices == std::vector<int>{0});
 
-    // With audio, dt ticks do NOTHING — only the audio position drives the picture.
-    h.tick(1.0);
-    REQUIRE(h.frameIndices == std::vector<int>{0});   // no sound:music:position yet -> still on frame 0
-
-    // The audio clock jumps to 0.1 s -> frame 3 (frames 1 & 2 were skipped, must be DROPPED not rendered).
-    h.send("sound:music:position", json{{"path", "vo/clip.ogg"}, {"elapsed", 0.1}, {"duration", 1.0}});
+    // DEAD-RECKON: with audio, a dt tick DOES advance the picture (smooth playback between the ~15 Hz
+    // sound:music:position updates). A 0.1 s step -> frame 3, dropping frames 1 & 2 (not rendered).
+    h.tick(0.1);
     REQUIRE(h.frameIndices == std::vector<int>{0, 3});
     REQUIRE(h.mock->fetchedFrames == std::vector<int>{0, 3});   // frames 1,2 never fetched = dropped
+
+    // A sound:music:position SNAPS the clock to the true audio time (corrects drift) -> jumps to frame 15.
+    h.send("sound:music:position", json{{"path", "vo/clip.ogg"}, {"elapsed", 0.5}, {"duration", 2.0}});
+    REQUIRE(h.frameIndices == std::vector<int>{0, 3, 15});
 }

@@ -2760,6 +2760,29 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     )
     message(STATUS "BgfxRenderer showcase 'test_renderer_showcase' enabled")
 
+    # Video demo (slice 6c): play a real MP4 WITH SYNCED AUDIO in a window (renderer + sound + video wired).
+    # By-eye + by-ear (not a ctest). Needs BgfxRenderer + SDL2_mixer + ffmpeg on PATH.
+    find_package(SDL2_mixer QUIET)
+    if(SDL2_mixer_FOUND)
+        add_executable(test_video_demo
+            visual/test_video_demo.cpp
+            ../modules/SoundManager/SoundManagerModule.cpp
+            ../modules/SoundManager/SDLMixerBackend.cpp
+            ../modules/VideoModule/VideoModule.cpp
+            ../modules/VideoModule/FfmpegCliBackend.cpp)
+        target_include_directories(test_video_demo PRIVATE
+            ${CMAKE_SOURCE_DIR}/modules
+            ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+            ${CMAKE_SOURCE_DIR}/modules/VideoModule
+            ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(test_video_demo PRIVATE
+            SDL2::SDL2 SDL2_mixer::SDL2_mixer GroveEngine::impl BgfxRenderer_static
+            spdlog::spdlog nlohmann_json::nlohmann_json)
+        message(STATUS "Video demo 'test_video_demo' enabled")
+    else()
+        message(STATUS "Video demo 'test_video_demo' SKIPPED (SDL2_mixer not found)")
+    endif()
+
     # GPU readback test (Slice ②): offscreen render -> readPixels -> assert. Needs a real GPU
     # context (hidden SDL window + bgfx), so it is a [gpu] test — it skips cleanly without one.
     # Catch2 owns main() (SDL_MAIN_HANDLED), so link SDL2 WITHOUT SDL2main.
