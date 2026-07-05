@@ -5,6 +5,7 @@
 # instantiates VideoModule, injects a backend, drives process(), and pushes video:* topics.
 add_library(VideoModule_static STATIC
     VideoModule.cpp
+    FfmpegCliBackend.cpp
 )
 target_include_directories(VideoModule_static PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

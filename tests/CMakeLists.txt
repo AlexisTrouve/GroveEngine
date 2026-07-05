@@ -832,6 +832,17 @@ target_include_directories(IT_058_video_e2e PRIVATE
 target_link_libraries(IT_058_video_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(VideoE2E IT_058_video_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+# UI framework slice 6c-1: FfmpegCliBackend — real MP4 decode via the ffmpeg CLI. Standalone (no core);
+# GATED at runtime on ffmpeg/ffprobe being on PATH (WARN-skips otherwise).
+add_executable(test_ffmpeg_backend
+    unit/test_ffmpeg_backend.cpp
+    ../modules/VideoModule/FfmpegCliBackend.cpp)
+target_include_directories(test_ffmpeg_backend PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/VideoModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_ffmpeg_backend PRIVATE Catch2::Catch2WithMain)
+grove_add_test(FfmpegBackendReal test_ffmpeg_backend ${CMAKE_CURRENT_BINARY_DIR})
+
 # Sound system slice 2: real SDLMixerBackend + manual audio demo (verified by ear). Gated on
 # SDL2 + SDL2_mixer being available. Not a ctest (no headless audio assertion).
 if(SDL2_FOUND AND SDL2_mixer_FOUND)

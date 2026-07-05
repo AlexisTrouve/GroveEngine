@@ -40,7 +40,7 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 | **InputModule** | ✅ Production Ready | Input handling (mouse, keyboard, SDL backend) | `-DGROVE_BUILD_INPUT_MODULE=ON` |
 | **SoundManager** | ✅ Slices 1-3 | Music + SFX via `sound:*` (SDL_mixer behind `ISoundBackend`) | `-DGROVE_BUILD_SOUND_MODULE=ON` (needs SDL2_mixer) |
 | **DialogueModule** | ✅ Slice 7 MVP | VN/cutscene runtime — data-driven node/choice/branch script via `scene:*`, binding-driven (pushes `ui:data`) | `-DGROVE_BUILD_DIALOGUE_MODULE=ON` (SDL-free) |
-| **VideoModule** | 🚧 Slice 6c-0 seam | Video playback + A/V sync (`video:*`); decode behind `IVideoBackend` (ffmpeg CLI in 6c-1). Renderer pixel-upload + MP4 backend remain | `-DGROVE_BUILD_VIDEO_MODULE=ON` (SDL-free) |
+| **VideoModule** | ✅ Slice 6c | Video playback + A/V sync (`video:*`); **real MP4/H.264/AAC** via `FfmpegCliBackend` (ffmpeg CLI subprocess, no libav linking); raw-pixel `render:texture:upload` | `-DGROVE_BUILD_VIDEO_MODULE=ON` (SDL-free; needs ffmpeg on PATH for real MP4) |
 
 **Header-only helpers** (no module/build flag — `#include` and go): `grove::camera` (zoom/pan/cull, `Scene/Camera.h`), `grove::anim` (2D animation, `include/grove/anim/`), `grove::input::ActionMap` (scancode bindings, `modules/InputModule/ActionMap.h`). See the quick-reference + DEVELOPER_GUIDE.
 
@@ -159,7 +159,14 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 - `DialogueModule` (IModule) wraps the **pure header-only `dialogue::DialogueRuntime`** — a node/choice/branch state machine (parse `{start, nodes:{id:{speaker?,text,background?,voice?, goto? | choices:[{text,goto}]}}}`, `start`/`advance`/`choose(i)`/`goToNode(id)`/`isEnd`; no IIO/render coupling, like `grove::anim`). SDL-free, dependency-free (nlohmann only).
 - **Binding-driven** (rides the whole binding engine): on a node it publishes **`ui:data:merge {scene:{id,speaker,text,background,isEnd,choices:[{text,goto}]}}`** → a game-authored VN screen renders it (bound labels + a **choice repeater**; choice buttons fire **`scene:goto {node}`** — id-based, a string that survives declarative events). Voice via `sound:sfx`; emits `scene:node`/`scene:end`.
 - **Topics consumed**: `scene:load {start,nodes}`, `scene:advance`, `scene:choose {index}` (int OR string), `scene:goto {node}`. Engine = the runtime + machinery; **script + VN screen = game** (demo: `assets/dialogue/demo_script.json` + `assets/ui/demo_vn_screen.json`).
-- Static-link host (Drifterra): link **`DialogueModule_static`**, drive `process()`, push `scene:*`. Locked by `DialogueRuntimeUnit` (oracle) + `IT_057` (E2E through the module). Follow-ons: conditions/flags (no expression language), video (6c), auto-advance/typewriter, mid-scene save.
+- Static-link host (Drifterra): link **`DialogueModule_static`**, drive `process()`, push `scene:*`. Locked by `DialogueRuntimeUnit` (oracle) + `IT_057` (E2E through the module). Follow-ons: conditions/flags (no expression language), auto-advance/typewriter, mid-scene save.
+
+### VideoModule (`modules/VideoModule/`, `-DGROVE_BUILD_VIDEO_MODULE=ON`) — video playback (slice 6c)
+- `VideoModule` (IModule) plays a video onto a runtime texture, **A/V-synced to an audio master clock**. Pure `video::VideoSync` (header-only, like BeatClock) does the sync math (master clock → frame index + changed/**dropped**/ended); the decoder is behind **`IVideoBackend`** (like `ISoundBackend`) → headless-testable via `MockVideoBackend`.
+- **AUDIO IS THE MASTER CLOCK**: the module follows `sound:music:position` (slice 6b); the picture holds/advances/**drops** frames to stay locked (a silent clip uses a dt clock). Per changed frame it publishes **`render:texture:upload {id,w,h,+blob pixels}`** (raw-RGBA GPU upload) so the video sprite shows it.
+- **Topics consumed**: `video:play {path,audio?,textureId?,x?,y?,w?,h?,layer?}`, `video:stop`, `video:pause {paused}`, `sound:music:position`. **Published**: `render:texture:create`/`:upload` + `render:sprite:add` + `video:frame {index}` / `video:ended` (+ `sound:music` for the audio track).
+- **Real MP4**: `FfmpegCliBackend` decodes MP4/H.264/AAC by driving the **ffmpeg CLI as a subprocess** (`popen`; ffprobe metadata + a raw-RGBA frame pipe + audio extracted to a temp OGG) — **no libav linking** (ffmpeg.exe must be on PATH / bundled to ship). Forward-only (seek = follow-on).
+- Static-link host (Drifterra): link **`VideoModule_static`**, `module.setBackend(make_unique<video::FfmpegCliBackend>())`. Locked by `VideoSyncUnit` + `IT_058` (module, mock backend) + `RuntimeTextureGpu` (`[gpu]` pixel upload) + `FfmpegBackendReal` (real ffmpeg decode, gated). Follow-on: a by-eye windowed demo (MP4 + synced audio) + seek.
 
 ## Debugging Tools
 ```bash

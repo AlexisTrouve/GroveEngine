@@ -254,8 +254,11 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   **audio/voice/radio player** — ✅ SHIPPED (slice 6b): the engine now publishes `sound:music:position
   {path,elapsed,duration}` (backend-owned clock — `ISoundBackend` getMusicPosition/Duration, SDL_mixer 2.6+ /
   Mock; locked by `SoundManagerUnit [position]`) + a radio-player UI composed from existing widgets (Play/Stop →
-  `sound:*` via declarative `on:click`, bound now-playing/progress; locked by `IT_055`); **video**
-  (heavy/isolated — image-sequence first, codec later; last).
+  `sound:*` via declarative `on:click`, bound now-playing/progress; locked by `IT_055`); **video** — ✅ SHIPPED
+  (slice 6c): `VideoModule` + `VideoSync` (A/V sync, audio master clock) + `render:texture:upload` (raw-pixel
+  GPU path) + `FfmpegCliBackend` (**real MP4/H.264/AAC via the ffmpeg CLI subprocess** — no libav linking).
+  Locked by `VideoSyncUnit`+`IT_058`+`RuntimeTextureGpu`+`FfmpegBackendReal`. **→ ALL rich content (6a/6b/6c/7)
+  is now done.**
 - **VN / cutscene runtime** (7) — ✅ SHIPPED (MVP). `DialogueModule` + pure `DialogueRuntime` (node/choice/branch
   state machine): parses `{start, nodes:{id:{speaker,text,background,voice, goto|choices:[{text,goto}]}}}`, drives
   the presentation **binding-driven** (pushes `ui:data:merge {scene:{…}}` → a bound VN screen + choice repeater;
