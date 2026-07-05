@@ -1404,6 +1404,21 @@ target_link_libraries(benchmark_iio_zerocopy PRIVATE
     topictree::topictree
 )
 
+# IIO Big-Blob Routing Benchmark (localize Drifterra's ~39ms: engine machinery vs consumer handler)
+add_executable(benchmark_iio_bigblob
+    benchmarks/benchmark_iio_bigblob.cpp
+)
+
+target_include_directories(benchmark_iio_bigblob PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmark_iio_bigblob PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    topictree::topictree
+)
+
 # ================================================================================
 # BgfxRenderer Tests (only if GROVE_BUILD_BGFX_RENDERER is ON)
 # ================================================================================
