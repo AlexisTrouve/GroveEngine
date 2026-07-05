@@ -128,7 +128,7 @@ lands right after, before any window/list.
 | **5e** | **List/Grid view virtualized** (repeater + select + virtual scroll) — ✅ SHIPPED | 1 + 2 | E2E + perf | partial ship sidebar |
 | **6a** ✅ | **Animated panel** (hosts `grove::anim`/flipbook) — ✅ SHIPPED | — | `IT_054` (UV cell advances) | animated 2D scene |
 | **6b** ✅ | **Audio/voice/radio player** (buttons + progress → `sound:*`) — ✅ SHIPPED | — | `SoundManagerUnit [position]` + `IT_055` | voice, sound replay, music/radio player |
-| **6c** 🚧 | **Video panel** — 🚧 6c-0 SEAM shipped (VideoModule + A/V sync + IVideoBackend); renderer pixel-upload (6c-0c) + ffmpeg-CLI MP4 backend (6c-1) remain | 6a+6b | `VideoSyncUnit` + `IT_058` | video scene (MP4 + audio) |
+| **6c** 🚧 | **Video panel** — 🚧 6c-0 shipped (VideoModule + A/V sync + `render:texture:upload` raw-pixel path, a frame renders); ffmpeg-CLI MP4 backend (6c-1) remains | 6a+6b | `VideoSyncUnit` + `IT_058` + `RuntimeTextureGpu` | video scene (MP4 + audio) |
 | **7** ✅ | **VN/Cutscene runtime** (data-driven Dialogue module) — ✅ SHIPPED (MVP) | 5a+6a+6b | `DialogueRuntimeUnit` + `IT_057` (script→choice→branch) | 2D image/animated/video scene **with choices** |
 
 Video is deliberately last and isolated (heavy: codec decode → texture upload); we ship via image

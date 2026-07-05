@@ -112,3 +112,91 @@ TEST_CASE("runtime texture: create + paint a sub-rect, render by asset id (GPU)"
     mgr.removeInstance("rt_r"); mgr.removeInstance("rt_g");
     SDL_DestroyWindow(win); SDL_Quit();
 }
+
+TEST_CASE("runtime texture: render:texture:upload writes RAW rgba pixels (GPU) — video slice 6c-0c", "[gpu][assets][runtime]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 32, H = 32;
+    SDL_Window* win = SDL_CreateWindow("rt-upl", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("up_r");
+    auto gIO = mgr.createInstance("up_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("up_r"); mgr.removeInstance("up_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    assets::AssetManager* am = renderer->getAssetManager();
+    REQUIRE(am != nullptr);
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    // 1. CREATE a 16x16 canvas (filled transparent — the upload replaces every pixel anyway).
+    const int TW = 16, TH = 16;
+    { auto d = std::make_unique<JsonDataNode>("d");
+      d->setString("id","vid"); d->setInt("width",TW); d->setInt("height",TH); d->setInt("color", 0);
+      gIO->publish("render:texture:create", std::move(d)); }
+    frame(); frame();
+    REQUIRE(am->isResident("vid"));
+
+    // 2. UPLOAD raw RGBA: left half BLUE (0,0,255), right half YELLOW (255,255,0) — a real per-pixel frame.
+    std::vector<uint8_t> px(static_cast<size_t>(TW)*TH*4);
+    for (int y = 0; y < TH; ++y) for (int x = 0; x < TW; ++x) {
+        uint8_t* p = &px[(static_cast<size_t>(y)*TW + x)*4];
+        if (x < TW/2) { p[0]=0;   p[1]=0;   p[2]=255; p[3]=255; }   // blue
+        else          { p[0]=255; p[1]=255; p[2]=0;   p[3]=255; }   // yellow
+    }
+    { auto d = std::make_unique<JsonDataNode>("d");
+      d->setString("id","vid"); d->setInt("w",TW); d->setInt("h",TH);
+      d->setBlob("pixels", px.data(), px.size());
+      gIO->publish("render:texture:upload", std::move(d)); }
+    frame(); frame(); frame();   // deliver + apply the region update before rendering
+
+    // 3. RENDER filling the view + read back.
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
+    auto drawCanvas = [&]{
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("x", W*0.5); s->setDouble("y", H*0.5);
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setString("asset", "vid"); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+    };
+    for (int i = 0; i < 4; ++i) { drawCanvas(); frame(); }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+
+    // BOTH a clearly-blue and a clearly-yellow pixel must exist -> the raw upload wrote real per-pixel data.
+    int blues = 0, yellows = 0;
+    for (int sy = 2; sy < H; sy += 4) for (int sx = 2; sx < W; sx += 4) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(sy)*W + sx)*4];
+        const int r = p[0], g = p[1], b = p[2];
+        if (b > 110 && b > r + 40 && b > g + 40) ++blues;
+        else if (r > 110 && g > 110 && b < 80)   ++yellows;
+    }
+    INFO("blues=" << blues << " yellows=" << yellows);
+    REQUIRE(blues   >= 1);
+    REQUIRE(yellows >= 1);
+
+    renderer->shutdown();
+    mgr.removeInstance("up_r"); mgr.removeInstance("up_g");
+    SDL_DestroyWindow(win); SDL_Quit();
+}

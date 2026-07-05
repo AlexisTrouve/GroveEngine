@@ -387,6 +387,26 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
                                         static_cast<uint16_t>(x), static_cast<uint16_t>(y),
                                         static_cast<uint16_t>(w), static_cast<uint16_t>(h));
             });
+            // render:texture:upload {id, w, h, +blob "pixels"} — replace the WHOLE texture's pixels from a
+            // raw RGBA8 blob (the arbitrary-pixel upload path — video frames, procedural images). Same GPU
+            // region-update as paint, but full-texture with real pixels instead of a solid colour. The blob
+            // rides beside the json (setBlob/getBlob, zero-copy in-process) — no base64/UTF-8 abuse.
+            m_io->subscribe("render:texture:upload", [this](const Message& m) {
+                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+                const std::string id = m.data->getString("id", "");
+                const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
+                if (id.empty() || w <= 0 || h <= 0) return;
+                const auto* blob = m.data->getBlob("pixels");
+                const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;   // RGBA8
+                if (!blob || blob->size() < need) return;
+                float u0, v0, u1, v1;
+                const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
+                if (texId == 0) return;
+                rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
+                if (!handle.isValid()) return;
+                m_device->updateTexture(handle, blob->data(), static_cast<uint32_t>(need),
+                                        0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+            });
         }
         m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));
     }
