@@ -25,6 +25,7 @@ add_library(UIModule SHARED
     Widgets/UILabel.cpp
     Widgets/UIButton.cpp
     Widgets/UIImage.cpp
+    Widgets/UIFlipbook.cpp
     Widgets/UISlider.cpp
     Widgets/UICheckbox.cpp
     Widgets/UIProgressBar.cpp
@@ -99,6 +100,7 @@ add_library(UIModule_static STATIC
     Widgets/UILabel.cpp
     Widgets/UIButton.cpp
     Widgets/UIImage.cpp
+    Widgets/UIFlipbook.cpp
     Widgets/UISlider.cpp
     Widgets/UICheckbox.cpp
     Widgets/UIProgressBar.cpp

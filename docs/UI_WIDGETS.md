@@ -14,6 +14,7 @@ Complete reference for all available widgets and their properties.
 | **UITextInput** | Text entry field | `ui:value_changed`, `ui:text_submitted` |
 | **UIProgressBar** | Progress indicator | - |
 | **UIImage** | Sprite/texture display | - |
+| **UIFlipbook** | Animated sprite-sheet panel (grove::anim) | - |
 | **UIScrollPanel** | Scrollable container | `ui:scroll` |
 | **UITooltip** | Hover tooltip | - |
 | **UIRadial** | Action wheel / radial menu (angular selection) | `ui:action` |
@@ -306,6 +307,36 @@ Display a sprite/texture.
 **Properties:**
 - `textureId` - Texture ID from BgfxRenderer
 - `asset` - Streamed **asset id** (string) — resolved by the AssetManager (atlas-aware). Wins over `textureId`. Bindable via `{{...}}`.
+
+## UIFlipbook
+
+Animated sprite-sheet panel (slice 6a). Plays a `columns × rows` sheet cell-by-cell over time — the "animated 2D scene" widget. Backed by `grove::anim` (SpriteSheet + Flipbook); the renderer streams the current cell's UV via `render:sprite` (retained — only republishes when the cell flips).
+
+```json
+{
+  "type": "flipbook",
+  "id": "explosion",
+  "x": 100,
+  "y": 100,
+  "width": 64,
+  "height": 64,
+  "textureId": 5,
+  "columns": 4,
+  "rows": 1,
+  "fps": 12,
+  "loop": true
+}
+```
+
+**Properties:**
+- `textureId` - Texture ID of the sprite sheet (numeric; a dedicated sheet texture — `asset`-streamed sheets are a follow-on)
+- `columns` / `rows` - Sheet grid dimensions (equal cells, row-major)
+- `count` - Optional cap on usable frames for a partial last row (0 = full `columns×rows` grid)
+- `fps` - Playback rate (uniform per-frame duration = 1/fps)
+- `loop` - Loop at the end (true) or hold the last frame (false)
+- `style.tintColor` - RGBA tint (e.g. `"0xFFFFFFFF"`)
+
+Plays automatically. Frame order is the natural sheet order (0..N-1); a custom frame list and a `ui:anim:set` play/pause toggle are follow-ons.
 
 ## UIScrollPanel
 

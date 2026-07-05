@@ -4,6 +4,7 @@
 #include "../Widgets/UILabel.h"
 #include "../Widgets/UIButton.h"
 #include "../Widgets/UIImage.h"
+#include "../Widgets/UIFlipbook.h"
 #include "../Widgets/UISlider.h"
 #include "../Widgets/UICheckbox.h"
 #include "../Widgets/UIProgressBar.h"
@@ -294,6 +295,40 @@ void UITree::registerDefaultWidgets() {
         }
 
         return image;
+    });
+
+    // Register flipbook factory (slice 6a) — animated sprite-sheet panel.
+    // QUOI : parse la géométrie de sheet (columns/rows/count) + le timing (fps/loop) et construit un
+    //   grove::anim::SpriteSheet + Flipbook. POURQUOI : le widget ne fait que jouer ; toute la maths
+    //   sheet/timing vit dans grove::anim (header-only, réutilisable, testé). COMMENT : frames =
+    //   0..frameCount-1 (MVP, ordre naturel de la grille — un ordre custom via un array scalaire est
+    //   un follow-on, le parse d'array scalaire IIO étant un piège connu) ; setFps() remplit les durées.
+    registerWidget("flipbook", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+        auto fb = std::make_unique<UIFlipbook>();
+        fb->textureId = node.getInt("textureId", 0);
+
+        // Sheet geometry.
+        fb->sheet.columns = node.getInt("columns", 1);
+        fb->sheet.rows    = node.getInt("rows", 1);
+        fb->sheet.count   = node.getInt("count", 0);   // 0 => grille pleine columns*rows
+
+        // Timing : loop + fps (durées uniformes). Frames = ordre naturel 0..frameCount-1.
+        fb->book.loop = node.getBool("loop", true);
+        const int frameCount = fb->sheet.frameCount();
+        fb->book.frames.clear();
+        fb->book.frames.reserve(static_cast<size_t>(frameCount));
+        for (int i = 0; i < frameCount; ++i) fb->book.frames.push_back(i);
+        fb->book.setFps(static_cast<float>(node.getDouble("fps", 12.0)));
+
+        auto& mutableNode = const_cast<IDataNode&>(node);
+        if (auto* style = mutableNode.getChildReadOnly("style")) {
+            std::string tintStr = style->getString("tintColor", "0xFFFFFFFF");
+            if (tintStr.size() >= 2 && (tintStr.substr(0, 2) == "0x" || tintStr.substr(0, 2) == "0X")) {
+                fb->tintColor = static_cast<uint32_t>(std::stoul(tintStr, nullptr, 16));
+            }
+        }
+
+        return fb;
     });
 
     // Register slider factory

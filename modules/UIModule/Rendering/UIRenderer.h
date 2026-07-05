@@ -30,6 +30,10 @@ struct RenderEntry {
     // Clip rect {x,y,w,h} in screen px applied to this entry (w<=0 = none). Captured from the clip
     // stack at publish time so a container (scroll panel, window) can clip its descendants.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
+    // Sprite-sheet UV rect (animated flipbook). Défaut = texture entière (0,0)-(1,1) : tout appelant
+    // non-flipbook garde ces défauts, donc sa sortie est byte-identique. Change-detected pour qu'un
+    // simple changement d'UV (avance d'une cellule, position/texture inchangées) republie quand même.
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
 };
 
 /**
@@ -156,6 +160,16 @@ public:
     bool updateSprite(uint32_t renderId, float x, float y, float w, float h, const std::string& assetId, uint32_t color, int layer);
 
     /**
+     * @brief Update a textured sprite with an explicit UV rect (sprite-sheet cell) — only publishes if
+     *        changed. Used by the animated flipbook widget (slice 6a): the UV rect selects which sheet
+     *        cell is shown, so a UV change alone (same position/texture/color) counts as a change and
+     *        republishes → the animation advances. Numeric texture only (a dedicated sheet texture).
+     * @return true if published (changed), false if skipped (unchanged)
+     */
+    bool updateSpriteUV(uint32_t renderId, float x, float y, float w, float h, int textureId,
+                        float u0, float v0, float u1, float v1, uint32_t color, int layer);
+
+    /**
      * @brief Number of currently-registered retained entries (introspection).
      *
      * WHY: lets a test assert an invariant on registration count — e.g. a VIRTUALIZED list registers a
@@ -180,12 +194,17 @@ private:
 
     // Shared core for both updateSprite overloads (numeric textureId vs streamed assetId). assetId non-empty
     // wins (published as `asset`); otherwise the numeric textureId is published. Change-detects both.
+    // UV params appended with (0,0)-(1,1) defaults: les appelants existants (rect, image, asset) ne les
+    // passent pas -> sortie inchangée ; seul le flipbook passe un vrai rect de cellule.
     bool updateSpriteImpl(uint32_t renderId, float x, float y, float w, float h, int textureId,
-                          const std::string& assetId, uint32_t color, int layer);
+                          const std::string& assetId, uint32_t color, int layer,
+                          float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f);
 
     // Publish helpers. assetId non-empty -> emit `asset` (renderer streams it); else emit numeric textureId.
-    void publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer);
-    void publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer);
+    void publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,
+                          float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f);
+    void publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,
+                             float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f);
     void publishSpriteRemove(uint32_t renderId);
     void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
     void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);

@@ -126,7 +126,7 @@ lands right after, before any window/list.
 | **5c** ✅ | **Tabs / sections** | 2 | `IT_029` | menu with sections |
 | **5d** | **Tree / menu-hierarchy** (expand/collapse) — ✅ ONE-LEVEL shipped (UIList groups); multi-level tree TODO | 2 | E2E | menu hierarchy, warship groups |
 | **5e** | **List/Grid view virtualized** (repeater + select + virtual scroll) — ✅ SHIPPED | 1 + 2 | E2E + perf | partial ship sidebar |
-| **6a** | **Animated panel** (hosts `grove::anim`/flipbook) | — | E2E (frame advances) | animated 2D scene |
+| **6a** ✅ | **Animated panel** (hosts `grove::anim`/flipbook) — ✅ SHIPPED | — | `IT_054` (UV cell advances) | animated 2D scene |
 | **6b** | **Audio/voice/radio player** (buttons + playlist + progress → `sound:*`) | — | E2E | voice, sound replay, music/radio player |
 | **6c** | **Video panel** (image-sequence first, codec later) | 6a | E2E | video scene |
 | **7** | **VN/Cutscene runtime** (data-driven Scene/Dialogue module) | 5a+6a+6b | E2E (script→choice→branch) | 2D image/animated/video scene **with choices** |
@@ -212,6 +212,7 @@ them.
 
 | Date | Slice | State |
 |---|---|---|
+| 2026-07-05 | 6a Animated panel | ✅ SHIPPED. `UIFlipbook` widget (`Widgets/UIFlipbook.{h,cpp}`) hosts a `grove::anim::SpriteSheet` + `Flipbook`; `update(dt)` advances an internal clock, `render()` resolves `uvAt(time)` → the current sheet cell's UV. **Load-bearing engine gap closed**: the retained sprite path could NOT carry animated UVs — `RenderEntry` had no UV fields, `publishSprite*` hardcoded `u0=v0=0,u1=v1=1`, and change-detection ignored UVs. Added `UIRenderer::updateSpriteUV` + UV fields threaded through `updateSpriteImpl`/`publishSprite*` (defaulted to `0/1` → every non-flipbook caller byte-identical) + UVs added to change-detection (a UV-only cell advance now republishes). `UITree` `"flipbook"` factory (columns/rows/count/fps/loop; frames = natural 0..N-1). Locked by `IT_054` (cell UV advances through ≥2 distinct values incl. 0.25 via `render:sprite:update`; **prove-it-bites**: removing the UV change-detection → RED). Full UI regression green (UV defaults keep the other 48 tests byte-identical). Follow-ons: `asset`-streamed sheets (cell×atlas UV compose), custom frame order, `ui:anim:set` play/pause. |
 | 2026-06-22 | — | Design locked (this doc). Path A chosen. |
 | 2026-06-22 | 1.1 reflow-on-resize | ✅ SHIPPED. `ui:resize` → `relayoutRoot()` + `widthPercent`/`heightPercent` relative sizing. Locked by `UILayoutUnit` + `IT_021`. |
 | 2026-06-22 | 1.2 anchoring | ✅ SHIPPED. 9 positional anchors + `anchorOffset`, `resolveAnchor()` in the absolute branch. Locked by `UILayoutUnit` + `IT_022`. |

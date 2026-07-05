@@ -128,7 +128,7 @@ std::lock_guard lock2(mutex2);  // DEADLOCK RISK
 
 ### UIModule
 - **UIRenderer**: Publishes render commands to BgfxRenderer via IIO (layer 1000+)
-- **Widgets**: UIButton, UIPanel, UILabel, UICheckbox, UISlider, UITextInput, UIProgressBar, UIImage, UIScrollPanel, UITooltip
+- **Widgets**: UIButton, UIPanel, UILabel, UICheckbox, UISlider, UITextInput, UIProgressBar, UIImage, **UIFlipbook** (animated sprite-sheet panel via `grove::anim` — slice 6a; the retained renderer now carries animated UVs, locked by `UIFlipbookE2E`/IT_054), UIScrollPanel, UITooltip
 - **IIO Topics**: Consumes `input:*`, `ui:set_text`, `ui:set_visible`, `ui:set_position`, `ui:data`/`:merge`, `ui:list:set_items`/`set_groups`, `ui:drawer:*`; publishes `ui:click`, `ui:action`, `ui:value_changed`, `ui:list:selected`/`group:toggled`, etc.
 - **Interaction**: clicks carry the **button index** (0=left, 1=right) → a widget's `on` block fires `click` (left) or **`rightClick`** (right). Hover + tooltips track the widget by **pointer** (not id — repeater items share an empty id). `UITooltipManager` switches text immediately when sweeping between tooltipped items.
 - **UIButton**: renders a **border frame** (`borderColor`/`borderWidth`, inset bg) — used for hover/selection highlight. Bindable props via `{{...}}`: `text`, `color`/`bgColor`, `texture` (numeric id), **`asset`** (streamed asset id string), `borderColor`, `tooltip` (+ base x/y/width/height/visible). **Sprite-as-UI by streamed asset id**: a part/icon button (or `UIImage`) with an `asset` prop publishes `render:sprite:add{asset:"id"}` → the renderer streams it via the AssetManager (atlas-aware UV, budget eviction). `asset` wins over `texture`. Locked by `UIAssetSpriteE2E` (IT_052).

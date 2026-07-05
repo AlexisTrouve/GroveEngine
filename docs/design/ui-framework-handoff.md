@@ -246,9 +246,10 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   to release, suppressed on drag). **What's LEFT on it** (follow-ons): **custom row templates** (today fixed
   icon+label+subtitle), **multi-select**, **grid mode**, **multi-level tree** (today one level: groups → items).
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
-- **Rich content** (6): **animated panel** (host `grove::anim`/flipbook in a widget — the anim math exists,
-  `include/grove/anim/`; small), **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*`
-  — the audio engine exists; assembly), **video** (heavy/isolated — image-sequence first, codec later; last).
+- **Rich content** (6): **animated panel** — ✅ SHIPPED (`UIFlipbook`, slice 6a: hosts `grove::anim` SpriteSheet+
+  Flipbook; closed the renderer's animated-UV gap — `updateSpriteUV` + UV in change-detection; locked by `IT_054`);
+  **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*` — the audio engine exists;
+  assembly), **video** (heavy/isolated — image-sequence first, codec later; last).
 - **VN / cutscene runtime** (7) — **decided: engine-side full runtime** (a `Scene`/`Dialogue` module reading a
   data-driven script: nodes/choices/branches/voice/video). Sits on top of the content widgets. **Big**; fresh session.
 - **Perf — dirty-gated layout** — the bigger perf win (skip layout on static frames). **Correctness-sensitive**

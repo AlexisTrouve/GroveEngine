@@ -133,8 +133,16 @@ bool UIRenderer::updateSprite(uint32_t renderId, float x, float y, float w, floa
     return updateSpriteImpl(renderId, x, y, w, h, 0, assetId, color, layer);
 }
 
+bool UIRenderer::updateSpriteUV(uint32_t renderId, float x, float y, float w, float h, int textureId,
+                                float u0, float v0, float u1, float v1, uint32_t color, int layer) {
+    // Sprite numérique avec un rect UV de cellule explicite (assetId vide — le flipbook utilise une
+    // texture-sheet dédiée, pas un asset streamé dont l'UV d'atlas devrait se composer avec la cellule).
+    return updateSpriteImpl(renderId, x, y, w, h, textureId, "", color, layer, u0, v0, u1, v1);
+}
+
 bool UIRenderer::updateSpriteImpl(uint32_t renderId, float x, float y, float w, float h, int textureId,
-                                  const std::string& assetId, uint32_t color, int layer) {
+                                  const std::string& assetId, uint32_t color, int layer,
+                                  float u0, float v0, float u1, float v1) {
     if (!m_io) return false;
 
     const ClipRect clip = currentClip();
@@ -152,18 +160,22 @@ bool UIRenderer::updateSpriteImpl(uint32_t renderId, float x, float y, float w, 
         entry.color = color;
         entry.layer = layer;  // Store initial layer (stable)
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
+        entry.u0 = u0; entry.v0 = v0; entry.u1 = u1; entry.v1 = v1;
         m_entries[renderId] = entry;
-        publishSpriteAdd(renderId, x, y, w, h, textureId, assetId, color, layer);
+        publishSpriteAdd(renderId, x, y, w, h, textureId, assetId, color, layer, u0, v0, u1, v1);
         return true;
     }
 
-    // Check if changed (ignore layer - it's set once at registration)
+    // Check if changed (ignore layer - it's set once at registration). Un changement d'UV seul (avance
+    // de cellule flipbook) suffit à republier — sinon l'animation resterait figée sur la 1re cellule.
     RenderEntry& entry = it->second;
     bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
                    !floatEqual(entry.w, w) || !floatEqual(entry.h, h) ||
                    entry.textureId != textureId || entry.assetId != assetId || entry.color != color ||
                    !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
-                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h);
+                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h) ||
+                   !floatEqual(entry.u0, u0) || !floatEqual(entry.v0, v0) ||
+                   !floatEqual(entry.u1, u1) || !floatEqual(entry.v1, v1);
 
     if (changed) {
         entry.x = x;
@@ -174,15 +186,17 @@ bool UIRenderer::updateSpriteImpl(uint32_t renderId, float x, float y, float w, 
         entry.assetId = assetId;
         entry.color = color;
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
+        entry.u0 = u0; entry.v0 = v0; entry.u1 = u1; entry.v1 = v1;
         // Keep original layer (don't update it)
-        publishSpriteUpdate(renderId, x, y, w, h, textureId, assetId, color, entry.layer);
+        publishSpriteUpdate(renderId, x, y, w, h, textureId, assetId, color, entry.layer, u0, v0, u1, v1);
         return true;
     }
 
     return false;
 }
 
-void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer) {
+void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,
+                                  float u0, float v0, float u1, float v1) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
     sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
@@ -190,10 +204,10 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setDouble("rotation", 0.0);
-    sprite->setDouble("u0", 0.0);
-    sprite->setDouble("v0", 0.0);
-    sprite->setDouble("u1", 1.0);
-    sprite->setDouble("v1", 1.0);
+    sprite->setDouble("u0", static_cast<double>(u0));
+    sprite->setDouble("v0", static_cast<double>(v0));
+    sprite->setDouble("u1", static_cast<double>(u1));
+    sprite->setDouble("v1", static_cast<double>(v1));
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     // Streamed asset id wins over textureId (the renderer's resolveSpriteTexture prefers `asset`). Emitted
@@ -210,7 +224,8 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
     m_io->publish("render:sprite:add", std::move(sprite));
 }
 
-void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer) {
+void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,
+                                     float u0, float v0, float u1, float v1) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
     sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
@@ -218,10 +233,10 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setDouble("rotation", 0.0);
-    sprite->setDouble("u0", 0.0);
-    sprite->setDouble("v0", 0.0);
-    sprite->setDouble("u1", 1.0);
-    sprite->setDouble("v1", 1.0);
+    sprite->setDouble("u0", static_cast<double>(u0));
+    sprite->setDouble("v0", static_cast<double>(v0));
+    sprite->setDouble("u1", static_cast<double>(u1));
+    sprite->setDouble("v1", static_cast<double>(v1));
     sprite->setInt("color", static_cast<int>(color));
     sprite->setInt("textureId", textureId);
     if (!assetId.empty()) sprite->setString("asset", assetId);
