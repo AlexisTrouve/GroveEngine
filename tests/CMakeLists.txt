@@ -544,6 +544,14 @@ target_include_directories(test_easing PRIVATE
 target_link_libraries(test_easing PRIVATE Catch2::Catch2WithMain)
 grove_add_test(EasingUnit test_easing ${CMAKE_CURRENT_BINARY_DIR})
 
+# UI framework slice 7: DialogueRuntime — VN/cutscene state machine (header-only, nlohmann-only).
+add_executable(test_dialogue_runtime unit/test_dialogue_runtime.cpp)
+target_include_directories(test_dialogue_runtime PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/DialogueModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_dialogue_runtime PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(DialogueRuntimeUnit test_dialogue_runtime ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system slice 2b: Keyframe/Track/Clip sampling (grove::anim). Header-only, std-only.
 add_executable(test_clip unit/test_clip.cpp)
 target_include_directories(test_clip PRIVATE
@@ -792,6 +800,17 @@ target_include_directories(test_sound_manager PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_sound_manager PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
 grove_add_test(SoundManagerUnit test_sound_manager ${CMAKE_CURRENT_BINARY_DIR})
+
+# UI framework slice 7: DialogueModule E2E (VN/cutscene runtime). Compiles the module source directly
+# (it's dependency-free — no SDL), so it always builds regardless of GROVE_BUILD_DIALOGUE_MODULE.
+add_executable(IT_057_dialogue_e2e
+    integration/IT_057_dialogue_e2e.cpp
+    ../modules/DialogueModule/DialogueModule.cpp)
+target_include_directories(IT_057_dialogue_e2e PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/DialogueModule
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(IT_057_dialogue_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(DialogueE2E IT_057_dialogue_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
 # Sound system slice 2: real SDLMixerBackend + manual audio demo (verified by ear). Gated on
 # SDL2 + SDL2_mixer being available. Not a ctest (no headless audio assertion).

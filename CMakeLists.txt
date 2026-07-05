@@ -250,6 +250,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_SOUND_MODULE)
         add_subdirectory(modules/SoundManager)
     endif()
+
+    # DialogueModule (VN/cutscene runtime — pure logic, drives the UI via ui:data)
+    option(GROVE_BUILD_DIALOGUE_MODULE "Build DialogueModule" OFF)
+    if(GROVE_BUILD_DIALOGUE_MODULE)
+        add_subdirectory(modules/DialogueModule)
+    endif()
 endif()
 
 # Testing

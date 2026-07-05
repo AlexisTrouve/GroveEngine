@@ -1,0 +1,12 @@
+{
+  "start": "intro",
+  "nodes": {
+    "intro":  { "speaker": "Vega", "text": "We're under attack — the outer picket is gone.", "background": "bg/bridge", "goto": "decide" },
+    "decide": { "speaker": "Vega", "text": "Your orders, Commander?", "background": "bg/bridge", "choices": [
+        { "text": "Engage the fleet", "goto": "fight" },
+        { "text": "Fall back to the gate", "goto": "flee" } ] },
+    "fight":  { "speaker": "Vega", "text": "All batteries, open fire!", "voice": "vo/fight.ogg", "background": "bg/battle", "goto": "end" },
+    "flee":   { "speaker": "Vega", "text": "Helm, full burn to the gate.", "voice": "vo/flee.ogg", "background": "bg/warp", "goto": "end" },
+    "end":    { "speaker": "Vega", "text": "...", "background": "bg/aftermath" }
+  }
+}

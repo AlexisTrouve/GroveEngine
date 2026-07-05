@@ -256,8 +256,13 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   Mock; locked by `SoundManagerUnit [position]`) + a radio-player UI composed from existing widgets (Play/Stop →
   `sound:*` via declarative `on:click`, bound now-playing/progress; locked by `IT_055`); **video**
   (heavy/isolated — image-sequence first, codec later; last).
-- **VN / cutscene runtime** (7) — **decided: engine-side full runtime** (a `Scene`/`Dialogue` module reading a
-  data-driven script: nodes/choices/branches/voice/video). Sits on top of the content widgets. **Big**; fresh session.
+- **VN / cutscene runtime** (7) — ✅ SHIPPED (MVP). `DialogueModule` + pure `DialogueRuntime` (node/choice/branch
+  state machine): parses `{start, nodes:{id:{speaker,text,background,voice, goto|choices:[{text,goto}]}}}`, drives
+  the presentation **binding-driven** (pushes `ui:data:merge {scene:{…}}` → a bound VN screen + choice repeater;
+  choices fire `scene:goto {node}` id-based; voice via `sound:sfx`; emits `scene:node`/`scene:end`). Consumes
+  `scene:load`/`advance`/`choose`/`goto`. `GROVE_BUILD_DIALOGUE_MODULE`, `DialogueModule_static` (SDL-free).
+  Locked by `DialogueRuntimeUnit` + `IT_057`. Demo: `assets/dialogue/demo_script.json` + `assets/ui/demo_vn_screen.json`.
+  Follow-ons: conditions/flags (no expression language), **video (6c)**, auto-advance, typewriter, mid-scene save.
 - **Perf — dirty-gated layout** — the bigger perf win (skip layout on static frames). **Correctness-sensitive**
   (a missed invalidation = stale layout) and must not freeze per-frame animations. Design notes in
   ui-framework.md §8. Do it deliberately, with a test that asserts layout STILL updates on every relevant change.

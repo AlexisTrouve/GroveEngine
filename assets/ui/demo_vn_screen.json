@@ -1,0 +1,49 @@
+{
+  "_comment": "VN screen for the DialogueModule (slice 7). The runtime pushes ui:data:merge {scene:{...}}; this binds to it. Choice buttons fire scene:goto {node} (a string id — survives declarative events). Load this as the UIModule layout, load demo_script.json via scene:load, then drive scene:advance / let the choice buttons drive scene:goto.",
+  "id": "root",
+  "type": "panel",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "children": [
+    {
+      "id": "portrait",
+      "type": "image",
+      "x": 40, "y": 380, "width": 220, "height": 300,
+      "asset": "{{scene.background}}"
+    },
+    {
+      "id": "dialogue_box",
+      "type": "panel",
+      "x": 280, "y": 520, "width": 960, "height": 160,
+      "style": { "bgColor": "0x141c28E6" },
+      "children": [
+        {
+          "id": "speaker",
+          "type": "label",
+          "x": 20, "y": 12, "width": 400, "height": 28,
+          "text": "{{scene.speaker}}",
+          "style": { "color": "0x6fb3ffFF", "fontSize": 20 }
+        },
+        {
+          "id": "line",
+          "type": "label",
+          "x": 20, "y": 52, "width": 920, "height": 90,
+          "text": "{{scene.text}}",
+          "style": { "color": "0xFFFFFFFF", "fontSize": 18 }
+        }
+      ]
+    },
+    {
+      "id": "choices",
+      "type": "panel",
+      "x": 280, "y": 360, "width": 520, "height": 150,
+      "layout": { "mode": "vertical", "spacing": 8 },
+      "repeat": "{{scene.choices}}",
+      "template": {
+        "type": "button",
+        "width": 520, "height": 40,
+        "text": "{{text}}",
+        "on": { "click": { "event": "scene:goto", "args": { "node": "{{goto}}" } } }
+      }
+    }
+  ]
+}
