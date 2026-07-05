@@ -48,8 +48,17 @@ public:
     void stopMusic(int fadeMs) override;
     void setMusicVolume(float volume) override;
 
+    // Music playback clock (slice 6b). SDL owns the clock, so updateMusic is a no-op; position +
+    // duration come from SDL_mixer (>= 2.6). Version-guarded in the .cpp (older mixer -> -1).
+    double getMusicPosition() const override;
+    double getMusicDuration() const override;
+
 private:
     bool m_open = false;
+
+    // The track currently playing (set by playMusic, cleared by stopMusic) — needed to query its
+    // position/duration for sound:music:position.
+    Mix_Music* m_currentMusic = nullptr;
 
     // Caches: path -> index into the vectors (stable ids handed back to the module).
     std::unordered_map<std::string, int> m_soundIds;

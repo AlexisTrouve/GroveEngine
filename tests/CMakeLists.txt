@@ -2558,6 +2558,13 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIFlipbookE2E IT_054_ui_flipbook_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_055: radio-player UI E2E (slice 6b) — Play/Stop buttons publish real sound:music /
+    # sound:music:stop via declarative events; the now-playing label reflects pushed {{radio.title}}.
+    add_executable(IT_055_ui_radio_e2e integration/IT_055_ui_radio_e2e.cpp)
+    target_link_libraries(IT_055_ui_radio_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIRadioE2E IT_055_ui_radio_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e

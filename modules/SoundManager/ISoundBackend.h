@@ -60,6 +60,23 @@ struct ISoundBackend {
 
     // Re-apply the music's EFFECTIVE volume live (master/music bus changed mid-playback).
     virtual void setMusicVolume(float volume) = 0;
+
+    // ------------------------------------------------------------------------
+    // Music playback clock (slice 6b — real progress bar / end-of-track).
+    // WHAT  : where the current music track is, in SECONDS. SoundManagerModule polls these each
+    //         frame while music plays and publishes sound:music:position {path, elapsed, duration}.
+    // WHY   : a progress bar needs the REAL audio position, not game-time (music plays at wall-clock
+    //         regardless of pause/slowmo). So the BACKEND owns the clock: the real SDL backend reads
+    //         the mixer's clock; a mock advances it from the dt the module feeds (deterministic
+    //         headless). Engine exposes the primitive; the game maps it to its UI (engine/game split).
+    // HOW   : NON-pure with a -1 default = "unsupported/unknown" -> the module publishes nothing, so a
+    //         backend that can't report position simply opts out (and existing backends stay ABI-safe:
+    //         appended virtuals grow the vtable, existing slots unchanged). updateMusic(dt) is the
+    //         mock's advance hook (the real backend ignores it — SDL owns the clock).
+    // ------------------------------------------------------------------------
+    virtual void updateMusic(float /*dt*/) {}                  // advance the backend's music clock (mock)
+    virtual double getMusicPosition() const { return -1.0; }  // elapsed seconds, or -1 if unknown
+    virtual double getMusicDuration() const { return -1.0; }  // total seconds, or -1 if unknown
 };
 
 } // namespace sound

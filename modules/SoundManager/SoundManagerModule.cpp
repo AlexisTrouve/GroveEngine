@@ -47,6 +47,7 @@ void SoundManagerModule::process(const IDataNode& input) {
     const float dt = static_cast<float>(input.getDouble("deltaTime", 0.016));
     updateBeatClock(dt);
     tickAdaptive(dt);
+    tickMusicPosition(dt);
 }
 
 void SoundManagerModule::handleMessage(const Message& msg) {
@@ -100,6 +101,8 @@ void SoundManagerModule::handleMessage(const Message& msg) {
         if (id < 0) return;
         m_backend->playMusic(id, loop, fadeMs, clamp01(m_master * m_music * m_musicBaseVolume));
         m_musicPlaying = true;
+        m_musicPath = path;          // remembered for sound:music:position
+        m_musicPosAccum = 1.0e9f;    // force a prompt first position broadcast on the next tick
         ++m_musicCount;
     }
     else if (msg.topic == "sound:music:stop") {
@@ -273,6 +276,34 @@ void SoundManagerModule::updateBeatClock(float dt) {
         }
         m_pendingCues.swap(still);
     }
+}
+
+void SoundManagerModule::tickMusicPosition(float dt) {
+    // QUOI : pendant que la musique joue, avance l'horloge du backend et publie sa position ->
+    //   sound:music:position {path, elapsed, duration}. POURQUOI : c'est le primitive "barre de
+    //   progression réelle" — le jeu s'y abonne et met à jour son modèle UI (ex. {{radio.progress}}) ;
+    //   l'engine expose la position, le jeu décide de l'affichage (engine=primitive, jeu=sémantique).
+    // COMMENT : le BACKEND possède l'horloge (SDL en réel, mock avancé par dt) ; -1 = non supporté ->
+    //   on ne publie pas (un backend muet n'émet rien). On throttle à ~kMusicPosHz : une barre de
+    //   progression a besoin de quelques màj/s, pas de 60 (garde anti-spam ; le drop-log/Coalesce peut
+    //   affiner côté consommateur). elapsed peut dépasser duration quand la piste boucle.
+    if (!m_backend || !m_musicPlaying || !m_io) return;
+
+    m_backend->updateMusic(dt);                       // no-op sur le vrai backend (SDL a son horloge)
+    const double elapsed = m_backend->getMusicPosition();
+    if (elapsed < 0.0) return;                         // backend sans horloge -> opt-out silencieux
+
+    // Throttle : accumule le temps, ne publie qu'au franchissement de l'intervalle (reset après).
+    static constexpr float kMusicPosInterval = 1.0f / 15.0f;   // ~15 Hz
+    m_musicPosAccum += dt;
+    if (m_musicPosAccum < kMusicPosInterval) return;
+    m_musicPosAccum = 0.0f;
+
+    auto pos = std::make_unique<JsonDataNode>("music_position");
+    pos->setString("path", m_musicPath);
+    pos->setDouble("elapsed", elapsed);
+    pos->setDouble("duration", m_backend->getMusicDuration());  // -1 si inconnue (boucle/stream)
+    m_io->publish("sound:music:position", std::move(pos));
 }
 
 void SoundManagerModule::shutdown() {

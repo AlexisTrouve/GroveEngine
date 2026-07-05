@@ -57,6 +57,7 @@ private:
     void applyMusicVolume();                 // push effective music volume to the backend
     void tickAdaptive(float dt);             // ramp adaptive stem gains -> backend (per frame)
     void updateBeatClock(float dt);          // advance the beat clock + release a pending quantized intent
+    void tickMusicPosition(float dt);        // poll backend clock -> publish sound:music:position (slice 6b)
     static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
     IIO* m_io = nullptr;
@@ -69,6 +70,13 @@ private:
     float m_sfx = 1.0f;
     float m_musicBaseVolume = 1.0f;  // last per-call music volume (for live bus re-apply)
     bool m_musicPlaying = false;
+
+    // Music position broadcast (slice 6b): while music plays, the module polls the backend clock and
+    // publishes sound:music:position for a real progress bar. m_musicPath names the current track;
+    // m_musicPosAccum throttles the broadcast to ~kMusicPosHz (spam guard — a progress bar needs a few
+    // updates/sec, not 60). Reset to force a prompt first publish when a track starts.
+    std::string m_musicPath;
+    float m_musicPosAccum = 0.0f;
 
     // Game-supplied id -> backend playback handle, for controllable (e.g. looping) SFX so
     // sound:sfx:stop can target the right channel. One-shot SFX (no id) are not tracked.

@@ -46,6 +46,7 @@ void SDLMixerBackend::shutdown() {
 
     Mix_HaltMusic();
     Mix_HaltChannel(-1);
+    m_currentMusic = nullptr;   // the Mix_Music it pointed at is freed just below
 
     for (Mix_Chunk* c : m_sounds) if (c) Mix_FreeChunk(c);
     for (Mix_Music* m : m_musics) if (m) Mix_FreeMusic(m);
@@ -142,17 +143,41 @@ void SDLMixerBackend::playMusic(int musicId, bool loop, int fadeMs, float volume
     const int loops = loop ? -1 : 1;   // -1 = infinite (SDL_mixer), 1 = play once
     if (fadeMs > 0) Mix_FadeInMusic(music, loops, fadeMs);
     else            Mix_PlayMusic(music, loops);
+    m_currentMusic = music;            // track for sound:music:position (slice 6b)
 }
 
 void SDLMixerBackend::stopMusic(int fadeMs) {
     if (!m_open) return;
     if (fadeMs > 0) Mix_FadeOutMusic(fadeMs);
     else            Mix_HaltMusic();
+    m_currentMusic = nullptr;
 }
 
 void SDLMixerBackend::setMusicVolume(float volume) {
     if (!m_open) return;
     Mix_VolumeMusic(toMixVolume(volume));
+}
+
+double SDLMixerBackend::getMusicPosition() const {
+    // SECONDS into the current track. Mix_GetMusicPosition arrived in SDL_mixer 2.6; on older
+    // headers there is no way to query it -> -1 ("unknown"), so the module publishes nothing.
+    if (!m_open || !m_currentMusic) return -1.0;
+#if defined(SDL_MIXER_VERSION_ATLEAST) && SDL_MIXER_VERSION_ATLEAST(2, 6, 0)
+    const double pos = Mix_GetMusicPosition(m_currentMusic);
+    return pos;   // Mix returns -1.0 itself if the codec can't report position
+#else
+    return -1.0;
+#endif
+}
+
+double SDLMixerBackend::getMusicDuration() const {
+    // Total SECONDS of the current track. Mix_MusicDuration also arrived in SDL_mixer 2.6.
+    if (!m_open || !m_currentMusic) return -1.0;
+#if defined(SDL_MIXER_VERSION_ATLEAST) && SDL_MIXER_VERSION_ATLEAST(2, 6, 0)
+    return Mix_MusicDuration(m_currentMusic);
+#else
+    return -1.0;
+#endif
 }
 
 } // namespace sound

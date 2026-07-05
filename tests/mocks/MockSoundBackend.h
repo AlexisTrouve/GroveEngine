@@ -57,9 +57,20 @@ public:
 
     void playMusic(int musicId, bool loop, int fadeMs, float volume) override {
         playMusicCalls.push_back({musicId, loop, fadeMs, volume});
+        musicActive = true;   // start the simulated clock at 0 (slice 6b position)
+        musicPos = 0.0;
     }
-    void stopMusic(int fadeMs) override { stopMusicCalls.push_back(fadeMs); }
+    void stopMusic(int fadeMs) override { stopMusicCalls.push_back(fadeMs); musicActive = false; }
     void setMusicVolume(float volume) override { setMusicVolumeCalls.push_back(volume); }
+
+    // Music-clock simulation (slice 6b — sound:music:position). Deterministic: updateMusic advances
+    // the position by the dt the module feeds (no wall clock). Duration is settable per test.
+    double musicPos = 0.0;      // simulated elapsed seconds
+    double musicDur = -1.0;     // simulated total seconds (-1 = unknown; a test sets a real value)
+    bool   musicActive = false; // true between playMusic and stopMusic
+    void updateMusic(float dt) override { if (musicActive) musicPos += static_cast<double>(dt); }
+    double getMusicPosition() const override { return musicActive ? musicPos : -1.0; }
+    double getMusicDuration() const override { return musicDur; }
 
     // Test helpers.
     int idForPath(const std::string& path) {

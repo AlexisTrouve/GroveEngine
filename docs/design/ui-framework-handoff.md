@@ -248,8 +248,11 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
 - **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
 - **Rich content** (6): **animated panel** — ✅ SHIPPED (`UIFlipbook`, slice 6a: hosts `grove::anim` SpriteSheet+
   Flipbook; closed the renderer's animated-UV gap — `updateSpriteUV` + UV in change-detection; locked by `IT_054`);
-  **audio/voice/radio player** (buttons + playlist + progress wired to `sound:*` — the audio engine exists;
-  assembly), **video** (heavy/isolated — image-sequence first, codec later; last).
+  **audio/voice/radio player** — ✅ SHIPPED (slice 6b): the engine now publishes `sound:music:position
+  {path,elapsed,duration}` (backend-owned clock — `ISoundBackend` getMusicPosition/Duration, SDL_mixer 2.6+ /
+  Mock; locked by `SoundManagerUnit [position]`) + a radio-player UI composed from existing widgets (Play/Stop →
+  `sound:*` via declarative `on:click`, bound now-playing/progress; locked by `IT_055`); **video**
+  (heavy/isolated — image-sequence first, codec later; last).
 - **VN / cutscene runtime** (7) — **decided: engine-side full runtime** (a `Scene`/`Dialogue` module reading a
   data-driven script: nodes/choices/branches/voice/video). Sits on top of the content widgets. **Big**; fresh session.
 - **Perf — dirty-gated layout** — the bigger perf win (skip layout on static frames). **Correctness-sensitive**

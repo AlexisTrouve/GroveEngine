@@ -519,3 +519,48 @@ TEST_CASE("SoundManager - audio:intent does not disturb a themed leitmotif layer
     for (int i = 0; i < 60; ++i) h.pump(0.05);
     REQUIRE_THAT(lastVolForHandle(*h.mock, softH), WithinAbs(1.0f, 0.02f));   // unchanged
 }
+
+// ============================================================================
+// Slice 6b — music playback position (sound:music:position, the real progress bar)
+// ============================================================================
+
+TEST_CASE("SoundManager - sound:music:position broadcasts an advancing playback clock (slice 6b)", "[sound][unit][position]") {
+    Harness h;
+    h.mock->musicDur = 8.0;   // the backend reports a known track length
+
+    // Observe the module's broadcasts. The module publishes on its own IIO; the manager routes them
+    // to this cross-instance subscription, drained after each pump.
+    std::vector<double> elapseds;
+    std::string gotPath;
+    double gotDuration = -999.0;
+    h.pubIO->subscribe("sound:music:position", [&](const Message& m) {
+        gotPath = m.data->getString("path", "");
+        gotDuration = m.data->getDouble("duration", -999.0);
+        elapseds.push_back(m.data->getDouble("elapsed", -1.0));
+    });
+
+    // Start a track.
+    { auto n = std::make_unique<JsonDataNode>("m"); n->setString("path", "music/theme.ogg"); h.publish("sound:music", std::move(n)); }
+
+    // Pump a few frames at 0.1s (> the ~15 Hz throttle so each frame emits) and drain the observer.
+    for (int i = 0; i < 6; ++i) {
+        h.pump(0.1);
+        while (h.pubIO->hasMessages() > 0) h.pubIO->pullAndDispatch();
+    }
+
+    INFO("broadcasts=" << elapseds.size() << " path=" << gotPath << " duration=" << gotDuration);
+    REQUIRE(elapseds.size() >= 3);                       // it broadcast repeatedly while playing
+    REQUIRE(gotPath == "music/theme.ogg");               // carries the current track
+    REQUIRE_THAT(gotDuration, WithinAbs(8.0, 1e-6));     // carries the backend-reported duration
+    REQUIRE(elapseds.front() >= 0.0);
+    REQUIRE(elapseds.back() > elapseds.front());         // elapsed strictly advances (real progress)
+
+    // Stop the track -> the broadcast goes silent.
+    const size_t before = elapseds.size();
+    { auto n = std::make_unique<JsonDataNode>("s"); h.publish("sound:music:stop", std::move(n)); }
+    for (int i = 0; i < 3; ++i) {
+        h.pump(0.1);
+        while (h.pubIO->hasMessages() > 0) h.pubIO->pullAndDispatch();
+    }
+    REQUIRE(elapseds.size() == before);                  // no position after stop
+}
