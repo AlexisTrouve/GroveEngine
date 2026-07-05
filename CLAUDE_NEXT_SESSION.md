@@ -4,14 +4,17 @@
 once; it is the map. Each subsystem points to its own design + handoff doc under `docs/design/` for the detail —
 this file does NOT duplicate them, it indexes them and states what is done / open / blocked.
 
-**Last updated:** 2026-07-04. **Branch:** `master` (HEAD `dc89746`). **Remotes:** gitea (primary) + github +
-bitbucket (all three kept in sync — see *Git* below). Working tree should be clean except
+**Last updated:** 2026-07-05. **Branch:** `master` (Windows-first stable line; **140/140 ctests green**).
+**Also:** branch **`linux-port`** holds the in-progress Linux port (see *Linux port* below). **Remotes:** gitea
+(primary) + github + bitbucket (all three kept in sync — see *Git*). Working tree clean except
 `Testing/Temporary/CTestCostData.txt` (a ctest artifact — NEVER stage it).
 
-**Since the last handoff (this session):** verified + locked two inbound perf commits (compiled topic
-matcher replacing per-message regex; `render:sprite:batch` flat-float-blob fast path) — added the missing
-batch regression test; **binary payload (blobs)** added to the IO contract (below); **mapview PNG export**
-(`--shot` + `--poster`) + a **hard PNG size limit**. All WSL-TSan-clean where the publish path was touched.
+**Since the last handoff (this session):** verified + locked two inbound perf commits (compiled topic matcher;
+`render:sprite:batch` flat-float-blob) + the missing batch test; **binary payload (blobs)** added to the IO
+contract; **mapview PNG export** (`--shot` + `--poster`) + a hard PNG size limit; and — the big one — the
+**Linux port**: the engine (core **AND** the GPU module) now COMPILES + RUNS on Linux (the old "GPU doesn't
+compile on Linux" claim is DEBUNKED). One runtime blocker left (GL context version) — details in
+`docs/design/linux-port.md`, work continues on the `linux-port` branch, master stays Windows-green.
 
 ---
 
@@ -79,12 +82,15 @@ deferred by design: LocalIO/NetworkIO tiers (stubs), live determinism enforcemen
 
 ## Open work & decisions — pick the next move
 
-1. **CI (auto-run on push) — BLOCKED ON ALEXI'S DECISION: github / gitea / none.** Highest leverage: it makes the
-   whole rigor stack (137 ctests + ASan/UBSan/TSan + clang-tidy) automatic instead of manual. Nothing else needed
-   — just the host call, then wire it. (`docs/design/quality-hardening-handoff.md` Phase 3.)
-2. **Quality — widen the sanitizer + clang-tidy sweep to `modules/` (GPU/bgfx).** The one uncovered area.
-   **Caveat:** GPU modules do NOT currently compile on Linux (only `grove_impl` + core are Linux-verified), and
-   MinGW has no sanitizers → this likely needs a Linux port of the GPU modules first. Assess before committing.
+1. **Linux port — IN PROGRESS on the `linux-port` branch.** The engine (core + GPU module) compiles + runs on
+   Linux; one blocker left (bgfx makes an OpenGL 2.1 context under llvmpipe → GLSL 1.30+ shaders fail; needs a
+   GL 3.3+ context, or a real GPU). Full resume point + the VPS142/Tailscale setup: **`docs/design/linux-port.md`**.
+2. ~~**CI (auto-run on push)**~~ — **DECLINED by Alexi (2026-07-04).** Over-sold: solo dev + the suite/TSan are
+   run before every push already, and GPU-in-CI is expensive/incomplete. Revisit only if inbound unverified
+   commits become frequent (then a *lightweight non-GPU* push-gate, not the full stack).
+3. **Quality — widen the sanitizer + clang-tidy sweep to `modules/` (GPU/bgfx).** The one uncovered area — now
+   **UNBLOCKED**: the GPU modules DO compile on Linux (proven this session, see the Linux port doc), so the
+   sanitizers can run on them via a Linux box (VPS142). MinGW still has no sanitizers → do it on Linux.
 3. **mapview S3 — Theomen's adapter (cross-project, its Claude).** The engine consumes any `.world` dir today;
    Theomen must WRITE one. A ready-to-paste recipe + prompt is in `docs/design/mapview-handoff.md` ("Theomen:
    write a `.world`"). Theomen's verify loop is now **`worldcheck <dir>`** (headless, deterministic — names the

@@ -147,6 +147,10 @@ hot path, `registerInstance` → move, dead `generation`/`filename`/timing local
   DB entries, which exist in the Windows build). `include/grove/ImGuiUI.h` errors on a missing `imgui.h`
   (optional header, not in the build) — ignore.
 - **Open:** a `make tidy` / `run-clang-tidy` wrapper target so it's one command; widen to `modules/`.
+- **UPDATE (2026-07-05):** the `modules/` widen is **now unblocked** — the GPU modules (BgfxRenderer) COMPILE +
+  LINK on Linux (proven on VPS142; the old "GPU doesn't compile on Linux" belief was false). So the sanitizer +
+  clang-tidy sweep of `modules/` can run on a Linux box. See **`docs/design/linux-port.md`** (the Linux port
+  chantier, on the `linux-port` branch). NOTE: CI (Phase 3) was **DECLINED** by Alexi — run the rigor locally.
 
 ### Phase 3 — Automate (CI)
 
