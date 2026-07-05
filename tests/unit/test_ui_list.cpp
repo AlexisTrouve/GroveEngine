@@ -241,3 +241,51 @@ TEST_CASE("UIListUnit: grouped projection + collapse (rebuildRows via setGroups/
     REQUIRE(list.rowPtr(1)->isHeader);
     REQUIRE(list.rowPtr(1)->groupId == "bravo");
 }
+
+// ============================================================================
+// Slice 5d — N-level tree projection (parseTree recursion + depth + recursive collapse)
+// ============================================================================
+
+TEST_CASE("UIListUnit: an N-level tree projects headers/leaves with per-level depth", "[ui][list][unit][tree]") {
+    // Fleet(h) > [ Alpha(h) > {A1, A2},  Beta(h, collapsed) > {B1} ].
+    json a1; a1["id"] = "a1"; a1["label"] = "A1";
+    json a2; a2["id"] = "a2"; a2["label"] = "A2";
+    json alpha; alpha["id"] = "alpha"; alpha["label"] = "Alpha"; alpha["children"] = json::array({a1, a2});
+    json b1; b1["id"] = "b1"; b1["label"] = "B1";
+    json beta; beta["id"] = "beta"; beta["label"] = "Beta"; beta["collapsed"] = true; beta["children"] = json::array({b1});
+    json fleet; fleet["id"] = "fleet"; fleet["label"] = "Fleet"; fleet["children"] = json::array({alpha, beta});
+    json j; j["nodes"] = json::array({fleet});
+
+    // parseTree recursed into the nested structure.
+    JsonDataNode node("n", j);
+    auto nodes = UIList::parseTree(node);
+    REQUIRE(nodes.size() == 1);
+    REQUIRE(nodes[0].children.size() == 2);          // alpha + beta
+    REQUIRE(nodes[0].children[0].children.size() == 2);  // alpha's a1 + a2
+
+    UIList list;
+    list.absX = 100; list.absY = 100; list.width = 200; list.height = 400; list.rowHeight = 40;
+    list.setTree(std::move(nodes));
+    REQUIRE(list.isTree());
+
+    // Projected rows (beta collapsed -> b1 hidden): [Fleet, Alpha, A1, A2, Beta].
+    REQUIRE(list.rowCount() == 5);
+    REQUIRE(list.rowPtr(0)->isHeader);   REQUIRE(list.rowPtr(0)->depth == 0);  REQUIRE(list.rowPtr(0)->groupId == "fleet");
+    REQUIRE(list.rowPtr(1)->isHeader);   REQUIRE(list.rowPtr(1)->depth == 1);  REQUIRE(list.rowPtr(1)->groupId == "alpha");
+    REQUIRE_FALSE(list.rowPtr(2)->isHeader); REQUIRE(list.rowPtr(2)->depth == 2); REQUIRE(list.rowPtr(2)->itemId == "a1"); REQUIRE(list.rowPtr(2)->itemIndex == 0);
+    REQUIRE_FALSE(list.rowPtr(3)->isHeader); REQUIRE(list.rowPtr(3)->depth == 2); REQUIRE(list.rowPtr(3)->itemId == "a2"); REQUIRE(list.rowPtr(3)->itemIndex == 1);
+    REQUIRE(list.rowPtr(4)->isHeader);   REQUIRE(list.rowPtr(4)->depth == 1);  REQUIRE(list.rowPtr(4)->groupId == "beta"); REQUIRE(list.rowPtr(4)->collapsed);
+
+    // Expand beta -> its grandchild B1 appears at depth 2 (running leaf index 2).
+    REQUIRE(list.toggleGroup("beta") == false);   // was collapsed -> now expanded
+    REQUIRE(list.rowCount() == 6);
+    REQUIRE_FALSE(list.rowPtr(5)->isHeader); REQUIRE(list.rowPtr(5)->depth == 2); REQUIRE(list.rowPtr(5)->itemId == "b1"); REQUIRE(list.rowPtr(5)->itemIndex == 2);
+
+    // Recursive collapse: folding Alpha removes BOTH its leaves (a1, a2) at once.
+    REQUIRE(list.toggleGroup("alpha") == true);
+    REQUIRE(list.rowCount() == 4);   // [Fleet, Alpha(collapsed), Beta, B1]
+    REQUIRE(list.rowPtr(1)->groupId == "alpha");
+    REQUIRE(list.rowPtr(1)->collapsed);
+    REQUIRE_FALSE(list.rowPtr(3)->isHeader);   // B1 still there (beta stayed expanded)
+    REQUIRE(list.rowPtr(3)->itemId == "b1");
+}

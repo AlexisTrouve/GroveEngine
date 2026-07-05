@@ -487,7 +487,7 @@ emitting `ui:list:selected` on a click. Scroll with the mouse wheel; rows clip t
 
 **Grouped (warship wings).** Instead of `items`, give the list `groups` — each a collapsible header over
 its ships. Clicking a header folds/unfolds the group; clicking a ship selects it (the event carries its
-`groupId`). One-level grouping (groups → items); not a full tree.
+`groupId`). One-level grouping (groups → items). For arbitrary depth, use `nodes` (tree mode) below.
 
 ```json
 {
@@ -503,15 +503,37 @@ its ships. Clicking a header folds/unfolds the group; clicking a ship selects it
 }
 ```
 
+**Tree (N-level hierarchy).** Instead of `items`/`groups`, give the list `nodes` — a recursive tree. A node
+with a non-empty `children` renders as a collapsible header; a leaf (no children) renders as a selectable
+item. Each level indents further. Headers reuse the same fold/unfold + `ui:list:group:toggled` as groups;
+leaves select with `ui:list:selected` (its `itemId`; `index` = the running leaf order). Any depth.
+
+```json
+{
+  "type": "list", "id": "tree", "x": 20, "y": 60, "width": 300, "height": 460, "rowHeight": 40,
+  "nodes": [
+    { "id": "fleet", "label": "Fleet", "children": [
+      { "id": "alpha", "label": "Wing Alpha", "children": [
+        { "id": "a1", "label": "Ship A1" },
+        { "id": "a2", "label": "Ship A2" } ] },
+      { "id": "beta", "label": "Wing Beta", "collapsed": true, "children": [
+        { "id": "b1", "label": "Ship B1", "icon": 5 } ] } ] }
+  ]
+}
+```
+
+Node fields: `id`, `label`, `collapsed?` (internal nodes), `icon?` (leaf texture id), `children?` (array).
+
 **Events:**
 - `ui:list:selected` - `{id, groupId, index, itemId}` when an ITEM row is clicked (`groupId` is `""` for a
-  flat list; `index` is within the group). The list highlights the row.
-- `ui:list:group:toggled` - `{id, groupId, collapsed}` when a group header is clicked (the new state).
+  flat list; `index` is within the group — or the running leaf order in tree mode). The list highlights the row.
+- `ui:list:group:toggled` - `{id, groupId, collapsed}` when a group/tree header is clicked (the new state).
 
 **Runtime:**
 - `ui:list:set_items {id, items:[...]}` - repopulate as a FLAT list (resets scroll + selection).
 - `ui:list:set_groups {id, groups:[...]}` - repopulate as GROUPED wings. **The arrays must be json-backed**
   (IIO serializes only a node's JSON — see UI_TOPICS.md).
+- `ui:list:set_tree {id, nodes:[...]}` - repopulate as an N-level TREE (resets scroll + selection).
 - `ui:list:select {id, index}` - programmatic pre-selection by row index (no event re-emit).
 
 **Scroll & select:** mouse **wheel**, a **visual scrollbar** (track + draggable thumb, shown only when the
@@ -521,8 +543,8 @@ drag. Style: `scrollbarColor` / `scrollbarTrackColor` / `scrollbarWidth` (0 = no
 
 **Scope:** wheel + scrollbar + drag-to-scroll + single-select + clip + **virtualization** (only on-screen
 rows get render entries — a recycled, viewport-bounded id-pool remapped to the scrolled window, so a 10k-row
-list registers ~viewport-many entries) + **collapsible groups** (warship wings). Internally everything is a
-flat sequence of `ListRow` (header | item) that both flat and grouped data project onto, so
+list registers ~viewport-many entries) + **collapsible groups** (warship wings) + **N-level trees** (`nodes`).
+Internally everything is a flat sequence of `ListRow` (header | item) that flat, grouped, and tree data project onto, so
 virtualization/scroll/clip operate the same way. Deliberate follow-ons: custom row templates, multi-select,
 grid mode, multi-level tree. The container follows the standard pattern (opaque hit-test absorb, content
 clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.

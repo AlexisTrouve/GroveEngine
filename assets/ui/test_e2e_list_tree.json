@@ -1,0 +1,43 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "children": [
+    {
+      "id": "tree",
+      "type": "list",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 400,
+      "rowHeight": 40,
+      "nodes": [
+        {
+          "id": "fleet",
+          "label": "Fleet",
+          "children": [
+            {
+              "id": "alpha",
+              "label": "Wing Alpha",
+              "children": [
+                { "id": "a1", "label": "Ship A1" },
+                { "id": "a2", "label": "Ship A2" }
+              ]
+            },
+            {
+              "id": "beta",
+              "label": "Wing Beta",
+              "collapsed": true,
+              "children": [
+                { "id": "b1", "label": "Ship B1" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

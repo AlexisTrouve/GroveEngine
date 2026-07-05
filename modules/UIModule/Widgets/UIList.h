@@ -39,6 +39,24 @@ struct ListGroup {
 };
 
 /**
+ * @brief One node of an N-LEVEL tree — a recursive menu hierarchy (slice 5d).
+ *
+ * QUOI : un noeud = id + libellé + icône optionnelle + état replié + ses enfants (récursif). POURQUOI :
+ *   la version UN niveau (groupes -> items) ne couvre pas un arbre de menu / une arborescence de flotte
+ *   à profondeur arbitraire. Un noeud AVEC enfants se projette en HEADER repliable (réutilise le rendu +
+ *   le toggle des groupes) ; un noeud FEUILLE (sans enfant) se projette en ITEM sélectionnable. COMMENT :
+ *   projectNodes() aplatit récursivement l'arbre en la même séquence de ListRow (depth par niveau), donc
+ *   virtualisation/scroll/clip/hit-test opèrent inchangés — comme le mode groupé, mais à N niveaux.
+ */
+struct ListNode {
+    std::string id;                 // stable node id (header -> ui:list:group:toggled ; leaf -> selected.itemId)
+    std::string label;              // node text
+    int iconTextureId = 0;          // optional leaf icon (0 = none)
+    bool collapsed = false;         // internal node folded? (its subtree hidden from the projection)
+    std::vector<ListNode> children; // child nodes (empty = leaf)
+};
+
+/**
  * @brief One PROJECTED row of the list — either a group header or an item. Internal flat sequence.
  *
  * QUOI : la liste rend une SÉQUENCE PLATE de lignes ; chaque ligne est soit un en-tête de groupe, soit un
@@ -57,6 +75,9 @@ struct ListRow {
     int itemIndex = -1;             // item's index within its group (flat: global) -> ui:list:selected.index
     // Header payload:
     bool collapsed = false;         // header only: the group's current collapse state (for the marker)
+    // Nesting depth for indentation (flat/grouped keep today's values: header=0, grouped item=1, flat=0;
+    // TREE mode sets it per level so each level indents further). Render indent = padding * depth.
+    int depth = 0;
 };
 
 /**
@@ -76,8 +97,10 @@ struct ListRow {
  *   le reste opère sans rien savoir des groupes. L'interaction (ligne cliquée → sélection OU repli, event,
  *   molette) est centralisée dans UIModule. Sélection/scroll remis à zéro à chaque setItems/setGroups.
  *
- * LIMITES (suivi documenté) : pas de scrollbar visuelle ni de drag-to-scroll (molette seule), pas de
- *   template de ligne personnalisé, sélection unique, hiérarchie à UN niveau (groupes → items, pas d'arbre).
+ * MODES : PLAT (setItems) · GROUPÉ un niveau (setGroups) · ARBRE à N niveaux (setTree, slice 5d — noeuds
+ *   internes repliables + feuilles sélectionnables, indentation par niveau) ; les trois se projettent en la
+ *   même séquence plate de ListRow.
+ * LIMITES (suivi documenté) : pas de template de ligne personnalisé, sélection unique.
  */
 class UIList : public UIWidget {
 public:
@@ -143,8 +166,14 @@ public:
     void setGroups(std::vector<ListGroup> newGroups);
     bool isGrouped() const { return m_grouped; }
 
-    // Flip a group's collapsed state (rebuilds the row projection + clamps scroll). Returns the NEW
-    // collapsed state (for ui:list:group:toggled). No-op (returns false) if the id isn't found.
+    // Replace the data as an N-LEVEL TREE (slice 5d). Resets scroll + selection. Internal nodes render as
+    // collapsible headers, leaves as selectable items; each level indents further. toggleGroup() folds an
+    // internal node by id (UIModule wires the same header click as groups).
+    void setTree(std::vector<ListNode> newNodes);
+    bool isTree() const { return m_treeMode; }
+
+    // Flip a group's OR tree-node's collapsed state (rebuilds the row projection + clamps scroll). Returns
+    // the NEW collapsed state (for ui:list:group:toggled). No-op (returns false) if the id isn't found.
     bool toggleGroup(const std::string& groupId);
 
     // --- Projected rows (what the renderer/hit-test see; UIModule reads these to act on a click). ---
@@ -159,6 +188,9 @@ public:
     static std::vector<ListItem> parseItems(const IDataNode& containerNode);
     // Parse a `groups` array-of-objects: each {id, label, collapsed?, items:[...]} (items via parseItems).
     static std::vector<ListGroup> parseGroups(const IDataNode& containerNode);
+    // Parse a `nodes` array-of-objects (recursive): each {id, label, collapsed?, icon?, children:[...]}.
+    // A node with a non-empty `children` is an internal (foldable) node; otherwise a leaf. Slice 5d.
+    static std::vector<ListNode> parseTree(const IDataNode& containerNode);
 
     // --- Properties (data-driven). ---
     float rowHeight = 36.0f;
@@ -185,7 +217,10 @@ public:
 
 private:
     void clampScroll();
-    void rebuildRows();   // project m_items (flat) or m_groups (grouped, collapse-honoured) -> m_rows
+    void rebuildRows();   // project m_items (flat) / m_groups (grouped) / m_nodes (tree) -> m_rows
+    // Recursively flatten a tree level into m_rows: internal node -> header (depth), leaf -> item (depth);
+    // runningItemIndex advances only on leaves (so zebra + selected.index stay contiguous). Slice 5d.
+    void projectNodes(const std::vector<ListNode>& nodes, int depth, int& runningItemIndex);
     void renderTemplate(UIRenderer& renderer);   // template mode: bg + clipped pooled children + scrollbar
     // Content height = rowHeight x (template data count in template mode, else the projected row count).
     float contentHeight() const {
@@ -202,6 +237,8 @@ private:
     std::vector<ListItem> m_items;      // FLAT-mode source (empty when grouped)
     std::vector<ListGroup> m_groups;    // GROUPED-mode source (empty when flat)
     bool m_grouped = false;
+    std::vector<ListNode> m_nodes;      // TREE-mode source (empty when flat/grouped)
+    bool m_treeMode = false;
     std::vector<ListRow> m_rows;        // projected visible sequence (renderer / hit-test / virtualization)
 
     int m_selectedIndex = -1;           // selected ROW index (for the highlight)

@@ -323,6 +323,16 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             }
         });
 
+        // Repopulate a list as an N-LEVEL TREE at runtime: ui:list:set_tree {id, nodes:[{...,children?}]}
+        // (slice 5d). Same virtualized recycle as set_items/set_groups — no pool release.
+        m_io->subscribe("ui:list:set_tree", [this](const Message& msg) {
+            if (!msg.data || !m_root) return;
+            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+            if (w && w->getType() == "list") {
+                static_cast<UIList*>(w)->setTree(UIList::parseTree(*msg.data));
+            }
+        });
+
         // JSON-UI data context: ui:data {<the model>}. The game pushes its view-model; the whole payload
         // BECOMES the root data context, and every {{path}} binding re-resolves against it (the inbound
         // half of the data-driven loop — no imperative set_text needed). Reactivity = re-resolve on push.

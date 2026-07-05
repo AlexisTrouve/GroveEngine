@@ -244,8 +244,11 @@ From Alexi's original ask, still to build (all sit on the now-complete foundatio
   → `ui:list:group:toggled`, item carries its `groupId`. Locked by `IT_033` + `IT_034` + `UIListUnit`.
   **Scroll**: wheel + visual scrollbar (draggable thumb) + content drag-to-scroll (threshold; select moved
   to release, suppressed on drag). **What's LEFT on it** (follow-ons): **custom row templates** (today fixed
-  icon+label+subtitle), **multi-select**, **grid mode**, **multi-level tree** (today one level: groups → items).
-- **Tree / menu-hierarchy** (5d) — expand/collapse nodes. Medium.
+  icon+label+subtitle), **multi-select**, **grid mode**. (**multi-level tree** — ✅ SHIPPED, slice 5d below.)
+- **Tree / menu-hierarchy** (5d) — ✅ SHIPPED. `UIList` N-level TREE mode (`setTree`, `ListNode` recursive):
+  internal nodes → collapsible headers (reuse the group toggle), leaves → selectable items, per-level indent.
+  Projects into the same flat `m_rows` (virtualization/scroll/hit-test unchanged); flat/grouped output
+  byte-identical. Factory `nodes:[…]` + runtime `ui:list:set_tree`. Locked by `IT_056` + `UIListUnit [tree]`.
 - **Rich content** (6): **animated panel** — ✅ SHIPPED (`UIFlipbook`, slice 6a: hosts `grove::anim` SpriteSheet+
   Flipbook; closed the renderer's animated-UV gap — `updateSpriteUV` + UV in change-detection; locked by `IT_054`);
   **audio/voice/radio player** — ✅ SHIPPED (slice 6b): the engine now publishes `sound:music:position

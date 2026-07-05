@@ -89,10 +89,15 @@ void UIList::rebuildRows() {
     // (itemIndex = within the group). After a rebuild, re-resolve the highlight to the selected ITEM (its
     // row index can shift when a group above it collapses/expands) — that's what m_selectedItemId is for.
     m_rows.clear();
-    if (m_grouped) {
+    if (m_treeMode) {
+        // N-level tree: recursively flatten (headers at their depth, leaves as items). Slice 5d.
+        int runningItemIndex = 0;
+        projectNodes(m_nodes, 0, runningItemIndex);
+    } else if (m_grouped) {
         for (const ListGroup& g : m_groups) {
             ListRow h;
             h.isHeader = true; h.groupId = g.id; h.label = g.label; h.collapsed = g.collapsed;
+            h.depth = 0;   // a group header sits at the root level (indent = 0, unchanged behaviour)
             m_rows.push_back(std::move(h));
             if (!g.collapsed) {
                 for (int j = 0; j < static_cast<int>(g.items.size()); ++j) {
@@ -100,6 +105,7 @@ void UIList::rebuildRows() {
                     ListRow r;
                     r.groupId = g.id; r.itemId = it.id; r.label = it.label; r.subtitle = it.subtitle;
                     r.iconTextureId = it.iconTextureId; r.itemIndex = j;
+                    r.depth = 1;   // a grouped item indents one level (== the old `m_grouped ? padding : 0`)
                     m_rows.push_back(std::move(r));
                 }
             }
@@ -110,6 +116,7 @@ void UIList::rebuildRows() {
             ListRow r;
             r.itemId = it.id; r.label = it.label; r.subtitle = it.subtitle;
             r.iconTextureId = it.iconTextureId; r.itemIndex = i;
+            r.depth = 0;   // flat items have no indent (unchanged behaviour)
             m_rows.push_back(std::move(r));
         }
     }
@@ -123,12 +130,37 @@ void UIList::rebuildRows() {
     }
 }
 
+void UIList::projectNodes(const std::vector<ListNode>& nodes, int depth, int& runningItemIndex) {
+    // QUOI : aplatit récursivement un niveau d'arbre dans m_rows. POURQUOI : tout le pipeline aval (virtua-
+    //   lisation, scroll, clip, hit-test, sélection) opère sur la séquence plate — l'arbre n'a qu'à s'y
+    //   projeter, exactement comme les groupes, mais à N niveaux. COMMENT : un noeud AVEC enfants -> une
+    //   ligne HEADER repliable (mêmes rendu + toggle que les groupes, groupId = node.id) ; un noeud FEUILLE
+    //   -> une ligne ITEM sélectionnable. runningItemIndex n'avance que sur les feuilles (zebra + selected.
+    //   index contigus). Un noeud interne replié n'émet pas ses enfants.
+    for (const ListNode& node : nodes) {
+        if (!node.children.empty()) {
+            ListRow h;
+            h.isHeader = true; h.groupId = node.id; h.label = node.label;
+            h.collapsed = node.collapsed; h.depth = depth;
+            m_rows.push_back(std::move(h));
+            if (!node.collapsed) projectNodes(node.children, depth + 1, runningItemIndex);
+        } else {
+            ListRow r;
+            r.itemId = node.id; r.label = node.label; r.iconTextureId = node.iconTextureId;
+            r.itemIndex = runningItemIndex++; r.depth = depth;
+            m_rows.push_back(std::move(r));
+        }
+    }
+}
+
 void UIList::setItems(std::vector<ListItem> newItems) {
     // Replace the data (FLAT mode) and reset the view: selection cleared, scrolled to the top. Virtualized,
     // so no renderer release is needed — render() recycles the row-slot pool over the new projection.
     m_items = std::move(newItems);
     m_groups.clear();
     m_grouped = false;
+    m_nodes.clear();
+    m_treeMode = false;
     m_selectedItemId.clear();
     m_hoverIndex = -1;
     scrollOffsetY = 0.0f;
@@ -140,21 +172,56 @@ void UIList::setGroups(std::vector<ListGroup> newGroups) {
     m_groups = std::move(newGroups);
     m_items.clear();
     m_grouped = true;
+    m_nodes.clear();
+    m_treeMode = false;
     m_selectedItemId.clear();
     m_hoverIndex = -1;
     scrollOffsetY = 0.0f;
     rebuildRows();
 }
 
+void UIList::setTree(std::vector<ListNode> newNodes) {
+    // Replace the data (TREE mode — N-level hierarchy). Same reset semantics as setItems/setGroups.
+    m_nodes = std::move(newNodes);
+    m_treeMode = true;
+    m_items.clear();
+    m_groups.clear();
+    m_grouped = false;
+    m_selectedItemId.clear();
+    m_hoverIndex = -1;
+    scrollOffsetY = 0.0f;
+    rebuildRows();
+}
+
+namespace {
+// Recursively find a tree node by id and flip its collapsed state; returns true (+ the new state) if found.
+bool toggleNodeRec(std::vector<ListNode>& nodes, const std::string& id, bool& newState) {
+    for (ListNode& n : nodes) {
+        if (n.id == id) { n.collapsed = !n.collapsed; newState = n.collapsed; return true; }
+        if (toggleNodeRec(n.children, id, newState)) return true;
+    }
+    return false;
+}
+} // namespace
+
 bool UIList::toggleGroup(const std::string& groupId) {
-    // Flip a group's collapse state, re-project the rows, and keep the scroll valid (collapsing shrinks the
-    // content). Returns the NEW collapsed state for ui:list:group:toggled. No-op if the id is unknown.
+    // Flip a group's OR tree-node's collapse state, re-project the rows, and keep the scroll valid
+    // (collapsing shrinks the content). Returns the NEW collapsed state for ui:list:group:toggled. No-op if
+    // the id is unknown. The same UIModule header-click path drives both (a tree header's groupId = node id).
     for (ListGroup& g : m_groups) {
         if (g.id == groupId) {
             g.collapsed = !g.collapsed;
             rebuildRows();
             clampScroll();
             return g.collapsed;
+        }
+    }
+    if (m_treeMode) {   // m_groups empty in tree mode -> the loop above was a no-op
+        bool newState = false;
+        if (toggleNodeRec(m_nodes, groupId, newState)) {
+            rebuildRows();
+            clampScroll();
+            return newState;
         }
     }
     return false;
@@ -220,6 +287,40 @@ std::vector<ListGroup> UIList::parseGroups(const IDataNode& containerNode) {
         ++i;
     }
     return out;
+}
+
+namespace {
+// Recursively parse a json array of node objects {id, label, collapsed?, icon?, children?:[...]} -> ListNode.
+// A non-empty `children` marks an internal (foldable) node; otherwise a leaf. Direct const-json read (no
+// child materialization), same discipline as parseItems/parseGroups.
+std::vector<ListNode> parseNodeArrayRec(const json& arr) {
+    std::vector<ListNode> out;
+    int i = 0;
+    for (const auto& e : arr) {
+        ListNode node;
+        node.id            = e.value("id", std::to_string(i));
+        node.label         = e.value("label", std::string{});
+        node.collapsed     = e.value("collapsed", false);
+        node.iconTextureId = e.value("icon", 0);
+        auto ch = e.find("children");
+        if (ch != e.end() && ch->is_array()) node.children = parseNodeArrayRec(*ch);
+        out.push_back(std::move(node));
+        ++i;
+    }
+    return out;
+}
+} // namespace
+
+std::vector<ListNode> UIList::parseTree(const IDataNode& containerNode) {
+    // Read a `nodes` array-of-objects (recursive). Direct const-json read for the same reason as
+    // parseItems/parseGroups (getChildReadOnly lazily materializes children -> mutates a shared payload).
+    std::vector<ListNode> out;
+    const auto* jn = dynamic_cast<const JsonDataNode*>(&containerNode);
+    if (!jn) return out;
+    const json& j = jn->getJsonData();
+    auto arrIt = j.find("nodes");
+    if (arrIt == j.end() || !arrIt->is_array()) return out;
+    return parseNodeArrayRec(*arrIt);
 }
 
 // ============================================================================
@@ -373,15 +474,18 @@ void UIList::render(UIRenderer& renderer) {
 
         const ListRow& row = m_rows[i];
         const float rowY = absY + i * rowHeight - scrollOffsetY;
+        // Per-level indent: padding × depth. Flat items = 0, grouped items = 1×padding (== the old
+        // `m_grouped ? padding : 0`), tree levels step further in — headers indent too (slice 5d).
+        const float indent = padding * static_cast<float>(row.depth);
 
         if (row.isHeader) {
-            // Group header: distinct bg + a collapse marker ("v"/">" — ASCII, font-safe) + the wing label.
+            // Group/tree header: distinct bg + a collapse marker ("v"/">" — ASCII, font-safe) + the label.
             // No icon / subtitle. (Drifterra restyles; the engine only needs a functional distinct header.)
             renderer.updateRect(m_rowBgIds[s], absX, rowY, width, rowHeight, headerColor, bgLayer);
             renderer.updateRect(m_rowIconIds[s], 0, 0, 0, 0, 0, contentLayer);   // no icon on a header
             const std::string marker = row.collapsed ? "> " : "v ";
             const float ly = rowY + (rowHeight - fontSize) * 0.5f;
-            renderer.updateText(m_rowLabelIds[s], absX + padding, ly, marker + row.label, fontSize,
+            renderer.updateText(m_rowLabelIds[s], absX + padding + indent, ly, marker + row.label, fontSize,
                                 headerLabelColor, contentLayer);
             renderer.updateText(m_rowSubtitleIds[s], 0, 0, "", subtitleFontSize, subtitleColor, contentLayer);
             continue;
@@ -393,8 +497,7 @@ void UIList::render(UIRenderer& renderer) {
         if (i == m_selectedIndex) col = selectedColor;
         renderer.updateRect(m_rowBgIds[s], absX, rowY, width, rowHeight, col, bgLayer);
 
-        // Optional left icon. Group items get a small left indent so they read as nested under the header.
-        const float indent = m_grouped ? padding : 0.0f;
+        // Optional left icon. Nested items get a left indent (see `indent` above) so they read as nested.
         float textX = absX + padding + indent;
         if (row.iconTextureId > 0) {
             const float iy = rowY + (rowHeight - iconSize) * 0.5f;

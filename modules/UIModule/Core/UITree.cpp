@@ -160,9 +160,11 @@ void UITree::registerDefaultWidgets() {
         list->padding   = static_cast<float>(node.getDouble("padding", list->padding));
         list->iconSize  = static_cast<float>(node.getDouble("iconSize", list->iconSize));
 
-        // GROUPED (warship wings) if a `groups` array is present, else FLAT `items`.
+        // TREE (N-level, slice 5d) if a `nodes` array is present; else GROUPED (wings) if `groups`; else FLAT.
         auto& mutableNode = const_cast<IDataNode&>(node);
-        if (mutableNode.getChildReadOnly("groups")) {
+        if (mutableNode.getChildReadOnly("nodes")) {
+            list->setTree(UIList::parseTree(mutableNode));
+        } else if (mutableNode.getChildReadOnly("groups")) {
             list->setGroups(UIList::parseGroups(mutableNode));
         } else {
             list->setItems(UIList::parseItems(mutableNode));

@@ -2565,6 +2565,13 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIRadioE2E IT_055_ui_radio_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_056: N-level TREE list E2E (slice 5d) — deep leaf select / nested expand click-flip /
+    # recursive collapse (extends the one-level groups of IT_034 to arbitrary depth via UIList setTree).
+    add_executable(IT_056_ui_list_tree_e2e integration/IT_056_ui_list_tree_e2e.cpp)
+    target_link_libraries(IT_056_ui_list_tree_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIListTreeE2E IT_056_ui_list_tree_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_023: grid reflow E2E — a 2-column grid's cells fill the width and reflow on resize
     # (UI framework slice 1.3).
     add_executable(IT_023_ui_grid_reflow_e2e
