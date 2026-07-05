@@ -21,6 +21,7 @@ void DialogueModule::setConfiguration(const IDataNode& config, IIO* io, ITaskSch
         m_io->subscribe("scene:advance", cb);
         m_io->subscribe("scene:choose", cb);
         m_io->subscribe("scene:goto", cb);
+        m_io->subscribe("scene:set", cb);   // the game sets a condition variable (gameplay -> story)
     }
 
     // Optional: a host may boot with an inline script under config's "script" object.
@@ -64,6 +65,18 @@ void DialogueModule::handleMessage(const Message& msg) {
         const std::string node = d.getString("node", "");
         if (!node.empty() && m_runtime.goToNode(node)) present();
     }
+    else if (msg.topic == "scene:set") {
+        // Set a condition variable at runtime (gameplay affects the story). The value can be bool / number
+        // / string; re-present the current node so a gate that just opened/closed updates the shown choices.
+        const std::string var = d.getString("var", "");
+        if (var.empty()) return;
+        if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
+            const auto& j = jn->getJsonData();
+            auto it = j.find("value");
+            if (it != j.end()) m_runtime.setVar(var, *it);
+        }
+        if (m_runtime.started()) present();
+    }
 }
 
 void DialogueModule::loadScript(const nlohmann::json& script) {
@@ -77,8 +90,10 @@ void DialogueModule::present() {
     if (!n || !m_io) return;
     ++m_nodesEntered;
 
-    // 1. Push the node data to the bound VN screen. The nested `choices` array MUST live in the JSON
-    //    (a setChild-assembled array arrives empty — IIO carries only m_data), so build the json here.
+    // 1. Push the node data to the bound VN screen. Only the AVAILABLE choices (whose `when` gate holds)
+    //    are offered. The nested `choices` array MUST live in the JSON (a setChild-assembled array arrives
+    //    empty — IIO carries only m_data), so build the json here.
+    const auto avail = m_runtime.availableChoices();
     nlohmann::json j;
     auto& scene = j["scene"];
     scene["id"]         = n->id;
@@ -87,7 +102,7 @@ void DialogueModule::present() {
     scene["background"] = n->background;
     scene["isEnd"]      = n->isEnd();
     scene["choices"]    = nlohmann::json::array();
-    for (const auto& c : n->choices) scene["choices"].push_back({{"text", c.text}, {"goto", c.target}});
+    for (const auto& c : avail) scene["choices"].push_back({{"text", c.text}, {"goto", c.target}});
     m_io->publish("ui:data:merge", std::make_unique<JsonDataNode>("scene_data", j));
 
     // 2. Voice line (if any) via the sound module.
@@ -103,7 +118,7 @@ void DialogueModule::present() {
     ev->setString("speaker", n->speaker);
     ev->setString("text", n->text);
     ev->setBool("isEnd", n->isEnd());
-    ev->setInt("choiceCount", static_cast<int>(n->choices.size()));
+    ev->setInt("choiceCount", static_cast<int>(avail.size()));   // OFFERED choices (post-gate)
     m_io->publish("scene:node", std::move(ev));
 
     // 4. Terminal node -> scene:end.
@@ -117,10 +132,13 @@ void DialogueModule::present() {
 void DialogueModule::shutdown() {}
 
 std::unique_ptr<IDataNode> DialogueModule::getState() {
-    // Preserve the script + the current node across hot-reload.
+    // Preserve the script + the current node + the condition variables across hot-reload.
     nlohmann::json j;
     j["script"]    = m_scriptJson;
     j["currentId"] = m_runtime.currentId();
+    nlohmann::json vj = nlohmann::json::object();
+    for (const auto& kv : m_runtime.vars()) vj[kv.first] = kv.second;
+    j["vars"] = vj;
     return std::make_unique<JsonDataNode>("state", j);
 }
 
@@ -133,6 +151,9 @@ void DialogueModule::setState(const IDataNode& state) {
             const std::string cur = j.value("currentId", std::string{});
             if (!cur.empty()) m_runtime.goToNode(cur);
             else              m_runtime.start();
+            // Restore the saved variables LAST so they win over the entered node's re-applied `set`.
+            auto vIt = j.find("vars");
+            if (vIt != j.end() && vIt->is_object()) m_runtime.setVars(*vIt);
         }
     }
 }

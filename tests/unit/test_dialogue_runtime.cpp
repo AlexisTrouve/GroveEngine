@@ -96,6 +96,75 @@ TEST_CASE("DialogueRuntimeUnit: no nodes -> load fails", "[dialogue][unit]") {
     REQUIRE_FALSE(rt.start());
 }
 
+// A script exercising conditions: gated choices, on-entry `set`, a conditional `branch`, and vars.
+static json condScript() {
+    return json{
+        {"vars", {{"gold", 0}, {"hasKey", false}}},
+        {"start", "gate"},
+        {"nodes", {
+            {"gate", {{"text", "A locked door."}, {"choices", json::array({
+                json{{"text", "Open"},  {"goto", "opened"}, {"when", json::array({ json{{"var","hasKey"}} })}},
+                json{{"text", "Pick"},  {"goto", "picked"}, {"when", json::array({ json{{"var","gold"},{"op","ge"},{"value",5}} })}},
+                json{{"text", "Leave"}, {"goto", "left"}}})}}},
+            {"opened", {{"text", "Open."}}},
+            {"picked", {{"text", "Picked."}}},
+            {"left",   {{"text", "Left."}}},
+            {"getkey", {{"text", "A key!"}, {"set", {{"hasKey", true}}}, {"goto", "gate"}}},
+            {"fork",   {{"text", "A fork."}, {"branch", json::array({
+                json{{"when", json::array({ json{{"var","hasKey"}} })}, {"goto", "opened"}},
+                json{{"goto", "left"}}})}}}
+        }}
+    };
+}
+
+TEST_CASE("DialogueRuntimeUnit: choice `when` gates the OFFERED choices", "[dialogue][unit][conditions]") {
+    DialogueRuntime rt; rt.loadFromJson(condScript()); rt.start();   // at gate; gold 0, hasKey false
+    REQUIRE(rt.availableChoices().size() == 1);          // only "Leave" (Open/Pick gated out)
+    REQUIRE(rt.availableChoices()[0].target == "left");
+
+    rt.setVar("gold", 5);
+    REQUIRE(rt.availableChoices().size() == 2);           // Pick (gold>=5) now offered + Leave
+
+    rt.setVar("hasKey", true);
+    REQUIRE(rt.availableChoices().size() == 3);           // Open + Pick + Leave
+    REQUIRE(rt.availableChoices()[0].target == "opened"); // in declaration order
+}
+
+TEST_CASE("DialogueRuntimeUnit: node `set` assigns vars on entry", "[dialogue][unit][conditions]") {
+    DialogueRuntime rt; rt.loadFromJson(condScript()); rt.start();
+    REQUIRE(rt.getVar("hasKey") == false);
+    REQUIRE(rt.goToNode("getkey"));            // entering getkey applies set {hasKey:true}
+    REQUIRE(rt.getVar("hasKey") == true);
+    REQUIRE(rt.advance());                     // getkey -> gate
+    REQUIRE(rt.currentId() == "gate");
+    REQUIRE(rt.availableChoices().size() == 2);   // Open now offered (hasKey) + Leave
+}
+
+TEST_CASE("DialogueRuntimeUnit: conditional `branch` picks the first matching goto", "[dialogue][unit][conditions]") {
+    SECTION("gate closed -> fallthrough branch") {
+        DialogueRuntime rt; rt.loadFromJson(condScript()); rt.goToNode("fork");   // hasKey false
+        REQUIRE(rt.advance());
+        REQUIRE(rt.currentId() == "left");     // first branch (hasKey) skipped -> default -> left
+    }
+    SECTION("gate open -> first branch") {
+        DialogueRuntime rt; rt.loadFromJson(condScript());
+        rt.setVar("hasKey", true);
+        rt.goToNode("fork");
+        REQUIRE(rt.advance());
+        REQUIRE(rt.currentId() == "opened");   // first branch (hasKey) taken
+    }
+}
+
+TEST_CASE("DialogueRuntimeUnit: choose() indexes the AVAILABLE (gated) list", "[dialogue][unit][conditions]") {
+    DialogueRuntime rt; rt.loadFromJson(condScript()); rt.start();   // only "Leave" available
+    REQUIRE(rt.choose(0));
+    REQUIRE(rt.currentId() == "left");         // index 0 of the offered list = Leave, not the raw choice 0
+    // Out of range against the (size-1) available list.
+    DialogueRuntime rt2; rt2.loadFromJson(condScript()); rt2.start();
+    REQUIRE_FALSE(rt2.choose(1));
+    REQUIRE(rt2.currentId() == "gate");
+}
+
 TEST_CASE("DialogueRuntimeUnit: absent start falls back to the first node in map order", "[dialogue][unit]") {
     json s = {{"nodes", {
         {"aStart", {{"text", "first"}, {"goto", "zEnd"}}},

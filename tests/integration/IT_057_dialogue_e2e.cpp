@@ -138,3 +138,46 @@ TEST_CASE("IT_057b: choose tolerates a STRING index (declarative UI event) + voi
     h.send("scene:goto", json{{"node", "flee"}});
     REQUIRE(h.nodeId == "flee");
 }
+
+// A conditional script: a gate with `when`-gated choices, an on-entry `set`, and a `branch`.
+static json condScript() {
+    return json{
+        {"vars", {{"hasKey", false}}},
+        {"start", "gate"},
+        {"nodes", {
+            {"gate", {{"text", "A locked door."}, {"choices", json::array({
+                json{{"text", "Open"},  {"goto", "opened"}, {"when", json::array({ json{{"var","hasKey"}} })}},
+                json{{"text", "Leave"}, {"goto", "left"}}})}}},
+            {"opened", {{"text", "Open."}}},
+            {"left",   {{"text", "Left."}}},
+            {"fork",   {{"text", "A fork."}, {"branch", json::array({
+                json{{"when", json::array({ json{{"var","hasKey"}} })}, {"goto", "opened"}},
+                json{{"goto", "left"}}})}}}
+        }}
+    };
+}
+
+TEST_CASE("IT_057c: VN conditions — gated choices + scene:set + conditional branch (through the module)", "[integration][dialogue][e2e]") {
+    Harness h;
+    h.send("scene:load", condScript());
+
+    // gate: only "Leave" is offered (hasKey is false, so "Open" is gated out).
+    REQUIRE(h.nodeId == "gate");
+    REQUIRE(h.nodeChoiceCount == 1);
+    REQUIRE(h.sceneData["scene"]["choices"].size() == 1);
+    REQUIRE(h.sceneData["scene"]["choices"][0]["goto"] == "left");
+
+    // The game grants the key -> the gate RE-PRESENTS with "Open" now offered.
+    h.send("scene:set", json{{"var", "hasKey"}, {"value", true}});
+    REQUIRE(h.nodeChoiceCount == 2);   // Open + Leave
+    REQUIRE(h.sceneData["scene"]["choices"][0]["goto"] == "opened");
+
+    // Take the now-unlocked choice by id.
+    h.send("scene:goto", json{{"node", "opened"}});
+    REQUIRE(h.nodeId == "opened");
+
+    // Conditional branch: at `fork`, advance follows the first branch whose `when` holds (hasKey -> opened).
+    h.send("scene:goto", json{{"node", "fork"}});
+    h.send("scene:advance", json::object());
+    REQUIRE(h.nodeId == "opened");
+}
