@@ -150,6 +150,8 @@ public:
             am->registerAsset(id, files[i], /*priority*/ 10);
         }
         buildPodPool();
+        buildBulkParticlePool();
+        buildBulkTextPool();
         return true;
     }
 
@@ -225,6 +227,31 @@ public:
     void emitSpriteBatchPOD(int n) {
         m_renderer->submitSpriteBatch(m_pool.data(), size_t(n));
     }
+
+    // Build the particle bulk pool ONCE (MAX_N POD ParticleInstance) — the bulk counterpart of
+    // emitParticles (render:particle = one JSON message each, ~10µs). Same scatter/size as sprites.
+    void buildBulkParticlePool() {
+        m_particlePool.resize(MAX_N);
+        for (int i = 0; i < MAX_N; ++i) {
+            ParticleInstance& p = m_particlePool[i];
+            p.x = m_sc.x[i]; p.y = m_sc.y[i]; p.vx = 0.0f; p.vy = 0.0f;
+            p.size = 14.0f; p.life = 0.6f; p.color = m_sc.color[i]; p.textureId = 0;
+        }
+    }
+    // Build the text bulk pool ONCE (MAX_N TextCommand, each .text -> the shared WORD, copied per frame
+    // by submitTextBatch) — the bulk counterpart of emitText (render:text = one message each).
+    void buildBulkTextPool() {
+        static const char* WORD = "SAVAGE";
+        m_textPool.resize(MAX_N);
+        for (int i = 0; i < MAX_N; ++i) {
+            TextCommand& t = m_textPool[i];
+            t.x = m_sc.x[i]; t.y = m_sc.y[i]; t.text = WORD; t.fontId = 0; t.fontSize = 14;
+            t.color = m_sc.color[i]; t.layer = uint16_t(100 + (i % 4));
+        }
+    }
+    // THE FIX UNDER TEST (particles / text): feed N straight to the renderer, bypassing IIO+JSON.
+    void emitParticleBatchPOD(int n) { m_renderer->submitParticleBatch(m_particlePool.data(), size_t(n)); }
+    void emitTextBatchBulk(int n)    { m_renderer->submitTextBatch(m_textPool.data(), size_t(n)); }
 
     // Emit n text strings (each the word below → n×wordLen glyph quads).
     void emitText(int n) {
@@ -317,7 +344,9 @@ private:
     std::shared_ptr<IntraIO>            m_rendererIO, m_gameIO;
     std::vector<std::string>            m_assetIds;
     Scatter                             m_sc;
-    std::vector<SpriteInstance>         m_pool;   // pre-built GPU-ready instances (POD path)
+    std::vector<SpriteInstance>         m_pool;         // pre-built GPU-ready instances (POD path)
+    std::vector<ParticleInstance>       m_particlePool; // pre-built particles (bulk path)
+    std::vector<TextCommand>            m_textPool;     // pre-built labels (bulk path; .text -> WORD)
     int                                 m_tilemapChunks = 0;
 };
 
@@ -405,6 +434,16 @@ int main(int, char**) {
         if (r.wallMs > MELT_MS) { std::printf("  >>> MELTED at %d particles <<<\n", n); break; }
     }
 
+    // --- Regime 2b: SAME particles via the bulk path (the fix). One call, zero JSON. ---
+    std::vector<Row> particlesPod;
+    for (int n : LADDER_POD) {
+        if (quit) break;
+        Row r = bench->measure(n, 2, [&](int c){ bench->emitParticleBatchPOD(c); }, quit);
+        particlesPod.push_back(r);
+        std::printf("  P-bulk    %-7d -> %.2f ms (%.0f fps)\n", r.n, r.wallMs, r.wallMs > 0 ? 1000.0 / r.wallMs : 0);
+        if (r.wallMs > MELT_MS) { std::printf("  >>> MELTED at %d bulk particles <<<\n", n); break; }
+    }
+
     // --- Regime 3: text glyphs (6 glyphs/string) ---
     std::vector<Row> text;
     for (int strings : {1000, 2500, 5000, 10000, 20000, 35000}) {
@@ -414,6 +453,17 @@ int main(int, char**) {
         std::printf("  text      %-7d strings (%d glyphs) -> %.2f ms (%.0f fps)\n",
                     r.n, r.n * 6, r.wallMs, r.wallMs > 0 ? 1000.0 / r.wallMs : 0);
         if (r.wallMs > MELT_MS) { std::printf("  >>> MELTED at %d strings <<<\n", strings); break; }
+    }
+
+    // --- Regime 3b: SAME text via the bulk path (the fix). N labels in one call, zero JSON. ---
+    std::vector<Row> textBulk;
+    for (int strings : {1000, 2500, 5000, 10000, 20000, 35000, 50000, 75000, 100000}) {
+        if (quit) break;
+        Row r = bench->measure(strings, 12, [&](int c){ bench->emitTextBatchBulk(c); }, quit);
+        textBulk.push_back(r);
+        std::printf("  T-bulk    %-7d strings (%d glyphs) -> %.2f ms (%.0f fps)\n",
+                    r.n, r.n * 6, r.wallMs, r.wallMs > 0 ? 1000.0 / r.wallMs : 0);
+        if (r.wallMs > MELT_MS) { std::printf("  >>> MELTED at %d bulk strings <<<\n", strings); break; }
     }
 
     // --- Regime 4: monster tilemap (retained chunks, steady-state) ---
@@ -434,9 +484,9 @@ int main(int, char**) {
     if (!quit) {
         const int S = 80000, P = 80000, T = 8000;  // sprites + particles + text strings (+ the resident tilemap)
         finale = bench->measure(S, 2, [&](int){
-            bench->emitSpriteBatchPOD(S);   // POD path → all 80k actually render (JSON would cap at ~10k)
-            bench->emitParticles(P);
-            bench->emitText(T);
+            bench->emitSpriteBatchPOD(S);       // all-bulk: every path IIO/JSON-free so the frame is
+            bench->emitParticleBatchPOD(P);     // GPU-bound, not drowned in per-message collect (the
+            bench->emitTextBatchBulk(T);        // JSON path caps at ~5k each + ~40ms CPU to parse 88k msgs)
         }, quit);
         finale.n = S + P + T * 6;
     }
@@ -459,8 +509,26 @@ int main(int, char**) {
         std::printf("       sprite at ~10us each; the POD path hands the GPU packed instances at ~ns each)\n");
     }
 
-    printRegime("PARTICLES (additive overdraw)",      "particles", particles);
-    printRegime("TEXT (glyph quads)",                 "strings", text);
+    printRegime("PARTICLES — JSON per-particle (the OLD path)", "particles", particles);
+    printRegime("PARTICLES — bulk submit (the FIX)",            "particles", particlesPod);
+    if (!particles.empty() && !particlesPod.empty()) {
+        const int jc = ceilingAt(particles,    1000.0 / 60.0);
+        const int pc = ceilingAt(particlesPod, 1000.0 / 60.0);
+        const double ratio = (jc > 0 && pc != 0) ? double(pc < 0 ? -pc : pc) / jc : 0;
+        std::printf("\n  >>> PARTICLE WIN: 60fps ceiling  JSON %d  ->  bulk %d  =  %.0f× more <<<\n",
+                    jc, (pc < 0 ? -pc : pc), ratio);
+    }
+
+    printRegime("TEXT — JSON per-label (the OLD path)", "strings", text);
+    printRegime("TEXT — bulk submit (the FIX)",         "strings", textBulk);
+    if (!text.empty() && !textBulk.empty()) {
+        const int jc = ceilingAt(text,     1000.0 / 60.0);
+        const int pc = ceilingAt(textBulk, 1000.0 / 60.0);
+        const double ratio = (jc > 0 && pc != 0) ? double(pc < 0 ? -pc : pc) / jc : 0;
+        std::printf("\n  >>> TEXT WIN: 60fps label ceiling  JSON %d  ->  bulk %d  =  %.0f× more <<<\n",
+                    jc, (pc < 0 ? -pc : pc), ratio);
+    }
+
     printRegime("MONSTER TILEMAP (retained chunks)",  "chunks", tilemap);
 
     std::printf("\n  ===== GRAND FINALE — everything at once =====\n");

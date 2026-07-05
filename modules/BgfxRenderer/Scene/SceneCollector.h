@@ -42,6 +42,19 @@ public:
     // copied by IIO at ~10µs/sprite). World-space, no asset/clip resolution: final instances.
     void addSpritesBulk(const SpriteInstance* data, size_t count);
 
+    // BULK direct-feed for PARTICLES — same high-throughput contract as addSpritesBulk (no IIO, no
+    // JSON). ParticleInstance is already the POD the ParticlePass consumes, so this is a single insert.
+    // For a swarm game's per-agent thruster/impact particles (render:particle otherwise = one JSON
+    // message each, ~10µs). World-space, ephemeral (dropped on clear()).
+    void addParticlesBulk(const ParticleInstance* data, size_t count);
+
+    // BULK direct-feed for TEXT — N labels in one call, bypassing IIO+JSON (render:text = one message
+    // each). Each item carries its string via TextCommand.text (null-terminated); we COPY it into the
+    // frame's string staging (the caller's buffers need not outlive the call), the pointer is fixed in
+    // finalize() — exactly like the render:text path but without the per-label message. World-space,
+    // ephemeral. For per-agent unit labels (name/HP) over a crowd.
+    void addTextsBulk(const TextCommand* items, size_t count);
+
     // Reset for next frame
     void clear();
 

@@ -50,6 +50,17 @@ void BgfxRendererModule::submitSpriteBatch(const SpriteInstance* data, size_t co
     if (m_sceneCollector) m_sceneCollector->addSpritesBulk(data, count);
 }
 
+void BgfxRendererModule::submitParticleBatch(const ParticleInstance* data, size_t count) {
+    // Same contract as submitSpriteBatch, for particles (ParticlePass consumes them this frame).
+    if (m_sceneCollector) m_sceneCollector->addParticlesBulk(data, count);
+}
+
+void BgfxRendererModule::submitTextBatch(const TextCommand* items, size_t count) {
+    // Same contract as submitSpriteBatch, for text labels (the collector copies each string into the
+    // frame staging; TextPass batches the glyphs this frame).
+    if (m_sceneCollector) m_sceneCollector->addTextsBulk(items, count);
+}
+
 void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) {
     m_io = io;
 

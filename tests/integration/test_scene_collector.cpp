@@ -1413,3 +1413,100 @@ TEST_CASE("SceneCollector - clear() drops bulk sprites (ephemeral, per-frame)", 
     fx.collector.clear();          // end-of-frame reset
     REQUIRE(fx.collector.finalize(allocator).spriteCount == 0);  // gone next frame
 }
+
+// ---------------------------------------------------------------------------
+// BULK particles (SceneCollector::addParticlesBulk) — symmetric to sprites; ParticleInstance is POD.
+// ---------------------------------------------------------------------------
+
+namespace {
+inline ParticleInstance makeParticle(float x, uint32_t color) {
+    ParticleInstance p{};
+    p.x = x; p.y = 0.0f; p.vx = 0.0f; p.vy = 0.0f; p.size = 2.0f; p.life = 1.0f;
+    p.color = color; p.textureId = 0;
+    return p;
+}
+} // namespace
+
+TEST_CASE("SceneCollector - addParticlesBulk feeds N particles into the frame (no IIO/JSON)", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    std::vector<ParticleInstance> batch = {
+        makeParticle(10.0f, 0xFF0000FF), makeParticle(20.0f, 0x00FF00FF), makeParticle(30.0f, 0x0000FFFF)};
+    fx.collector.addParticlesBulk(batch.data(), batch.size());
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.particleCount == 3);
+    REQUIRE(p.particles != nullptr);
+    REQUIRE_THAT(p.particles[0].x, WithinAbs(10.0f, 0.01f));
+    REQUIRE(p.particles[0].color == 0xFF0000FF);
+    REQUIRE_THAT(p.particles[2].x, WithinAbs(30.0f, 0.01f));
+    REQUIRE(p.particles[2].color == 0x0000FFFF);
+}
+
+TEST_CASE("SceneCollector - bulk particles coexist with a render:particle, and clear() drops them", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    std::vector<ParticleInstance> batch = {makeParticle(1.0f, 0xFFFFFFFF), makeParticle(2.0f, 0xFFFFFFFF)};
+    fx.collector.addParticlesBulk(batch.data(), batch.size());
+    auto pn = std::make_unique<JsonDataNode>("particle");
+    pn->setDouble("x", 99.0);
+    fx.ioPublisher->publish("render:particle", std::move(pn));
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).particleCount == 3);   // both feeds merge in one frame
+
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).particleCount == 0);    // ephemeral: gone next frame
+}
+
+// ---------------------------------------------------------------------------
+// BULK text (SceneCollector::addTextsBulk) — N labels in one call; strings copied into the frame.
+// ---------------------------------------------------------------------------
+
+namespace {
+// Build a TextCommand whose `text` points at a caller-owned string (copied by addTextsBulk).
+inline TextCommand makeText(float x, const char* str, uint16_t layer) {
+    TextCommand t{};
+    t.x = x; t.y = 0.0f; t.text = str; t.fontId = 0; t.fontSize = 16;
+    t.color = 0xFFFFFFFF; t.layer = layer;
+    return t;
+}
+} // namespace
+
+TEST_CASE("SceneCollector - addTextsBulk feeds N labels with their strings (no IIO/JSON)", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Caller-owned strings; addTextsBulk must COPY them (they can die after the call).
+    std::vector<TextCommand> batch = {
+        makeText(10.0f, "Aurora", 0), makeText(20.0f, "Borealis", 0), makeText(30.0f, "Cygnus", 0)};
+    fx.collector.addTextsBulk(batch.data(), batch.size());
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.textCount == 3);
+    REQUIRE(p.texts != nullptr);
+    // Same layer -> stable order; strings survived the copy into the frame arena.
+    REQUIRE(p.texts[0].text != nullptr);
+    REQUIRE(std::string(p.texts[0].text) == "Aurora");
+    REQUIRE(std::string(p.texts[2].text) == "Cygnus");
+    REQUIRE_THAT(p.texts[2].x, WithinAbs(30.0f, 0.01f));
+}
+
+TEST_CASE("SceneCollector - bulk text strings survive after the caller's buffers are gone", "[scene_collector][bulk]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Feed from a scope whose std::strings are destroyed before finalize — proves addTextsBulk copies.
+    {
+        std::string s0 = "Ephemeral0", s1 = "Ephemeral1";
+        std::vector<TextCommand> batch = {makeText(1.0f, s0.c_str(), 0), makeText(2.0f, s1.c_str(), 0)};
+        fx.collector.addTextsBulk(batch.data(), batch.size());
+    }   // s0/s1/batch destroyed here
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.textCount == 2);
+    REQUIRE(std::string(p.texts[0].text) == "Ephemeral0");
+    REQUIRE(std::string(p.texts[1].text) == "Ephemeral1");
+}

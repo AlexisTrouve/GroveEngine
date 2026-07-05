@@ -19,7 +19,9 @@ class ShaderManager;
 class SpritePass;
 class TilemapPass;
 class DebugOverlay;
-struct SpriteInstance;   // POD GPU instance (Frame/FramePacket.h) — submitSpriteBatch takes a pointer
+struct SpriteInstance;    // POD GPU instance (Frame/FramePacket.h) — submitSpriteBatch takes a pointer
+struct ParticleInstance;  // POD (Frame/FramePacket.h) — submitParticleBatch takes a pointer
+struct TextCommand;       // (Frame/FramePacket.h) — submitTextBatch takes a pointer (carries its string)
 namespace assets { class AssetManager; class BgfxTextureProvider; class ThreadedDecoder; }   // streaming texture assets
 
 // ============================================================================
@@ -61,6 +63,16 @@ public:
     // frames, before the next process()). This is the high-throughput path: render:sprite
     // sends one JSON message per sprite (deep-copied by IIO, ~10µs each); this is ~ns/sprite.
     void submitSpriteBatch(const SpriteInstance* data, size_t count);
+
+    // BULK particle submission — same direct, IIO/JSON-free path as submitSpriteBatch, for a crowd's
+    // per-agent particles (thruster trails, impacts). render:particle sends one JSON message per
+    // particle (~10µs); this is ~ns/particle. World-space; feed between frames before the next process().
+    void submitParticleBatch(const ParticleInstance* data, size_t count);
+
+    // BULK text submission — N labels in one IIO/JSON-free call (render:text = one message per label).
+    // Each item carries its string via TextCommand.text (null-terminated); it is copied into the frame,
+    // so the caller's buffers need not outlive the call. World-space; feed between frames.
+    void submitTextBatch(const TextCommand* items, size_t count);
 
 private:
     // Logger

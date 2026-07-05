@@ -457,6 +457,25 @@ void SceneCollector::addSpritesBulk(const SpriteInstance* data, size_t count) {
     if (data && count) m_sprites.insert(m_sprites.end(), data, data + count);
 }
 
+void SceneCollector::addParticlesBulk(const ParticleInstance* data, size_t count) {
+    // Same as addSpritesBulk: ParticleInstance is already the POD ParticlePass consumes -> one insert,
+    // no per-particle JSON/IIO. Merges with any render:particle from this frame (same ephemeral list).
+    if (data && count) m_particles.insert(m_particles.end(), data, data + count);
+}
+
+void SceneCollector::addTextsBulk(const TextCommand* items, size_t count) {
+    // N labels in one call. The command + its string must stay INDEX-ALIGNED across m_texts /
+    // m_textStrings (finalize pairs them by index and strdups the string into the frame arena). We
+    // COPY each caller string now (its buffer needn't survive) and null the pointer — set in finalize.
+    if (!items || !count) return;
+    for (size_t i = 0; i < count; ++i) {
+        TextCommand t = items[i];
+        m_textStrings.emplace_back(t.text ? t.text : "");   // own the string until finalize
+        t.text = nullptr;                                   // pointer set in finalize (index-aligned)
+        m_texts.push_back(t);
+    }
+}
+
 void SceneCollector::clear() {
     m_sprites.clear();
     m_tilemaps.clear();

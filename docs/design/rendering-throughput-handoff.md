@@ -131,8 +131,13 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
      per subscriber) so OLD `ns/pub` is linear in N; NEW pulls the copy out of the per-subscriber path.
      The win grows with fan-out AND payload size — exactly the copy-elimination signature. (Small
      payload + tiny fan-out is where it barely matters; that path was never the wall.)
-2. **[minor] No bulk path for particles/text.** Same JSON-per-primitive wall sprites had. Add
-   `submit*Batch` analogues only if they become hot (the benchmark shows particles/text also cap ~5k/60fps).
+2. ~~**[minor] No bulk path for particles/text.**~~ **✅ SHIPPED.** `SceneCollector::addParticlesBulk` /
+   `addTextsBulk` + `BgfxRendererModule::submitParticleBatch` / `submitTextBatch` — same IIO/JSON-free
+   direct feed as sprites (particle is a POD insert; text copies each label's string into the frame
+   staging). Locked headless by `SceneCollectorTest [bulk]` (+ the "strings survive the caller's buffers"
+   case). **Benchmark measured:** 60fps ceiling **particles 4 941 → 364 414 (74×)**, **text 4 974 →
+   50 837 labels (10×)** — and the JSON grand finale's ~40 ms was ~42 ms of CPU collect over 88k messages
+   (the exact per-message wall). Built for the swarm profile (per-agent thruster trails + unit labels).
 3. **[minor] FrameAllocator can't grow** — fixed arena, sized at init. A double-buffered/growable
    arena would drop the ~200k/frame ceiling.
 4. **[info] SpritePass per-frame `std::sort`** of N sprites is O(n log n) CPU — at the very top of
@@ -140,8 +145,10 @@ no longer delivery. `benchmark_render_savage` is a wall-clock tool (windowed, GP
 
 ## Key files
 
-- `modules/BgfxRenderer/Scene/SceneCollector.{h,cpp}` — `addSpritesBulk` (+ existing JSON `parseSpriteBatch`).
-- `modules/BgfxRenderer/BgfxRendererModule.{h,cpp}` — `submitSpriteBatch` (public host API).
+- `modules/BgfxRenderer/Scene/SceneCollector.{h,cpp}` — `addSpritesBulk` / `addParticlesBulk` / `addTextsBulk`
+  (+ existing JSON `parseSpriteBatch`).
+- `modules/BgfxRenderer/BgfxRendererModule.{h,cpp}` — `submitSpriteBatch` / `submitParticleBatch` /
+  `submitTextBatch` (public host API, IIO/JSON-free).
 - `modules/BgfxRenderer/RHI/RHIDevice.h` + `RHI/BgfxDevice.cpp` — `vsync` threading (`m_resetFlags`).
 - `tests/visual/benchmark_render_savage.cpp` — the savage benchmark (windowed, wall-clock).
 - `tests/integration/test_scene_collector.cpp` — `SceneCollectorTest [bulk]` regression lock.
