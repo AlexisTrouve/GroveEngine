@@ -17,16 +17,19 @@ enum class RenderEntryType {
 
 // Cached state for a render entry (to detect changes)
 struct RenderEntry {
-    RenderEntryType type;
-    float x, y, w, h;
-    uint32_t color;
-    int textureId;
+    // Every field default-initialized: a RenderEntry can be copied (change-detection cache) before all
+    // fields are set on a given path, and reading an indeterminate member is UB. Defaults make a
+    // partially-built entry well-defined (caught by clang-analyzer core.uninitialized.Assign).
+    RenderEntryType type{};
+    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+    uint32_t color = 0;
+    int textureId = 0;
     // Streamed asset id (phase: asset-in-UI). Non-empty -> the sprite is published with an `asset` string
     // (the renderer resolves it to a texture + atlas UV via the AssetManager) instead of a numeric textureId.
     std::string assetId;
-    int layer;
+    int layer = 0;
     std::string text;
-    float fontSize;
+    float fontSize = 0.0f;
     // Clip rect {x,y,w,h} in screen px applied to this entry (w<=0 = none). Captured from the clip
     // stack at publish time so a container (scroll panel, window) can clip its descendants.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;

@@ -4,6 +4,10 @@
 # are intentionally OFF (low bug-signal, high noise) and can be layered in later.
 # Run: clang-tidy -p build <file.cpp> (compile DB from the Ninja build, -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
 # MinGW/Windows has no system clang-tidy -> pip wheel: `python -m pip install --user clang-tidy`.
+# CROSS-TOOLCHAIN CAVEAT (Windows): a module TU whose include chain reaches bgfx's compat/mingw/sal.h makes the
+# clang frontend recurse on that shim -> a SAL cascade that corrupts the std parse (std::string loses members)
+# -> GARBAGE findings. Those TUs (SoundManager/VideoModule/BgfxRenderer) must be tidy'd on Linux (clean GCC
+# toolchain, no MSVC SAL). Detail + the clean/tainted partition: docs/design/quality-hardening-handoff.md.
 # Notable checks OFF (with reason):
 #  - misc-const-correctness: floods (wants const on every lock_guard/local) — pedantic, not a bug-finder.
 #  - bugprone-exception-escape: every hit here is a DESTRUCTOR; dtors are implicitly noexcept, so a throw

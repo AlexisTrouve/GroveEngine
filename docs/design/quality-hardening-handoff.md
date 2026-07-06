@@ -15,8 +15,10 @@ two new axes: **0 UB / 0 memory errors / 0 leaks** under ASan+UBSan (core/logic/
 dlopen/dlclose path), and **statically clean** under a curated clang-tidy `src/` pass (only minor real
 fixes, no serious bugs). The thesis above is delivered for the core.
 
-**Next:** Phase 3 (CI) — blocked on a host decision (github/gitea/none) — **or** the cheaper win: widen
-clang-tidy + the sanitizer sweep to `modules/` (GPU/bgfx), the one area not yet covered. Per-phase detail below.
+**Next:** the `modules/` clang-tidy widen is **PART 1 done** (2026-07-06 — 29 Windows-clean module files swept,
+3 real fixes; see Phase 2 UPDATE). **PART 2 = the SAL-tainted set on Linux** (SoundManager/Video/BgfxRenderer —
+Windows clang-tidy can't parse them soundly; run on VPS142's GCC toolchain). Then Phase 3 (CI, needs a host
+decision) / Phase 4 (regression gates). Per-phase detail below.
 
 | Capability | Status |
 |---|---|
@@ -24,7 +26,7 @@ clang-tidy + the sanitizer sweep to `modules/` (GPU/bgfx), the one area not yet 
 | TSan / Helgrind | ✅ wired (`GROVE_ENABLE_TSAN` / `_HELGRIND`, manual flags, `CMakeLists.txt:11-16, 27-29`); IIO/pool TSan-proven |
 | ASan / LSan | ✅ wired (`GROVE_ENABLE_ASAN`, commit `400e62a`); core + hot-reload swept **clean** |
 | UBSan | ✅ wired (`GROVE_ENABLE_UBSAN`, `400e62a`); swept **clean**, negative-controlled |
-| clang-tidy / static analysis | ✅ `.clang-tidy` curated (`a668239`); `src/` crop fixed. `modules/` not yet (follow-up) |
+| clang-tidy / static analysis | ✅ `.clang-tidy` curated (`a668239`); `src/` crop fixed. `modules/` **clean set swept on Windows** (29 non-SAL files, 3 real fixes) — SAL-tainted set (SoundManager/Video/BgfxRenderer) → Linux (see Phase 2 UPDATE 2026-07-06) |
 | CI (auto on push) | ❌ none — everything still manual (Phase 3) |
 | Coverage | ❌ not measured |
 | Perf / leak regression gates | ❌ none — benchmarks wall-clock, run by hand (Phase 4) |
@@ -151,6 +153,38 @@ hot path, `registerInstance` → move, dead `generation`/`filename`/timing local
   LINK on Linux (proven on VPS142; the old "GPU doesn't compile on Linux" belief was false). So the sanitizer +
   clang-tidy sweep of `modules/` can run on a Linux box. See **`docs/design/linux-port.md`** (the Linux port
   chantier, on the `linux-port` branch). NOTE: CI (Phase 3) was **DECLINED** by Alexi — run the rigor locally.
+- **UPDATE (2026-07-06) — modules clang-tidy pass, PART 1 (Windows-clean set):** ran clang-tidy over the 33
+  non-BgfxRenderer module `.cpp` on the **Windows** compile DB (complete: SDL + bgfx present, unlike WSL).
+  **Verify-the-verifier caught a bad verifier BEFORE trusting it:** on any TU whose include chain reaches
+  bgfx's `bx/include/compat/mingw/sal.h`, the clang frontend recurses on that shim (`#include "salieri.h"`
+  loops — fine under real g++, breaks under clang) → a SAL cascade that **corrupts the std parse**
+  (`std::string` loses `.find`/`.empty`, placement-new "not found") → `unused`/`branch-clone` findings that are
+  pure **parse garbage** (the variable IS used; the method just failed to resolve). Findings on those TUs were
+  discarded. Partition by whether the compile command drags in that shim:
+  - **CLEAN (29 files, trustworthy):** all UIModule (Core/Rendering/Widgets), all InputModule (incl. SDLBackend),
+    DialogueModule. Swept; every finding verified against the real code.
+  - **SAL-TAINTED (4) → Linux pass:** SoundManager (×2, SDL_mixer), VideoModule (×2, popen→windows.h).
+  - **EXCLUDED up front → Linux pass:** BgfxRenderer (18; the compat/mingw include path is on the whole target).
+    **No silent cap — this is the honest coverage line.**
+  - **Real fixes (3), locked by build + the 51-test UI/Input subset + the tidy re-run showing the finding gone**
+    (static-analysis hygiene: the tool re-run IS the regression guard, as in the `src/` crop):
+    1. `UIRenderer.h` `RenderEntry` — default-initialized `type/x/y/w/h/color/textureId/layer/fontSize` (the
+       struct is copied by the change-detection cache before all fields are set → uninitialized read).
+    2. `UIModule.cpp:902` — `keyChar` (signed `char`) → `uint32_t` now goes through `unsigned char` first (a byte
+       > 127 would sign-extend into a bogus code-point). Latent (the UTF-8/IME path preempts this legacy branch).
+    3. `InputModule.cpp:13` — `~InputModule` calls `InputModule::shutdown()` qualified (non-virtual dispatch in
+       the dtor; matches the `src/` `~DebugEngine` precedent).
+  - **Verified NON-bugs (left as-is, documented so the next pass doesn't re-chase):** 3× `bugprone-branch-clone`
+    all INTENTIONAL (Return+KP_Enter→13; tabs/modal both surface-on-press; Enter+Ctrl-A both `return true`).
+    3× `misc-use-internal-linkage` are FALSE POSITIVES — `hitTest`/`updateHoverState`/`dispatchMouseButton` are
+    cross-TU (forward-declared + called in `UIModule.cpp`); static would break the link (same trap as the `src/`
+    `fs`-unused FP). 1× `performance-enum-size` (`IIO.h:12` `IOType`) surfaced 22× = ONE core-header spot
+    (ABI-internal, `include/` not `modules/`) → left. 6× `misc-unused-parameters` are `IModule` override sigs → left.
+  - **PART 2 (do on VPS142 Linux — the sound toolchain):** rerun clang-tidy for the 4 SAL-tainted + 18 BgfxRenderer
+    against a **Linux** compile DB (GCC/glibc — no MSVC SAL, no mingw shim → clean std parse). Same curated
+    `.clang-tidy`, same triage. Also sets up the Phase-1 GPU `[gpu]` ASan/UBSan gap on the same box. The sweep
+    runner + clean/taint partition detector are in the session scratchpad (`tidy_modules.sh`) — the Linux variant
+    drops the BgfxRenderer exclusion and points `-p` at the Linux build.
 
 ### Phase 3 — Automate (CI)
 

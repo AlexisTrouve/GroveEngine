@@ -10,7 +10,10 @@ InputModule::InputModule() {
 }
 
 InputModule::~InputModule() {
-    shutdown();
+    // Qualified call: shutdown() is virtual (IModule override), but InputModule has no subclass, so we
+    // want THIS class's shutdown during destruction — the qualification makes the non-virtual dispatch
+    // explicit and documents intent (clang-analyzer optin.cplusplus.VirtualCall).
+    InputModule::shutdown();
 }
 
 void InputModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) {

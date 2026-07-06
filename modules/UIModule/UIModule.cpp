@@ -899,7 +899,10 @@ void UIModule::updateUI(float deltaTime) {
                     handled = textInput->insertFilteredText(m_context->keyText);
                 } else {
                     // Chemin touches d'édition / legacy mono-caractère.
-                    uint32_t character = static_cast<uint32_t>(m_context->keyChar);
+                    // keyChar est un `char` SIGNÉ : un octet > 127 (accent Latin-1) deviendrait négatif
+                    // et se sign-extendrait en un code-point énorme. On passe par `unsigned char` d'abord
+                    // pour garder la valeur 0..255 correcte (bugprone-signed-char-misuse).
+                    uint32_t character = static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
                     bool ctrl = false;  // TODO: Add ctrl modifier to UIContext
                     handled = textInput->onKeyInput(m_context->keyCode, character, ctrl);
                 }
