@@ -17,8 +17,9 @@ fixes, no serious bugs). The thesis above is delivered for the core.
 
 **Next:** the `modules/` clang-tidy widen is **PART 1 done** (2026-07-06 — 29 Windows-clean module files swept,
 3 real fixes; see Phase 2 UPDATE). **PART 2 = the SAL-tainted set on Linux** (SoundManager/Video/BgfxRenderer —
-Windows clang-tidy can't parse them soundly; run on VPS142's GCC toolchain). Then Phase 3 (CI, needs a host
-decision) / Phase 4 (regression gates). Per-phase detail below.
+Windows clang-tidy can't parse them soundly; run on VPS142's GCC toolchain) — **⚠️ DEFERRED DEBT (Alexi's call
+2026-07-06: keep all Linux work parked for now).** NOT technically blocked, just deprioritized; do not surface it
+as the active next step. Then Phase 3 (CI, needs a host decision) / Phase 4 (regression gates). Detail below.
 
 | Capability | Status |
 |---|---|
