@@ -505,9 +505,27 @@ static float centerCoord(const IDataNode& d, const char* cxKey, const char* xKey
     return fallback;
 }
 
+// Reject the RETIRED legacy anchor on a center primitive: x/y present WITHOUT cx/cy is the old center
+// convention (docs/design/render-anchor-convention.md). Returns true -> the caller DROPS the primitive
+// (echec franc: a silent half-footprint shift is exactly the footgun this convention kills). Logs ONCE
+// per topic via `warned` -- parseSprite/parseSpriteAdd are the render hot path, so never log per-call.
+static bool rejectsLegacyAnchor(const IDataNode& d, const char* topic, bool& warned) {
+    if ((d.hasProperty("x") || d.hasProperty("y")) && !(d.hasProperty("cx") || d.hasProperty("cy"))) {
+        if (!warned) {
+            warned = true;
+            spdlog::error("[SceneCollector] {}: 'x,y' is retired - use 'cx,cy' (center). "
+                          "See docs/design/render-anchor-convention.md. Primitive dropped.", topic);
+        }
+        return true;
+    }
+    return false;
+}
+
 void SceneCollector::parseSprite(const IDataNode& data) {
+    static bool warnedLegacy = false;
+    if (rejectsLegacyAnchor(data, "render:sprite", warnedLegacy)) return;
     SpriteInstance sprite;
-    // i_data0 — cx,cy = CENTER (anchor convention); x,y still accepted as legacy center this phase.
+    // i_data0 -- cx,cy = CENTER (anchor convention).
     sprite.x = centerCoord(data, "cx", "x", 0.0f);
     sprite.y = centerCoord(data, "cy", "y", 0.0f);
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
@@ -861,6 +879,8 @@ void SceneCollector::parseText(const IDataNode& data) {
 }
 
 void SceneCollector::parseParticle(const IDataNode& data) {
+    static bool warnedLegacy = false;
+    if (rejectsLegacyAnchor(data, "render:particle", warnedLegacy)) return;
     ParticleInstance particle;
     particle.x = centerCoord(data, "cx", "x", 0.0f);   // cx,cy = CENTER (anchor convention)
     particle.y = centerCoord(data, "cy", "y", 0.0f);
@@ -983,6 +1003,8 @@ void SceneCollector::initDefaultView(uint16_t width, uint16_t height) {
 // ============================================================================
 
 void SceneCollector::parseSpriteAdd(const IDataNode& data) {
+    static bool warnedLegacy = false;
+    if (rejectsLegacyAnchor(data, "render:sprite:add", warnedLegacy)) return;
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 
@@ -1016,6 +1038,8 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
 }
 
 void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
+    static bool warnedLegacy = false;
+    if (rejectsLegacyAnchor(data, "render:sprite:update", warnedLegacy)) return;
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 

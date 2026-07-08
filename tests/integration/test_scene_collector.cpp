@@ -1604,3 +1604,60 @@ TEST_CASE("SceneCollector - anchor: cx,cy = center, x,y = corner", "[scene_colle
         REQUIRE_THAT(p.sectors[0].cy, WithinAbs(8.0f, 0.01f));
     }
 }
+
+// The legacy x,y anchor is RETIRED on center primitives: a sprite/particle published with x,y but
+// no cx,cy is DROPPED (loud one-shot log), never silently shifted by half a footprint. Locks the
+// hard reject (echec franc, doctrine) — see docs/design/render-anchor-convention.md.
+TEST_CASE("SceneCollector - anchor: legacy x,y on sprite/particle is rejected", "[scene_collector][anchor][reject]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // render:sprite with legacy x,y (no cx,cy) -> dropped, not shifted.
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setDouble("x", 100.0);
+        s->setDouble("y", 200.0);
+        fx.ioPublisher->publish("render:sprite", std::move(s));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 0);
+    }
+    fx.collector.clear();
+
+    // render:sprite:add with legacy x,y -> nothing retained.
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setInt("renderId", 9);
+        s->setDouble("x", 10.0);
+        s->setDouble("y", 20.0);
+        fx.ioPublisher->publish("render:sprite:add", std::move(s));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 0);
+    }
+    fx.collector.clear();
+
+    // render:particle with legacy x,y -> dropped.
+    {
+        auto pa = std::make_unique<JsonDataNode>("p");
+        pa->setDouble("x", 5.0);
+        pa->setDouble("y", 6.0);
+        fx.ioPublisher->publish("render:particle", std::move(pa));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.particleCount == 0);
+    }
+    fx.collector.clear();
+
+    // Sanity: the canonical cx,cy still renders (the reject is specific to legacy x,y).
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setDouble("cx", 100.0);
+        s->setDouble("cy", 200.0);
+        fx.ioPublisher->publish("render:sprite", std::move(s));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(100.0f, 0.01f));
+    }
+}
