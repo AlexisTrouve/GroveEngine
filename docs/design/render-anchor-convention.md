@@ -114,8 +114,11 @@ uniformization once validated.
 
 ## Status
 
-- [x] (a) audit + convention decided + rollout locked (this doc) — **increment 1**.
-- [ ] additive `cx,cy` + red-first test — increment 2.
-- [ ] in-repo caller migration — increment 3.
-- [ ] flip to hard-reject + test — increment 4.
-- [ ] doc-law: DEVELOPER_GUIDE anchor table + topic-tree + "new primitives follow this" rule — increment 5.
+- [x] (a) audit + convention decided + rollout locked (this doc) — **increment 1** (`62178cf`).
+- [x] additive `cx,cy` + red-first test — **increment 2** (`28d1e28`; `SceneCollectorTest [anchor]`).
+- [x] in-repo caller migration (2 production + 17 test files; miss-detector 0, suite 151/151) — **increment 3** (`c330ad7`).
+- [x] flip to hard-reject + test (`SceneCollectorTest [reject]`; suite 151/151 with reject live = completeness proof) — **increment 4** (`4e8204e`).
+- [x] doc-law: DEVELOPER_GUIDE anchor table + note + CLAUDE.md anchor bullet + "new primitives follow this" rule — **increment 5**.
+
+**Shipped.** In-repo is on `cx,cy`; legacy `x,y` on sprite/particle is a hard reject. External consumers
+(drifterra/fractax) must migrate per the section (b) checklist — that break lands at their next build (loud).

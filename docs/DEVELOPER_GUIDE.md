@@ -225,8 +225,8 @@ renderer->setConfiguration(config, rendererIO.get(), nullptr);
 ```cpp
 // Publish sprite to render
 auto sprite = std::make_unique<JsonDataNode>("sprite");
-sprite->setDouble("x", 100.0);
-sprite->setDouble("y", 200.0);
+sprite->setDouble("cx", 100.0);   // cx,cy = CENTER (anchor convention)
+sprite->setDouble("cy", 200.0);
 sprite->setDouble("scaleX", 1.0);
 sprite->setDouble("scaleY", 1.0);
 sprite->setDouble("rotation", 0.0);        // Radians
@@ -294,7 +294,7 @@ io->publish("render:camera", std::move(camera));
 ```
 
 **Convention (important):** the camera `(x,y)` is the world coordinate at the viewport's
-**top-left corner** — *not* the center (unlike `render:sprite`, whose `x,y` is the sprite
+**top-left corner** — *not* the center (unlike `render:sprite`, whose `cx,cy` is the sprite
 center). The projection collapses to:
 
 ```
@@ -753,10 +753,10 @@ node → `{textureId, layer, pixel size, renderId}` mapping is game-specific. Pa
 see `tests/visual/test_renderer_showcase.cpp` for a live reference):
 
 ```cpp
-// procedural rig node -> sprite (render:sprite x,y = CENTER; rotation in radians)
+// procedural rig node -> sprite (render:sprite cx,cy = CENTER; rotation in radians)
 const Transform2D& w = rig.world(node);
 auto s = std::make_unique<JsonDataNode>("sprite");
-s->setDouble("x", w.x); s->setDouble("y", w.y);
+s->setDouble("cx", w.x); s->setDouble("cy", w.y);
 s->setDouble("rotation", w.rotation);
 s->setDouble("scaleX", pixelSize * w.scaleX);
 s->setDouble("scaleY", pixelSize * w.scaleY);
@@ -897,21 +897,37 @@ Published by **UIModule**, consumed by **game logic**.
 
 Consumed by **BgfxRenderer**, published by **UIModule** or **game logic**.
 
+#### Anchor convention — `x,y` = corner · `cx,cy` = center (READ THIS)
+
+The field **name carries the anchor** — you never guess or read `SceneCollector`:
+
+| Field | Meaning | Used by |
+|-------|---------|---------|
+| `x, y` | **top-left CORNER** | `render:rect`, `render:tilemap`, `render:text`, `render:debug:*` (+ `render:camera` = world coord at the viewport top-left) |
+| `cx, cy` | **CENTER** | `render:sprite` (+ `:add`/`:update`), `render:particle`, `render:sector` |
+
+`rotation` always pivots around the box **center**, whichever anchor positioned it.
+
+> ⚠️ **Breaking (2026-07):** `render:sprite`/`:add`/`:update` and `render:particle` used to take `x,y` as the
+> center. They now require **`cx,cy`**; a legacy `x,y` (without `cx,cy`) is **rejected** — the primitive is
+> dropped and a one-shot error logged, never silently shifted by half a footprint. **New draw primitives MUST
+> follow this rule.** Rationale + audit: [`docs/design/render-anchor-convention.md`](design/render-anchor-convention.md).
+
 #### Sprites
 
 **Retained Mode (UIModule current):**
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, asset?}` | Register new sprite (retained) |
-| `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, asset?}` | Update existing sprite |
+| `render:sprite:add` | `{renderId, cx, cy, scaleX, scaleY, color, textureId, layer, asset?}` | Register new sprite (retained). `cx,cy` = CENTER (legacy `x,y` rejected) |
+| `render:sprite:update` | `{renderId, cx, cy, scaleX, scaleY, color, textureId, layer, asset?}` | Update existing sprite. `cx,cy` = CENTER |
 | `render:sprite:remove` | `{renderId}` | Unregister sprite |
 
 **Immediate Mode (legacy, still supported):**
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:sprite` | `{x, y, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?, asset?}` | Render single sprite (ephemeral). `x,y` = CENTER. `space:"screen"` → HUD overlay (see below) |
+| `render:sprite` | `{cx, cy, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?, asset?}` | Render single sprite (ephemeral). `cx,cy` = CENTER (legacy `x,y` rejected — see anchor convention above). `space:"screen"` → HUD overlay (see below) |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
@@ -926,7 +942,7 @@ worth stay *resident*. `asset` **wins over** `textureId`/`texture` when both are
 ```cpp
 auto s = std::make_unique<JsonDataNode>("sprite");
 s->setString("asset", "icons/iron");     // streamed by id (atlas sub-sprite -> its UV rect)
-s->setDouble("x", 100); s->setDouble("y", 100);
+s->setDouble("cx", 100); s->setDouble("cy", 100);   // cx,cy = CENTER (anchor convention)
 s->setDouble("scaleX", 32); s->setDouble("scaleY", 32);
 s->setInt("layer", 1000);
 io->publish("render:sprite", std::move(s));   // also works on render:sprite:add{asset}
@@ -1071,7 +1087,7 @@ Two modes:
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:particle` | `{x, y, velocityX, velocityY, color, lifetime, textureId, layer}` | Render particle |
+| `render:particle` | `{cx, cy, velocityX, velocityY, color, lifetime, textureId, layer}` | Render particle. `cx,cy` = CENTER (legacy `x,y` rejected) |
 
 #### Camera
 
@@ -1329,8 +1345,8 @@ private:
     void renderPlayer() {
         // Publish sprite to renderer
         auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
-        sprite->setDouble("x", m_playerX);
-        sprite->setDouble("y", m_playerY);
+        sprite->setDouble("cx", m_playerX);   // cx,cy = CENTER (anchor convention)
+        sprite->setDouble("cy", m_playerY);
         sprite->setInt("textureId", 0);  // Player texture
         sprite->setInt("layer", 10);
         m_io->publish("render:sprite", std::move(sprite));
@@ -1470,7 +1486,7 @@ cmake --build build --target GameLogic
 // Instead of publishing 100 individual sprites:
 for (auto& enemy : enemies) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", enemy.x);
+    sprite->setDouble("cx", enemy.x);
     // ...
     io->publish("render:sprite", std::move(sprite));  // 100 IIO messages
 }
@@ -1480,7 +1496,7 @@ auto batch = std::make_unique<JsonDataNode>("batch");
 auto sprites = std::make_unique<JsonDataNode>("sprites");
 for (auto& enemy : enemies) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", enemy.x);
+    sprite->setDouble("cx", enemy.x);
     // ...
     sprites->setChild(enemy.id, std::move(sprite));
 }
