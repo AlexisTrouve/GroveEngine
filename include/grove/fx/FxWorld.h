@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * grove::entity::EntityWorld — pure entity / component / behavior core (header-only, std-only,
+ * grove::fx::FxWorld — pure entity / component / behavior core (header-only, std-only,
  * NO IIO / renderer / SDL). The data-driven "scene/entity" layer (multi-project authoring surface).
  *
  * WHAT : an entity = a stable id + a bag of typed COMPONENTS (Transform, Sprite) + a list of
@@ -14,7 +14,7 @@
  *        engine-side and every game inherits them for free, WITHOUT a scripting language (a behavior is a
  *        fixed enum of primitives with numeric params, exactly like the VN conditions — declarative data,
  *        not a parsed expression). Kept pure + headless-testable (like grove::anim / DialogueRuntime): the
- *        EntityModule wraps this and turns the RenderOps into render:sprite:* IIO. Bespoke game logic stays
+ *        FxModule wraps this and turns the RenderOps into render:sprite:* IIO. Bespoke game logic stays
  *        consumer-side (mutate components); the engine owns the reusable common behaviors + the diff.
  *
  * HOW  : entities live in an ordered map (deterministic tick / diff order). tick() ticks each behavior in
@@ -30,7 +30,7 @@
 #include <vector>
 
 namespace grove {
-namespace entity {
+namespace fx {
 
 using EntityId = uint32_t;   // stable, monotonic (never reused) -> a destroyed id can't alias a live sprite
 
@@ -84,7 +84,7 @@ struct Prefab {
     std::vector<Behavior> behaviors;
 };
 
-class EntityWorld {
+class FxWorld {
 public:
     // Spawn an empty entity (transform at origin, no sprite, no behaviors); returns its id.
     EntityId spawn() {
@@ -224,5 +224,5 @@ private:
     std::map<std::string, Prefab> m_prefabs;      // the archetype/prefab library (spawn templates)
 };
 
-} // namespace entity
+} // namespace fx
 } // namespace grove

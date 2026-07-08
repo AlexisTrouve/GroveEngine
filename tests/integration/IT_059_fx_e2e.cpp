@@ -1,17 +1,17 @@
 /**
- * Integration Test IT_059: EntityModule end-to-end — the data-driven scene/entity layer (slice E2).
+ * Integration Test IT_059: FxModule end-to-end — the data-driven scene/entity layer (slice E2).
  *
  * Drives the module with real entity:* topics and asserts the render:sprite:* traffic it emits: a spawn
  * yields render:sprite:add at the entity's CENTER (cx,cy — the anchor convention), a partial entity:set
  * merges (only the changed field moves) and yields render:sprite:update, an engine-side behavior (move +
  * lifetime) advances the entity and then removes it on expiry, and entity:destroy yields render:sprite:
- * remove. This is the E2E lock — the pure EntityWorld logic proven THROUGH the module + IIO.
+ * remove. This is the E2E lock — the pure FxWorld logic proven THROUGH the module + IIO.
  */
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "EntityModule.h"
+#include "FxModule.h"
 #include "grove/IntraIOManager.h"
 #include "grove/IntraIO.h"
 #include "grove/JsonDataNode.h"
@@ -32,7 +32,7 @@ static std::string uid(const std::string& p) {
 
 namespace {
 struct Harness {
-    std::unique_ptr<EntityModule> module;
+    std::unique_ptr<FxModule> module;
     std::shared_ptr<IIO> moduleIO, pubIO, obsIO;
 
     int addCount = 0, updateCount = 0, removeCount = 0;
@@ -47,7 +47,7 @@ struct Harness {
         pubIO    = mgr.createInstance(uid("ent_pub"));
         obsIO    = mgr.createInstance(uid("ent_obs"));
 
-        module = std::make_unique<EntityModule>();
+        module = std::make_unique<FxModule>();
         JsonDataNode cfg("config");
         module->setConfiguration(cfg, moduleIO.get(), nullptr);
 
@@ -78,11 +78,11 @@ struct Harness {
 };
 } // namespace
 
-TEST_CASE("IT_059: EntityModule spawn/set/destroy -> render:sprite:* (anchor cx,cy)", "[integration][entity][e2e]") {
+TEST_CASE("IT_059: FxModule spawn/set/destroy -> render:sprite:* (anchor cx,cy)", "[integration][fx][e2e]") {
     Harness h;
 
     // --- spawn a sprite entity -> render:sprite:add at its CENTER. ---
-    h.send("entity:spawn", json{{"id", "player"},
+    h.send("fx:spawn", json{{"id", "player"},
                                 {"transform", {{"cx", 100.0}, {"cy", 200.0}}},
                                 {"sprite", {{"asset", "ship/hull"}, {"layer", 10}}}});
     REQUIRE(h.addCount == 1);
@@ -93,23 +93,23 @@ TEST_CASE("IT_059: EntityModule spawn/set/destroy -> render:sprite:* (anchor cx,
     const int playerId = h.lastAddId;   // renderId = world EntityId, stable across add/update/remove
 
     // --- partial set: move only cx -> update, cy preserved (merge). ---
-    h.send("entity:set", json{{"id", "player"}, {"transform", {{"cx", 150.0}}}});
+    h.send("fx:set", json{{"id", "player"}, {"transform", {{"cx", 150.0}}}});
     REQUIRE(h.updateCount == 1);
     REQUIRE(h.lastUpdateId == playerId);
     REQUIRE_THAT(h.lastUpdateCx, WithinAbs(150.0, 0.001));
     REQUIRE_THAT(h.lastUpdateCy, WithinAbs(200.0, 0.001));   // untouched by the partial set
 
     // --- destroy -> render:sprite:remove for that renderId. ---
-    h.send("entity:destroy", json{{"id", "player"}});
+    h.send("fx:destroy", json{{"id", "player"}});
     REQUIRE(h.removeCount == 1);
     REQUIRE(h.lastRemoveId == playerId);
 }
 
-TEST_CASE("IT_059b: engine-side behaviors (move + lifetime) drive the sprite through the module", "[integration][entity][e2e]") {
+TEST_CASE("IT_059b: engine-side behaviors (move + lifetime) drive the sprite through the module", "[integration][fx][e2e]") {
     Harness h;
 
     // A bullet: textureId sprite, moves right at 100 px/s, lives 0.5 s. Behaviors are ENGINE-side data.
-    h.send("entity:spawn", json{{"id", "bullet"},
+    h.send("fx:spawn", json{{"id", "bullet"},
                                 {"transform", {{"cx", 0.0}, {"cy", 0.0}}},
                                 {"sprite", {{"textureId", 1}}},
                                 {"behaviors", json::array({
@@ -132,11 +132,11 @@ TEST_CASE("IT_059b: engine-side behaviors (move + lifetime) drive the sprite thr
     REQUIRE(h.lastRemoveId == bulletId);
 }
 
-TEST_CASE("IT_059c: prefab/archetype — register once, spawn with per-instance overrides", "[integration][entity][e2e][prefab]") {
+TEST_CASE("IT_059c: prefab/archetype — register once, spawn with per-instance overrides", "[integration][fx][e2e][prefab]") {
     Harness h;
 
     // Register a reusable "bullet" archetype (sprite + move + lifetime) — no entity spawned, no render yet.
-    h.send("entity:prefab", json{{"name", "bullet"},
+    h.send("fx:prefab", json{{"name", "bullet"},
                                  {"sprite", {{"asset", "bullet"}, {"layer", 5}}},
                                  {"behaviors", json::array({
                                      json{{"type", "move"}, {"vx", 100.0}, {"vy", 0.0}},
@@ -144,7 +144,7 @@ TEST_CASE("IT_059c: prefab/archetype — register once, spawn with per-instance 
     REQUIRE(h.addCount == 0);   // registering a prefab spawns nothing
 
     // Spawn an instance of the archetype, overriding only its position.
-    h.send("entity:spawn", json{{"id", "b1"}, {"archetype", "bullet"}, {"transform", {{"cx", 50.0}, {"cy", 0.0}}}}, 0.0);
+    h.send("fx:spawn", json{{"id", "b1"}, {"archetype", "bullet"}, {"transform", {{"cx", 50.0}, {"cy", 0.0}}}}, 0.0);
     REQUIRE(h.addCount == 1);
     REQUIRE(h.lastAddAsset == "bullet");    // inherited from the prefab
     REQUIRE(h.lastAddLayer == 5);           // inherited

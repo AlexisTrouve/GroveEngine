@@ -855,34 +855,43 @@ Build with `-DGROVE_BUILD_SOUND_MODULE=ON` (needs SDL2 + SDL2_mixer). Topic/bus 
 
 ---
 
-## Scene / Entity Layer (`grove::entity` + EntityModule)
+## Effects / FX Layer (`grove::fx` + FxModule)
 
-A **data-driven authoring surface** for game entities — Unity/Godot-style GameObject + Component, but
-**declarative** (data, not code). You compose an entity from **components** and **behaviors**; the engine
-ticks the behaviors and emits the render traffic. There's **no scripting language** — a behavior is a fixed
-engine primitive with numeric params (same discipline as the [VN conditions](#dialoguemodule) and UI
-binding). The point is reuse: the behavior library lives **engine-side**, so every project inherits it, and
-**prefabs** let you define an entity template once and spawn it everywhere.
+A **data-driven layer for ephemeral, cosmetic visual effects** — explosions, debris, engine trails, muzzle
+flash, warp shimmer, floating damage numbers. You compose an effect from **components** and **behaviors**;
+the engine ticks the behaviors and emits the render traffic. It's Unity/Godot-flavoured (compose
+components/prefabs) but **declarative** (data, no scripting language — a behavior is a fixed engine
+primitive with numeric params, same discipline as the VN conditions). Reuse is the point: the behavior
+library lives **engine-side** (every project inherits it) and **prefabs** let you define an effect once and
+spawn it everywhere.
 
-The core is the pure header-only `grove::entity::EntityWorld` (`include/grove/entity/EntityWorld.h` — like
-`grove::anim`, no IIO/renderer); `EntityModule` (an `IModule`) wraps it onto the bus.
+> ⚠️ **Scope — this is NOT for gameplay entities.** Use it for short-lived visuals with **no authoritative
+> position** any gameplay system must own. For **gameplay crowds/agents** (fleets, units, projectiles that
+> collide, anything at scale) do the opposite: **own your state in your own SoA and push it via
+> `submitSpriteBatch`** (the flat-blob bulk path — see [Bulk Sprite Submission](#bulk-sprite-submission-high-throughput)).
+> Movement/formation/AI belong in your game (or a movement product), not in `move{vx,vy}`. Routing a crowd
+> through this layer's per-effect component map (AoS, one node per entity) rebuilds the per-primitive
+> dispatch wall the bulk path exists to avoid.
 
-**The model.** An entity = a stable id + typed **components** + a list of **behaviors**:
+The core is the pure header-only `grove::fx::FxWorld` (`include/grove/fx/FxWorld.h` — like `grove::anim`, no
+IIO/renderer); `FxModule` (an `IModule`) wraps it onto the bus.
+
+**The model.** An effect = a stable id + typed **components** + a list of **behaviors**:
 
 - **`Transform`** `{cx, cy, rotation, scaleX, scaleY}` — `cx,cy` = CENTER (the [anchor convention](#anchor-convention--xy--corner--cxcy--center-read-this)).
-- **`Sprite`** `{asset | textureId, color, layer}` — what it draws (omit → a logic/transform-only entity).
+- **`Sprite`** `{asset | textureId, color, layer}` — what it draws (omit → a logic-only effect).
 - **behaviors** — from the fixed library below.
 
 **Topics consumed:**
 
 | Topic | Payload | Effect |
 |-------|---------|--------|
-| `entity:prefab` | `{name, transform?, sprite?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
-| `entity:spawn` | `{id, archetype?, transform?, sprite?, behaviors?}` | Spawn an entity under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
-| `entity:set` | `{id, transform?, sprite?}` | **Partial** update — only the fields you send change; the rest keep their value |
-| `entity:destroy` | `{id}` | Remove the entity (emits its `render:sprite:remove`) |
+| `fx:prefab` | `{name, transform?, sprite?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
+| `fx:spawn` | `{id, archetype?, transform?, sprite?, behaviors?}` | Spawn an effect under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
+| `fx:set` | `{id, transform?, sprite?}` | **Partial** update — only the fields you send change; the rest keep their value |
+| `fx:destroy` | `{id}` | Remove the effect (emits its `render:sprite:remove`) |
 
-**Published:** `render:sprite:add` / `:update` / `:remove` — keyed by the entity's numeric id (= the
+**Published:** `render:sprite:add` / `:update` / `:remove` — keyed by the effect's numeric id (= the
 renderer's `renderId`), `cx,cy` = CENTER. Each `process(dt)`: drain the inbox → `tick(dt)` (advance
 behaviors) → `diffRender()` (emit only what changed — the minimal retained-render traffic).
 
@@ -891,62 +900,64 @@ an imperfect message degrades gracefully instead of crashing the engine.
 
 ### Behavior library (engine-side, reused across projects)
 
-Behaviors are a **fixed set of primitives** the engine ticks. Compose them on an entity in data:
+Behaviors are a **fixed set of primitives** the engine ticks — focused on **effect lifecycle**. Compose them
+on an effect in data:
 
 | `type` | Params | Effect |
 |--------|--------|--------|
 | `move` | `{vx, vy}` | Translate the center by `v·dt` each frame |
 | `spin` | `{degPerSec}` | Rotate (deg/s → rad) |
-| `lifetime` | `{seconds}` | Destroy the entity after `seconds` (emits its Remove) |
+| `lifetime` | `{seconds}` | Destroy the effect after `seconds` (emits its Remove) |
 
-Behaviors on one entity tick in list order and compose (e.g. `move` + `lifetime` = a bullet). Adding a
-reusable behavior = one `Type` + one tick case in `EntityWorld` — **every project gains it** (that's the
-multi-project lever). Game-specific logic that isn't reusable stays **consumer-side**: mutate components via
-`entity:set` / `world()` from your own loop. (Follow-ons: `follow` / `oscillate` / `path`.)
+Behaviors on one effect tick in list order and compose (e.g. `move` + `lifetime` = a drifting spark). Adding
+a reusable behavior = one `Type` + one tick case in `FxWorld` — **every project gains it**. The roadmap is
+more *lifecycle* primitives (`fade` = alpha over life, `velocity+drag`), **not** `follow`/`path`/`oscillate`
+— gameplay movement is consumer-owned (mutate components via `fx:set` / `world()` from your own loop).
 
 ### Prefabs / archetypes (define once, spawn everywhere)
 
-A **prefab** is a reusable entity template — the biggest reuse lever (a shared `bullet` / `pickup` / `enemy`
-definition). Register it once, then spawn instances with per-instance overrides:
+A **prefab** is a reusable effect template — the biggest reuse lever (a shared `explosion` / `muzzle_flash` /
+`debris` definition). Register it once, then spawn instances with per-instance overrides:
 
 ```jsonc
-// entity:prefab — a reusable archetype (no entity spawned yet)
-{ "name": "bullet",
-  "sprite": { "asset": "bullet", "layer": 5 },
-  "behaviors": [ {"type":"move","vx":300,"vy":0}, {"type":"lifetime","seconds":1.5} ] }
+// fx:prefab — a reusable archetype (no effect spawned yet)
+{ "name": "explosion",
+  "sprite": { "asset": "fx/blast", "layer": 900 },
+  "behaviors": [ {"type":"spin","degPerSec":120}, {"type":"lifetime","seconds":0.6} ] }
 
-// entity:spawn — instantiate it, overriding only the position; sprite + behaviors are inherited
-{ "id": "b1", "archetype": "bullet", "transform": { "cx": 400, "cy": 300 } }
+// fx:spawn — instantiate it at a hit location; sprite + behaviors are inherited
+{ "id": "hit_42", "archetype": "explosion", "transform": { "cx": 400, "cy": 300 } }
 ```
 
-Each instance is a **deep copy** (fresh behavior state — two bullets expire independently). The spawn's
+Each instance is a **deep copy** (fresh behavior state — two explosions expire independently). The spawn's
 `transform`/`sprite` **merge** on top of the prefab's; its `behaviors` **add** to the prefab's. An unknown
 archetype falls back to a plain empty spawn (fail soft).
 
-**Wiring (static-link host, e.g. Drifterra):** link `EntityModule_static`, then either push `entity:*`
-topics **or** drive the world directly through the C++ API and call `process(dt)` each frame to tick + emit:
+**Wiring (static-link host, e.g. Drifterra):** link `FxModule_static`, then either push `fx:*` topics **or**
+drive the world directly through the C++ API and call `process(dt)` each frame to tick + emit:
 
 ```cpp
-#include "EntityModule.h"
+#include "FxModule.h"
 using namespace grove;
 
-auto entities = std::make_unique<EntityModule>();
+auto fxmod = std::make_unique<FxModule>();
 JsonDataNode cfg("config");
-entities->setConfiguration(cfg, entityIO, nullptr);   // subscribes entity:*
+fxmod->setConfiguration(cfg, fxIO, nullptr);          // subscribes fx:*
 
 // Author directly in C++ (no topics needed):
-auto& w = entities->world();
-entity::EntityId ship = w.spawn();
-w.setSprite(ship, {true, "ship/hull", 0, 0xFFFFFFFFu, 10});
-w.setTransform(ship, {400.0f, 300.0f});               // cx,cy = CENTER
-w.addBehavior(ship, entity::spin(45.0f));             // engine ticks it
+auto& w = fxmod->world();
+fx::EntityId spark = w.spawn();
+w.setSprite(spark, {true, "fx/spark", 0, 0xFFFFFFFFu, 900});
+w.setTransform(spark, {400.0f, 300.0f});              // cx,cy = CENTER
+w.addBehavior(spark, fx::spin(45.0f));
+w.addBehavior(spark, fx::lifetime(0.8f));             // engine ticks it, then removes it
 
-// per frame: publish any entity:* on a peer IIO, then
+// per frame: publish any fx:* on a peer IIO, then
 JsonDataNode in("input"); in.setDouble("deltaTime", dt);
-entities->process(in);   // drain -> tick(dt) -> emit render:sprite:*
+fxmod->process(in);   // drain -> tick(dt) -> emit render:sprite:*
 ```
 
-Build with `-DGROVE_BUILD_ENTITY_MODULE=ON` (SDL-free). The pure logic is locked by `EntityWorldUnit`
+Build with `-DGROVE_BUILD_FX_MODULE=ON` (SDL-free). The pure logic is locked by `FxWorldUnit`
 (`[prefab]` cases included); the module end-to-end by `IT_059` (a spawn → `render:sprite:add` at center, a
 partial set → `:update`, an archetype spawn with an override, and `move`+`lifetime` driving a sprite to its
 `:remove`). Hot-reload full-world serialization is a follow-on (`getState` is minimal for now).
@@ -1206,17 +1217,18 @@ Two modes:
 | `render:debug:line` | `{x1, y1, x2, y2, color}` | Draw debug line |
 | `render:debug:rect` | `{x, y, w, h, color, filled}` | Draw debug rectangle |
 
-### Entity Topics
+### FX / Effects Topics
 
-Consumed by **EntityModule**, which turns them into `render:sprite:*`. Full guide + the behavior library +
-prefabs: [Scene / Entity Layer](#scene--entity-layer-groveentity--entitymodule).
+Consumed by **FxModule** (ephemeral VFX only — NOT gameplay crowds; those use `submitSpriteBatch`), which
+turns them into `render:sprite:*`. Full guide + the behavior library + prefabs:
+[Effects / FX Layer](#effects--fx-layer-grovefx--fxmodule).
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `entity:prefab` | `{name, transform?, sprite?, behaviors?}` | Register a reusable archetype/template |
-| `entity:spawn` | `{id, archetype?, transform?, sprite?, behaviors?}` | Spawn an entity (optionally from a prefab, with overrides). `transform.cx,cy` = CENTER |
-| `entity:set` | `{id, transform?, sprite?}` | Partial update — omitted fields keep their value |
-| `entity:destroy` | `{id}` | Remove the entity |
+| `fx:prefab` | `{name, transform?, sprite?, behaviors?}` | Register a reusable archetype/template |
+| `fx:spawn` | `{id, archetype?, transform?, sprite?, behaviors?}` | Spawn an effect (optionally from a prefab, with overrides). `transform.cx,cy` = CENTER |
+| `fx:set` | `{id, transform?, sprite?}` | Partial update — omitted fields keep their value |
+| `fx:destroy` | `{id}` | Remove the effect |
 
 Behaviors: `{"type":"move","vx","vy"}` · `{"type":"spin","degPerSec"}` · `{"type":"lifetime","seconds"}`.
 

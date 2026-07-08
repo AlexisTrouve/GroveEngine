@@ -536,14 +536,14 @@ target_include_directories(test_transform2d PRIVATE
 target_link_libraries(test_transform2d PRIVATE Catch2::Catch2WithMain)
 grove_add_test(Transform2DUnit test_transform2d ${CMAKE_CURRENT_BINARY_DIR})
 
-# Scene/entity layer slice E1: EntityWorld (grove::entity). Header-only, std-only —
-# in include/grove/entity. Pure entity/component/behavior core + retained-render diff.
-add_executable(test_entity_world unit/test_entity_world.cpp)
-target_include_directories(test_entity_world PRIVATE
+# Fx/effects layer slice E1: FxWorld (grove::fx). Header-only, std-only — in include/grove/fx.
+# Pure effect/component/behavior core + retained-render diff (ephemeral VFX, NOT gameplay entities).
+add_executable(test_fx_world unit/test_fx_world.cpp)
+target_include_directories(test_fx_world PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(test_entity_world PRIVATE Catch2::Catch2WithMain)
-grove_add_test(EntityWorldUnit test_entity_world ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(test_fx_world PRIVATE Catch2::Catch2WithMain)
+grove_add_test(FxWorldUnit test_fx_world ${CMAKE_CURRENT_BINARY_DIR})
 
 # Animation system slice 2a: Easing curves (grove::anim). Header-only, std-only, reusable.
 add_executable(test_easing unit/test_easing.cpp)
@@ -841,17 +841,17 @@ target_include_directories(IT_058_video_e2e PRIVATE
 target_link_libraries(IT_058_video_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(VideoE2E IT_058_video_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
-# Scene/entity layer slice E2: EntityModule E2E (entity:* topics -> render:sprite:*). Compiles the module
-# source directly (dependency-free — pure logic over IIO), so it always builds regardless of the build flag.
-add_executable(IT_059_entity_e2e
-    integration/IT_059_entity_e2e.cpp
-    ../modules/EntityModule/EntityModule.cpp)
-target_include_directories(IT_059_entity_e2e PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/EntityModule
+# Fx/effects layer slice E2: FxModule E2E (fx:* topics -> render:sprite:*). Compiles the module source
+# directly (dependency-free — pure logic over IIO), so it always builds regardless of the build flag.
+add_executable(IT_059_fx_e2e
+    integration/IT_059_fx_e2e.cpp
+    ../modules/FxModule/FxModule.cpp)
+target_include_directories(IT_059_fx_e2e PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/FxModule
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(IT_059_entity_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
-grove_add_test(EntityE2E IT_059_entity_e2e ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(IT_059_fx_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(FxE2E IT_059_fx_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
 # UI framework slice 6c-1: FfmpegCliBackend — real MP4 decode via the ffmpeg CLI. Standalone (no core);
 # GATED at runtime on ffmpeg/ffprobe being on PATH (WARN-skips otherwise).

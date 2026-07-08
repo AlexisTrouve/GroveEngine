@@ -1,9 +1,9 @@
 #pragma once
 
 /**
- * EntityModule — the data-driven scene/entity layer as an IModule (scene/entity slice E2).
+ * FxModule — the data-driven scene/entity layer as an IModule (scene/entity slice E2).
  *
- * WHAT  : Wraps the pure `entity::EntityWorld` (entities + components + the fixed behavior library) and
+ * WHAT  : Wraps the pure `fx::FxWorld` (entities + components + the fixed behavior library) and
  *         maps it onto the bus. Each process() drains the entity:* input topics, ticks the world by dt,
  *         and turns the retained-render diff into render:sprite:add / :update / :remove (keyed by the
  *         entity id = renderId). The game composes entities/behaviors in DATA; the engine ticks the
@@ -20,7 +20,7 @@
  *   render:sprite:update { renderId, cx, cy, rotation, scaleX, scaleY, asset|textureId, color, layer }
  *   render:sprite:remove { renderId }
  *
- * WHY   : behavior must be practical ACROSS PROJECTS, so it lives engine-side (EntityWorld's library),
+ * WHY   : behavior must be practical ACROSS PROJECTS, so it lives engine-side (FxWorld's library),
  *         reusable by every game. Pure core stays headless-testable; this only wires it to IIO. A C++
  *         static-link host (Drifterra) can skip the topics and drive `world()` directly, then process()
  *         each frame to tick + emit. Bespoke game logic stays consumer-side (mutate components).
@@ -32,7 +32,7 @@
 #include <grove/IModule.h>
 #include <grove/IIO.h>
 #include <grove/ITaskScheduler.h>
-#include "grove/entity/EntityWorld.h"
+#include "grove/fx/FxWorld.h"
 
 #include <cstdint>
 #include <map>
@@ -41,10 +41,10 @@
 
 namespace grove {
 
-class EntityModule : public IModule {
+class FxModule : public IModule {
 public:
-    EntityModule();
-    ~EntityModule() override;
+    FxModule();
+    ~FxModule() override;
 
     // IModule interface
     void setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler* scheduler) override;
@@ -58,17 +58,17 @@ public:
     bool isIdle() const override { return true; }
 
     // C++ static-link API (Drifterra): drive the world directly, then process(dt) to tick + emit.
-    entity::EntityWorld& world() { return m_world; }
+    fx::FxWorld& world() { return m_world; }
 
 private:
     void handleMessage(const Message& msg);
     void emitDiff();                              // diffRender() -> render:sprite:add/update/remove
-    void applyComponents(entity::EntityId id, const IDataNode& d);   // transform / sprite from a node
+    void applyComponents(fx::EntityId id, const IDataNode& d);   // transform / sprite from a node
 
     IIO* m_io = nullptr;
     std::unique_ptr<IDataNode> m_config;
-    entity::EntityWorld m_world;
-    std::map<std::string, entity::EntityId> m_names;   // authoring string id -> world EntityId (renderId)
+    fx::FxWorld m_world;
+    std::map<std::string, fx::EntityId> m_names;   // authoring string id -> world EntityId (renderId)
     uint64_t m_spawned = 0;                            // health counter
 };
 
