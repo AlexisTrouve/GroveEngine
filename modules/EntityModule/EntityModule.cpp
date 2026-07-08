@@ -59,6 +59,16 @@ bool parseBehavior(const nlohmann::json& jb, entity::Behavior& out) {
     if (type == "lifetime") { out = entity::lifetime(num(jb, "seconds", 0.0f)); return true; }
     return false;   // unknown behavior type — ignored (fail soft)
 }
+
+// Build a prefab TEMPLATE from a payload's transform/sprite/behaviors (same fields as a spawn, but no id).
+entity::Prefab parsePrefab(const nlohmann::json& j) {
+    entity::Prefab p;
+    if (auto t = j.find("transform"); t != j.end() && t->is_object()) mergeTransform(*t, p.transform);
+    if (auto s = j.find("sprite"); s != j.end() && s->is_object()) { mergeSprite(*s, p.sprite); p.sprite.present = true; }
+    if (auto b = j.find("behaviors"); b != j.end() && b->is_array())
+        for (const auto& jb : *b) { entity::Behavior beh; if (parseBehavior(jb, beh)) p.behaviors.push_back(beh); }
+    return p;
+}
 } // namespace
 
 EntityModule::EntityModule()
@@ -70,6 +80,7 @@ void EntityModule::setConfiguration(const IDataNode& /*config*/, IIO* io, ITaskS
     m_io = io;
     if (m_io) {
         auto cb = [this](const Message& msg) { handleMessage(msg); };
+        m_io->subscribe("entity:prefab", cb);   // register a reusable archetype/template
         m_io->subscribe("entity:spawn", cb);
         m_io->subscribe("entity:set", cb);
         m_io->subscribe("entity:destroy", cb);
@@ -91,12 +102,27 @@ void EntityModule::handleMessage(const Message& msg) {
     const auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get());
     if (!jn) return;                          // entity payloads are nested objects -> need the json
     const nlohmann::json& j = jn->getJsonData();
+
+    // entity:prefab {name, ...} — register a reusable archetype (keyed by NAME, not an entity id).
+    if (msg.topic == "entity:prefab") {
+        const std::string name = str(j, "name");
+        if (!name.empty()) m_world.registerPrefab(name, parsePrefab(j));
+        return;
+    }
+
     const std::string id = str(j, "id");
     if (id.empty()) return;                   // an entity needs a string id (the authoring handle)
 
     if (msg.topic == "entity:spawn") {
-        entity::EntityId eid = resolve(id, /*createIfMissing=*/true);
-        applyComponents(eid, *msg.data);
+        // Optional `archetype`: instantiate a registered prefab, then the spawn's own transform/sprite
+        // MERGE on top (per-instance overrides) and its behaviors ADD to the prefab's. No archetype -> a
+        // plain empty entity. Unknown archetype -> falls back to a plain spawn (fail soft).
+        const std::string archetype = str(j, "archetype");
+        const entity::EntityId eid = (!archetype.empty() && m_world.hasPrefab(archetype))
+                                         ? m_world.spawnFromPrefab(archetype)
+                                         : m_world.spawn();
+        m_names[id] = eid;                    // map the string handle (= renderId)
+        applyComponents(eid, *msg.data);      // per-instance overrides
         if (auto b = j.find("behaviors"); b != j.end() && b->is_array()) {
             for (const auto& jb : *b) {
                 entity::Behavior beh;
@@ -158,15 +184,6 @@ void EntityModule::emitDiff() {
                                                                           : "render:sprite:update",
                       std::move(n));
     }
-}
-
-entity::EntityId EntityModule::resolve(const std::string& name, bool createIfMissing) {
-    auto it = m_names.find(name);
-    if (it != m_names.end()) return it->second;
-    if (!createIfMissing) return 0;
-    const entity::EntityId id = m_world.spawn();
-    m_names.emplace(name, id);
-    return id;
 }
 
 void EntityModule::shutdown() {

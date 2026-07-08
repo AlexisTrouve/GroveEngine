@@ -139,3 +139,49 @@ TEST_CASE("EntityWorldUnit: behaviors compose in list order (move + lifetime on 
     REQUIRE(w.aliveCount() == 0);
     REQUIRE(count(w.diffRender(), EntityWorld::RenderOp::Kind::Remove) == 1);
 }
+
+TEST_CASE("EntityWorldUnit: spawnFromPrefab copies the template's components + behaviors", "[entity][unit][prefab]") {
+    EntityWorld w;
+    Prefab bullet;
+    bullet.transform = Transform{0.0f, 0.0f};
+    bullet.sprite = Sprite{true, "bullet", 0, 0xFF0000FFu, 5};
+    bullet.behaviors = { move(100.0f, 0.0f), lifetime(1.0f) };
+    w.registerPrefab("bullet", bullet);
+    REQUIRE(w.hasPrefab("bullet"));
+
+    EntityId e = w.spawnFromPrefab("bullet");
+    REQUIRE(e != 0);
+    REQUIRE(w.get(e)->sprite.asset == "bullet");     // component copied
+    REQUIRE(w.get(e)->sprite.layer == 5);
+    // the template's behaviors run on the instance
+    w.tick(0.5f);
+    REQUIRE_THAT(w.get(e)->transform.cx, WithinAbs(50.0f, 0.001f));
+    REQUIRE(w.aliveCount() == 1);                    // age 0.5 < 1.0
+
+    // First render diff -> Add carrying the prefab's sprite.
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, EntityWorld::RenderOp::Kind::Add) == 1);
+    REQUIRE(find(ops, e)->sprite.asset == "bullet");
+}
+
+TEST_CASE("EntityWorldUnit: prefab instances have INDEPENDENT behavior state", "[entity][unit][prefab]") {
+    EntityWorld w;
+    Prefab p; p.sprite = Sprite{true, "x", 0, 0xFFFFFFFFu, 0}; p.behaviors = { lifetime(1.0f) };
+    w.registerPrefab("mortal", p);
+
+    EntityId a = w.spawnFromPrefab("mortal");
+    w.tick(0.7f); w.diffRender();       // a: age 0.7, alive
+    EntityId b = w.spawnFromPrefab("mortal");
+    w.tick(0.5f);                       // a: age 1.2 -> dead ; b: age 0.5 -> alive
+    REQUIRE(w.aliveCount() == 1);       // only b alive (fresh age copy, not shared)
+    w.diffRender();                     // GCs the dead a
+    REQUIRE(w.get(a) == nullptr);       // a expired independently
+    REQUIRE(w.get(b) != nullptr);
+}
+
+TEST_CASE("EntityWorldUnit: spawnFromPrefab on an unknown name fails soft (0, no entity)", "[entity][unit][prefab]") {
+    EntityWorld w;
+    REQUIRE_FALSE(w.hasPrefab("ghost"));
+    REQUIRE(w.spawnFromPrefab("ghost") == 0);
+    REQUIRE(w.aliveCount() == 0);
+}

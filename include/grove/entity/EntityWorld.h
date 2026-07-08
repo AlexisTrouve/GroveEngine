@@ -74,6 +74,16 @@ struct Entity {
     std::vector<Behavior> behaviors;
 };
 
+// A PREFAB / archetype: a reusable entity TEMPLATE (default components + behaviors), registered once and
+// spawned N times. The biggest multi-project lever — a library of "bullet" / "pickup" / "enemy" definitions
+// shared across games. Instances get a FRESH copy (behavior state, e.g. Lifetime.age, starts at 0), then the
+// caller applies per-instance overrides on top (setTransform/setSprite/addBehavior).
+struct Prefab {
+    Transform transform;
+    Sprite sprite;
+    std::vector<Behavior> behaviors;
+};
+
 class EntityWorld {
 public:
     // Spawn an empty entity (transform at origin, no sprite, no behaviors); returns its id.
@@ -97,6 +107,22 @@ public:
     void setTransform(EntityId id, const Transform& t) { if (Entity* e = get(id)) e->transform = t; }
     void setSprite(EntityId id, const Sprite& s)       { if (Entity* e = get(id)) { e->sprite = s; e->sprite.present = true; } }
     void addBehavior(EntityId id, const Behavior& b)   { if (Entity* e = get(id)) e->behaviors.push_back(b); }
+
+    // --- Prefabs / archetypes (the multi-project entity-template library) ---
+    void registerPrefab(const std::string& name, const Prefab& p) { m_prefabs[name] = p; }
+    bool hasPrefab(const std::string& name) const { return m_prefabs.find(name) != m_prefabs.end(); }
+    // Spawn a fresh instance of a registered prefab (a deep copy of its components + behaviors, so each
+    // instance has its own behavior state). Returns 0 if the name is unknown (fail soft — never a bad spawn).
+    EntityId spawnFromPrefab(const std::string& name) {
+        auto it = m_prefabs.find(name);
+        if (it == m_prefabs.end()) return 0;
+        const EntityId id = spawn();
+        Entity& e = *get(id);
+        e.transform = it->second.transform;
+        e.sprite    = it->second.sprite;
+        e.behaviors = it->second.behaviors;
+        return id;
+    }
 
     size_t aliveCount() const {
         size_t n = 0;
@@ -195,6 +221,7 @@ private:
     EntityId m_nextId = 0;
     std::map<EntityId, Entity> m_entities;        // ordered -> deterministic tick / diff
     std::map<EntityId, RenderState> m_snapshot;   // last-emitted render state per id (drives the diff)
+    std::map<std::string, Prefab> m_prefabs;      // the archetype/prefab library (spawn templates)
 };
 
 } // namespace entity

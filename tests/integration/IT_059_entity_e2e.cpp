@@ -131,3 +131,29 @@ TEST_CASE("IT_059b: engine-side behaviors (move + lifetime) drive the sprite thr
     REQUIRE(h.removeCount == 1);
     REQUIRE(h.lastRemoveId == bulletId);
 }
+
+TEST_CASE("IT_059c: prefab/archetype — register once, spawn with per-instance overrides", "[integration][entity][e2e][prefab]") {
+    Harness h;
+
+    // Register a reusable "bullet" archetype (sprite + move + lifetime) — no entity spawned, no render yet.
+    h.send("entity:prefab", json{{"name", "bullet"},
+                                 {"sprite", {{"asset", "bullet"}, {"layer", 5}}},
+                                 {"behaviors", json::array({
+                                     json{{"type", "move"}, {"vx", 100.0}, {"vy", 0.0}},
+                                     json{{"type", "lifetime"}, {"seconds", 0.5}}})}}, 0.0);
+    REQUIRE(h.addCount == 0);   // registering a prefab spawns nothing
+
+    // Spawn an instance of the archetype, overriding only its position.
+    h.send("entity:spawn", json{{"id", "b1"}, {"archetype", "bullet"}, {"transform", {{"cx", 50.0}, {"cy", 0.0}}}}, 0.0);
+    REQUIRE(h.addCount == 1);
+    REQUIRE(h.lastAddAsset == "bullet");    // inherited from the prefab
+    REQUIRE(h.lastAddLayer == 5);           // inherited
+    REQUIRE_THAT(h.lastAddCx, WithinAbs(50.0, 0.001));   // overridden per instance
+
+    // The prefab's behaviors run on the instance: move -> update, then lifetime -> remove.
+    h.step(0.25);
+    REQUIRE(h.updateCount == 1);
+    REQUIRE_THAT(h.lastUpdateCx, WithinAbs(75.0, 0.001));   // 50 + 100*0.25
+    h.step(0.25);
+    REQUIRE(h.removeCount == 1);            // lifetime 0.5 expired -> the engine removed it
+}

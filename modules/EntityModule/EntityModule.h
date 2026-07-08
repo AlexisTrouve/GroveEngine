@@ -63,7 +63,6 @@ public:
 private:
     void handleMessage(const Message& msg);
     void emitDiff();                              // diffRender() -> render:sprite:add/update/remove
-    entity::EntityId resolve(const std::string& name, bool createIfMissing);
     void applyComponents(entity::EntityId id, const IDataNode& d);   // transform / sprite from a node
 
     IIO* m_io = nullptr;
