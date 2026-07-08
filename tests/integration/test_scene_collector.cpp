@@ -66,8 +66,8 @@ TEST_CASE("SceneCollector - retained sprite: add then PERSISTS across frames", "
 
     auto add = std::make_unique<JsonDataNode>("s");
     add->setInt("renderId", 7);
-    add->setDouble("x", 10.0);
-    add->setDouble("y", 20.0);
+    add->setDouble("cx", 10.0);
+    add->setDouble("cy", 20.0);
     fx.ioPublisher->publish("render:sprite:add", std::move(add));
     fx.pump();
 
@@ -96,7 +96,7 @@ TEST_CASE("SceneCollector - retained sprite: update preserves unspecified fields
     // Add a RED sprite (0xFF0000FF = r=1,g=0,b=0,a=1).
     auto add = std::make_unique<JsonDataNode>("s");
     add->setInt("renderId", 3);
-    add->setDouble("x", 10.0);
+    add->setDouble("cx", 10.0);
     add->setInt("color", static_cast<int>(0xFF0000FF));
     fx.ioPublisher->publish("render:sprite:add", std::move(add));
     fx.pump();
@@ -104,7 +104,7 @@ TEST_CASE("SceneCollector - retained sprite: update preserves unspecified fields
     // Update ONLY x — no color field. Color must be PRESERVED (red), like x/y/scale are.
     auto upd = std::make_unique<JsonDataNode>("s");
     upd->setInt("renderId", 3);
-    upd->setDouble("x", 20.0);
+    upd->setDouble("cx", 20.0);
     fx.ioPublisher->publish("render:sprite:update", std::move(upd));
     fx.pump();
 
@@ -123,7 +123,7 @@ TEST_CASE("SceneCollector - retained sprite: remove deletes it", "[scene_collect
 
     auto add = std::make_unique<JsonDataNode>("s");
     add->setInt("renderId", 5);
-    add->setDouble("x", 10.0);
+    add->setDouble("cx", 10.0);
     fx.ioPublisher->publish("render:sprite:add", std::move(add));
     fx.pump();
     REQUIRE(fx.collector.finalize(allocator).spriteCount == 1);
@@ -450,8 +450,8 @@ TEST_CASE("SceneCollector - parse sprite all fields", "[scene_collector][integra
 
     // Create sprite message
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", 100.0);
-    sprite->setDouble("y", 200.0);
+    sprite->setDouble("cx", 100.0);
+    sprite->setDouble("cy", 200.0);
     sprite->setDouble("scaleX", 2.0);
     sprite->setDouble("scaleY", 3.0);
     sprite->setDouble("rotation", 1.57);
@@ -493,14 +493,14 @@ TEST_CASE("SceneCollector - parse multiple sprites", "[scene_collector][integrat
 
     // Publish multiple sprites
     auto sprite1 = std::make_unique<JsonDataNode>("sprite");
-    sprite1->setDouble("x", 10.0);
-    sprite1->setDouble("y", 20.0);
+    sprite1->setDouble("cx", 10.0);
+    sprite1->setDouble("cy", 20.0);
     sprite1->setInt("color", 0xFFFFFFFF);
     ioPublisher->publish("render:sprite", std::move(sprite1));
 
     auto sprite2 = std::make_unique<JsonDataNode>("sprite");
-    sprite2->setDouble("x", 30.0);
-    sprite2->setDouble("y", 40.0);
+    sprite2->setDouble("cx", 30.0);
+    sprite2->setDouble("cy", 40.0);
     sprite2->setInt("color", 0xFF0000FF);
     ioPublisher->publish("render:sprite", std::move(sprite2));
 
@@ -878,8 +878,8 @@ TEST_CASE("SceneCollector - parse particle", "[scene_collector][integration]") {
     collector.setup(ioCollector.get());
 
     auto particle = std::make_unique<JsonDataNode>("particle");
-    particle->setDouble("x", 10.0);
-    particle->setDouble("y", 20.0);
+    particle->setDouble("cx", 10.0);
+    particle->setDouble("cy", 20.0);
     particle->setDouble("vx", 1.0);
     particle->setDouble("vy", -2.0);
     particle->setDouble("size", 4.0);
@@ -1044,8 +1044,8 @@ TEST_CASE("SceneCollector - finalize copies to allocator", "[scene_collector][in
     // Add multiple sprites
     for (int i = 0; i < 5; ++i) {
         auto sprite = std::make_unique<JsonDataNode>("sprite");
-        sprite->setDouble("x", i * 10.0);
-        sprite->setDouble("y", i * 20.0);
+        sprite->setDouble("cx", i * 10.0);
+        sprite->setDouble("cy", i * 20.0);
         ioPublisher->publish("render:sprite", std::move(sprite));
     }
 
@@ -1111,7 +1111,7 @@ TEST_CASE("SceneCollector - clear empties collections", "[scene_collector][integ
     collector.setup(ioCollector.get());
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", 10.0);
+    sprite->setDouble("cx", 10.0);
     ioPublisher->publish("render:sprite", std::move(sprite));
 
     collector.collect(ioCollector.get(), 0.016f);
@@ -1141,7 +1141,7 @@ TEST_CASE("SceneCollector - multiple frame cycles", "[scene_collector][integrati
     // Frame 1
     {
         auto sprite = std::make_unique<JsonDataNode>("sprite");
-        sprite->setDouble("x", 100.0);
+        sprite->setDouble("cx", 100.0);
         ioPublisher->publish("render:sprite", std::move(sprite));
 
         collector.collect(ioCollector.get(), 0.016f);
@@ -1157,11 +1157,11 @@ TEST_CASE("SceneCollector - multiple frame cycles", "[scene_collector][integrati
     // Frame 2
     {
         auto sprite1 = std::make_unique<JsonDataNode>("sprite");
-        sprite1->setDouble("x", 200.0);
+        sprite1->setDouble("cx", 200.0);
         ioPublisher->publish("render:sprite", std::move(sprite1));
 
         auto sprite2 = std::make_unique<JsonDataNode>("sprite");
-        sprite2->setDouble("x", 300.0);
+        sprite2->setDouble("cx", 300.0);
         ioPublisher->publish("render:sprite", std::move(sprite2));
 
         collector.collect(ioCollector.get(), 0.016f);
@@ -1204,7 +1204,7 @@ TEST_CASE("SceneCollector - sprites emitted sorted by layer ascending (#4)", "[s
     // One retained sprite (layer 2). Retained are merged first in hash order.
     auto retained = std::make_unique<JsonDataNode>("s");
     retained->setInt("renderId", 99);
-    retained->setDouble("x", 20.0);
+    retained->setDouble("cx", 20.0);
     retained->setInt("layer", 2);
     ioPublisher->publish("render:sprite:add", std::move(retained));
 
@@ -1214,7 +1214,7 @@ TEST_CASE("SceneCollector - sprites emitted sorted by layer ascending (#4)", "[s
     const double xs[]   = {50.0, 10.0, 30.0};
     for (int i = 0; i < 3; ++i) {
         auto s = std::make_unique<JsonDataNode>("sprite");
-        s->setDouble("x", xs[i]);
+        s->setDouble("cx", xs[i]);
         s->setInt("layer", layers[i]);
         ioPublisher->publish("render:sprite", std::move(s));
     }
@@ -1326,7 +1326,7 @@ TEST_CASE("SceneCollector - collect mixed message types", "[scene_collector][int
 
     // Publish various message types
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", 10.0);
+    sprite->setDouble("cx", 10.0);
     ioPublisher->publish("render:sprite", std::move(sprite));
 
     auto text = std::make_unique<JsonDataNode>("text");
@@ -1334,7 +1334,7 @@ TEST_CASE("SceneCollector - collect mixed message types", "[scene_collector][int
     ioPublisher->publish("render:text", std::move(text));
 
     auto particle = std::make_unique<JsonDataNode>("particle");
-    particle->setDouble("x", 5.0);
+    particle->setDouble("cx", 5.0);
     ioPublisher->publish("render:particle", std::move(particle));
 
     auto line = std::make_unique<JsonDataNode>("line");
@@ -1394,7 +1394,7 @@ TEST_CASE("SceneCollector - bulk sprites and IIO ephemeral sprites coexist in on
     fx.collector.addSpritesBulk(batch.data(), batch.size());
     // ...and one via the classic IIO/JSON path.
     auto s = std::make_unique<JsonDataNode>("s");
-    s->setDouble("x", 99.0);
+    s->setDouble("cx", 99.0);
     fx.ioPublisher->publish("render:sprite", std::move(s));
     fx.pump();
 
@@ -1451,7 +1451,7 @@ TEST_CASE("SceneCollector - bulk particles coexist with a render:particle, and c
     std::vector<ParticleInstance> batch = {makeParticle(1.0f, 0xFFFFFFFF), makeParticle(2.0f, 0xFFFFFFFF)};
     fx.collector.addParticlesBulk(batch.data(), batch.size());
     auto pn = std::make_unique<JsonDataNode>("particle");
-    pn->setDouble("x", 99.0);
+    pn->setDouble("cx", 99.0);
     fx.ioPublisher->publish("render:particle", std::move(pn));
     fx.pump();
 

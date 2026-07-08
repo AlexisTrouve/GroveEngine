@@ -22,8 +22,8 @@ TEST_CASE("SpriteInstance data layout", "[bgfx][unit]") {
     // Test that SpriteInstance struct can be constructed from IIO message data
 
     auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
-    sprite->setDouble("x", 100.0);
-    sprite->setDouble("y", 200.0);
+    sprite->setDouble("cx", 100.0);   // cx,cy = CENTER (anchor convention)
+    sprite->setDouble("cy", 200.0);
     sprite->setDouble("scaleX", 32.0);
     sprite->setDouble("scaleY", 32.0);
     sprite->setDouble("rotation", 1.57f);  // ~90 degrees
@@ -36,8 +36,8 @@ TEST_CASE("SpriteInstance data layout", "[bgfx][unit]") {
     sprite->setInt("layer", 10);
 
     // Verify data can be read back
-    REQUIRE(sprite->getDouble("x") == 100.0);
-    REQUIRE(sprite->getDouble("y") == 200.0);
+    REQUIRE(sprite->getDouble("cx") == 100.0);
+    REQUIRE(sprite->getDouble("cy") == 200.0);
     REQUIRE(sprite->getDouble("scaleX") == 32.0);
     REQUIRE(sprite->getDouble("scaleY") == 32.0);
     REQUIRE_THAT(sprite->getDouble("rotation"), WithinAbs(1.57, 0.01));
@@ -64,7 +64,7 @@ TEST_CASE("IIO sprite message routing between modules", "[bgfx][integration]") {
             // Verify first message
             REQUIRE(msg.topic == "render:sprite");
             REQUIRE(msg.data != nullptr);
-            REQUIRE_THAT(msg.data->getDouble("x"), WithinAbs(100.0, 0.01));
+            REQUIRE_THAT(msg.data->getDouble("cx"), WithinAbs(100.0, 0.01));
             firstMessageVerified = true;
         }
     });
@@ -72,8 +72,8 @@ TEST_CASE("IIO sprite message routing between modules", "[bgfx][integration]") {
     // Game module publishes sprites via IIO
     for (int i = 0; i < 3; ++i) {
         auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
-        sprite->setDouble("x", 100.0 + i * 50);
-        sprite->setDouble("y", 200.0 + i * 30);
+        sprite->setDouble("cx", 100.0 + i * 50);
+        sprite->setDouble("cy", 200.0 + i * 30);
         sprite->setDouble("scaleX", 32.0);
         sprite->setDouble("scaleY", 32.0);
         sprite->setInt("color", 0xFFFFFFFF);

@@ -76,8 +76,8 @@ public:
         {
             auto sprite = std::make_unique<JsonDataNode>("sprite");
             // Position at CENTER of screen (400, 300)
-            sprite->setDouble("x", 400.0);  // Center X
-            sprite->setDouble("y", 300.0);  // Center Y
+            sprite->setDouble("cx", 400.0);  // Center X
+            sprite->setDouble("cy", 300.0);  // Center Y
             sprite->setDouble("scaleX", 200.0);  // 200px wide
             sprite->setDouble("scaleY", 150.0);  // 150px tall
             sprite->setInt("color", 0xFF0000FF);  // Red, full alpha
@@ -93,8 +93,8 @@ public:
         // TEST 2: Sprite at top-left corner
         {
             auto sprite = std::make_unique<JsonDataNode>("sprite");
-            sprite->setDouble("x", 100.0);
-            sprite->setDouble("y", 100.0);
+            sprite->setDouble("cx", 100.0);
+            sprite->setDouble("cy", 100.0);
             sprite->setDouble("scaleX", 100.0);
             sprite->setDouble("scaleY", 100.0);
             sprite->setInt("color", 0x00FF00FF);  // Green
@@ -114,8 +114,8 @@ public:
 
             auto sprite = std::make_unique<JsonDataNode>("sprite");
             // UIRenderer centers the sprite
-            sprite->setDouble("x", static_cast<double>(btnX + btnW * 0.5f));
-            sprite->setDouble("y", static_cast<double>(btnY + btnH * 0.5f));
+            sprite->setDouble("cx", static_cast<double>(btnX + btnW * 0.5f));
+            sprite->setDouble("cy", static_cast<double>(btnY + btnH * 0.5f));
             sprite->setDouble("scaleX", static_cast<double>(btnW));
             sprite->setDouble("scaleY", static_cast<double>(btnH));
             sprite->setInt("color", 0x0984E3FF);  // Blue (like primary button)

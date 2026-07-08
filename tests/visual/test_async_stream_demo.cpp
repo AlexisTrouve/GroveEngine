@@ -110,7 +110,7 @@ public:
         for (int i = 0; i < N; ++i) {
             const int col = i % COLS, row = i / COLS;
             auto s = std::make_unique<JsonDataNode>("d");
-            s->setDouble("x", marginX + col * cell); s->setDouble("y", top + row * cell);
+            s->setDouble("cx", marginX + col * cell); s->setDouble("cy", top + row * cell);
             s->setDouble("scaleX", sprite); s->setDouble("scaleY", sprite);
             s->setString("asset", m_ids[i]); s->setInt("layer", 1000);
             m_gIO->publish("render:sprite", std::move(s));

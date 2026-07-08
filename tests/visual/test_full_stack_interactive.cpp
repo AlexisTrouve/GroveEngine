@@ -123,8 +123,8 @@ public:
         int layer = 5;
         for (const auto& sprite : m_sprites) {
             auto spriteNode = std::make_unique<JsonDataNode>("sprite");
-            spriteNode->setDouble("x", sprite.x);
-            spriteNode->setDouble("y", sprite.y);
+            spriteNode->setDouble("cx", sprite.x);
+            spriteNode->setDouble("cy", sprite.y);
             spriteNode->setDouble("scaleX", 32.0);
             spriteNode->setDouble("scaleY", 32.0);
             spriteNode->setDouble("rotation", 0.0);

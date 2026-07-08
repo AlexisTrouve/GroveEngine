@@ -510,8 +510,8 @@ private:
         // Layer 0: Background sprites with TEXTURE 2 (image)
         for (int i = 0; i < 5; ++i) {
             auto sprite = std::make_unique<JsonDataNode>("sprite");
-            sprite->setDouble("x", 100 + i * 150);
-            sprite->setDouble("y", 50);
+            sprite->setDouble("cx", 100 + i * 150);
+            sprite->setDouble("cy", 50);
             sprite->setDouble("scaleX", 120.0);
             sprite->setDouble("scaleY", 90.0);
             sprite->setDouble("rotation", 0.0);
@@ -525,8 +525,8 @@ private:
         for (int i = 0; i < 5; ++i) {
             float offset = std::sin(m_time * 2.0f + i * 1.2f) * 40.0f;
             auto sprite = std::make_unique<JsonDataNode>("sprite");
-            sprite->setDouble("x", 100 + i * 180);
-            sprite->setDouble("y", 200 + offset);
+            sprite->setDouble("cx", 100 + i * 180);
+            sprite->setDouble("cy", 200 + offset);
             sprite->setDouble("scaleX", 64.0);
             sprite->setDouble("scaleY", 64.0);
             sprite->setDouble("rotation", 0.0);
@@ -539,8 +539,8 @@ private:
         // Layer 10: Rotating eye emoji
         {
             auto sprite = std::make_unique<JsonDataNode>("sprite");
-            sprite->setDouble("x", 700);
-            sprite->setDouble("y", 200);
+            sprite->setDouble("cx", 700);
+            sprite->setDouble("cy", 200);
             sprite->setDouble("scaleX", 100.0);
             sprite->setDouble("scaleY", 100.0);
             sprite->setDouble("rotation", m_time);  // Radians
@@ -554,8 +554,8 @@ private:
         {
             float scale = 80.0f + std::sin(m_time * 3.0f) * 30.0f;
             auto sprite = std::make_unique<JsonDataNode>("sprite");
-            sprite->setDouble("x", 850);
-            sprite->setDouble("y", 200);
+            sprite->setDouble("cx", 850);
+            sprite->setDouble("cy", 200);
             sprite->setDouble("scaleX", scale);
             sprite->setDouble("scaleY", scale * 0.75f);
             sprite->setDouble("rotation", 0.0);
@@ -570,8 +570,8 @@ private:
             uint32_t colors[] = { 0xFF8888FF, 0x88FF88FF, 0x8888FFFF, 0xFFFF88FF };
             for (int i = 0; i < 4; ++i) {
                 auto sprite = std::make_unique<JsonDataNode>("sprite");
-                sprite->setDouble("x", 100 + i * 100);
-                sprite->setDouble("y", 320);
+                sprite->setDouble("cx", 100 + i * 100);
+                sprite->setDouble("cy", 320);
                 sprite->setDouble("scaleX", 80.0);
                 sprite->setDouble("scaleY", 80.0);
                 sprite->setDouble("rotation", 0.0);
@@ -586,8 +586,8 @@ private:
         for (int row = 0; row < 2; ++row) {
             for (int col = 0; col < 4; ++col) {
                 auto sprite = std::make_unique<JsonDataNode>("sprite");
-                sprite->setDouble("x", 550 + col * 70);
-                sprite->setDouble("y", 320 + row * 55);
+                sprite->setDouble("cx", 550 + col * 70);
+                sprite->setDouble("cy", 320 + row * 55);
                 sprite->setDouble("scaleX", 60.0);
                 sprite->setDouble("scaleY", 45.0);
                 sprite->setDouble("rotation", 0.0);
@@ -604,8 +604,8 @@ private:
             if (!p.alive) continue;
 
             auto particle = std::make_unique<JsonDataNode>("particle");
-            particle->setDouble("x", p.x);
-            particle->setDouble("y", p.y);
+            particle->setDouble("cx", p.x);
+            particle->setDouble("cy", p.y);
             particle->setDouble("vx", p.vx);
             particle->setDouble("vy", p.vy);
             particle->setDouble("size", p.size);
@@ -716,8 +716,8 @@ private:
     void publishNodeSprite(int node, int textureId, float pixelSize, int layer) {
         const grove::anim::Transform2D& w = m_rig.world(node);
         auto s = std::make_unique<JsonDataNode>("sprite");
-        s->setDouble("x", w.x);
-        s->setDouble("y", w.y);
+        s->setDouble("cx", w.x);
+        s->setDouble("cy", w.y);
         s->setDouble("scaleX", pixelSize * w.scaleX);
         s->setDouble("scaleY", pixelSize * w.scaleY);
         s->setDouble("rotation", w.rotation);
@@ -739,7 +739,7 @@ private:
         float u0, v0, u1, v1;
         m_flip.uvAt(m_time, m_flipSheet, u0, v0, u1, v1);
         auto fb = std::make_unique<JsonDataNode>("sprite");
-        fb->setDouble("x", 770.0); fb->setDouble("y", 600.0);
+        fb->setDouble("cx", 770.0); fb->setDouble("cy", 600.0);
         fb->setDouble("scaleX", 96.0); fb->setDouble("scaleY", 96.0);
         fb->setDouble("u0", u0); fb->setDouble("v0", v0);
         fb->setDouble("u1", u1); fb->setDouble("v1", v1);

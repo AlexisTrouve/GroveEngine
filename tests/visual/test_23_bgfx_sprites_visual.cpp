@@ -239,8 +239,8 @@ int main(int argc, char* argv[]) {
             float centerX = width / 2.0f;
             float centerY = height / 2.0f;
 
-            sprite->setDouble("x", centerX + std::cos(angle) * radius);
-            sprite->setDouble("y", centerY + std::sin(angle) * radius);
+            sprite->setDouble("cx", centerX + std::cos(angle) * radius);
+            sprite->setDouble("cy", centerY + std::sin(angle) * radius);
             sprite->setDouble("scaleX", 50.0);  // 50x50 pixel sprite
             sprite->setDouble("scaleY", 50.0);
             sprite->setDouble("rotation", angle);
@@ -264,8 +264,8 @@ int main(int argc, char* argv[]) {
         // Add a center sprite (Multipla!)
         {
             auto sprite = std::make_unique<grove::JsonDataNode>("sprite");
-            sprite->setDouble("x", width / 2.0f);
-            sprite->setDouble("y", height / 2.0f);
+            sprite->setDouble("cx", width / 2.0f);
+            sprite->setDouble("cy", height / 2.0f);
             sprite->setDouble("scaleX", 120.0);
             sprite->setDouble("scaleY", 80.0);  // Wider than tall (car aspect ratio)
             sprite->setDouble("rotation", -time * 0.5f);
@@ -294,8 +294,8 @@ int main(int argc, char* argv[]) {
             float px = spawnX + std::sin(particleAge * 3.0f + i) * 30.0f;
             float py = spawnY - particleAge * 100.0f;  // Rise up
 
-            particle->setDouble("x", px);
-            particle->setDouble("y", py);
+            particle->setDouble("cx", px);
+            particle->setDouble("cy", py);
             particle->setDouble("vx", 0.0);
             particle->setDouble("vy", -50.0);
             particle->setDouble("size", 15.0 + life * 20.0);  // Shrink as they age
@@ -337,8 +337,8 @@ int main(int argc, char* argv[]) {
             float sx = smokeSpawnX + std::sin(smokeAge * 2.0f + i * 0.5f) * 50.0f;
             float sy = smokeSpawnY - smokeAge * 60.0f;  // Rise slower
 
-            smoke->setDouble("x", sx);
-            smoke->setDouble("y", sy);
+            smoke->setDouble("cx", sx);
+            smoke->setDouble("cy", sy);
             smoke->setDouble("vx", std::sin(time + i) * 20.0f);
             smoke->setDouble("vy", -30.0);
             smoke->setDouble("size", 20.0 + (1.0f - life) * 40.0);  // Grow as they age
@@ -373,8 +373,8 @@ int main(int argc, char* argv[]) {
             float spx = sparkleX + std::cos(angle) * radius;
             float spy = sparkleY + std::sin(angle) * radius * 0.5f;
 
-            sparkle->setDouble("x", spx);
-            sparkle->setDouble("y", spy);
+            sparkle->setDouble("cx", spx);
+            sparkle->setDouble("cy", spy);
             sparkle->setDouble("vx", 0.0);
             sparkle->setDouble("vy", 0.0);
             sparkle->setDouble("size", 5.0 + life * 10.0);

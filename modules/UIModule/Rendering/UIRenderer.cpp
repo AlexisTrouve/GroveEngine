@@ -199,8 +199,8 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
                                   float u0, float v0, float u1, float v1) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
-    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
-    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("cx", static_cast<double>(x + w * 0.5f));   // cx,cy = CENTER (anchor convention)
+    sprite->setDouble("cy", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setDouble("rotation", 0.0);
@@ -228,8 +228,8 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
                                      float u0, float v0, float u1, float v1) {
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setInt("renderId", static_cast<int>(renderId));
-    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
-    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("cx", static_cast<double>(x + w * 0.5f));   // cx,cy = CENTER (anchor convention)
+    sprite->setDouble("cy", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setDouble("rotation", 0.0);
@@ -324,8 +324,8 @@ void UIRenderer::drawRect(float x, float y, float w, float h, uint32_t color) {
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     // Position at center of rect (sprite shader centers quads)
-    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
-    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("cx", static_cast<double>(x + w * 0.5f));   // cx,cy = CENTER (anchor convention)
+    sprite->setDouble("cy", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setInt("color", static_cast<int>(color));
@@ -354,8 +354,8 @@ void UIRenderer::drawSprite(float x, float y, float w, float h, int textureId, u
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     // Position at center of sprite (sprite shader centers quads)
-    sprite->setDouble("x", static_cast<double>(x + w * 0.5f));
-    sprite->setDouble("y", static_cast<double>(y + h * 0.5f));
+    sprite->setDouble("cx", static_cast<double>(x + w * 0.5f));   // cx,cy = CENTER (anchor convention)
+    sprite->setDouble("cy", static_cast<double>(y + h * 0.5f));
     sprite->setDouble("scaleX", static_cast<double>(w));
     sprite->setDouble("scaleY", static_cast<double>(h));
     sprite->setInt("color", static_cast<int>(color));

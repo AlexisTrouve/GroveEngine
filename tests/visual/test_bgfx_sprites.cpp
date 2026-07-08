@@ -186,8 +186,8 @@ int main(int argc, char* argv[]) {
             float centerX = width / 2.0f;
             float centerY = height / 2.0f;
 
-            sprite->setDouble("x", centerX + std::cos(angle) * radius);
-            sprite->setDouble("y", centerY + std::sin(angle) * radius);
+            sprite->setDouble("cx", centerX + std::cos(angle) * radius);
+            sprite->setDouble("cy", centerY + std::sin(angle) * radius);
             sprite->setDouble("scaleX", 50.0);  // 50x50 pixel sprite
             sprite->setDouble("scaleY", 50.0);
             sprite->setDouble("rotation", angle);

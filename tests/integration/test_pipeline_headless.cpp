@@ -61,8 +61,8 @@ TEST_CASE("Pipeline - single sprite end-to-end", "[pipeline][integration]") {
 
     // Publish sprite message
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", 100.0);
-    sprite->setDouble("y", 200.0);
+    sprite->setDouble("cx", 100.0);
+    sprite->setDouble("cy", 200.0);
     sprite->setInt("color", 0xFFFFFFFF);
     sprite->setInt("textureId", 1);
 
@@ -103,8 +103,8 @@ TEST_CASE("Pipeline - batch 100 sprites", "[pipeline][integration]") {
     constexpr int NUM_SPRITES = 100;
     for (int i = 0; i < NUM_SPRITES; ++i) {
         auto sprite = std::make_unique<JsonDataNode>("sprite");
-        sprite->setDouble("x", i * 10.0);
-        sprite->setDouble("y", i * 5.0);
+        sprite->setDouble("cx", i * 10.0);
+        sprite->setDouble("cy", i * 5.0);
         sprite->setInt("color", 0xFF000000 | i);
         sprite->setInt("textureId", i % 10);
 
@@ -207,8 +207,8 @@ TEST_CASE("Pipeline - mixed message types", "[pipeline][integration]") {
     ioPublisher->publish("render:clear", std::move(clear));
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
-    sprite->setDouble("x", 50.0);
-    sprite->setDouble("y", 50.0);
+    sprite->setDouble("cx", 50.0);
+    sprite->setDouble("cy", 50.0);
     ioPublisher->publish("render:sprite", std::move(sprite));
 
     auto line = std::make_unique<JsonDataNode>("line");
@@ -255,8 +255,8 @@ TEST_CASE("Pipeline - 10 consecutive frames", "[pipeline][integration]") {
 
         // Publish sprite with frame-specific position
         auto sprite = std::make_unique<JsonDataNode>("sprite");
-        sprite->setDouble("x", frame * 100.0);
-        sprite->setDouble("y", 0.0);
+        sprite->setDouble("cx", frame * 100.0);
+        sprite->setDouble("cy", 0.0);
         sprite->setInt("textureId", frame);
 
         ioPublisher->publish("render:sprite", std::move(sprite));

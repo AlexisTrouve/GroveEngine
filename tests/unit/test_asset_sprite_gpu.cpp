@@ -61,7 +61,7 @@ TEST_CASE("render:sprite by assetId streams the texture in via the AssetManager 
 
     // A sprite that names its texture by asset id (no numeric textureId).
     { auto s = std::make_unique<JsonDataNode>("d");
-      s->setDouble("x", 20); s->setDouble("y", 20); s->setDouble("scaleX", 64); s->setDouble("scaleY", 64);
+      s->setDouble("cx", 20); s->setDouble("cy", 20); s->setDouble("scaleX", 64); s->setDouble("scaleY", 64);
       s->setString("asset", "cockpit"); s->setInt("layer", 1000);
       gIO->publish("render:sprite", std::move(s)); }
     frame(); frame();   // a couple of frames so the cross-instance message is delivered + parsed

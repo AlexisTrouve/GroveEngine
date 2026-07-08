@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
             const int col = i % COLS, row = i / COLS;
             char id[16]; std::snprintf(id, sizeof id, "ship/%02d", i);
             auto s = std::make_unique<JsonDataNode>("d");
-            s->setDouble("x", 30 + col * 120); s->setDouble("y", 40 + row * 120);
+            s->setDouble("cx", 30 + col * 120); s->setDouble("cy", 40 + row * 120);
             s->setDouble("scaleX", 96); s->setDouble("scaleY", 96);
             s->setString("asset", id); s->setInt("layer", 1000);
             gIO->publish("render:sprite", std::move(s));

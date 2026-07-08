@@ -67,7 +67,7 @@ TEST_CASE("render:sprite by assetId streams in via the module's async pump (GPU)
 
     // Publish a sprite that names its texture by asset id (no numeric textureId).
     { auto s = std::make_unique<JsonDataNode>("d");
-      s->setDouble("x", 20); s->setDouble("y", 20); s->setDouble("scaleX", 64); s->setDouble("scaleY", 64);
+      s->setDouble("cx", 20); s->setDouble("cy", 20); s->setDouble("scaleX", 64); s->setDouble("scaleY", 64);
       s->setString("asset", "cockpit"); s->setInt("layer", 1000);
       gIO->publish("render:sprite", std::move(s)); }
 

@@ -71,8 +71,8 @@ public:
         for (int i = 0; i < 5; ++i) {
             auto s = std::make_unique<JsonDataNode>("s");
             s->setInt("renderId", i + 1);
-            s->setDouble("x", 200.0 + i * 150.0);
-            s->setDouble("y", 380.0);
+            s->setDouble("cx", 200.0 + i * 150.0);
+            s->setDouble("cy", 380.0);
             s->setDouble("scaleX", 90.0);
             s->setDouble("scaleY", 90.0);
             s->setInt("textureId", 0);             // default white texture -> colored quad
@@ -101,8 +101,8 @@ public:
         {
             auto u = std::make_unique<JsonDataNode>("s");
             u->setInt("renderId", 1);
-            u->setDouble("x", 200.0 + std::cos(m_time * 2.0f) * 70.0);
-            u->setDouble("y", 380.0 + std::sin(m_time * 2.0f) * 70.0);
+            u->setDouble("cx", 200.0 + std::cos(m_time * 2.0f) * 70.0);
+            u->setDouble("cy", 380.0 + std::sin(m_time * 2.0f) * 70.0);
             m_gameIO->publish("render:sprite:update", std::move(u));
         }
 

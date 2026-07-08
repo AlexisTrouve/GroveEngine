@@ -87,8 +87,8 @@ void VideoModule::startPlayback(const IDataNode& d) {
     { auto s = std::make_unique<JsonDataNode>("sprite");
       s->setInt("renderId", static_cast<int>(m_spriteRenderId));
       s->setString("asset", m_textureId);
-      s->setDouble("x", static_cast<double>(m_x + m_w * 0.5f));   // sprite pos = centre (shader centres the quad)
-      s->setDouble("y", static_cast<double>(m_y + m_h * 0.5f));
+      s->setDouble("cx", static_cast<double>(m_x + m_w * 0.5f));  // cx,cy = CENTER (anchor convention)
+      s->setDouble("cy", static_cast<double>(m_y + m_h * 0.5f));
       s->setDouble("scaleX", static_cast<double>(m_w));
       s->setDouble("scaleY", static_cast<double>(m_h));
       s->setInt("layer", m_layer);

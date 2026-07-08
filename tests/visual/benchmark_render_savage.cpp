@@ -173,7 +173,7 @@ public:
     void emitSprites(int n) {
         for (int i = 0; i < n; ++i) {
             auto s = std::make_unique<JsonDataNode>("s");
-            s->setDouble("x", m_sc.x[i]);  s->setDouble("y", m_sc.y[i]);
+            s->setDouble("cx", m_sc.x[i]);  s->setDouble("cy", m_sc.y[i]);
             s->setDouble("scaleX", 22.0);  s->setDouble("scaleY", 22.0);
             s->setDouble("rotation", m_sc.a[i]);
             s->setInt("color", int(m_sc.color[i]));
@@ -187,7 +187,7 @@ public:
     void emitParticles(int n) {
         for (int i = 0; i < n; ++i) {
             auto p = std::make_unique<JsonDataNode>("p");
-            p->setDouble("x", m_sc.x[i]); p->setDouble("y", m_sc.y[i]);
+            p->setDouble("cx", m_sc.x[i]); p->setDouble("cy", m_sc.y[i]);
             p->setDouble("vx", 0.0); p->setDouble("vy", 0.0);
             p->setDouble("size", 14.0);
             p->setDouble("life", 0.6);             // mid-life → visible, additive

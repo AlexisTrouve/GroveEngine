@@ -84,7 +84,7 @@ TEST_CASE("asset manifest + asset:* topics feed the AssetManager (GPU)", "[gpu][
     REQUIRE(am->isRegistered("ui/a"));
     REQUIRE(am->isRegistered("uiSheet"));
     REQUIRE_FALSE(am->isResident("uiSheet"));
-    { auto s=std::make_unique<JsonDataNode>("d"); s->setDouble("x",10); s->setDouble("y",10);
+    { auto s=std::make_unique<JsonDataNode>("d"); s->setDouble("cx",10); s->setDouble("cy",10);
       s->setDouble("scaleX",32); s->setDouble("scaleY",32); s->setString("asset","ui/a"); s->setInt("layer",1000);
       gIO->publish("render:sprite", std::move(s)); }
     frame(); frame();

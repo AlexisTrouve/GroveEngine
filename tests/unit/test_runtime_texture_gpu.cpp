@@ -85,7 +85,7 @@ TEST_CASE("runtime texture: create + paint a sub-rect, render by asset id (GPU)"
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
     auto drawCanvas = [&]{
         { auto s = std::make_unique<JsonDataNode>("d");
-          s->setDouble("x", W*0.5); s->setDouble("y", H*0.5);          // sprite x/y = CENTER
+          s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);          // sprite x/y = CENTER
           s->setDouble("scaleX", W); s->setDouble("scaleY", H);        // fill the whole view
           s->setString("asset", "canvas"); s->setInt("layer", 10);
           gIO->publish("render:sprite", std::move(s)); }
@@ -174,7 +174,7 @@ TEST_CASE("runtime texture: render:texture:upload writes RAW rgba pixels (GPU) â
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
     auto drawCanvas = [&]{
         { auto s = std::make_unique<JsonDataNode>("d");
-          s->setDouble("x", W*0.5); s->setDouble("y", H*0.5);
+          s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
           s->setDouble("scaleX", W); s->setDouble("scaleY", H);
           s->setString("asset", "vid"); s->setInt("layer", 10);
           gIO->publish("render:sprite", std::move(s)); }
