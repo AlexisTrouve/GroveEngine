@@ -1510,3 +1510,97 @@ TEST_CASE("SceneCollector - bulk text strings survive after the caller's buffers
     REQUIRE(std::string(p.texts[0].text) == "Ephemeral0");
     REQUIRE(std::string(p.texts[1].text) == "Ephemeral1");
 }
+
+// ============================================================================
+// Anchor convention (docs/design/render-anchor-convention.md): the field NAME carries the anchor.
+//   cx,cy = CENTER (sprite, particle, sector) ; x,y = top-left CORNER (rect).
+// Locks each primitive's final instance position so a silent anchor drift fails LOUD (the exact
+// footgun this convention kills). The cx,cy cases are RED before the SceneCollector supports cx,cy;
+// the rect/sector cases GUARD the already-correct corner/center primitives.
+// ============================================================================
+TEST_CASE("SceneCollector - anchor: cx,cy = center, x,y = corner", "[scene_collector][anchor]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // render:sprite (ephemeral) — cx,cy is the CENTER, passed straight to the instance position.
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setDouble("cx", 100.0);
+        s->setDouble("cy", 200.0);
+        s->setDouble("scaleX", 32.0);
+        s->setDouble("scaleY", 32.0);
+        fx.ioPublisher->publish("render:sprite", std::move(s));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(100.0f, 0.01f));
+        REQUIRE_THAT(p.sprites[0].y, WithinAbs(200.0f, 0.01f));
+    }
+    fx.collector.clear();
+
+    // render:sprite:add (retained) — cx,cy center.
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setInt("renderId", 42);
+        s->setDouble("cx", 10.0);
+        s->setDouble("cy", 20.0);
+        fx.ioPublisher->publish("render:sprite:add", std::move(s));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(10.0f, 0.01f));
+        REQUIRE_THAT(p.sprites[0].y, WithinAbs(20.0f, 0.01f));
+    }
+    fx.collector.clear();
+    {   // drop the retained sprite so it doesn't leak into the next cases
+        auto r = std::make_unique<JsonDataNode>("r");
+        r->setInt("renderId", 42);
+        fx.ioPublisher->publish("render:sprite:remove", std::move(r));
+        fx.pump();
+    }
+
+    // render:particle — cx,cy center (a particle is a point; center is its only sensible anchor).
+    {
+        auto pa = std::make_unique<JsonDataNode>("p");
+        pa->setDouble("cx", 55.0);
+        pa->setDouble("cy", 66.0);
+        pa->setDouble("size", 4.0);
+        fx.ioPublisher->publish("render:particle", std::move(pa));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.particleCount == 1);
+        REQUIRE_THAT(p.particles[0].x, WithinAbs(55.0f, 0.01f));
+        REQUIRE_THAT(p.particles[0].y, WithinAbs(66.0f, 0.01f));
+    }
+    fx.collector.clear();
+
+    // render:rect — x,y = top-left CORNER; the tinted sprite's CENTER = corner + half-extent (GUARD).
+    {
+        auto r = std::make_unique<JsonDataNode>("r");
+        r->setDouble("x", 10.0);
+        r->setDouble("y", 20.0);
+        r->setDouble("w", 40.0);
+        r->setDouble("h", 60.0);
+        fx.ioPublisher->publish("render:rect", std::move(r));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(30.0f, 0.01f));   // 10 + 40/2
+        REQUIRE_THAT(p.sprites[0].y, WithinAbs(50.0f, 0.01f));   // 20 + 60/2
+    }
+    fx.collector.clear();
+
+    // render:sector — cx,cy = center (THE MODEL this convention generalizes; GUARD).
+    {
+        auto se = std::make_unique<JsonDataNode>("s");
+        se->setDouble("cx", 7.0);
+        se->setDouble("cy", 8.0);
+        se->setDouble("r1", 5.0);
+        fx.ioPublisher->publish("render:sector", std::move(se));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.sectorCount == 1);
+        REQUIRE_THAT(p.sectors[0].cx, WithinAbs(7.0f, 0.01f));
+        REQUIRE_THAT(p.sectors[0].cy, WithinAbs(8.0f, 0.01f));
+    }
+}

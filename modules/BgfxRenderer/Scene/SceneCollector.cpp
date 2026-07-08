@@ -496,11 +496,20 @@ void SceneCollector::clear() {
 // Message Parsing
 // ============================================================================
 
+// Read a CENTER coordinate under the anchor convention (docs/design/render-anchor-convention.md):
+// prefer the canonical `cx`/`cy`; accept legacy `x`/`y` (same center semantics) during the additive
+// migration phase; else `fallback` (0 for a fresh instance, the current value for an update).
+static float centerCoord(const IDataNode& d, const char* cxKey, const char* xKey, float fallback) {
+    if (d.hasProperty(cxKey)) return static_cast<float>(d.getDouble(cxKey, fallback));
+    if (d.hasProperty(xKey))  return static_cast<float>(d.getDouble(xKey, fallback));
+    return fallback;
+}
+
 void SceneCollector::parseSprite(const IDataNode& data) {
     SpriteInstance sprite;
-    // i_data0
-    sprite.x = static_cast<float>(data.getDouble("x", 0.0));
-    sprite.y = static_cast<float>(data.getDouble("y", 0.0));
+    // i_data0 — cx,cy = CENTER (anchor convention); x,y still accepted as legacy center this phase.
+    sprite.x = centerCoord(data, "cx", "x", 0.0f);
+    sprite.y = centerCoord(data, "cy", "y", 0.0f);
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", 1.0));
 
@@ -853,8 +862,8 @@ void SceneCollector::parseText(const IDataNode& data) {
 
 void SceneCollector::parseParticle(const IDataNode& data) {
     ParticleInstance particle;
-    particle.x = static_cast<float>(data.getDouble("x", 0.0));
-    particle.y = static_cast<float>(data.getDouble("y", 0.0));
+    particle.x = centerCoord(data, "cx", "x", 0.0f);   // cx,cy = CENTER (anchor convention)
+    particle.y = centerCoord(data, "cy", "y", 0.0f);
     particle.vx = static_cast<float>(data.getDouble("vx", 0.0));
     particle.vy = static_cast<float>(data.getDouble("vy", 0.0));
     particle.size = static_cast<float>(data.getDouble("size", 1.0));
@@ -978,8 +987,8 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     if (renderId == 0) return;
 
     SpriteInstance sprite;
-    sprite.x = static_cast<float>(data.getDouble("x", 0.0));
-    sprite.y = static_cast<float>(data.getDouble("y", 0.0));
+    sprite.x = centerCoord(data, "cx", "x", 0.0f);   // cx,cy = CENTER (anchor convention)
+    sprite.y = centerCoord(data, "cy", "y", 0.0f);
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", 1.0));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", 1.0));
     sprite.rotation = static_cast<float>(data.getDouble("rotation", 0.0));
@@ -1019,8 +1028,8 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
 
     // Update existing sprite
     SpriteInstance& sprite = it->second;
-    sprite.x = static_cast<float>(data.getDouble("x", sprite.x));
-    sprite.y = static_cast<float>(data.getDouble("y", sprite.y));
+    sprite.x = centerCoord(data, "cx", "x", sprite.x);   // cx,cy = CENTER; omitted -> keep current
+    sprite.y = centerCoord(data, "cy", "y", sprite.y);
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", sprite.scaleX));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", sprite.scaleY));
     sprite.rotation = static_cast<float>(data.getDouble("rotation", sprite.rotation));
