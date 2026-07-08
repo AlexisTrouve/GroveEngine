@@ -262,6 +262,12 @@ if(GROVE_BUILD_MODULES)
     if(GROVE_BUILD_VIDEO_MODULE)
         add_subdirectory(modules/VideoModule)
     endif()
+
+    # EntityModule (data-driven scene/entity layer — entity:* topics -> render:sprite:*; behaviors engine-side)
+    option(GROVE_BUILD_ENTITY_MODULE "Build EntityModule" OFF)
+    if(GROVE_BUILD_ENTITY_MODULE)
+        add_subdirectory(modules/EntityModule)
+    endif()
 endif()
 
 # Testing

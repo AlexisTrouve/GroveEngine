@@ -841,6 +841,18 @@ target_include_directories(IT_058_video_e2e PRIVATE
 target_link_libraries(IT_058_video_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(VideoE2E IT_058_video_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+# Scene/entity layer slice E2: EntityModule E2E (entity:* topics -> render:sprite:*). Compiles the module
+# source directly (dependency-free — pure logic over IIO), so it always builds regardless of the build flag.
+add_executable(IT_059_entity_e2e
+    integration/IT_059_entity_e2e.cpp
+    ../modules/EntityModule/EntityModule.cpp)
+target_include_directories(IT_059_entity_e2e PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../modules/EntityModule
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(IT_059_entity_e2e PRIVATE GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(EntityE2E IT_059_entity_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
 # UI framework slice 6c-1: FfmpegCliBackend — real MP4 decode via the ffmpeg CLI. Standalone (no core);
 # GATED at runtime on ffmpeg/ffprobe being on PATH (WARN-skips otherwise).
 add_executable(test_ffmpeg_backend
