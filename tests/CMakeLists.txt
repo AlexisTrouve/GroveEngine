@@ -536,6 +536,15 @@ target_include_directories(test_transform2d PRIVATE
 target_link_libraries(test_transform2d PRIVATE Catch2::Catch2WithMain)
 grove_add_test(Transform2DUnit test_transform2d ${CMAKE_CURRENT_BINARY_DIR})
 
+# Scene/entity layer slice E1: EntityWorld (grove::entity). Header-only, std-only —
+# in include/grove/entity. Pure entity/component/behavior core + retained-render diff.
+add_executable(test_entity_world unit/test_entity_world.cpp)
+target_include_directories(test_entity_world PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_entity_world PRIVATE Catch2::Catch2WithMain)
+grove_add_test(EntityWorldUnit test_entity_world ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system slice 2a: Easing curves (grove::anim). Header-only, std-only, reusable.
 add_executable(test_easing unit/test_easing.cpp)
 target_include_directories(test_easing PRIVATE

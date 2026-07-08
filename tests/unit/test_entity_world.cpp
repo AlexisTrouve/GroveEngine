@@ -1,0 +1,141 @@
+/**
+ * EntityWorldUnit — pure oracle for the entity/component/behavior core (scene/entity layer, slice E1).
+ *
+ * No IIO / renderer: asserts the load-bearing logic directly — component set/get, the fixed behavior
+ * library tick (move / spin / lifetime), lifecycle (destroy + lifetime expiry), and the retained-render
+ * diff (Add on first appearance, Update on change, Remove on death, nothing when unchanged). The E2E
+ * (through EntityModule) will prove it end-to-end; this locks the primitives so a regression points at
+ * the exact broken method.
+ */
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+#include "grove/entity/EntityWorld.h"
+
+#include <cmath>
+
+using namespace grove::entity;
+using Catch::Matchers::WithinAbs;
+
+namespace {
+// Count ops of a given kind in a diff.
+size_t count(const std::vector<EntityWorld::RenderOp>& ops, EntityWorld::RenderOp::Kind k) {
+    size_t n = 0;
+    for (const auto& o : ops) if (o.kind == k) ++n;
+    return n;
+}
+const EntityWorld::RenderOp* find(const std::vector<EntityWorld::RenderOp>& ops, EntityId id) {
+    for (const auto& o : ops) if (o.id == id) return &o;
+    return nullptr;
+}
+} // namespace
+
+TEST_CASE("EntityWorldUnit: spawn + sprite -> Add once, then no ops when unchanged", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setTransform(e, Transform{100.0f, 200.0f, 0.0f, 1.0f, 1.0f});
+    w.setSprite(e, Sprite{true, "ship/hull", 0, 0xFFFFFFFFu, 10});
+
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, EntityWorld::RenderOp::Kind::Add) == 1);
+    const auto* op = find(ops, e);
+    REQUIRE(op != nullptr);
+    REQUIRE(op->kind == EntityWorld::RenderOp::Kind::Add);
+    REQUIRE_THAT(op->transform.cx, WithinAbs(100.0f, 0.001f));   // cx,cy = CENTER
+    REQUIRE_THAT(op->transform.cy, WithinAbs(200.0f, 0.001f));
+    REQUIRE(op->sprite.asset == "ship/hull");
+
+    // Nothing changed -> a second diff yields NO ops (retained: minimal traffic).
+    REQUIRE(w.diffRender().empty());
+}
+
+TEST_CASE("EntityWorldUnit: a transform-only entity (no sprite) produces no render ops", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setTransform(e, Transform{5.0f, 5.0f});
+    REQUIRE(w.diffRender().empty());
+    REQUIRE(w.aliveCount() == 1);   // it exists, it just doesn't draw
+}
+
+TEST_CASE("EntityWorldUnit: move behavior advances the center by v*dt -> Update", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "", 1, 0xFFFFFFFFu, 0});
+    w.addBehavior(e, move(10.0f, -4.0f));
+    w.diffRender();                 // consume the initial Add
+
+    w.tick(1.0f);
+    REQUIRE_THAT(w.get(e)->transform.cx, WithinAbs(10.0f, 0.001f));
+    REQUIRE_THAT(w.get(e)->transform.cy, WithinAbs(-4.0f, 0.001f));
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, EntityWorld::RenderOp::Kind::Update) == 1);
+    REQUIRE_THAT(find(ops, e)->transform.cx, WithinAbs(10.0f, 0.001f));
+}
+
+TEST_CASE("EntityWorldUnit: spin behavior advances rotation (deg/s -> rad)", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.addBehavior(e, spin(90.0f));   // 90 deg/s
+    w.tick(1.0f);
+    REQUIRE_THAT(w.get(e)->transform.rotation, WithinAbs(1.5707963f, 0.0001f));   // 90 deg in rad
+}
+
+TEST_CASE("EntityWorldUnit: lifetime expiry kills the entity and emits Remove", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "spark", 0, 0xFFFFFFFFu, 0});
+    w.addBehavior(e, lifetime(2.0f));
+    w.diffRender();                  // initial Add
+
+    w.tick(1.0f);
+    REQUIRE(w.aliveCount() == 1);    // still alive at t=1 < 2
+    REQUIRE(w.diffRender().empty()); // no render change
+
+    w.tick(1.5f);                    // t=2.5 >= 2 -> expired
+    REQUIRE(w.aliveCount() == 0);
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, EntityWorld::RenderOp::Kind::Remove) == 1);
+    REQUIRE(find(ops, e)->kind == EntityWorld::RenderOp::Kind::Remove);
+    // GC'd: it's gone, and a further diff is empty.
+    REQUIRE(w.get(e) == nullptr);
+    REQUIRE(w.diffRender().empty());
+}
+
+TEST_CASE("EntityWorldUnit: destroy emits Remove and GCs the entity", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "x", 0, 0xFFFFFFFFu, 0});
+    w.diffRender();                  // Add
+    w.destroy(e);
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, EntityWorld::RenderOp::Kind::Remove) == 1);
+    REQUIRE(w.get(e) == nullptr);
+}
+
+TEST_CASE("EntityWorldUnit: an entity destroyed before its first Add emits no Remove", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "x", 0, 0xFFFFFFFFu, 0});
+    w.destroy(e);                    // died before any diff emitted an Add
+    auto ops = w.diffRender();
+    REQUIRE(ops.empty());            // never added -> never removed
+    REQUIRE(w.get(e) == nullptr);    // still GC'd
+}
+
+TEST_CASE("EntityWorldUnit: behaviors compose in list order (move + lifetime on one entity)", "[entity][unit]") {
+    EntityWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "bullet", 0, 0xFFFFFFFFu, 5});
+    w.addBehavior(e, move(100.0f, 0.0f));
+    w.addBehavior(e, lifetime(0.5f));
+    w.diffRender();
+
+    w.tick(0.25f);                   // moved 25px, age 0.25 < 0.5
+    REQUIRE_THAT(w.get(e)->transform.cx, WithinAbs(25.0f, 0.001f));
+    REQUIRE(w.aliveCount() == 1);
+
+    w.tick(0.25f);                   // moved to 50px, age 0.5 >= 0.5 -> dead
+    REQUIRE(w.aliveCount() == 0);
+    REQUIRE(count(w.diffRender(), EntityWorld::RenderOp::Kind::Remove) == 1);
+}
