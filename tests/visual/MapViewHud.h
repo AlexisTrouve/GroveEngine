@@ -37,6 +37,7 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -98,8 +99,36 @@ public:
 
     // Push the planet-core side-car (non-spatial planet state) to the core panel (bound {{core.*}}).
     void setCore(const nlohmann::json& core) {
+        coreTempC_ = core.value("temperature_c", 0.0);   // E2E-observable (what actually reached the panel)
         auto d = std::make_unique<JsonDataNode>("d", nlohmann::json{ {"core", core} });
         gio_->publish("ui:data:merge", std::move(d));
+    }
+
+    // Load Theomen's planet-core side-car <dir>/core.json into the core panel (the REAL core, not the mock).
+    // WHAT : the file (produced by `worldscope --export`) carries temperature_c/max_capacity/total_mass/
+    //        fill_ratio + composition[{material,quantity,fraction}]. We push it to the {{core.*}} bindings.
+    // WHY  : the core is NON-SPATIAL (planet centre) -> it rides beside the .world grid as a side-car, so the
+    //        viewer reads it directly (not through the mapview format). Returns false when the side-car is
+    //        absent (synthetic world / older export) -> the caller falls back to setMockCore().
+    // HOW  : the panel binding has no expression language, so we PRECOMPUTE the only derived field it needs —
+    //        `fractionPct` (integer %) per composition row — and round temperature_c for a clean read. A missing
+    //        or malformed file is a soft failure (return false), never a crash.
+    bool loadCoreFromDir(const std::string& dir) {
+        if (dir.empty()) return false;
+        const std::filesystem::path path = std::filesystem::path(dir) / "core.json";
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) return false;
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return false;
+        nlohmann::json core;
+        try { in >> core; } catch (const std::exception&) { return false; }   // malformed -> mock fallback
+        if (core.contains("composition") && core["composition"].is_array())
+            for (auto& e : core["composition"])
+                e["fractionPct"] = static_cast<int>(e.value("fraction", 0.0) * 100.0 + 0.5); // {{...fractionPct}}
+        if (core.contains("temperature_c"))
+            core["temperature_c"] = static_cast<long long>(core.value("temperature_c", 0.0) + 0.5); // affichage propre
+        setCore(core);
+        return true;
     }
 
     // A representative MOCK core (stands in for Theomen's core.json side-car until it ships). fractionPct is
@@ -124,6 +153,7 @@ public:
     int listItemCount() const { return lastListCount_; }
     size_t categoryCount() const { return catToFields_.size(); }
     const std::string& lastMaterial() const { return lastMaterial_; }
+    double coreTemperatureC() const { return coreTempC_; } // last core temp pushed to the panel
 
 private:
     // Find the HUD layout regardless of cwd (project root for the live viewer, build/tests for ctest).
@@ -210,6 +240,7 @@ private:
     std::string activeLens_ = "terrain";
     std::string lastCategory_;
     std::string lastMaterial_;
+    double      coreTempC_ = 0.0;
 };
 
 } // namespace mvdemo

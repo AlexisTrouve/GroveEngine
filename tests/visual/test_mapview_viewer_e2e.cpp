@@ -46,6 +46,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -115,6 +116,16 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
         }
     }
     mapview::disk::writeWorldDocument(dir, m, chunks, &z);
+
+    // A planet-core side-car next to the doc, so the E2E exercises the REAL core.json path (not the mock):
+    // distinctive temperature 3333 + a composition with `fraction` (the HUD precomputes fractionPct on load).
+    const nlohmann::json core = {
+        {"temperature_c", 3333.0}, {"max_capacity", 2.0e21}, {"total_mass", 1.0e21}, {"fill_ratio", 0.5},
+        {"composition", nlohmann::json::array({
+            {{"material", "iron_ore"},    {"quantity", 6.0e20}, {"fraction", 0.6}},
+            {{"material", "uranium_ore"}, {"quantity", 4.0e20}, {"fraction", 0.4}},
+        })}};
+    std::ofstream(std::filesystem::path(dir) / "core.json") << core.dump(2);
 }
 
 int main(int argc, char** argv) {
@@ -305,8 +316,10 @@ int main(int argc, char** argv) {
     // "Élévation" returns to the terrain lens (right end, clear of the open left drawer).
     hudClick(1190, 20);                                                  // catElev button (x 1130..1250)
     CHECK(hud.activeLens() == std::string("terrain"), "the Élévation button returns to the terrain lens");
-    // The planet-core side-car (mock) reaches the core panel — exercised end to end (its visual is eyeball).
-    hud.setMockCore();
+    // The REAL planet-core side-car (<docDir>/core.json) reaches the core panel — NOT the mock. The HUD reads
+    // it, precomputes fractionPct per composition row, and pushes the real temperature to the {{core.*}} bindings.
+    CHECK(hud.loadCoreFromDir(docDir), "the real core.json side-car loads into the core panel (not the mock)");
+    CHECK(std::fabs(hud.coreTemperatureC() - 3333.0) < 1e-9, "the real core.json temperature reaches the panel binding");
     for (int i = 0; i < 2; ++i) { pump(); app.renderFrame(dt); }
 
     // Pan + zoom the camera hard, then click the SAME screen position -> it must still hit the button.

@@ -297,7 +297,9 @@ int main(int argc, char** argv) {
         // Resources/core HUD over the map (Input + UI hosted on the engine; screen-fixed via the retained HUD
         // bucket). Category button -> resource sub-menu list -> density heatmap; the right panel shows the core.
         mvdemo::MapViewHud hud(engine, gIO.get(), app, schema, vpW, vpH);
-        hud.setMockCore();   // TODO: read <loadDir>/core.json once Theomen ships the side-car
+        // Real planet core from Theomen's <loadDir>/core.json side-car; fall back to a mock for the synthetic
+        // world (no --load) or an older export without the side-car.
+        if (!hud.loadCoreFromDir(loadDir)) hud.setMockCore();
         std::fprintf(stdout, "  + resources/core HUD (%zu resource categories from the world schema)\n", hud.categoryCount());
 #endif
         Uint32 last = SDL_GetTicks();
