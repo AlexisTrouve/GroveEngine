@@ -3635,3 +3635,30 @@ if(GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     endif()
     message(STATUS "Cross-platform map viewer 'test_mapview_viewer' enabled")
 endif()
+
+# FX by-eye demo: particle-burst explosions (F3 Emitter) + rising damage numbers (F2 Text), rendered through
+# BgfxRenderer on the engine. Interactive window (LMB/Space/auto) + a headless `--shot out.png` capture.
+# The visual half of the FX layer (headless logic locks = FxWorldUnit + IT_059d/e/f). Compiles the module
+# source directly (like IT_059) so it needs only the renderer + SDL — no GROVE_BUILD_FX_MODULE flag.
+if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
+    add_executable(test_fx_demo
+        visual/test_fx_demo.cpp
+        ../modules/FxModule/FxModule.cpp)
+    target_include_directories(test_fx_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/FxModule
+    )
+    target_link_libraries(test_fx_demo PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)  # Windows: copy SDL2.dll next to the exe
+        add_custom_command(TARGET test_fx_demo POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_fx_demo>")
+    endif()
+    message(STATUS "FX demo 'test_fx_demo' enabled")
+endif()

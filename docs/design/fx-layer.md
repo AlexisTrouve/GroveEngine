@@ -98,13 +98,16 @@ New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — chang
 - **Continuous (rate-based) emitter** for trails / smoke / streams (F3 is one-shot burst only — covers
   explosions/debris/muzzle-flash). A rate emitter emits N/sec over the emitter's lifetime.
 - **Hot-reload** full-world serialization (`getState`/`setState` are minimal — health counter only).
-- A by-eye windowed VFX demo (explosion burst + rising damage numbers) — the logic is E2E-locked; a visual is nice-to-have.
+- ~~by-eye windowed VFX demo~~ — **shipped** (`tests/visual/test_fx_demo.cpp`): explosion bursts + rising
+  damage numbers rendered through BgfxRenderer. Interactive window (LMB/Space/auto) + a headless `--shot`
+  PNG. Verified by eye (bursts spread + fade, numbers rise). Windows/SDL, compiles the module directly.
 
 ## Key files
 
 - `include/grove/fx/FxWorld.h` — the pure core (effects/components/behaviors/tick/diff/prefabs).
 - `modules/FxModule/FxModule.{h,cpp}` + `CMakeLists.txt` (`FxModule_static`).
 - `tests/unit/test_fx_world.cpp` (`FxWorldUnit`), `tests/integration/IT_059_fx_e2e.cpp` (`FxE2E`).
+- `tests/visual/test_fx_demo.cpp` — the by-eye windowed demo (explosions + damage numbers; `--shot` PNG).
 - Docs: DEVELOPER_GUIDE "Effects / FX Layer" section + CLAUDE.md FxModule entry.
 - Memory: [[scene-entity-layer]]. Relates to [[render-anchor-convention]] (Transform uses cx,cy),
   [[rendering-throughput]] (why crowds use the batch path, not this), [[drifterra-consumes-groveengine]].
