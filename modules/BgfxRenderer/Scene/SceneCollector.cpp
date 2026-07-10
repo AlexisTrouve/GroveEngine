@@ -389,46 +389,66 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.sectorCount = 0;
     }
 
-    // HUD sprites (screen-space). Ephemeral only (no retained HUD bucket). Same per-layer
-    // stable_sort as the world bucket so HUD z-order is deterministic too.
-    if (!m_hudSprites.empty()) {
-        SpriteInstance* hud = allocator.allocateArray<SpriteInstance>(m_hudSprites.size());
-        if (hud) {
-            std::memcpy(hud, m_hudSprites.data(), m_hudSprites.size() * sizeof(SpriteInstance));
-            std::stable_sort(hud, hud + m_hudSprites.size(),
-                [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
-            packet.hudSprites = hud;
-            packet.hudSpriteCount = m_hudSprites.size();
+    // HUD sprites (screen-space): retained widgets (m_retainedHudSprites) + ephemeral (m_hudSprites),
+    // both drawn on the fixed m_hudView (camera-immune). Retained first (matches the world bucket order),
+    // then a per-layer stable_sort so HUD z-order is deterministic too.
+    {
+        const size_t totalHud = m_retainedHudSprites.size() + m_hudSprites.size();
+        if (totalHud > 0) {
+            SpriteInstance* hud = allocator.allocateArray<SpriteInstance>(totalHud);
+            if (hud) {
+                size_t idx = 0;
+                for (const auto& [renderId, sprite] : m_retainedHudSprites) hud[idx++] = sprite;
+                if (!m_hudSprites.empty())
+                    std::memcpy(&hud[idx], m_hudSprites.data(), m_hudSprites.size() * sizeof(SpriteInstance));
+                std::stable_sort(hud, hud + totalHud,
+                    [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
+                packet.hudSprites = hud;
+                packet.hudSpriteCount = totalHud;
+            }
+        } else {
+            packet.hudSprites = nullptr;
+            packet.hudSpriteCount = 0;
         }
-    } else {
-        packet.hudSprites = nullptr;
-        packet.hudSpriteCount = 0;
     }
 
-    // HUD texts (screen-space). Pair each command with its string by index (same as the
-    // ephemeral world-text path), then stable_sort by layer.
-    if (!m_hudTexts.empty()) {
-        TextCommand* hud = allocator.allocateArray<TextCommand>(m_hudTexts.size());
-        if (hud) {
-            for (size_t i = 0; i < m_hudTexts.size(); ++i) {
-                hud[i] = m_hudTexts[i];
-                if (i < m_hudTextStrings.size() && !m_hudTextStrings[i].empty()) {
-                    const std::string& str = m_hudTextStrings[i];
-                    char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
-                    if (textCopy) {
-                        std::memcpy(textCopy, str.c_str(), str.size() + 1);
-                        hud[i].text = textCopy;
+    // HUD texts (screen-space): retained (m_retainedHudTexts, strings from m_retainedHudTextStrings) +
+    // ephemeral (m_hudTexts, strings by index). Retained first, then a per-layer stable_sort. Strings are
+    // strdup'd into the frame arena (same as the world-text path).
+    {
+        const size_t totalHud = m_retainedHudTexts.size() + m_hudTexts.size();
+        if (totalHud > 0) {
+            TextCommand* hud = allocator.allocateArray<TextCommand>(totalHud);
+            if (hud) {
+                size_t idx = 0;
+                for (const auto& [renderId, textCmd] : m_retainedHudTexts) {
+                    hud[idx] = textCmd;
+                    auto strIt = m_retainedHudTextStrings.find(renderId);
+                    if (strIt != m_retainedHudTextStrings.end() && !strIt->second.empty()) {
+                        const std::string& str = strIt->second;
+                        char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
+                        if (textCopy) { std::memcpy(textCopy, str.c_str(), str.size() + 1); hud[idx].text = textCopy; }
                     }
+                    idx++;
                 }
+                for (size_t i = 0; i < m_hudTexts.size(); ++i) {
+                    hud[idx] = m_hudTexts[i];
+                    if (i < m_hudTextStrings.size() && !m_hudTextStrings[i].empty()) {
+                        const std::string& str = m_hudTextStrings[i];
+                        char* textCopy = static_cast<char*>(allocator.allocate(str.size() + 1, 1));
+                        if (textCopy) { std::memcpy(textCopy, str.c_str(), str.size() + 1); hud[idx].text = textCopy; }
+                    }
+                    idx++;
+                }
+                std::stable_sort(hud, hud + totalHud,
+                    [](const TextCommand& a, const TextCommand& b) { return a.layer < b.layer; });
+                packet.hudTexts = hud;
+                packet.hudTextCount = totalHud;
             }
-            std::stable_sort(hud, hud + m_hudTexts.size(),
-                [](const TextCommand& a, const TextCommand& b) { return a.layer < b.layer; });
-            packet.hudTexts = hud;
-            packet.hudTextCount = m_hudTexts.size();
+        } else {
+            packet.hudTexts = nullptr;
+            packet.hudTextCount = 0;
         }
-    } else {
-        packet.hudTexts = nullptr;
-        packet.hudTextCount = 0;
     }
 
     // HUD sectors (screen-space wedges, e.g. the action wheel). stable_sort by layer.
@@ -1033,7 +1053,10 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
     sprite.a = static_cast<float>(color & 0xFF) / 255.0f;
 
-    m_retainedSprites[renderId] = sprite;
+    // Route by screen-space: a retained widget tagged space:"screen" (the UIModule tags all its widgets)
+    // goes to the fixed HUD bucket (m_hudView, camera-immune); everything else stays world-space. Without
+    // this a retained UI widget would pan/zoom with the terrain under a live render:camera.
+    (isScreenSpace(data) ? m_retainedHudSprites : m_retainedSprites)[renderId] = sprite;
     // (no per-add log: render hot path — same reason as the routing callback.)
 }
 
@@ -1043,9 +1066,13 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 
-    auto it = m_retainedSprites.find(renderId);
-    if (it == m_retainedSprites.end()) {
-        // Not found - treat as add
+    // Screen-space selects the bucket; a renderId lives in exactly one map. Not in the target -> it's new
+    // or it changed space -> drop any stale twin in the other bucket + re-add (routes by space).
+    const bool hud = isScreenSpace(data);
+    auto& target = hud ? m_retainedHudSprites : m_retainedSprites;
+    auto it = target.find(renderId);
+    if (it == target.end()) {
+        (hud ? m_retainedSprites : m_retainedHudSprites).erase(renderId);
         parseSpriteAdd(data);
         return;
     }
@@ -1084,7 +1111,10 @@ void SceneCollector::parseSpriteRemove(const IDataNode& data) {
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 
+    // The widget lives in exactly one bucket (renderId is globally unique); erase from both — the other
+    // is a no-op. render:sprite:remove carries no "space", so we can't know which without this.
     m_retainedSprites.erase(renderId);
+    m_retainedHudSprites.erase(renderId);
 }
 
 void SceneCollector::parseTextAdd(const IDataNode& data) {
@@ -1102,19 +1132,31 @@ void SceneCollector::parseTextAdd(const IDataNode& data) {
     text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
-    text.text = nullptr;  // Will be set from m_retainedTextStrings in finalize
+    text.text = nullptr;  // Will be set from the matching strings map in finalize
 
-    m_retainedTexts[renderId] = text;
-    m_retainedTextStrings[renderId] = data.getString("text", "");
+    // Route by screen-space (same as sprites): a tagged retained widget text goes to the fixed HUD bucket.
+    if (isScreenSpace(data)) {
+        m_retainedHudTexts[renderId] = text;
+        m_retainedHudTextStrings[renderId] = data.getString("text", "");
+    } else {
+        m_retainedTexts[renderId] = text;
+        m_retainedTextStrings[renderId] = data.getString("text", "");
+    }
 }
 
 void SceneCollector::parseTextUpdate(const IDataNode& data) {
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 
-    auto it = m_retainedTexts.find(renderId);
-    if (it == m_retainedTexts.end()) {
-        // Not found - treat as add
+    // Screen-space selects the bucket (like sprites); not in the target -> new or space changed -> drop
+    // any stale twin (command + its string) in the other bucket + re-add.
+    const bool hud = isScreenSpace(data);
+    auto& target = hud ? m_retainedHudTexts : m_retainedTexts;
+    auto& targetStr = hud ? m_retainedHudTextStrings : m_retainedTextStrings;
+    auto it = target.find(renderId);
+    if (it == target.end()) {
+        if (hud) { m_retainedTexts.erase(renderId); m_retainedTextStrings.erase(renderId); }
+        else     { m_retainedHudTexts.erase(renderId); m_retainedHudTextStrings.erase(renderId); }
         parseTextAdd(data);
         return;
     }
@@ -1131,10 +1173,10 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
 
-    // Update text string if provided
+    // Update text string if provided (into the SAME bucket's string map).
     std::string newText = data.getString("text", "");
     if (!newText.empty()) {
-        m_retainedTextStrings[renderId] = newText;
+        targetStr[renderId] = newText;
     }
 }
 
@@ -1142,8 +1184,11 @@ void SceneCollector::parseTextRemove(const IDataNode& data) {
     uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
     if (renderId == 0) return;
 
+    // Erase from both buckets (unique renderId; the other pair is a no-op) — remove carries no "space".
     m_retainedTexts.erase(renderId);
     m_retainedTextStrings.erase(renderId);
+    m_retainedHudTexts.erase(renderId);
+    m_retainedHudTextStrings.erase(renderId);
 }
 
 } // namespace grove

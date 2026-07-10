@@ -1661,3 +1661,62 @@ TEST_CASE("SceneCollector - anchor: legacy x,y on sprite/particle is rejected", 
         REQUIRE_THAT(p.sprites[0].x, WithinAbs(100.0f, 0.01f));
     }
 }
+
+// A RETAINED widget tagged space:"screen" (how the UIModule renders) must land in the HUD bucket and stay
+// FIXED on screen while render:camera pans/zooms — the engine fix that makes a HUD-over-map possible.
+// Without the retained HUD bucket it would go world-space and drift with the terrain. Locks the fix.
+TEST_CASE("SceneCollector - retained HUD: a screen-space widget is camera-immune", "[scene_collector][retained][hud]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A retained sprite tagged screen-space (HUD) + a retained WORLD sprite (no space) for contrast.
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setInt("renderId", 7); s->setString("space", "screen");
+        s->setDouble("cx", 100.0); s->setDouble("cy", 50.0);
+        fx.ioPublisher->publish("render:sprite:add", std::move(s));
+    }
+    {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setInt("renderId", 8);                        // no "space" -> world
+        s->setDouble("cx", 200.0); s->setDouble("cy", 60.0);
+        fx.ioPublisher->publish("render:sprite:add", std::move(s));
+    }
+    // A retained HUD text too (proves the text path + string plumbing).
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setInt("renderId", 9); t->setString("space", "screen");
+        t->setDouble("x", 12.0); t->setDouble("y", 20.0); t->setString("text", "TEMP 900C");
+        fx.ioPublisher->publish("render:text:add", std::move(t));
+    }
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.hudSpriteCount == 1);                              // screen-space sprite -> HUD bucket
+        REQUIRE_THAT(p.hudSprites[0].x, WithinAbs(100.0f, 0.01f));
+        REQUIRE(p.spriteCount == 1);                                 // world sprite stayed world
+        REQUIRE_THAT(p.sprites[0].x, WithinAbs(200.0f, 0.01f));
+        REQUIRE(p.hudTextCount == 1);                                // screen-space text -> HUD bucket
+        REQUIRE(std::string(p.hudTexts[0].text) == "TEMP 900C");
+    }
+
+    // Move the camera hard (pan far + zoom in). The HUD must NOT move; the world view must.
+    fx.collector.clear();   // retained persists across the frame boundary
+    {
+        auto cam = std::make_unique<JsonDataNode>("c");
+        cam->setDouble("x", 999.0); cam->setDouble("y", 888.0); cam->setDouble("zoom", 4.0);
+        fx.ioPublisher->publish("render:camera", std::move(cam));
+    }
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.hudSpriteCount == 1);
+    REQUIRE_THAT(p.hudSprites[0].x, WithinAbs(100.0f, 0.01f));   // UNCHANGED — screen-space, camera-immune
+    REQUIRE(p.hudTextCount == 1);                                // retained HUD text survives the frame too
+    // The world view followed the camera; the HUD view is pinned to screen space (origin, zoom 1).
+    REQUIRE_THAT(p.mainView.positionX, WithinAbs(999.0f, 0.01f));
+    REQUIRE_THAT(p.mainView.zoom, WithinAbs(4.0f, 0.01f));
+    REQUIRE_THAT(p.hudView.positionX, WithinAbs(0.0f, 0.01f));
+    REQUIRE_THAT(p.hudView.zoom, WithinAbs(1.0f, 0.01f));
+}

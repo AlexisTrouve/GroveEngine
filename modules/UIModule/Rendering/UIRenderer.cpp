@@ -221,6 +221,7 @@ void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, 
         sprite->setDouble("clipX", c.x); sprite->setDouble("clipY", c.y);
         sprite->setDouble("clipW", c.w); sprite->setDouble("clipH", c.h);
     }
+    sprite->setString("space", "screen");   // UI widgets are HUD -> retained screen-space bucket (camera-immune)
     m_io->publish("render:sprite:add", std::move(sprite));
 }
 
@@ -246,6 +247,7 @@ void UIRenderer::publishSpriteUpdate(uint32_t renderId, float x, float y, float 
         sprite->setDouble("clipX", c.x); sprite->setDouble("clipY", c.y);
         sprite->setDouble("clipW", c.w); sprite->setDouble("clipH", c.h);
     }
+    sprite->setString("space", "screen");   // HUD (see publishSpriteAdd) — update stays in the HUD bucket
     m_io->publish("render:sprite:update", std::move(sprite));
 }
 
@@ -282,6 +284,7 @@ void UIRenderer::publishTextAdd(uint32_t renderId, float x, float y, const std::
         textNode->setDouble("clipX", c.x); textNode->setDouble("clipY", c.y);
         textNode->setDouble("clipW", c.w); textNode->setDouble("clipH", c.h);
     }
+    textNode->setString("space", "screen");   // UI text is HUD -> retained screen-space bucket (camera-immune)
     m_io->publish("render:text:add", std::move(textNode));
 }
 
@@ -299,6 +302,7 @@ void UIRenderer::publishTextUpdate(uint32_t renderId, float x, float y, const st
         textNode->setDouble("clipX", c.x); textNode->setDouble("clipY", c.y);
         textNode->setDouble("clipW", c.w); textNode->setDouble("clipH", c.h);
     }
+    textNode->setString("space", "screen");   // HUD (see publishTextAdd) — update stays in the HUD bucket
     m_io->publish("render:text:update", std::move(textNode));
 }
 

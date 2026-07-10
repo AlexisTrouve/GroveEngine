@@ -64,6 +64,16 @@ private:
     std::unordered_map<uint32_t, TextCommand> m_retainedTexts;
     std::unordered_map<uint32_t, std::string> m_retainedTextStrings;  // Text content for retained texts
 
+    // Retained-mode HUD (screen-space): persistent widgets that must IGNORE the world camera. Parallels
+    // m_retainedSprites/Texts but is drawn on m_hudView (fixed screen-space), not m_mainView. Populated
+    // when a retained command carries space:"screen" — the UIModule tags all its widgets (they ARE the HUD).
+    // WHY: without a retained HUD bucket, a UIModule widget (which renders via render:sprite:add/text:add)
+    // lands in the world bucket and pans/zooms with the terrain under a live render:camera. Ephemeral HUD
+    // already had m_hudSprites/m_hudTexts; this is the missing retained twin.
+    std::unordered_map<uint32_t, SpriteInstance> m_retainedHudSprites;
+    std::unordered_map<uint32_t, TextCommand> m_retainedHudTexts;
+    std::unordered_map<uint32_t, std::string> m_retainedHudTextStrings;
+
     // Retained tilemaps (Slice A4): persistent chunks by id, owning their tile data. Merged into the
     // frame each finalize; `dirty` is set on add/update and cleared once the chunk is copied into a
     // frame, so the pass uploads a static chunk exactly once.
