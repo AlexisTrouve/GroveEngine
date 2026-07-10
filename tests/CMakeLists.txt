@@ -3148,6 +3148,14 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         BgfxRenderer_static
         spdlog::spdlog
     )
+    # HUD (resources/core): host Input + UI on the engine. Only when those modules are built — GROVE_MAPVIEW_HUD
+    # gates the HUD source, so the viewer stays buildable WITHOUT UIModule (no regression).
+    if(TARGET UIModule_static AND TARGET InputModule_static)
+        target_compile_definitions(test_mapview_viewer_e2e PRIVATE GROVE_MAPVIEW_HUD=1)
+        target_include_directories(test_mapview_viewer_e2e PRIVATE
+            ${CMAKE_SOURCE_DIR}/modules/UIModule ${CMAKE_SOURCE_DIR}/modules/InputModule)
+        target_link_libraries(test_mapview_viewer_e2e PRIVATE UIModule_static InputModule_static)
+    endif()
     if(GROVE_SDL2_DLL)
         add_custom_command(TARGET test_mapview_viewer_e2e POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer_e2e>")
@@ -3613,6 +3621,14 @@ if(GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         BgfxRenderer_static
         spdlog::spdlog
     )
+    # HUD (resources/core): host Input + UI when those modules are built. GROVE_MAPVIEW_HUD gates the source,
+    # so the viewer stays buildable WITHOUT UIModule.
+    if(TARGET UIModule_static AND TARGET InputModule_static)
+        target_compile_definitions(test_mapview_viewer PRIVATE GROVE_MAPVIEW_HUD=1)
+        target_include_directories(test_mapview_viewer PRIVATE
+            ${CMAKE_SOURCE_DIR}/modules/UIModule ${CMAKE_SOURCE_DIR}/modules/InputModule)
+        target_link_libraries(test_mapview_viewer PRIVATE UIModule_static InputModule_static)
+    endif()
     if(GROVE_SDL2_DLL)  # Windows: copy SDL2.dll next to the exe (no-op on Linux — SDL2 is a system lib)
         add_custom_command(TARGET test_mapview_viewer POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:test_mapview_viewer>")

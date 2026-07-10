@@ -129,6 +129,27 @@ inline std::vector<mapview::Marker> demoMarkers() {
     };
 }
 
+// A RESOURCE lens: the terrain underneath (elevation ramp, optional hillshade) + a density HEATMAP on top of
+// one `res_<type>` field (Unorm8 0..1, sparse per chunk). The heat palette is alpha=0 at density 0 so the
+// terrain shows through where the resource is absent; MapView skips a field missing from a chunk (sparse res_*
+// fields just work). Drives the map-viewer's resource HUD: clicking a resource swaps the active lens to this.
+inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade) {
+    const auto stops = terrainStops();
+    mapview::Layer base{"elevation", mapview::Palette::ramp(stops), mapview::Filter::always(), 0, 1.0f};
+    if (hillshade) {
+        base.hillshadeField = "elevation";
+        base.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
+    }
+    mapview::Palette heat = mapview::Palette::ramp({
+        {0.0,  mapview::Rgba{1.0f, 0.85f, 0.10f, 0.0f}},
+        {0.12, mapview::Rgba{1.0f, 0.82f, 0.15f, 0.55f}},
+        {0.5,  mapview::Rgba{1.0f, 0.50f, 0.05f, 0.8f}},
+        {1.0,  mapview::Rgba{0.95f, 0.10f, 0.02f, 0.95f}},
+    });
+    mapview::Layer heatLayer{field, heat, mapview::Filter::always(), 10, 1.0f};
+    return mapview::Lens{"resource:" + field, {base, heatLayer}, {}, {}};
+}
+
 // Build the terrain lens. `banded` switches the palette from a continuous ramp to discrete altitude bands;
 // `hillshade` toggles the relief shading. Includes a marker layer (drawn on top, layerZ 1000) so a host that
 // setMarkers() + renders MarkerDraw as sprites shows point icons over the terrain.

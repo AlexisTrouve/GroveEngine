@@ -37,6 +37,7 @@
 
 #include "MapViewDemoScene.h"     // demoSchema (Int16 elevation @0.25m), makeTerrainLens, makeTileLens, demoRegions
 #include "MapViewViewerApp.h"
+#include "MapViewHud.h"           // resources/core HUD (Input+UI on the engine) — no-op unless GROVE_MAPVIEW_HUD
 #include "MapViewPoster.h"        // renderPoster (the --poster tiled+stitched whole-map export)
 #include "PngCapture.h"
 #include "TerrainTileset.h"       // writeTerrainTileset (for the 'T' tiling mode)
@@ -157,6 +158,15 @@ int main(int argc, char** argv) {
     app.setRegions(mvdemo::demoRegions());
     app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);
 
+    // HUD: host Input + UI on the engine and drive events through feedAndPump() (feeds InputModule so the
+    // clicks reach the UI, then the viewer's camera). Without the HUD build, pump() is the plain camera pump.
+#ifdef GROVE_MAPVIEW_HUD
+    mvdemo::MapViewHud hud(engine, gIO.get(), app, provider.schema(), W, H);
+    auto pump = [&]{ hud.feedAndPump(); };
+#else
+    auto pump = [&]{ app.pumpEvents(); };
+#endif
+
     // Offscreen: redirect the world + HUD views so the render is captured headless.
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
@@ -178,7 +188,7 @@ int main(int argc, char** argv) {
     pushButton(SDL_MOUSEBUTTONDOWN, 300, 300);
     pushMotion(260, 300);
     pushButton(SDL_MOUSEBUTTONUP, 260, 300);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
     CHECK(app.camera().x > cam0.x, "left-drag pans the camera in x (grab-pan)");
     CHECK(app.camera().y == cam0.y, "a horizontal drag leaves camera y unchanged");
@@ -186,24 +196,24 @@ int main(int argc, char** argv) {
     // 2. Mouse wheel up: zoom in.
     const float zoomPre = app.camera().zoom;
     pushWheel(1);
-    app.pumpEvents();
+    pump();
     CHECK(app.camera().zoom > zoomPre, "wheel-up zooms the camera in");
 
     // 3. Keep zooming in hard -> the culled chunk set (and thus the visible-cell count) shrinks.
     for (int i = 0; i < 10; ++i) pushWheel(1);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
     CHECK(app.cellCount() < cellsFit, "zooming in shrinks the visible-cell set (cull responds to the camera)");
 
     // 4. 'H' toggles hillshade (a lens rebuild driven by a key).
     const bool hs0 = app.hillshade();
     pushKey(SDLK_h);
-    app.pumpEvents();
+    pump();
     CHECK(app.hillshade() != hs0, "H toggles the hillshade lens");
 
     // 4b. 'T' switches to LIVE TILING: the retained-tilemap path streams chunks in/out as the camera moves.
     pushKey(SDLK_t);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
     CHECK(app.tiling(), "T switches the viewer to the tiling path");
     CHECK(app.residentTileChunks() > 0, "tiling streams in the visible tile chunks");
@@ -211,7 +221,7 @@ int main(int argc, char** argv) {
 
     // Zoom in so the viewport is smaller than the world (guarantees chunks churn on pan).
     for (int i = 0; i < 4; ++i) pushWheel(1);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
 
     // Pan west several chunks then back east: chunks LEAVE the retained tilemap (remove) on the way out and
@@ -221,7 +231,7 @@ int main(int argc, char** argv) {
         pushButton(SDL_MOUSEBUTTONDOWN, fromX, 360);
         pushMotion(toX, 360);
         pushButton(SDL_MOUSEBUTTONUP, toX, 360);
-        app.pumpEvents();
+        pump();
         app.renderFrame(dt);
         removedSeen += app.lastTileRemoved();
         addedSeen  += app.lastTileAdded();
@@ -233,14 +243,14 @@ int main(int argc, char** argv) {
 
     // 'T' again -> back to the sprite path; every retained chunk is flushed (no leak).
     pushKey(SDLK_t);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
     CHECK(!app.tiling(), "T toggles tiling back off");
     CHECK(app.residentTileChunks() == 0, "leaving tiling flushes all retained chunks (no leak)");
 
     // 5. 'R' restores the EXACT reset view (camera + the same cell set as the fit baseline).
     pushKey(SDLK_r);
-    app.pumpEvents();
+    pump();
     app.renderFrame(dt);
     CHECK(app.camera().x == cam0.x && app.camera().y == cam0.y && app.camera().zoom == cam0.zoom,
           "R restores the exact reset camera");
@@ -249,8 +259,37 @@ int main(int argc, char** argv) {
     // 6. 'Esc' stops the app.
     CHECK(app.running(), "app is running before Esc");
     pushKey(SDLK_ESCAPE);
-    app.pumpEvents();
+    pump();
     CHECK(!app.running(), "Esc stops the app");
+
+#ifdef GROVE_MAPVIEW_HUD
+    // 6b. HUD over the map: a click on a category BUTTON must reach the UI (real input->ui, injected) and fire
+    //     its declarative event; and it must STILL fire at the same screen spot after the camera pans/zooms —
+    //     proving the HUD is screen-fixed (the retained-HUD-bucket fix, through the full input->ui->render stack).
+    auto hudClick = [&](int x, int y){
+        // Press and release on SEPARATE frames (a click = press frame N, release frame N+1) — one input.process
+        // per renderFrame, matching the live loop's cadence.
+        pushMotion(x, y); pushButton(SDL_MOUSEBUTTONDOWN, x, y);
+        for (int i = 0; i < 2; ++i) { pump(); app.renderFrame(dt); }
+        pushButton(SDL_MOUSEBUTTONUP, x, y);
+        for (int i = 0; i < 3; ++i) { pump(); app.renderFrame(dt); }   // release -> click fires -> gIO drains
+    };
+    for (int i = 0; i < 3; ++i) { pump(); app.renderFrame(dt); }        // settle: HUD layout up
+    const int actionsBefore = hud.actionCount();
+    hudClick(330, 20);                                                   // "Métaux" button (x 274..384, y 6..34)
+    CHECK(hud.actionCount() > actionsBefore, "a click on a HUD category button reaches the UI (input->ui->declarative event)");
+    CHECK(hud.lastCategory() == std::string("Métaux"), "the category button published its cat:select {id} arg");
+
+    // Pan + zoom the camera hard, then click the SAME screen position -> it must still hit the button.
+    camera::CameraView moved = app.camera(); moved.x += 500.0f; moved.y += 300.0f; moved.zoom *= 3.0f;
+    app.setCamera(moved);
+    app.renderFrame(dt);
+    const int actionsAfterPan = hud.actionCount();
+    hudClick(330, 20);
+    CHECK(hud.actionCount() > actionsAfterPan,
+          "the HUD button still fires at the same screen spot after a camera pan/zoom (HUD is screen-fixed)");
+    app.setCamera(cam0);                                                 // restore the reset view for the capture
+#endif
 
     // Capture a PNG artifact of the reset view after the full input sequence.
     app.renderFrame(dt);

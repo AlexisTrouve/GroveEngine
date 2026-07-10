@@ -196,6 +196,11 @@ public:
         tilingEnabled_ = true;
     }
 
+    // HUD lens control: swap to an arbitrary active lens (a resource density heatmap), or back to the terrain
+    // lens (with the current hillshade/banded/tiling state). Additive — the terrain/tile toggles are unchanged.
+    void setLens(mapview::Lens lens) { mv_.setLens(std::move(lens)); }
+    void useTerrainLens() { rebuildLens(); }
+
     // --- state accessors (live main scripting + E2E assertions) ---
     const camera::CameraView& camera() const { return cam_; }
     void setCamera(camera::CameraView c) { cam_ = c; }

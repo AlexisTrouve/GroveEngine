@@ -46,6 +46,7 @@
 
 #include "MapViewDemoScene.h"
 #include "MapViewViewerApp.h"
+#include "MapViewHud.h"           // resources/core HUD (Input+UI on the engine) — no-op unless GROVE_MAPVIEW_HUD
 #include "MapViewPoster.h"
 #include "PngCapture.h"
 #include "SdlNativeHandle.h"
@@ -292,9 +293,20 @@ int main(int argc, char** argv) {
         std::fprintf(stdout, "wrote %s — scripted pan+zoom through the live viewer pipeline\n", outPath.c_str());
     } else {
         std::fprintf(stdout, "grove::mapview viewer — drag=pan, wheel=zoom, H=hillshade, B=banded, T=tiling, R=reset, Esc=quit\n");
+#ifdef GROVE_MAPVIEW_HUD
+        // Resources/core HUD over the map (Input + UI hosted on the engine; screen-fixed via the retained HUD
+        // bucket). Category button -> resource sub-menu list -> density heatmap; the right panel shows the core.
+        mvdemo::MapViewHud hud(engine, gIO.get(), app, schema, vpW, vpH);
+        hud.setMockCore();   // TODO: read <loadDir>/core.json once Theomen ships the side-car
+        std::fprintf(stdout, "  + resources/core HUD (%zu resource categories from the world schema)\n", hud.categoryCount());
+#endif
         Uint32 last = SDL_GetTicks();
         while (app.running()) {
+#ifdef GROVE_MAPVIEW_HUD
+            hud.feedAndPump();   // feed InputModule (-> UI) + the viewer camera (mouse gated over UI)
+#else
             app.pumpEvents();
+#endif
             const Uint32 now = SDL_GetTicks();
             float dt = (now - last) / 1000.0f;
             last = now;
