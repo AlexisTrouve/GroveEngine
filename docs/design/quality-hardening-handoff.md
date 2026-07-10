@@ -15,11 +15,11 @@ two new axes: **0 UB / 0 memory errors / 0 leaks** under ASan+UBSan (core/logic/
 dlopen/dlclose path), and **statically clean** under a curated clang-tidy `src/` pass (only minor real
 fixes, no serious bugs). The thesis above is delivered for the core.
 
-**Next:** the `modules/` clang-tidy widen is **PART 1 done** (2026-07-06 — 29 Windows-clean module files swept,
-3 real fixes; see Phase 2 UPDATE). **PART 2 = the SAL-tainted set on Linux** (SoundManager/Video/BgfxRenderer —
-Windows clang-tidy can't parse them soundly; run on VPS142's GCC toolchain) — **⚠️ DEFERRED DEBT (Alexi's call
-2026-07-06: keep all Linux work parked for now).** NOT technically blocked, just deprioritized; do not surface it
-as the active next step. Then Phase 3 (CI, needs a host decision) / Phase 4 (regression gates). Detail below.
+**Next:** the `modules/` clang-tidy widen is **DONE** — PART 1 (2026-07-06, 29 Windows-clean files, 3 fixes) +
+**PART 2 (2026-07-10, the 22 SAL-tainted/BgfxRenderer files on VPS142's GCC toolchain — 9 fixes incl. a real
+SDL2_mixer cross-version portability bug Windows couldn't see; see Phase 2 UPDATE 2026-07-10).** `modules/` is
+now fully swept. Remaining: Phase 3 (CI, needs a host decision) / Phase 4 (regression gates), + the `[gpu]`
+ASan/UBSan gap (VPS142 has the toolchain now). Detail below.
 
 | Capability | Status |
 |---|---|
@@ -27,7 +27,7 @@ as the active next step. Then Phase 3 (CI, needs a host decision) / Phase 4 (reg
 | TSan / Helgrind | ✅ wired (`GROVE_ENABLE_TSAN` / `_HELGRIND`, manual flags, `CMakeLists.txt:11-16, 27-29`); IIO/pool TSan-proven |
 | ASan / LSan | ✅ wired (`GROVE_ENABLE_ASAN`, commit `400e62a`); core + hot-reload swept **clean** |
 | UBSan | ✅ wired (`GROVE_ENABLE_UBSAN`, `400e62a`); swept **clean**, negative-controlled |
-| clang-tidy / static analysis | ✅ `.clang-tidy` curated (`a668239`); `src/` crop fixed. `modules/` **clean set swept on Windows** (29 non-SAL files, 3 real fixes) — SAL-tainted set (SoundManager/Video/BgfxRenderer) → Linux (see Phase 2 UPDATE 2026-07-06) |
+| clang-tidy / static analysis | ✅ `.clang-tidy` curated (`a668239`); `src/` crop fixed. **`modules/` fully swept** — PART 1 (29 non-SAL files on Windows, 3 fixes) + PART 2 (22 SAL-tainted/BgfxRenderer files on VPS142 Linux, 9 fixes incl. an SDL2_mixer cross-version portability bug; Phase 2 UPDATE 2026-07-10) |
 | CI (auto on push) | ❌ none — everything still manual (Phase 3) |
 | Coverage | ❌ not measured |
 | Perf / leak regression gates | ❌ none — benchmarks wall-clock, run by hand (Phase 4) |
@@ -186,6 +186,33 @@ hot path, `registerInstance` → move, dead `generation`/`filename`/timing local
     `.clang-tidy`, same triage. Also sets up the Phase-1 GPU `[gpu]` ASan/UBSan gap on the same box. The sweep
     runner + clean/taint partition detector are in the session scratchpad (`tidy_modules.sh`) — the Linux variant
     drops the BgfxRenderer exclusion and points `-p` at the Linux build.
+- **UPDATE (2026-07-10) — PART 2 DONE (the 22 SAL-tainted/BgfxRenderer files, on VPS142).** Recipe: `sudo apt
+  install clang-tidy libsdl2-dev libsdl2-mixer-dev` (LLVM 19) on VPS142 (Tailscale `100.85.89.83`); `git fetch
+  origin` + `git worktree add --detach /tmp/gt-tidy origin/master` (isolated tree at my HEAD — the VPS's own
+  master carries diverged linux-port commits, untouched); `cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
+  + the 3 module flags; `run-clang-tidy -p build 'modules/(BgfxRenderer|SoundManager|VideoModule)/.*\.cpp$'`
+  (8-core parallel). **29 findings → triaged.** **Real fixes (locked by Windows build + 153-test ctest + the
+  clang-tidy re-run showing them gone; the Linux parse SURFACED bugs Windows can't see):**
+  1. `SDLMixerBackend.h` — the forward-decl `typedef struct _Mix_Music Mix_Music;` hardcoded SDL's INTERNAL
+     struct tag, which **differs across SDL2_mixer versions** (`_Mix_Music` on the MinGW toolchain, `Mix_Music`
+     on Debian's newer SDL2_mixer) → a hard **`clang-diagnostic-error`** (conflicting typedef) on Debian + a
+     reserved-identifier. Replaced with `#include <SDL_mixer.h>` (only SDL-aware TUs include this header, so no
+     new dep). **A genuine cross-version portability bug Windows built by luck** — now compiles on BOTH (proven:
+     `ninja SoundManager_static` green on Debian, MinGW build + SoundManagerUnit green on Windows).
+  2. `~SDLMixerBackend` + `~FfmpegCliBackend` — both called a **virtual method (`shutdown`/`close`) unqualified
+     in the destructor** (analyzer: bypasses virtual dispatch). Qualified both (matches PART 1's `~InputModule`).
+     The SDLMixer one was HIDDEN behind the parse error until fix #1 unblocked it.
+  3. `SDLMixerBackend.cpp` rounding `(int)(v*MAX+0.5)` → `std::lround` (v is clamped ≥0 so latent-safe; cleared).
+  4. 5× `bugprone-implicit-widening-of-multiplication` (FrameAllocator/DebugPass/TilemapPass/RHICommandBuffer/
+     BitmapFont) — all bounded-safe (uint8·16, 64² chunks, compile-time const) but hardened with a target-type
+     cast so the multiply happens in size_t/uint32/ptrdiff (no int-overflow-then-widen); cleared.
+  5. `BitmapFont::loadBMFont` stub — `[[maybe_unused]]` on the two params (future BMFont-loader inputs).
+  - **Verified NON-bugs LEFT (documented, same as PART 1):** 7× `misc-unused-parameters` = IModule/pass override
+    sigs (newConfigNode/scheduler/frame/cmd/device); 5× `performance-enum-size` = the one `IIO.h:12 IOType`
+    core-header spot (ABI-internal, `include/`); 3× `performance-no-int-to-ptr` = the `nativeWindowHandle` casts
+    (a window handle IS an int-encoded pointer); 2× `bugprone-branch-clone` = `ShaderManager` backend→shader-set
+    select (backends that share a shader set legitimately have identical bodies). **This is the honest coverage
+    line — modules/ is now fully swept (Windows-clean set PART 1 + Linux SAL/BgfxRenderer set PART 2).**
 
 ### Phase 3 — Automate (CI)
 

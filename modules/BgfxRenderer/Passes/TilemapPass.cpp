@@ -246,7 +246,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
 
         // Resolve the resident R16UI index texture for this chunk and upload its tile ids.
         // The region overload covers the full grid but avoids the full-update m_width/m_height bug.
-        const uint32_t bytes = static_cast<uint32_t>(chunk.width) * chunk.height * sizeof(uint16_t);
+        const uint32_t bytes = static_cast<uint32_t>(chunk.width) * chunk.height * static_cast<uint32_t>(sizeof(uint16_t));
         rhi::TextureHandle indexTex;
 
         rhi::TextureHandle lodTex;

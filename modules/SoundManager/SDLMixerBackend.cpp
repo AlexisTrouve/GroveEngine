@@ -4,6 +4,7 @@
 #include <SDL_mixer.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace grove {
 namespace sound {
@@ -13,12 +14,12 @@ namespace {
 int toMixVolume(float v) {
     if (v < 0.0f) v = 0.0f;
     else if (v > 1.0f) v = 1.0f;
-    return static_cast<int>(v * static_cast<float>(MIX_MAX_VOLUME) + 0.5f);
+    return static_cast<int>(std::lround(v * static_cast<float>(MIX_MAX_VOLUME)));
 }
 } // namespace
 
 SDLMixerBackend::~SDLMixerBackend() {
-    shutdown();
+    SDLMixerBackend::shutdown();   // qualified: non-virtual dispatch in the dtor (matches ~FfmpegCliBackend)
 }
 
 bool SDLMixerBackend::init() {

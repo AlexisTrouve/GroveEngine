@@ -65,7 +65,9 @@ std::string deriveFfprobe(const std::string& ffmpeg) {
 FfmpegCliBackend::FfmpegCliBackend(std::string ffmpegExe)
     : m_ffmpeg(std::move(ffmpegExe)), m_ffprobe(deriveFfprobe(m_ffmpeg)) {}
 
-FfmpegCliBackend::~FfmpegCliBackend() { close(); }
+// Qualify close() so the dtor uses non-virtual dispatch (a virtual call during destruction can't reach a
+// more-derived override anyway; the explicit qualification says so and silences the analyzer).
+FfmpegCliBackend::~FfmpegCliBackend() { FfmpegCliBackend::close(); }
 
 bool FfmpegCliBackend::probe(const std::string& path) {
     // ffprobe emits robust key=value metadata (no fragile stderr banner parsing).

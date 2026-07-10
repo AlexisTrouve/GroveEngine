@@ -34,7 +34,7 @@ void DebugPass::setup(rhi::IRHIDevice& device) {
     // Buffer size: MAX_DEBUG_LINES * 2 vertices * 28 bytes
     rhi::BufferDesc vbDesc;
     vbDesc.type = rhi::BufferDesc::Vertex;
-    vbDesc.size = MAX_DEBUG_LINES * 2 * sizeof(DebugVertex);
+    vbDesc.size = static_cast<size_t>(MAX_DEBUG_LINES) * 2 * sizeof(DebugVertex);
     vbDesc.data = nullptr;
     vbDesc.dynamic = true;
     vbDesc.layout = rhi::BufferDesc::PosColor;  // vec3 pos + vec4 color

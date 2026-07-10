@@ -285,7 +285,7 @@ bool BitmapFont::initDefault(rhi::IRHIDevice& device) {
 
     // Render ASCII 32-126 into cells 0..94.
     for (int charIdx = 0; charIdx < FONT_CHAR_COUNT; ++charIdx) {
-        blitGlyphCell(atlasData.data(), m_atlasWidth, charIdx, &g_fontData8x8[charIdx * 8]);
+        blitGlyphCell(atlasData.data(), m_atlasWidth, charIdx, &g_fontData8x8[static_cast<size_t>(charIdx) * 8]);
     }
     // Render the extended (French accent) glyphs into the free cells 95+.
     for (int e = 0; e < FONT_EXT_COUNT; ++e) {
@@ -356,9 +356,10 @@ void BitmapFont::generateDefaultGlyphs() {
     m_defaultGlyph = m_glyphs['?'];
 }
 
-bool BitmapFont::loadBMFont(rhi::IRHIDevice& device, const std::string& fntPath, const std::string& pngPath) {
-    // TODO: Implement BMFont loader if needed
-    // For now, fall back to default font
+bool BitmapFont::loadBMFont(rhi::IRHIDevice& device, [[maybe_unused]] const std::string& fntPath,
+                            [[maybe_unused]] const std::string& pngPath) {
+    // TODO: Implement BMFont loader if needed (fntPath/pngPath will feed the parser then).
+    // For now, fall back to default font.
     return initDefault(device);
 }
 

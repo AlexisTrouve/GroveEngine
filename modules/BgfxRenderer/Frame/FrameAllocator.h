@@ -13,7 +13,7 @@ namespace grove {
 
 class FrameAllocator {
 public:
-    static constexpr size_t DEFAULT_SIZE = 16 * 1024 * 1024; // 16 MB
+    static constexpr size_t DEFAULT_SIZE = static_cast<size_t>(16) * 1024 * 1024; // 16 MB (compute in size_t)
 
     explicit FrameAllocator(size_t size = DEFAULT_SIZE);
     ~FrameAllocator();

@@ -23,7 +23,7 @@ void RHICommandBuffer::setUniform(UniformHandle uniform, const float* data, uint
     cmd.type = CommandType::SetUniform;
     cmd.setUniform.uniform = uniform;
     cmd.setUniform.numVec4s = numVec4s;
-    std::memcpy(cmd.setUniform.data, data, numVec4s * 16);
+    std::memcpy(cmd.setUniform.data, data, static_cast<size_t>(numVec4s) * 16);
     m_commands.push_back(cmd);
 }
 

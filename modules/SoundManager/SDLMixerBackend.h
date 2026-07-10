@@ -22,9 +22,12 @@
 #include <unordered_map>
 #include <vector>
 
-// Opaque forward declares so this header does not require SDL_mixer (only the .cpp does).
-struct Mix_Chunk;
-typedef struct _Mix_Music Mix_Music;
+// SDL_mixer's opaque types (Mix_Chunk / Mix_Music). We include the real header rather than forward-declaring:
+// the Mix_Music struct TAG differs across SDL2_mixer versions (`_Mix_Music` in older, `Mix_Music` in newer),
+// so a hand-rolled `typedef struct _Mix_Music Mix_Music;` both uses a reserved identifier AND conflicts with
+// SDL's own typedef on newer SDL2_mixer (a hard parse error). Only SDL-aware TUs include this backend header
+// (the .cpp + the sound/video demos), so pulling in SDL_mixer here adds no dependency they don't already have.
+#include <SDL_mixer.h>
 
 namespace grove {
 namespace sound {
