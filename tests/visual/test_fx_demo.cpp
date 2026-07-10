@@ -133,6 +133,11 @@ int main(int argc, char** argv) {
         {"behaviors", json::array({ json{{"type","velocity"},{"vx",0},{"vy",-70},{"drag",0}},
                                     json{{"type","fade"},{"seconds",1.1}},
                                     json{{"type","lifetime"},{"seconds",1.1}} })}});
+    // A trail particle (for the comet): a dim dot that fades + dies fast, so the trail tapers behind the head.
+    pushJson("fx:prefab", json{{"name","trail_dust"},
+        {"sprite", {{"asset","fx_dot"},{"color",0x50B0FF80},{"layer",850}}},
+        {"behaviors", json::array({ json{{"type","fade"},{"seconds",0.6}},
+                                    json{{"type","lifetime"},{"seconds",0.6}} })}});
 
     int uid = 0;
     auto explode = [&](double cx, double cy, bool ice) {
@@ -146,6 +151,17 @@ int main(int argc, char** argv) {
         pushJson("fx:spawn", json{{"id","dmg_" + std::to_string(++uid)}, {"archetype","damage_number"},
             {"transform", {{"cx",cx},{"cy",cy}}}, {"text", {{"text",text},{"color",color}}}});
     };
+    // A comet: ONE entity that is a bright sprite head + a `move` behavior + a CONTINUOUS emitter (the trail) +
+    // a lifetime. It flies, drops trail particles at its moving position, and self-cleans — the F4 showcase.
+    auto comet = [&](double cx, double cy, double vx, double vy) {
+        pushJson("fx:spawn", json{{"id","comet_" + std::to_string(++uid)},
+            {"transform", {{"cx",cx},{"cy",cy},{"scaleX",13.0},{"scaleY",13.0}}},
+            {"sprite", {{"asset","fx_dot"},{"color",0xFFFFFFFF},{"layer",950}}},              // bright white head
+            {"emitter", {{"prefab","trail_dust"},{"ratePerSec",70.0},{"oneShot",false},
+                         {"speedMin",0.0},{"speedMax",25.0},{"spreadDeg",360.0}}},            // gentle puff trail
+            {"behaviors", json::array({ json{{"type","move"},{"vx",vx},{"vy",vy}},
+                                        json{{"type","lifetime"},{"seconds",3.0}} })}});
+    };
 
     for (int i = 0; i < 3; ++i) frame(1.0f / 60.0f);   // settle: prefab registration, first camera/clear
 
@@ -157,7 +173,8 @@ int main(int argc, char** argv) {
         explode(760, 320, true);  damage(760, 260, "-88",  0x60E0FFFF);
         explode(980, 470, false); damage(980, 410, "CRIT!",0xFFE060FF);
         damage(560, 520, "-25", 0xFFFFFFFF);
-        for (int i = 0; i < 5; ++i) frame(0.028f);      // ~0.14 s in — particles still dense + bright
+        comet(140, 180, 320.0, 40.0);                   // a comet flying right — leaves a continuous trail
+        for (int i = 0; i < 10; ++i) frame(0.028f);     // ~0.28 s — bursts mid-flight + the comet's trail formed
 
         // Redirect both views into an offscreen framebuffer, render, read back, write the PNG.
         rhi::IRHIDevice* dev = renderer->getDevice();
@@ -179,7 +196,7 @@ int main(int argc, char** argv) {
     }
 
     // =============================== INTERACTIVE ================================
-    std::fprintf(stdout, "FX demo — LMB: explosion  |  Space: damage number  |  auto-burst every ~0.8s  |  Esc: quit\n");
+    std::fprintf(stdout, "FX demo — LMB: explosion  |  RMB: comet (trail)  |  Space: damage number  |  auto every ~0.8s  |  Esc: quit\n");
     bool running = true;
     float autoTimer = 0.0f;
     int tick = 0;
@@ -195,6 +212,12 @@ int main(int argc, char** argv) {
                 explode(e.button.x, e.button.y, (tick & 1) != 0);
                 damage(e.button.x, e.button.y - 40, dmgStrings[tick % 6], 0xFF6060FF);
                 ++tick;
+            }
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT) {
+                // Comet from the cursor toward the screen centre — a continuous trail follows the moving head.
+                const double dx = W * 0.5 - e.button.x, dy = H * 0.5 - e.button.y;
+                const double len = std::sqrt(dx * dx + dy * dy) + 1.0;
+                comet(e.button.x, e.button.y, dx / len * 300.0, dy / len * 300.0);
             }
         }
         // Auto-spawn a burst on a moving path so there's always something on screen to watch.

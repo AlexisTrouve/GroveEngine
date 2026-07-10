@@ -50,14 +50,18 @@ like `grove::anim` / `DialogueRuntime`):
   `cx,cy` = CENTER; `Sprite{asset|textureId,color,layer,present}`; **`Text{text,color,layer,fontSize,present}`** —
   optional label, string already-localized by the consumer; **`Emitter{prefab,count,speedMin/Max,spreadDeg,dirDeg,oneShot}`** —
   a one-shot particle burst) + `vector<Behavior>`. Sprite & Text are **orthogonal** — an effect may bear either/both.
-- **Emitter (F3)** = a one-shot particle **burst**. On its next tick, `fireEmitter` spawns `count` fresh
-  instances of the particle `prefab` AT the emitter, each launched with a random velocity in the cone
-  `[dirDeg ± spreadDeg/2]` at speed `[speedMin,speedMax]`. Randomness = a **deterministic xorshift PRNG seeded
-  by the entity id** (reproducible + unit-testable — no global rand state, respects the engine's determinism
-  posture). A one-shot emitter (invisible) self-destructs after firing. Particles are short-lived **sprite**
-  entities (ride `render:sprite:*` + the F1 behaviors) — **not** the renderer's `render:particle` primitive;
-  sized for VFX bursts (tens), not GPU masses (those → `submitParticleBatch`, see [[rendering-throughput]]).
-  Emitters fire AFTER the behavior-tick loop (particles get higher ids → not re-ticked the same frame).
+- **Emitter (F3 burst + F4 stream)** = a particle emitter. `emitFromEmitter(id, dt)` spawns fresh `prefab`
+  instances AT the emitter, each with a random velocity in the cone `[dirDeg ± spreadDeg/2]` at speed
+  `[speedMin,speedMax]`. Randomness = a **deterministic xorshift PRNG seeded by the entity id, PERSISTED in the
+  Emitter across ticks** (so a continuous stream keeps varying; reproducible + unit-testable — no global rand).
+  **Two modes:** `oneShot=true` (F3) spawns `count` at once then self-destructs (the emitter is invisible);
+  `oneShot=false` (F4) accumulates `ratePerSec*dt` fractional particles and emits the whole part **every tick**,
+  never self-destructing (trails/smoke — stop via `ratePerSec=0` or destroy; steady-state count self-bounds at
+  `rate × particle-lifetime`). A moving emitter drops particles along its path = a trail; Sprite+Emitter+move on
+  ONE entity = a comet. Particles are short-lived **sprite** entities (ride `render:sprite:*` + F1 behaviors) —
+  **not** the renderer's `render:particle` primitive; VFX-sized (tens), not GPU masses (→ `submitParticleBatch`,
+  see [[rendering-throughput]]). Emitters emit AFTER the behavior-tick loop (particles get higher ids → not
+  re-ticked the same frame).
 - **`tick(dt)`** advances behaviors in list order (mutate components; `lifetime` kills on expiry). Behavior lib:
   `move/spin/lifetime` (E1) + **`fade{seconds,fromA,toA}`** (ramps the AA byte of sprite AND text color) +
   **`velocity{vx,vy,drag}`** (initial velocity decaying by drag/s; explicit-Euler → tick at frame dt) (F1).
@@ -85,7 +89,8 @@ via `spawn`/`setSprite`/`setText`/`setEmitter`/`addBehavior`, then `process(dt)`
 | rename → `grove::fx`/`FxModule` + VFX re-scope | `9c64901` | the naming-footgun fix + docs re-scoped + anti-crowd panel + roadmap. |
 | **F1** — `fade` + `velocity+drag` behaviors | `96e8608` | two lifecycle primitives; fade ramps sprite/text alpha, velocity spreads + decays. `FxWorldUnit [fade]/[velocity]` + `IT_059d`. |
 | **F2** — `Text` component + floating-numbers | `96e8608` | `Text` component + own `render:text:*` diff pass; `damage_number` archetype (drifterra #1). `FxWorldUnit [text]` + `IT_059e`. |
-| **F3** — `Emitter` component (particle burst) | (this) | one-shot burst → `count` prefab particles in a cone, deterministic-PRNG velocity, self-cleaning; explosion archetype carries the emitter. `FxWorldUnit [emitter]` + `IT_059f`. |
+| **F3** — `Emitter` component (particle burst) | `5787c14` | one-shot burst → `count` prefab particles in a cone, deterministic-PRNG velocity, self-cleaning; explosion archetype carries the emitter. `FxWorldUnit [emitter]` + `IT_059f`. |
+| **F4** — continuous (stream) emitter | (this) | `oneShot:false` → `ratePerSec` particles/sec every tick, persistent PRNG + fractional accumulator, no self-destruct (trails/smoke/exhaust; comet = Sprite+Emitter+move). `FxWorldUnit [stream]` + `IT_059g` + the `test_fx_demo` comet. |
 
 (Commits E1-E3 predate the rename — the code they reference was `grove::entity`/`EntityModule` at the time.)
 New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — changes **no** existing behavior.
@@ -95,8 +100,7 @@ New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — chang
 - ~~**Behaviors**: `fade`, `velocity+drag`~~ — **shipped (F1)**. Remaining lifecycle ideas stay effect-only
   (NOT follow/path/oscillate — gameplay movement is consumer-owned).
 - ~~**Components**: `text` (damage numbers), `particle`~~ — **shipped (F2 text, F3 particle-burst Emitter)**.
-- **Continuous (rate-based) emitter** for trails / smoke / streams (F3 is one-shot burst only — covers
-  explosions/debris/muzzle-flash). A rate emitter emits N/sec over the emitter's lifetime.
+- ~~Continuous (rate-based) emitter~~ — **shipped (F4)** — trails / smoke / exhaust; a comet in the demo.
 - **Hot-reload** full-world serialization (`getState`/`setState` are minimal — health counter only).
 - ~~by-eye windowed VFX demo~~ — **shipped** (`tests/visual/test_fx_demo.cpp`): explosion bursts + rising
   damage numbers rendered through BgfxRenderer. Interactive window (LMB/Space/auto) + a headless `--shot`

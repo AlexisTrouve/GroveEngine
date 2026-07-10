@@ -943,21 +943,28 @@ component that rises (`velocity` up), fades (`fade`), and self-expires (`lifetim
 
 ### Particle bursts (the `Emitter` component)
 
-An **`Emitter`** fires a **one-shot burst** of particles — the primitive behind explosions, debris and muzzle
-flash. On its next `tick`, the engine spawns `count` fresh instances of a particle **prefab** *at the emitter's
-position*, each launched with a random velocity: a direction within the cone `[dirDeg ± spreadDeg/2]` at a speed
-in `[speedMin, speedMax]`. The randomness is a **deterministic PRNG seeded by the entity id** — a given burst is
-reproducible (and unit-testable). A one-shot emitter is invisible (no sprite of its own) and **self-destructs**
-after firing.
+An **`Emitter`** spawns fresh particle-**prefab** instances *at the emitter's position*, each launched with a
+random velocity: a direction within the cone `[dirDeg ± spreadDeg/2]` at a speed in `[speedMin, speedMax]`. The
+randomness is a **deterministic PRNG seeded by the entity id** (persisted across ticks) — reproducible and
+unit-testable. It has **two modes**:
+
+- **Burst** (`oneShot:true`, the default) — spawns `count` particles on its next tick, then the (invisible)
+  emitter **self-destructs**. Explosions, debris, muzzle flash.
+- **Stream** (`oneShot:false`) — emits `ratePerSec` particles/second **every tick** for as long as the entity
+  lives, and does **not** self-destruct. Engine trails, smoke, exhaust. Stop it by setting `ratePerSec:0` or
+  destroying the entity (in-flight particles just live out their own lifetime, so a trail fades naturally). The
+  steady-state particle count is **self-bounded by the particle's lifetime** (`rate × lifetime`) — keep those
+  modest; there's no artificial cap.
 
 | Field | Meaning |
 |-------|---------|
 | `prefab` | the particle template to instantiate per particle (its sprite + `fade`/`lifetime` live here) |
-| `count` | how many particles the burst spawns |
+| `count` | *burst mode:* how many particles the burst spawns |
+| `ratePerSec` | *stream mode:* particles emitted per second |
 | `speedMin`, `speedMax` | per-particle launch speed range (px/s) |
-| `spreadDeg` | full cone width in degrees (`360` = omni-directional explosion) |
+| `spreadDeg` | full cone width in degrees (`360` = omni-directional) |
 | `dirDeg` | cone centre direction (`0` = +x, `90` = +y / screen-down) |
-| `oneShot` | one-shot burst self-destructs after firing (default `true`; continuous emitters are a follow-on) |
+| `oneShot` | `true` = burst (self-destructs) · `false` = continuous stream |
 
 ```jsonc
 // 1) A particle template — a spark that fades out and dies over 0.4 s (the emitter adds the launch velocity).
@@ -972,6 +979,24 @@ after firing.
 // 3) Boom at a hit location.
 { "id": "boom_1", "archetype": "explosion", "transform": { "cx": 400, "cy": 300 } }
 ```
+
+**A comet = one entity that is Sprite (head) + a stream Emitter (trail) + `move` + `lifetime`.** It flies,
+drops trail particles at its moving position, and self-cleans:
+
+```jsonc
+// A dim, fast-fading trail particle.
+{ "name": "trail_dust", "sprite": { "asset":"fx/dust", "layer":850 },
+  "behaviors": [ {"type":"fade","seconds":0.6}, {"type":"lifetime","seconds":0.6} ] }
+
+// The comet — a bright head that moves and continuously emits the trail behind it, then expires.
+{ "id": "comet_1",
+  "transform": { "cx": 100, "cy": 200 },
+  "sprite":  { "asset":"fx/dot", "layer":950 },
+  "emitter": { "prefab":"trail_dust", "ratePerSec":70, "oneShot":false, "speedMax":25, "spreadDeg":360 },
+  "behaviors": [ {"type":"move","vx":300,"vy":40}, {"type":"lifetime","seconds":3} ] }
+```
+(In C++: `world().setEmitter(id, fx::streamEmitter("trail_dust", 70.f, 0.f, 25.f))` — factories
+`burstEmitter` / `streamEmitter` for readable call sites.)
 
 > ⚠️ Particles are short-lived **sprite** effects — they ride `render:sprite:*` (reusing the retained diff + the
 > behavior library), **not** the renderer's `render:particle` primitive. This is sized for VFX **bursts** (tens
@@ -1026,9 +1051,10 @@ Build with `-DGROVE_BUILD_FX_MODULE=ON` (SDL-free). The pure logic is locked by 
 (`[prefab]` / `[fade]` / `[velocity]` / `[text]` / `[emitter]` cases included); the module end-to-end by `IT_059`
 (a spawn → `render:sprite:add` at center, a partial set → `:update`, an archetype spawn with an override,
 `move`+`lifetime` driving a sprite to its `:remove`, `fade`+`velocity` ramping alpha while drifting, a
-`damage_number` archetype → `render:text:*` that rises/fades/expires, and an `Emitter` burst → a batch of
-particle `render:sprite:add`). A continuous (rate-based) emitter and hot-reload full-world serialization are
-follow-ons (`getState` is minimal for now).
+`damage_number` archetype → `render:text:*` that rises/fades/expires, an `Emitter` burst → a batch of particle
+`render:sprite:add`, and a continuous stream emitter → a moving trail that keeps emitting, drops particles at
+the moved position, and stops on `ratePerSec:0`). Hot-reload full-world serialization is a follow-on (`getState`
+is minimal for now).
 
 ---
 

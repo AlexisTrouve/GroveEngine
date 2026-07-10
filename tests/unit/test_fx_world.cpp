@@ -310,6 +310,54 @@ TEST_CASE("FxWorldUnit: a prefab can carry an emitter (explosion archetype)", "[
     REQUIRE(w.aliveCount() == 12);                    // 12 debris particles; the emitter retired
 }
 
+// A CONTINUOUS (stream) emitter emits ratePerSec particles/second every tick and does NOT self-destruct
+// (engine trails / smoke). Use a persist-forever particle (sprite only, no lifetime) to count emission exactly.
+TEST_CASE("FxWorldUnit: continuous emitter streams at ratePerSec and persists", "[fx][unit][emitter][stream]") {
+    FxWorld w;
+    Prefab dust; dust.sprite = Sprite{true, "fx/dust", 0, 0xFFFFFFFFu, 800};   // no lifetime -> persists
+    w.registerPrefab("dust", dust);
+
+    EntityId src = w.spawn();
+    w.setEmitter(src, streamEmitter("dust", 10.0f, 20.0f, 40.0f, 60.0f, 0.0f));   // 10 particles/sec
+    REQUIRE(w.aliveCount() == 1);
+
+    for (int i = 0; i < 10; ++i) w.tick(0.1f);        // 1.0 s at 10/s -> 10 particles (1 per 0.1 s tick)
+    REQUIRE(w.aliveCount() == 11);                    // 10 dust + the emitter
+    REQUIRE(w.get(src) != nullptr);                   // emitter is NOT retired (continuous)
+    REQUIRE(w.get(src)->alive);
+}
+
+// Sub-frame rates accumulate: at 10/s a 0.05 s tick is half a particle (0), the next 0.05 s completes one.
+TEST_CASE("FxWorldUnit: continuous emitter accumulates fractional particles", "[fx][unit][emitter][stream]") {
+    FxWorld w;
+    Prefab dust; dust.sprite = Sprite{true, "d", 0, 0xFFFFFFFFu, 0};
+    w.registerPrefab("dust", dust);
+    EntityId src = w.spawn();
+    w.setEmitter(src, streamEmitter("dust", 10.0f, 0.0f, 0.0f));   // 10/s
+
+    w.tick(0.05f);                                    // +0.5 particle -> none yet
+    REQUIRE(w.aliveCount() == 1);                     // just the emitter
+    w.tick(0.05f);                                    // +0.5 -> 1.0 -> spawns one
+    REQUIRE(w.aliveCount() == 2);                     // emitter + 1 dust
+}
+
+// The steady-state particle count is self-bounded by the particle's OWN lifetime (rate × lifetime), so a
+// trail doesn't grow without limit — new particles replace expiring ones.
+TEST_CASE("FxWorldUnit: continuous stream steady-state is bounded by particle lifetime", "[fx][unit][emitter][stream]") {
+    FxWorld w;
+    Prefab spark; spark.sprite = Sprite{true, "s", 0, 0xFFFFFFFFu, 900};
+    spark.behaviors = { lifetime(0.4f) };             // each particle lives 0.4 s
+    w.registerPrefab("spark", spark);
+
+    EntityId src = w.spawn();
+    w.setEmitter(src, streamEmitter("spark", 25.0f, 10.0f, 20.0f));   // 25/s ; dt 0.04 -> 1 particle/tick
+
+    for (int i = 0; i < 30; ++i) w.tick(0.04f);       // 1.2 s — well past warmup
+    // ~lifetime/dt = 0.4/0.04 = 10 particles in flight + the emitter -> ~11. Bounded, NOT ~30.
+    REQUIRE(w.aliveCount() >= 9);
+    REQUIRE(w.aliveCount() <= 13);
+}
+
 // fade ramps the sprite's alpha (AA byte of 0xRRGGBBAA) fromA -> toA over `seconds`, then holds.
 TEST_CASE("FxWorldUnit: fade ramps the sprite alpha over its duration", "[fx][unit][fade]") {
     FxWorld w;

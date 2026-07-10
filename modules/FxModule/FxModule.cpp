@@ -56,10 +56,12 @@ void mergeText(const nlohmann::json& jx, fx::Text& tx) {
     tx.layer = inum(jx, "layer", tx.layer);
     tx.fontSize = inum(jx, "fontSize", tx.fontSize);
 }
-// Merge an emitter component (a one-shot particle burst). `prefab` = the particle template to instantiate.
+// Merge an emitter component. `prefab` = the particle template. oneShot=true (default) = a one-shot burst of
+// `count` particles; oneShot=false = a continuous stream of `ratePerSec` particles/second (trails/smoke).
 void mergeEmitter(const nlohmann::json& je, fx::Emitter& em) {
     if (je.contains("prefab")) em.prefab = str(je, "prefab");
     em.count = inum(je, "count", em.count);
+    em.ratePerSec = num(je, "ratePerSec", em.ratePerSec);
     em.speedMin = num(je, "speedMin", em.speedMin);
     em.speedMax = num(je, "speedMax", em.speedMax);
     em.spreadDeg = num(je, "spreadDeg", em.spreadDeg);

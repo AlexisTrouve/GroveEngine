@@ -64,25 +64,51 @@ struct Text {
     int fontSize = 16;
 };
 
-// A ONE-SHOT particle BURST emitter (explosions / debris / muzzle flash). On its next tick the engine spawns
-// `count` fresh instances of the `prefab` particle at the emitter's position, each launched with a random
+// A particle emitter — TWO modes:
+//   * ONE-SHOT BURST (oneShot=true, F3): on its next tick, spawn `count` particles at once, then self-destruct
+//     (explosions / debris / muzzle flash).
+//   * CONTINUOUS STREAM (oneShot=false, F4): emit `ratePerSec` particles/second EVERY tick for as long as the
+//     entity lives (engine trails / smoke / exhaust). Does NOT self-destruct — the consumer stops it by
+//     setting ratePerSec=0 or destroying the entity (already-spawned particles live out their own lifetime, so
+//     a trail fades naturally). A moving emitter (a `move` behavior, or fx:set-ing its transform each frame)
+//     drops particles at successive positions = a trail. The steady-state particle count is self-bounded by
+//     the particle's own lifetime (rate × lifetime), so keep those modest — no artificial cap.
+// Both modes spawn a fresh `prefab` instance per particle AT the emitter's position, launched with a random
 // velocity: a direction within the cone [dirDeg ± spreadDeg/2] at a speed in [speedMin, speedMax]. The
-// particle's look + fade + lifetime live in the referenced PREFAB (author once, reuse) — the emitter only
-// adds the launch velocity. Randomness is a DETERMINISTIC per-emitter PRNG (seeded by the entity id), so a
-// burst is reproducible + unit-testable. After firing, a one-shot emitter self-destructs (it's invisible —
-// no sprite — so it leaves no render trace). NOTE: particles are short-lived SPRITE entities (they ride
-// render:sprite:*, reusing the retained diff + F1 behaviors), NOT the renderer's render:particle primitive;
-// for massive GPU particle counts use submitParticleBatch directly. Sized for VFX bursts (tens), not crowds.
+// particle's look + fade + lifetime live in the referenced PREFAB (author once, reuse) — the emitter only adds
+// the launch velocity. Randomness is a DETERMINISTIC per-emitter PRNG (seeded by the entity id; PERSISTED
+// across ticks so a continuous stream keeps varying), so emission is reproducible + unit-testable. NOTE:
+// particles are short-lived SPRITE entities (they ride render:sprite:*, reusing the retained diff + F1
+// behaviors), NOT the renderer's render:particle primitive; for massive GPU counts use submitParticleBatch.
+// Sized for VFX (tens of particles), not crowds.
 struct Emitter {
     bool present = false;
     std::string prefab;                // the particle template to instantiate per particle (fail-soft if unknown)
-    int count = 0;                     // how many particles this burst spawns
+    int count = 0;                     // one-shot: how many particles the burst spawns
     float speedMin = 0.0f, speedMax = 0.0f;   // per-particle launch speed range (px/s)
     float spreadDeg = 360.0f;          // full cone width in degrees (360 = omni-directional explosion)
     float dirDeg = 0.0f;               // cone centre direction (degrees; 0 = +x, 90 = +y / screen-down)
-    bool oneShot = true;               // one-shot burst self-destructs after firing (continuous = a follow-on)
-    bool fired = false;                // internal: set once the burst has been emitted (don't re-fire)
+    bool oneShot = true;               // true = one-shot burst (self-destructs) ; false = continuous stream
+    bool fired = false;                // internal (one-shot): set once the burst has been emitted (don't re-fire)
+    // --- continuous-mode fields (appended so F3 aggregate-init sites keep working) ---
+    float ratePerSec = 0.0f;           // continuous: particles emitted per second
+    float accumulator = 0.0f;          // internal (continuous): fractional-particle carry between ticks
+    uint32_t rngState = 0;             // internal: persistent PRNG state (0 = lazily seed from the entity id)
 };
+// One-shot burst: `count` particles in a cone. (Factory for readable call sites — the struct has many fields.)
+inline Emitter burstEmitter(std::string prefab, int count, float speedMin, float speedMax,
+                            float spreadDeg = 360.0f, float dirDeg = 0.0f) {
+    Emitter e; e.present = true; e.prefab = std::move(prefab); e.count = count;
+    e.speedMin = speedMin; e.speedMax = speedMax; e.spreadDeg = spreadDeg; e.dirDeg = dirDeg; e.oneShot = true;
+    return e;
+}
+// Continuous stream: `ratePerSec` particles/second in a cone, until the entity dies (trails / smoke / exhaust).
+inline Emitter streamEmitter(std::string prefab, float ratePerSec, float speedMin, float speedMax,
+                             float spreadDeg = 360.0f, float dirDeg = 0.0f) {
+    Emitter e; e.present = true; e.prefab = std::move(prefab); e.ratePerSec = ratePerSec;
+    e.speedMin = speedMin; e.speedMax = speedMax; e.spreadDeg = spreadDeg; e.dirDeg = dirDeg; e.oneShot = false;
+    return e;
+}
 
 // ---- Behavior: a FIXED, engine-provided, data-parameterized primitive (NOT a script) ------------
 // The multi-project library. Add a new reusable behavior = add a Type + a tick case here (every project
@@ -185,14 +211,15 @@ public:
     // (so the particles they spawn — which get higher ids — aren't ticked again this same frame; their first
     // move is next frame, matching the "first render after one tick" model).
     void tick(float dt) {
-        std::vector<EntityId> toFire;
+        std::vector<EntityId> toEmit;
         for (auto& kv : m_entities) {
             Entity& e = kv.second;
             if (!e.alive) continue;
             for (Behavior& b : e.behaviors) tickBehavior(e, b, dt);
-            if (e.emitter.present && !e.emitter.fired) toFire.push_back(e.id);
+            // A one-shot emitter fires once (until fired); a continuous emitter emits every tick.
+            if (e.emitter.present && (!e.emitter.oneShot || !e.emitter.fired)) toEmit.push_back(e.id);
         }
-        for (EntityId id : toFire) fireEmitter(id);
+        for (EntityId id : toEmit) emitFromEmitter(id, dt);
     }
 
     // One render op the module turns into render:<prim>:add / :update / :remove (keyed by id = renderId).
@@ -347,31 +374,47 @@ private:
         return static_cast<float>(state & 0xFFFFFFu) / static_cast<float>(0x1000000);   // 24-bit -> [0,1)
     }
 
-    // Fire a one-shot particle burst: spawn `count` fresh instances of the emitter's prefab AT the emitter's
-    // position, each launched with a deterministic-random velocity — a direction within the cone
-    // [dirDeg ± spreadDeg/2] at a speed in [speedMin, speedMax]. Marks the emitter fired (never re-fires); a
-    // one-shot emitter (invisible — no sprite) then retires. Unknown prefab / count<=0 => fail-soft no-op burst.
-    void fireEmitter(EntityId id) {
+    // Emit particles from an emitter for this tick. ONE-SHOT: spawn `count` at once, mark fired, then the
+    // (invisible) emitter retires. CONTINUOUS: accumulate ratePerSec*dt and spawn the whole-particle part this
+    // tick (the fraction carries to the next), forever — the emitter keeps living. Each particle is a fresh
+    // `prefab` instance AT the emitter's position, launched with a deterministic-random velocity in the cone
+    // [dirDeg ± spreadDeg/2] at a speed in [speedMin, speedMax]. Unknown prefab => fail-soft no-op.
+    // (std::map insert is reference-stable, so `cfg`/`em` stay valid across the spawnFromPrefab calls.)
+    void emitFromEmitter(EntityId id, float dt) {
         Entity* em = get(id);
         if (!em) return;
-        const Emitter cfg = em->emitter;          // copy the config before we spawn (readability)
-        const Transform origin = em->transform;   // particles start where the emitter is
-        em->emitter.fired = true;                 // set BEFORE spawning -> a self-referential prefab can't loop
+        Emitter& cfg = em->emitter;
 
-        if (cfg.count > 0 && hasPrefab(cfg.prefab)) {
-            uint32_t rng = (id * 2654435761u) | 1u;                        // seed from the id (non-zero)
-            const float dir  = cfg.dirDeg * 0.01745329252f;               // deg -> rad
+        int toSpawn = 0;
+        if (cfg.oneShot) {
+            toSpawn = cfg.count;
+            cfg.fired = true;                     // set BEFORE spawning -> a self-referential prefab can't loop
+        } else {
+            cfg.accumulator += cfg.ratePerSec * dt;             // fractional-particle carry across ticks
+            toSpawn = static_cast<int>(cfg.accumulator);        // whole particles due this tick
+            cfg.accumulator -= static_cast<float>(toSpawn);
+        }
+
+        if (toSpawn > 0 && hasPrefab(cfg.prefab)) {
+            if (cfg.rngState == 0) cfg.rngState = (id * 2654435761u) | 1u;   // lazy deterministic seed (non-zero)
+            uint32_t rng = cfg.rngState;                        // advance a local, persist below (continuous keeps varying)
+            const Transform origin = em->transform;             // particles start where the emitter is NOW (moving = trail)
+            const std::string prefab = cfg.prefab;
+            const float dir  = cfg.dirDeg * 0.01745329252f;     // deg -> rad
             const float half = cfg.spreadDeg * 0.5f * 0.01745329252f;
-            for (int i = 0; i < cfg.count; ++i) {
+            const float sMin = cfg.speedMin, sSpan = cfg.speedMax - cfg.speedMin;
+            for (int i = 0; i < toSpawn; ++i) {
                 const float a     = dir + (rand01(rng) * 2.0f - 1.0f) * half;          // angle in the cone
-                const float speed = cfg.speedMin + rand01(rng) * (cfg.speedMax - cfg.speedMin);
-                const EntityId p = spawnFromPrefab(cfg.prefab);
+                const float speed = sMin + rand01(rng) * sSpan;
+                const EntityId p = spawnFromPrefab(prefab);
                 if (!p) continue;                                                     // fail-soft
                 setTransform(p, origin);
                 addBehavior(p, velocity(speed * std::cos(a), speed * std::sin(a), 0.0f));
             }
+            cfg.rngState = rng;                                 // persist the advanced PRNG for the next tick
         }
-        if (cfg.oneShot) { if (Entity* e = get(id)) e->alive = false; }    // retire the spent one-shot emitter
+
+        if (cfg.oneShot) em->alive = false;                     // retire the spent one-shot emitter
     }
 
     EntityId m_nextId = 0;

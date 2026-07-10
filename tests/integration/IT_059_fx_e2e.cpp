@@ -290,3 +290,37 @@ TEST_CASE("IT_059f: emitter burst -> a batch of render:sprite:add particles (exp
     h.step(0.4);
     REQUIRE(h.removeCount == 10);
 }
+
+TEST_CASE("IT_059g: continuous emitter streams a moving trail through the module", "[integration][fx][e2e][emitter][stream]") {
+    Harness h;
+
+    // A dust particle that dies after 0.2 s (so the stream reaches a bounded steady state).
+    h.send("fx:prefab", json{{"name","dust"},
+                                 {"sprite", {{"asset","fx/dust"}, {"layer",800}}},
+                                 {"behaviors", json::array({ json{{"type","lifetime"},{"seconds",0.2}} })}}, 0.0);
+
+    // A CONTINUOUS stream at (100,100): 20 particles/sec, zero launch speed (they stay put -> easy to assert
+    // the spawn position). oneShot:false = it emits every tick and does NOT self-destruct.
+    h.send("fx:spawn", json{{"id","trail"},
+                                {"transform", {{"cx",100.0},{"cy",100.0}}},
+                                {"emitter", {{"prefab","dust"}, {"ratePerSec",20.0}, {"oneShot",false},
+                                             {"speedMin",0.0}, {"speedMax",0.0}}}}, 0.1);
+    REQUIRE(h.addCount == 2);                             // 20/s * 0.1 s = 2 particles this tick
+    REQUIRE_THAT(h.lastAddCx, WithinAbs(100.0, 0.001));  // spawned AT the emitter
+
+    // It keeps streaming (did NOT self-destruct) and old particles expire -> bounded steady state.
+    const int addsAfterFirst = h.addCount;
+    for (int i = 0; i < 5; ++i) h.step(0.1);
+    REQUIRE(h.addCount > addsAfterFirst);                // still emitting each tick
+    REQUIRE(h.removeCount > 0);                          // and the 0.2 s particles expire
+
+    // Move the emitter -> the next particles drop at the NEW position. THAT is the trail.
+    h.send("fx:set", json{{"id","trail"}, {"transform", {{"cx",500.0},{"cy",100.0}}}}, 0.1);
+    REQUIRE_THAT(h.lastAddCx, WithinAbs(500.0, 0.001));
+
+    // Stop the stream (ratePerSec -> 0). No more adds after this; in-flight particles just live out their life.
+    h.send("fx:set", json{{"id","trail"}, {"emitter", {{"ratePerSec",0.0}}}}, 0.0);
+    const int addsAtStop = h.addCount;
+    for (int i = 0; i < 5; ++i) h.step(0.1);
+    REQUIRE(h.addCount == addsAtStop);                   // emission stopped
+}
