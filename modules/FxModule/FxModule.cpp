@@ -56,6 +56,16 @@ void mergeText(const nlohmann::json& jx, fx::Text& tx) {
     tx.layer = inum(jx, "layer", tx.layer);
     tx.fontSize = inum(jx, "fontSize", tx.fontSize);
 }
+// Merge an emitter component (a one-shot particle burst). `prefab` = the particle template to instantiate.
+void mergeEmitter(const nlohmann::json& je, fx::Emitter& em) {
+    if (je.contains("prefab")) em.prefab = str(je, "prefab");
+    em.count = inum(je, "count", em.count);
+    em.speedMin = num(je, "speedMin", em.speedMin);
+    em.speedMax = num(je, "speedMax", em.speedMax);
+    em.spreadDeg = num(je, "spreadDeg", em.spreadDeg);
+    em.dirDeg = num(je, "dirDeg", em.dirDeg);
+    if (auto it = je.find("oneShot"); it != je.end() && it->is_boolean()) em.oneShot = it->get<bool>();
+}
 
 // One behavior from the fixed library. Unknown type -> nullopt-ish (Lifetime 0 would kill instantly, so we
 // signal "skip" by returning false).
@@ -77,6 +87,7 @@ fx::Prefab parsePrefab(const nlohmann::json& j) {
     if (auto t = j.find("transform"); t != j.end() && t->is_object()) mergeTransform(*t, p.transform);
     if (auto s = j.find("sprite"); s != j.end() && s->is_object()) { mergeSprite(*s, p.sprite); p.sprite.present = true; }
     if (auto x = j.find("text"); x != j.end() && x->is_object()) { mergeText(*x, p.text); p.text.present = true; }
+    if (auto e = j.find("emitter"); e != j.end() && e->is_object()) { mergeEmitter(*e, p.emitter); p.emitter.present = true; }
     if (auto b = j.find("behaviors"); b != j.end() && b->is_array())
         for (const auto& jb : *b) { fx::Behavior beh; if (parseBehavior(jb, beh)) p.behaviors.push_back(beh); }
     return p;
@@ -175,6 +186,11 @@ void FxModule::applyComponents(fx::EntityId id, const IDataNode& node) {
         fx::Text tx = e->text;
         mergeText(*x, tx);
         m_world.setText(id, tx);     // marks the entity as text-bearing (render:text)
+    }
+    if (auto em = j.find("emitter"); em != j.end() && em->is_object()) {
+        fx::Emitter cfg = e->emitter;
+        mergeEmitter(*em, cfg);
+        m_world.setEmitter(id, cfg); // arms a one-shot particle burst (fires on the next tick)
     }
 }
 

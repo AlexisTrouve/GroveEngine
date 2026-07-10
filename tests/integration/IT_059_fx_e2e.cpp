@@ -258,3 +258,35 @@ TEST_CASE("IT_059e: floating damage number archetype -> render:text:* (rise, fad
     REQUIRE(h.lastTxtId == hitId);
     REQUIRE(h.removeCount == 0);                          // never touched the sprite pool
 }
+
+TEST_CASE("IT_059f: emitter burst -> a batch of render:sprite:add particles (explosion)", "[integration][fx][e2e][emitter]") {
+    Harness h;
+
+    // The particle template: a spark sprite that fades + dies over 0.4 s (authored once, reused per particle).
+    h.send("fx:prefab", json{{"name", "spark"},
+                                 {"sprite", {{"asset", "fx/spark"}, {"layer", 900}}},
+                                 {"behaviors", json::array({
+                                     json{{"type","fade"},{"seconds",0.4},{"fromAlpha",1.0},{"toAlpha",0.0}},
+                                     json{{"type","lifetime"},{"seconds",0.4}}})}}, 0.0);
+    REQUIRE(h.addCount == 0);
+
+    // Spawn an emitter that bursts 10 omni sparks (speed [60,120]) at a hit point. The burst fires on the
+    // step's tick -> 10 render:sprite:add (the particles). The emitter itself is invisible -> no sprite of its own.
+    h.send("fx:spawn", json{{"id","boom"},
+                                {"transform", {{"cx", 400.0}, {"cy", 300.0}}},
+                                {"emitter", {{"prefab","spark"}, {"count",10},
+                                             {"speedMin",60.0}, {"speedMax",120.0},
+                                             {"spreadDeg",360.0}, {"dirDeg",0.0}}}}, 0.016);
+    REQUIRE(h.addCount == 10);                            // the whole burst appeared
+    REQUIRE(h.lastAddAsset == "fx/spark");               // particles inherit the prefab's look
+    REQUIRE(h.removeCount == 0);
+
+    // The particles drift (velocity the emitter attached) -> updates next step.
+    const int before = h.updateCount;
+    h.step(0.05);
+    REQUIRE(h.updateCount > before);
+
+    // Past the particle lifetime -> the engine removes all 10.
+    h.step(0.4);
+    REQUIRE(h.removeCount == 10);
+}

@@ -883,15 +883,17 @@ IIO/renderer); `FxModule` (an `IModule`) wraps it onto the bus.
 - **`Text`** `{text, color, layer, fontSize}` — an optional text label (floating damage numbers, callouts). The
   string is **already localized by the consumer** (the engine is i18n-agnostic — it never translates). Sprite
   and Text are **orthogonal**: an effect may bear either or both, and each diffs into its own retained pool.
+- **`Emitter`** `{prefab, count, speedMin, speedMax, spreadDeg, dirDeg, oneShot}` — a **one-shot particle burst**
+  (explosions/debris/muzzle flash). See [Particle bursts](#particle-bursts-the-emitter-component) below.
 - **behaviors** — from the fixed library below.
 
 **Topics consumed:**
 
 | Topic | Payload | Effect |
 |-------|---------|--------|
-| `fx:prefab` | `{name, transform?, sprite?, text?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
-| `fx:spawn` | `{id, archetype?, transform?, sprite?, text?, behaviors?}` | Spawn an effect under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
-| `fx:set` | `{id, transform?, sprite?, text?}` | **Partial** update — only the fields you send change; the rest keep their value |
+| `fx:prefab` | `{name, transform?, sprite?, text?, emitter?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
+| `fx:spawn` | `{id, archetype?, transform?, sprite?, text?, emitter?, behaviors?}` | Spawn an effect under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
+| `fx:set` | `{id, transform?, sprite?, text?, emitter?}` | **Partial** update — only the fields you send change; the rest keep their value |
 | `fx:destroy` | `{id}` | Remove the effect (emits its `render:sprite:remove` / `render:text:remove`) |
 
 **Published:** for a **sprite** effect, `render:sprite:add` / `:update` / `:remove` (`cx,cy` = CENTER); for a
@@ -939,6 +941,44 @@ component that rises (`velocity` up), fades (`fade`), and self-expires (`lifetim
   "transform": { "cx": 300, "cy": 150 }, "text": { "text": "-25" } }
 ```
 
+### Particle bursts (the `Emitter` component)
+
+An **`Emitter`** fires a **one-shot burst** of particles — the primitive behind explosions, debris and muzzle
+flash. On its next `tick`, the engine spawns `count` fresh instances of a particle **prefab** *at the emitter's
+position*, each launched with a random velocity: a direction within the cone `[dirDeg ± spreadDeg/2]` at a speed
+in `[speedMin, speedMax]`. The randomness is a **deterministic PRNG seeded by the entity id** — a given burst is
+reproducible (and unit-testable). A one-shot emitter is invisible (no sprite of its own) and **self-destructs**
+after firing.
+
+| Field | Meaning |
+|-------|---------|
+| `prefab` | the particle template to instantiate per particle (its sprite + `fade`/`lifetime` live here) |
+| `count` | how many particles the burst spawns |
+| `speedMin`, `speedMax` | per-particle launch speed range (px/s) |
+| `spreadDeg` | full cone width in degrees (`360` = omni-directional explosion) |
+| `dirDeg` | cone centre direction (`0` = +x, `90` = +y / screen-down) |
+| `oneShot` | one-shot burst self-destructs after firing (default `true`; continuous emitters are a follow-on) |
+
+```jsonc
+// 1) A particle template — a spark that fades out and dies over 0.4 s (the emitter adds the launch velocity).
+{ "name": "spark",
+  "sprite": { "asset": "fx/spark", "layer": 900 },
+  "behaviors": [ {"type":"fade","seconds":0.4}, {"type":"lifetime","seconds":0.4} ] }
+
+// 2) An explosion archetype that CARRIES the emitter — spawn it and it bursts on the next tick.
+{ "name": "explosion",
+  "emitter": { "prefab":"spark", "count":24, "speedMin":80, "speedMax":180, "spreadDeg":360 } }
+
+// 3) Boom at a hit location.
+{ "id": "boom_1", "archetype": "explosion", "transform": { "cx": 400, "cy": 300 } }
+```
+
+> ⚠️ Particles are short-lived **sprite** effects — they ride `render:sprite:*` (reusing the retained diff + the
+> behavior library), **not** the renderer's `render:particle` primitive. This is sized for VFX **bursts** (tens
+> of particles). For **GPU-scale** particle counts (thousands, sustained) use `submitParticleBatch` directly
+> (see [Bulk Sprite Submission](#bulk-sprite-submission-high-throughput)) — routing that through here would
+> rebuild the per-primitive dispatch wall the bulk path exists to avoid.
+
 ### Prefabs / archetypes (define once, spawn everywhere)
 
 A **prefab** is a reusable effect template — the biggest reuse lever (a shared `explosion` / `muzzle_flash` /
@@ -983,11 +1023,12 @@ fxmod->process(in);   // drain -> tick(dt) -> emit render:sprite:*
 ```
 
 Build with `-DGROVE_BUILD_FX_MODULE=ON` (SDL-free). The pure logic is locked by `FxWorldUnit`
-(`[prefab]` / `[fade]` / `[velocity]` / `[text]` cases included); the module end-to-end by `IT_059` (a spawn →
-`render:sprite:add` at center, a partial set → `:update`, an archetype spawn with an override, `move`+`lifetime`
-driving a sprite to its `:remove`, `fade`+`velocity` ramping alpha while drifting, and a `damage_number`
-archetype → `render:text:*` that rises, fades, and expires). Hot-reload full-world serialization is a follow-on
-(`getState` is minimal for now).
+(`[prefab]` / `[fade]` / `[velocity]` / `[text]` / `[emitter]` cases included); the module end-to-end by `IT_059`
+(a spawn → `render:sprite:add` at center, a partial set → `:update`, an archetype spawn with an override,
+`move`+`lifetime` driving a sprite to its `:remove`, `fade`+`velocity` ramping alpha while drifting, a
+`damage_number` archetype → `render:text:*` that rises/fades/expires, and an `Emitter` burst → a batch of
+particle `render:sprite:add`). A continuous (rate-based) emitter and hot-reload full-world serialization are
+follow-ons (`getState` is minimal for now).
 
 ---
 

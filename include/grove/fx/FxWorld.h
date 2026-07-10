@@ -24,6 +24,7 @@
  *        speak the render:sprite:add/update/remove contract.
  */
 
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -63,6 +64,26 @@ struct Text {
     int fontSize = 16;
 };
 
+// A ONE-SHOT particle BURST emitter (explosions / debris / muzzle flash). On its next tick the engine spawns
+// `count` fresh instances of the `prefab` particle at the emitter's position, each launched with a random
+// velocity: a direction within the cone [dirDeg ± spreadDeg/2] at a speed in [speedMin, speedMax]. The
+// particle's look + fade + lifetime live in the referenced PREFAB (author once, reuse) — the emitter only
+// adds the launch velocity. Randomness is a DETERMINISTIC per-emitter PRNG (seeded by the entity id), so a
+// burst is reproducible + unit-testable. After firing, a one-shot emitter self-destructs (it's invisible —
+// no sprite — so it leaves no render trace). NOTE: particles are short-lived SPRITE entities (they ride
+// render:sprite:*, reusing the retained diff + F1 behaviors), NOT the renderer's render:particle primitive;
+// for massive GPU particle counts use submitParticleBatch directly. Sized for VFX bursts (tens), not crowds.
+struct Emitter {
+    bool present = false;
+    std::string prefab;                // the particle template to instantiate per particle (fail-soft if unknown)
+    int count = 0;                     // how many particles this burst spawns
+    float speedMin = 0.0f, speedMax = 0.0f;   // per-particle launch speed range (px/s)
+    float spreadDeg = 360.0f;          // full cone width in degrees (360 = omni-directional explosion)
+    float dirDeg = 0.0f;               // cone centre direction (degrees; 0 = +x, 90 = +y / screen-down)
+    bool oneShot = true;               // one-shot burst self-destructs after firing (continuous = a follow-on)
+    bool fired = false;                // internal: set once the burst has been emitted (don't re-fire)
+};
+
 // ---- Behavior: a FIXED, engine-provided, data-parameterized primitive (NOT a script) ------------
 // The multi-project library. Add a new reusable behavior = add a Type + a tick case here (every project
 // inherits it). Params live in a,b; `age` is per-behavior state. Use the factory helpers for readable sites.
@@ -93,6 +114,7 @@ struct Entity {
     Transform transform;
     Sprite sprite;
     Text text;                         // optional text label (floating numbers); orthogonal to sprite
+    Emitter emitter;                   // optional one-shot particle burst (spawns child particle entities)
     std::vector<Behavior> behaviors;
 };
 
@@ -104,6 +126,7 @@ struct Prefab {
     Transform transform;
     Sprite sprite;
     Text text;                         // optional text label carried by the template (floating-numbers archetype)
+    Emitter emitter;                   // optional emitter carried by the template (an "explosion" archetype)
     std::vector<Behavior> behaviors;
 };
 
@@ -130,6 +153,7 @@ public:
     void setTransform(EntityId id, const Transform& t) { if (Entity* e = get(id)) e->transform = t; }
     void setSprite(EntityId id, const Sprite& s)       { if (Entity* e = get(id)) { e->sprite = s; e->sprite.present = true; } }
     void setText(EntityId id, const Text& tx)          { if (Entity* e = get(id)) { e->text = tx; e->text.present = true; } }
+    void setEmitter(EntityId id, const Emitter& em)    { if (Entity* e = get(id)) { e->emitter = em; e->emitter.present = true; } }
     void addBehavior(EntityId id, const Behavior& b)   { if (Entity* e = get(id)) e->behaviors.push_back(b); }
 
     // --- Prefabs / archetypes (the multi-project entity-template library) ---
@@ -145,6 +169,7 @@ public:
         e.transform = it->second.transform;
         e.sprite    = it->second.sprite;
         e.text      = it->second.text;
+        e.emitter   = it->second.emitter;
         e.behaviors = it->second.behaviors;
         return id;
     }
@@ -156,13 +181,18 @@ public:
     }
 
     // Advance every alive entity's behaviors by dt (list order = deterministic). Behaviors mutate their
-    // entity's components; Lifetime flips the entity dead on expiry.
+    // entity's components; Lifetime flips the entity dead on expiry. Pending emitters fire AFTER the loop
+    // (so the particles they spawn — which get higher ids — aren't ticked again this same frame; their first
+    // move is next frame, matching the "first render after one tick" model).
     void tick(float dt) {
+        std::vector<EntityId> toFire;
         for (auto& kv : m_entities) {
             Entity& e = kv.second;
             if (!e.alive) continue;
             for (Behavior& b : e.behaviors) tickBehavior(e, b, dt);
+            if (e.emitter.present && !e.emitter.fired) toFire.push_back(e.id);
         }
+        for (EntityId id : toFire) fireEmitter(id);
     }
 
     // One render op the module turns into render:<prim>:add / :update / :remove (keyed by id = renderId).
@@ -308,6 +338,40 @@ private:
                 break;
             }
         }
+    }
+
+    // xorshift32 -> [0,1). Deterministic + self-contained (no global rand state), so a burst is reproducible
+    // and unit-testable. Advances `state` (must be non-zero — the caller seeds it | 1).
+    static float rand01(uint32_t& state) {
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        return static_cast<float>(state & 0xFFFFFFu) / static_cast<float>(0x1000000);   // 24-bit -> [0,1)
+    }
+
+    // Fire a one-shot particle burst: spawn `count` fresh instances of the emitter's prefab AT the emitter's
+    // position, each launched with a deterministic-random velocity — a direction within the cone
+    // [dirDeg ± spreadDeg/2] at a speed in [speedMin, speedMax]. Marks the emitter fired (never re-fires); a
+    // one-shot emitter (invisible — no sprite) then retires. Unknown prefab / count<=0 => fail-soft no-op burst.
+    void fireEmitter(EntityId id) {
+        Entity* em = get(id);
+        if (!em) return;
+        const Emitter cfg = em->emitter;          // copy the config before we spawn (readability)
+        const Transform origin = em->transform;   // particles start where the emitter is
+        em->emitter.fired = true;                 // set BEFORE spawning -> a self-referential prefab can't loop
+
+        if (cfg.count > 0 && hasPrefab(cfg.prefab)) {
+            uint32_t rng = (id * 2654435761u) | 1u;                        // seed from the id (non-zero)
+            const float dir  = cfg.dirDeg * 0.01745329252f;               // deg -> rad
+            const float half = cfg.spreadDeg * 0.5f * 0.01745329252f;
+            for (int i = 0; i < cfg.count; ++i) {
+                const float a     = dir + (rand01(rng) * 2.0f - 1.0f) * half;          // angle in the cone
+                const float speed = cfg.speedMin + rand01(rng) * (cfg.speedMax - cfg.speedMin);
+                const EntityId p = spawnFromPrefab(cfg.prefab);
+                if (!p) continue;                                                     // fail-soft
+                setTransform(p, origin);
+                addBehavior(p, velocity(speed * std::cos(a), speed * std::sin(a), 0.0f));
+            }
+        }
+        if (cfg.oneShot) { if (Entity* e = get(id)) e->alive = false; }    // retire the spent one-shot emitter
     }
 
     EntityId m_nextId = 0;

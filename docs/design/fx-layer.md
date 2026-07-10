@@ -48,8 +48,16 @@ like `grove::anim` / `DialogueRuntime`):
 
 - **Effect** = stable id (monotonic, never reused) + components (`Transform{cx,cy,rotation,scaleX,scaleY}` —
   `cx,cy` = CENTER; `Sprite{asset|textureId,color,layer,present}`; **`Text{text,color,layer,fontSize,present}`** —
-  optional label, string already-localized by the consumer) + `vector<Behavior>`. Sprite & Text are
-  **orthogonal** — an effect may bear either/both.
+  optional label, string already-localized by the consumer; **`Emitter{prefab,count,speedMin/Max,spreadDeg,dirDeg,oneShot}`** —
+  a one-shot particle burst) + `vector<Behavior>`. Sprite & Text are **orthogonal** — an effect may bear either/both.
+- **Emitter (F3)** = a one-shot particle **burst**. On its next tick, `fireEmitter` spawns `count` fresh
+  instances of the particle `prefab` AT the emitter, each launched with a random velocity in the cone
+  `[dirDeg ± spreadDeg/2]` at speed `[speedMin,speedMax]`. Randomness = a **deterministic xorshift PRNG seeded
+  by the entity id** (reproducible + unit-testable — no global rand state, respects the engine's determinism
+  posture). A one-shot emitter (invisible) self-destructs after firing. Particles are short-lived **sprite**
+  entities (ride `render:sprite:*` + the F1 behaviors) — **not** the renderer's `render:particle` primitive;
+  sized for VFX bursts (tens), not GPU masses (those → `submitParticleBatch`, see [[rendering-throughput]]).
+  Emitters fire AFTER the behavior-tick loop (particles get higher ids → not re-ticked the same frame).
 - **`tick(dt)`** advances behaviors in list order (mutate components; `lifetime` kills on expiry). Behavior lib:
   `move/spin/lifetime` (E1) + **`fade{seconds,fromA,toA}`** (ramps the AA byte of sprite AND text color) +
   **`velocity{vx,vy,drag}`** (initial velocity decaying by drag/s; explicit-Euler → tick at frame dt) (F1).
@@ -65,7 +73,7 @@ like `grove::anim` / `DialogueRuntime`):
 JSON; **robust accessors fail soft** — never throw on a malformed payload); each `process(dt)` drains →
 `tick(dt)` → `diffRender()` → publishes `render:sprite:*` / `render:text:*` (routed by the op's `Prim`).
 **Dual façade**: the `fx:*` topics or the C++ `world()` accessor (a static-link host drives the world directly
-via `spawn`/`setSprite`/`setText`/`addBehavior`, then `process(dt)`).
+via `spawn`/`setSprite`/`setText`/`setEmitter`/`addBehavior`, then `process(dt)`).
 
 ## Slices (shipped, TDD — each prove-it-bites)
 
@@ -75,8 +83,9 @@ via `spawn`/`setSprite`/`setText`/`addBehavior`, then `process(dt)`).
 | **E2** — `FxModule` | `e0b2c00` | `fx:*` topics + C++ `world()` → `render:sprite:*` (cx,cy). Robust fail-soft parse. `IT_059`. |
 | **E3** — archetypes/prefabs | `ffec0b2` | `fx:prefab` + `fx:spawn {archetype}` with per-instance overrides; deep-copy fresh state. `FxWorldUnit [prefab]` + `IT_059c`. |
 | rename → `grove::fx`/`FxModule` + VFX re-scope | `9c64901` | the naming-footgun fix + docs re-scoped + anti-crowd panel + roadmap. |
-| **F1** — `fade` + `velocity+drag` behaviors | (this) | two lifecycle primitives; fade ramps sprite/text alpha, velocity spreads + decays. `FxWorldUnit [fade]/[velocity]` + `IT_059d`. |
-| **F2** — `Text` component + floating-numbers | (this) | `Text` component + own `render:text:*` diff pass; `damage_number` archetype (drifterra #1). `FxWorldUnit [text]` + `IT_059e`. |
+| **F1** — `fade` + `velocity+drag` behaviors | `96e8608` | two lifecycle primitives; fade ramps sprite/text alpha, velocity spreads + decays. `FxWorldUnit [fade]/[velocity]` + `IT_059d`. |
+| **F2** — `Text` component + floating-numbers | `96e8608` | `Text` component + own `render:text:*` diff pass; `damage_number` archetype (drifterra #1). `FxWorldUnit [text]` + `IT_059e`. |
+| **F3** — `Emitter` component (particle burst) | (this) | one-shot burst → `count` prefab particles in a cone, deterministic-PRNG velocity, self-cleaning; explosion archetype carries the emitter. `FxWorldUnit [emitter]` + `IT_059f`. |
 
 (Commits E1-E3 predate the rename — the code they reference was `grove::entity`/`EntityModule` at the time.)
 New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — changes **no** existing behavior.
@@ -85,9 +94,11 @@ New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — chang
 
 - ~~**Behaviors**: `fade`, `velocity+drag`~~ — **shipped (F1)**. Remaining lifecycle ideas stay effect-only
   (NOT follow/path/oscillate — gameplay movement is consumer-owned).
-- ~~**Components**: `text` (damage numbers)~~ — **shipped (F2)**. Remaining: `particle` component.
+- ~~**Components**: `text` (damage numbers), `particle`~~ — **shipped (F2 text, F3 particle-burst Emitter)**.
+- **Continuous (rate-based) emitter** for trails / smoke / streams (F3 is one-shot burst only — covers
+  explosions/debris/muzzle-flash). A rate emitter emits N/sec over the emitter's lifetime.
 - **Hot-reload** full-world serialization (`getState`/`setState` are minimal — health counter only).
-- A by-eye windowed VFX demo (explosion + rising damage numbers) — the logic is E2E-locked; a visual is nice-to-have.
+- A by-eye windowed VFX demo (explosion burst + rising damage numbers) — the logic is E2E-locked; a visual is nice-to-have.
 
 ## Key files
 

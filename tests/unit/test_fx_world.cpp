@@ -236,6 +236,80 @@ TEST_CASE("FxWorldUnit: floating damage number rises, fades, and expires", "[fx]
     REQUIRE(count(w.diffRender(), FxWorld::RenderOp::Kind::Remove) == 1);
 }
 
+// An Emitter fires a one-shot particle BURST: `count` prefab instances launched in a cone, at the emitter's
+// position, with deterministic-random velocity. The emitter (invisible one-shot) retires after firing.
+TEST_CASE("FxWorldUnit: emitter fires a one-shot particle burst in a cone", "[fx][unit][emitter]") {
+    FxWorld w;
+    // The particle template: a small sprite that fades + dies over 0.5 s (authored once, reused per particle).
+    Prefab spark;
+    spark.sprite = Sprite{true, "fx/spark", 0, 0xFFFFFFFFu, 900};
+    spark.behaviors = { fade(0.5f, 1.0f, 0.0f), lifetime(0.5f) };
+    w.registerPrefab("spark", spark);
+
+    // Burst 8 sparks eastward (dir 0°, spread 90° -> every particle has vx>0), speed in [50,100].
+    EntityId em = w.spawn();
+    w.setTransform(em, Transform{200.0f, 300.0f});
+    w.setEmitter(em, Emitter{true, "spark", 8, 50.0f, 100.0f, 90.0f, 0.0f, true, false});
+    REQUIRE(w.aliveCount() == 1);                    // only the emitter exists pre-tick
+
+    w.tick(0.016f);                                  // fires the burst; the one-shot emitter retires
+    REQUIRE(w.aliveCount() == 8);                    // 8 particles alive (emitter now dead, not counted)
+
+    int checked = 0;
+    for (EntityId pid = 1; pid <= 100 && checked < 8; ++pid) {
+        Entity* p = w.get(pid);
+        if (!p || !p->alive || !p->sprite.present) continue;   // skip the retired emitter (no sprite)
+        REQUIRE_THAT(p->transform.cx, WithinAbs(200.0f, 0.001f));   // spawned AT the emitter
+        REQUIRE_THAT(p->transform.cy, WithinAbs(300.0f, 0.001f));
+        REQUIRE(p->sprite.asset == "fx/spark");                     // look inherited from the prefab
+        bool foundVel = false;
+        for (const Behavior& b : p->behaviors) {
+            if (b.type == Behavior::Type::Velocity) {
+                foundVel = true;
+                const float sp = std::sqrt(b.vx * b.vx + b.vy * b.vy);
+                REQUIRE(b.vx > 0.0f);                              // cone dir 0 ± 45° -> eastward launch
+                REQUIRE(sp >= 50.0f - 0.5f);                       // speed within [50,100]
+                REQUIRE(sp <= 100.0f + 0.5f);
+            }
+        }
+        REQUIRE(foundVel);                                         // the emitter attached a launch velocity
+        ++checked;
+    }
+    REQUIRE(checked == 8);
+
+    // One-shot: a second tick spawns NO more particles (they're still alive at t=0.032 < 0.5).
+    w.tick(0.016f);
+    REQUIRE(w.aliveCount() == 8);
+}
+
+// Fail-soft: an emitter whose particle prefab doesn't exist spawns nothing, and the one-shot still retires.
+TEST_CASE("FxWorldUnit: emitter with an unknown particle prefab fires soft (no particles)", "[fx][unit][emitter]") {
+    FxWorld w;
+    EntityId em = w.spawn();
+    w.setEmitter(em, Emitter{true, "ghost", 10, 50.0f, 100.0f, 360.0f, 0.0f, true, false});
+    w.tick(0.016f);
+    REQUIRE(w.aliveCount() == 0);                    // nothing spawned; the one-shot emitter retired itself
+}
+
+// An "explosion" archetype carries the emitter IN the prefab -> spawn it and it bursts on the next tick.
+TEST_CASE("FxWorldUnit: a prefab can carry an emitter (explosion archetype)", "[fx][unit][emitter][prefab]") {
+    FxWorld w;
+    Prefab debris; debris.sprite = Sprite{true, "fx/debris", 0, 0xFFFFFFFFu, 900};
+    debris.behaviors = { velocity(0.0f, 0.0f, 1.0f), lifetime(0.4f) };   // (emitter overwrites launch velocity)
+    w.registerPrefab("debris", debris);
+
+    Prefab explosion;                                 // no sprite -> the explosion entity is just the emitter
+    explosion.emitter = Emitter{true, "debris", 12, 80.0f, 160.0f, 360.0f, 0.0f, true, false};
+    w.registerPrefab("explosion", explosion);
+
+    EntityId boom = w.spawnFromPrefab("explosion");
+    w.setTransform(boom, Transform{500.0f, 500.0f});
+    REQUIRE(w.aliveCount() == 1);
+
+    w.tick(0.016f);
+    REQUIRE(w.aliveCount() == 12);                    // 12 debris particles; the emitter retired
+}
+
 // fade ramps the sprite's alpha (AA byte of 0xRRGGBBAA) fromA -> toA over `seconds`, then holds.
 TEST_CASE("FxWorldUnit: fade ramps the sprite alpha over its duration", "[fx][unit][fade]") {
     FxWorld w;
