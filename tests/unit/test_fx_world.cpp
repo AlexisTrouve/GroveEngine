@@ -185,3 +185,92 @@ TEST_CASE("FxWorldUnit: spawnFromPrefab on an unknown name fails soft (0, no ent
     REQUIRE(w.spawnFromPrefab("ghost") == 0);
     REQUIRE(w.aliveCount() == 0);
 }
+
+// A text component diffs into its OWN render pool (render:text:*), independent of sprites.
+TEST_CASE("FxWorldUnit: a text-bearing entity emits a Text render op (own pool)", "[fx][unit][text]") {
+    FxWorld w;
+    EntityId e = w.spawn();
+    w.setTransform(e, Transform{40.0f, 60.0f});
+    w.setText(e, Text{true, "42", 0xFF0000FFu, 900, 20});     // red "42", layer 900, 20px
+
+    auto ops = w.diffRender();
+    REQUIRE(count(ops, FxWorld::RenderOp::Kind::Add) == 1);
+    const auto* op = find(ops, e);
+    REQUIRE(op != nullptr);
+    REQUIRE(op->prim == FxWorld::RenderOp::Prim::Text);        // routed to render:text:*
+    REQUIRE(op->text.text == "42");
+    REQUIRE(op->text.color == 0xFF0000FFu);
+    REQUIRE(op->text.fontSize == 20);
+    REQUIRE_THAT(op->transform.cx, WithinAbs(40.0f, 0.001f));
+
+    REQUIRE(w.diffRender().empty());                           // unchanged -> no ops
+
+    // Destroying it emits a Text Remove (from the text pool).
+    w.destroy(e);
+    auto rem = w.diffRender();
+    REQUIRE(count(rem, FxWorld::RenderOp::Kind::Remove) == 1);
+    REQUIRE(find(rem, e)->prim == FxWorld::RenderOp::Prim::Text);
+}
+
+// The floating-damage-number archetype: a Text that rises (velocity up), fades out, and self-expires. This
+// is the drifterra priority composition — proven purely, then E2E through the module.
+TEST_CASE("FxWorldUnit: floating damage number rises, fades, and expires", "[fx][unit][text]") {
+    FxWorld w;
+    Prefab dmg;
+    dmg.text = Text{true, "", 0xFFFFFFFFu, 1000, 18};          // string overridden per-instance
+    dmg.behaviors = { velocity(0.0f, -40.0f, 0.0f), fade(1.0f, 1.0f, 0.0f), lifetime(1.0f) };
+    w.registerPrefab("damage_number", dmg);
+
+    EntityId e = w.spawnFromPrefab("damage_number");
+    w.setTransform(e, Transform{100.0f, 200.0f});
+    w.setText(e, Text{true, "-25", 0xFFFFFFFFu, 1000, 18});    // the resolved value string
+    w.diffRender();                                            // consume the initial Add
+
+    w.tick(0.5f);
+    REQUIRE_THAT(w.get(e)->transform.cy, WithinAbs(180.0f, 0.001f));   // rose 40*0.5 = 20 (cy decreased)
+    REQUIRE((w.get(e)->text.color & 0xFFu) == 128u);          // half-faded
+    REQUIRE(w.aliveCount() == 1);
+
+    w.tick(0.5f);                                              // t=1.0 -> lifetime expires
+    REQUIRE(w.aliveCount() == 0);
+    REQUIRE(count(w.diffRender(), FxWorld::RenderOp::Kind::Remove) == 1);
+}
+
+// fade ramps the sprite's alpha (AA byte of 0xRRGGBBAA) fromA -> toA over `seconds`, then holds.
+TEST_CASE("FxWorldUnit: fade ramps the sprite alpha over its duration", "[fx][unit][fade]") {
+    FxWorld w;
+    EntityId e = w.spawn();
+    w.setSprite(e, Sprite{true, "blast", 0, 0xFFFFFFFFu, 900});   // alpha starts full (0xFF)
+    w.addBehavior(e, fade(1.0f, 1.0f, 0.0f));                     // fade out over 1s
+
+    w.tick(0.5f);
+    REQUIRE((w.get(e)->sprite.color & 0xFFu) == 128u);           // ~half alpha at t=0.5 (0.5*255=127.5->128)
+    w.tick(0.5f);
+    REQUIRE((w.get(e)->sprite.color & 0xFFu) == 0u);             // fully faded at t>=1
+    w.tick(0.5f);
+    REQUIRE((w.get(e)->sprite.color & 0xFFu) == 0u);             // holds at toA
+    // The RGB is untouched — only the alpha byte changes.
+    REQUIRE((w.get(e)->sprite.color & 0xFFFFFF00u) == 0xFFFFFF00u);
+}
+
+// velocity moves by an initial velocity that decelerates by `drag` per second.
+TEST_CASE("FxWorldUnit: velocity+drag advances then decelerates", "[fx][unit][velocity]") {
+    FxWorld w;
+    EntityId e = w.spawn();
+    w.addBehavior(e, velocity(100.0f, 0.0f, 2.0f));              // 100 px/s east, drag 2/s
+
+    w.tick(0.1f);
+    const float x1 = w.get(e)->transform.cx;                    // += 100*0.1 = 10 ; vx -> 100*(1-0.2)=80
+    REQUIRE_THAT(x1, WithinAbs(10.0f, 0.001f));
+    w.tick(0.1f);
+    const float x2 = w.get(e)->transform.cx;                    // += 80*0.1 = 8 -> 18
+    REQUIRE_THAT(x2, WithinAbs(18.0f, 0.001f));
+    REQUIRE((x2 - x1) < 10.0f);                                 // decelerating: the 2nd step advanced LESS
+
+    // drag 0 = constant velocity (no deceleration).
+    FxWorld w2;
+    EntityId e2 = w2.spawn();
+    w2.addBehavior(e2, velocity(50.0f, 0.0f, 0.0f));
+    w2.tick(0.2f); w2.tick(0.2f);
+    REQUIRE_THAT(w2.get(e2)->transform.cx, WithinAbs(20.0f, 0.001f));   // 50*0.4, undamped
+}

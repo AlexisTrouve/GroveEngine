@@ -49,6 +49,13 @@ void mergeSprite(const nlohmann::json& js, fx::Sprite& s) {
     s.color = color(js, "color", s.color);
     s.layer = inum(js, "layer", s.layer);
 }
+// Merge a text component. The string is taken AS-IS (already localized by the consumer — i18n-agnostic).
+void mergeText(const nlohmann::json& jx, fx::Text& tx) {
+    if (jx.contains("text")) tx.text = str(jx, "text");
+    tx.color = color(jx, "color", tx.color);
+    tx.layer = inum(jx, "layer", tx.layer);
+    tx.fontSize = inum(jx, "fontSize", tx.fontSize);
+}
 
 // One behavior from the fixed library. Unknown type -> nullopt-ish (Lifetime 0 would kill instantly, so we
 // signal "skip" by returning false).
@@ -57,6 +64,10 @@ bool parseBehavior(const nlohmann::json& jb, fx::Behavior& out) {
     if (type == "move")     { out = fx::move(num(jb, "vx", 0.0f), num(jb, "vy", 0.0f)); return true; }
     if (type == "spin")     { out = fx::spin(num(jb, "degPerSec", 0.0f)); return true; }
     if (type == "lifetime") { out = fx::lifetime(num(jb, "seconds", 0.0f)); return true; }
+    // fade: ramp sprite alpha fromAlpha->toAlpha over `seconds` (defaults = fade-out 1->0). VFX dissolve.
+    if (type == "fade")     { out = fx::fade(num(jb, "seconds", 0.0f), num(jb, "fromAlpha", 1.0f), num(jb, "toAlpha", 0.0f)); return true; }
+    // velocity: initial (vx,vy) that decelerates by `drag` per second (debris/spark spread; drag 0 = constant).
+    if (type == "velocity") { out = fx::velocity(num(jb, "vx", 0.0f), num(jb, "vy", 0.0f), num(jb, "drag", 0.0f)); return true; }
     return false;   // unknown behavior type — ignored (fail soft)
 }
 
@@ -65,6 +76,7 @@ fx::Prefab parsePrefab(const nlohmann::json& j) {
     fx::Prefab p;
     if (auto t = j.find("transform"); t != j.end() && t->is_object()) mergeTransform(*t, p.transform);
     if (auto s = j.find("sprite"); s != j.end() && s->is_object()) { mergeSprite(*s, p.sprite); p.sprite.present = true; }
+    if (auto x = j.find("text"); x != j.end() && x->is_object()) { mergeText(*x, p.text); p.text.present = true; }
     if (auto b = j.find("behaviors"); b != j.end() && b->is_array())
         for (const auto& jb : *b) { fx::Behavior beh; if (parseBehavior(jb, beh)) p.behaviors.push_back(beh); }
     return p;
@@ -159,18 +171,38 @@ void FxModule::applyComponents(fx::EntityId id, const IDataNode& node) {
         mergeSprite(*s, sp);
         m_world.setSprite(id, sp);   // marks the entity as sprite-bearing (renders)
     }
+    if (auto x = j.find("text"); x != j.end() && x->is_object()) {
+        fx::Text tx = e->text;
+        mergeText(*x, tx);
+        m_world.setText(id, tx);     // marks the entity as text-bearing (render:text)
+    }
 }
 
-// The retained-render diff -> render:sprite:add / :update / :remove (renderId = world EntityId).
+// The retained-render diff -> render:<prim>:add / :update / :remove (renderId = world EntityId). A Sprite op
+// routes to render:sprite:* (cx,cy = CENTER); a Text op routes to render:text:* (x,y = top-left CORNER, that
+// primitive's native anchor — so the entity's Transform position maps to the text's x,y).
 void FxModule::emitDiff() {
     if (!m_io) return;
+    using Prim = fx::FxWorld::RenderOp::Prim;
+    using Kind = fx::FxWorld::RenderOp::Kind;
     for (const auto& op : m_world.diffRender()) {
         auto n = std::make_unique<JsonDataNode>("s");
         n->setInt("renderId", static_cast<int>(op.id));
-        if (op.kind == fx::FxWorld::RenderOp::Kind::Remove) {
-            m_io->publish("render:sprite:remove", std::move(n));
+
+        if (op.prim == Prim::Text) {
+            if (op.kind == Kind::Remove) { m_io->publish("render:text:remove", std::move(n)); continue; }
+            n->setDouble("x", op.transform.cx);        // render:text anchor = top-left corner (see note above)
+            n->setDouble("y", op.transform.cy);
+            n->setString("text", op.text.text);        // already-resolved string (i18n = consumer's job)
+            n->setInt("color", static_cast<int>(op.text.color));
+            n->setInt("layer", op.text.layer);
+            n->setInt("fontSize", op.text.fontSize);
+            m_io->publish(op.kind == Kind::Add ? "render:text:add" : "render:text:update", std::move(n));
             continue;
         }
+
+        // Sprite primitive.
+        if (op.kind == Kind::Remove) { m_io->publish("render:sprite:remove", std::move(n)); continue; }
         n->setDouble("cx", op.transform.cx);           // cx,cy = CENTER (anchor convention)
         n->setDouble("cy", op.transform.cy);
         n->setDouble("rotation", op.transform.rotation);
@@ -180,9 +212,7 @@ void FxModule::emitDiff() {
         else                          n->setInt("textureId", op.sprite.textureId);
         n->setInt("color", static_cast<int>(op.sprite.color));   // uint32 reinterpreted, like UIRenderer
         n->setInt("layer", op.sprite.layer);
-        m_io->publish(op.kind == fx::FxWorld::RenderOp::Kind::Add ? "render:sprite:add"
-                                                                          : "render:sprite:update",
-                      std::move(n));
+        m_io->publish(op.kind == Kind::Add ? "render:sprite:add" : "render:sprite:update", std::move(n));
     }
 }
 

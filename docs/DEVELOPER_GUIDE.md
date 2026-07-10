@@ -880,20 +880,26 @@ IIO/renderer); `FxModule` (an `IModule`) wraps it onto the bus.
 
 - **`Transform`** `{cx, cy, rotation, scaleX, scaleY}` — `cx,cy` = CENTER (the [anchor convention](#anchor-convention--xy--corner--cxcy--center-read-this)).
 - **`Sprite`** `{asset | textureId, color, layer}` — what it draws (omit → a logic-only effect).
+- **`Text`** `{text, color, layer, fontSize}` — an optional text label (floating damage numbers, callouts). The
+  string is **already localized by the consumer** (the engine is i18n-agnostic — it never translates). Sprite
+  and Text are **orthogonal**: an effect may bear either or both, and each diffs into its own retained pool.
 - **behaviors** — from the fixed library below.
 
 **Topics consumed:**
 
 | Topic | Payload | Effect |
 |-------|---------|--------|
-| `fx:prefab` | `{name, transform?, sprite?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
-| `fx:spawn` | `{id, archetype?, transform?, sprite?, behaviors?}` | Spawn an effect under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
-| `fx:set` | `{id, transform?, sprite?}` | **Partial** update — only the fields you send change; the rest keep their value |
-| `fx:destroy` | `{id}` | Remove the effect (emits its `render:sprite:remove`) |
+| `fx:prefab` | `{name, transform?, sprite?, text?, behaviors?}` | Register a reusable **archetype/template** (see Prefabs) |
+| `fx:spawn` | `{id, archetype?, transform?, sprite?, text?, behaviors?}` | Spawn an effect under a string `id`. With `archetype`, instantiate that prefab; the spawn's own fields then override/add on top |
+| `fx:set` | `{id, transform?, sprite?, text?}` | **Partial** update — only the fields you send change; the rest keep their value |
+| `fx:destroy` | `{id}` | Remove the effect (emits its `render:sprite:remove` / `render:text:remove`) |
 
-**Published:** `render:sprite:add` / `:update` / `:remove` — keyed by the effect's numeric id (= the
-renderer's `renderId`), `cx,cy` = CENTER. Each `process(dt)`: drain the inbox → `tick(dt)` (advance
-behaviors) → `diffRender()` (emit only what changed — the minimal retained-render traffic).
+**Published:** for a **sprite** effect, `render:sprite:add` / `:update` / `:remove` (`cx,cy` = CENTER); for a
+**text** effect, `render:text:add` / `:update` / `:remove` (`x,y` = top-left CORNER — that primitive's native
+anchor, so a text effect's `Transform` position maps to the text's `x,y`). Both are keyed by the effect's
+numeric id (= the renderer's `renderId`); sprite and text are **separate id spaces**, so an effect carrying
+both never collides. Each `process(dt)`: drain the inbox → `tick(dt)` (advance behaviors) → `diffRender()`
+(emit only what changed — the minimal retained-render traffic).
 
 Robust by design: the JSON accessors **fail soft** to a default and never throw on a malformed payload —
 an imperfect message degrades gracefully instead of crashing the engine.
@@ -905,14 +911,33 @@ on an effect in data:
 
 | `type` | Params | Effect |
 |--------|--------|--------|
-| `move` | `{vx, vy}` | Translate the center by `v·dt` each frame |
+| `move` | `{vx, vy}` | Translate the center by `v·dt` each frame (constant velocity) |
 | `spin` | `{degPerSec}` | Rotate (deg/s → rad) |
 | `lifetime` | `{seconds}` | Destroy the effect after `seconds` (emits its Remove) |
+| `fade` | `{seconds, fromAlpha, toAlpha}` | Ramp the **alpha** (AA byte) of the sprite AND/OR text color from `fromAlpha` to `toAlpha` over `seconds`, then hold. Defaults `{fromAlpha:1, toAlpha:0}` = fade-out |
+| `velocity` | `{vx, vy, drag}` | Move at an initial velocity that **decelerates** by `drag` per second (debris/spark spread). `drag 0` = constant. *Explicit-Euler: tick at frame dt (~1/60 s), not big chunks — a single large dt can overshoot the decay* |
 
-Behaviors on one effect tick in list order and compose (e.g. `move` + `lifetime` = a drifting spark). Adding
-a reusable behavior = one `Type` + one tick case in `FxWorld` — **every project gains it**. The roadmap is
-more *lifecycle* primitives (`fade` = alpha over life, `velocity+drag`), **not** `follow`/`path`/`oscillate`
-— gameplay movement is consumer-owned (mutate components via `fx:set` / `world()` from your own loop).
+Behaviors on one effect tick in list order and compose (e.g. `move` + `lifetime` = a drifting spark, or
+`velocity` + `fade` + `lifetime` = a muzzle flash that spreads, dims, and clears). Adding a reusable behavior
+= one `Type` + one tick case in `FxWorld` — **every project gains it**. The library stays *effect-lifecycle*
+focused — deliberately **not** `follow`/`path`/`oscillate`, which are gameplay movement (consumer-owned:
+mutate components via `fx:set` / `world()` from your own loop).
+
+**Floating damage numbers** (the canonical text effect) compose straight from the library — a `text`
+component that rises (`velocity` up), fades (`fade`), and self-expires (`lifetime`):
+
+```jsonc
+// Register the archetype once. The string is a per-instance override (you pass the resolved value).
+{ "name": "damage_number",
+  "text": { "text": "", "color": 4294967295, "layer": 1000, "fontSize": 18 },
+  "behaviors": [ {"type":"velocity","vx":0,"vy":-40,"drag":0},
+                 {"type":"fade","seconds":0.6,"fromAlpha":1,"toAlpha":0},
+                 {"type":"lifetime","seconds":0.6} ] }
+
+// On a hit: spawn at the world position with the resolved damage string.
+{ "id": "dmg_1", "archetype": "damage_number",
+  "transform": { "cx": 300, "cy": 150 }, "text": { "text": "-25" } }
+```
 
 ### Prefabs / archetypes (define once, spawn everywhere)
 
@@ -958,9 +983,11 @@ fxmod->process(in);   // drain -> tick(dt) -> emit render:sprite:*
 ```
 
 Build with `-DGROVE_BUILD_FX_MODULE=ON` (SDL-free). The pure logic is locked by `FxWorldUnit`
-(`[prefab]` cases included); the module end-to-end by `IT_059` (a spawn → `render:sprite:add` at center, a
-partial set → `:update`, an archetype spawn with an override, and `move`+`lifetime` driving a sprite to its
-`:remove`). Hot-reload full-world serialization is a follow-on (`getState` is minimal for now).
+(`[prefab]` / `[fade]` / `[velocity]` / `[text]` cases included); the module end-to-end by `IT_059` (a spawn →
+`render:sprite:add` at center, a partial set → `:update`, an archetype spawn with an override, `move`+`lifetime`
+driving a sprite to its `:remove`, `fade`+`velocity` ramping alpha while drifting, and a `damage_number`
+archetype → `render:text:*` that rises, fades, and expires). Hot-reload full-world serialization is a follow-on
+(`getState` is minimal for now).
 
 ---
 

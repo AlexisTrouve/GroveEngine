@@ -47,17 +47,25 @@ routed through the engine).
 like `grove::anim` / `DialogueRuntime`):
 
 - **Effect** = stable id (monotonic, never reused) + components (`Transform{cx,cy,rotation,scaleX,scaleY}` —
-  `cx,cy` = CENTER; `Sprite{asset|textureId,color,layer,present}`) + `vector<Behavior>`.
-- **`tick(dt)`** advances behaviors in list order (mutate components; `lifetime` kills on expiry).
-- **`diffRender()`** = the retained-render diff: compare each alive sprite-bearing effect's render state to a
-  cached snapshot → `Add`/`Update`/`Remove`, then GC dead effects. Rides the existing
-  `render:sprite:add/update/remove` contract — **zero new renderer code**.
-- **Prefabs**: `registerPrefab`/`spawnFromPrefab` — deep copy per instance (fresh state); unknown → fail soft.
+  `cx,cy` = CENTER; `Sprite{asset|textureId,color,layer,present}`; **`Text{text,color,layer,fontSize,present}`** —
+  optional label, string already-localized by the consumer) + `vector<Behavior>`. Sprite & Text are
+  **orthogonal** — an effect may bear either/both.
+- **`tick(dt)`** advances behaviors in list order (mutate components; `lifetime` kills on expiry). Behavior lib:
+  `move/spin/lifetime` (E1) + **`fade{seconds,fromA,toA}`** (ramps the AA byte of sprite AND text color) +
+  **`velocity{vx,vy,drag}`** (initial velocity decaying by drag/s; explicit-Euler → tick at frame dt) (F1).
+- **`diffRender()`** = the retained-render diff, run as **two independent passes** — a **sprite** pass
+  (→ `render:sprite:*`, `cx,cy` CENTER) and a **text** pass (→ `render:text:*`, `x,y` CORNER). Each compares an
+  effect's render state to its own cached snapshot → `Add`/`Update`/`Remove`, then GC dead effects. Separate id
+  spaces (sprite renderId ≠ text renderId) so one effect with both never collides. Rides the existing
+  `render:sprite:*` / `render:text:*` contracts — **zero new renderer code**.
+- **Prefabs**: `registerPrefab`/`spawnFromPrefab` — deep copy per instance (fresh state, incl. the `text`
+  component); unknown → fail soft.
 
 **Module — `FxModule`** (`modules/FxModule/`, an `IModule`): consumes `fx:prefab/spawn/set/destroy` (nested
 JSON; **robust accessors fail soft** — never throw on a malformed payload); each `process(dt)` drains →
-`tick(dt)` → `diffRender()` → publishes `render:sprite:*`. **Dual façade**: the `fx:*` topics or the C++
-`world()` accessor (a static-link host drives the world directly, then `process(dt)`).
+`tick(dt)` → `diffRender()` → publishes `render:sprite:*` / `render:text:*` (routed by the op's `Prim`).
+**Dual façade**: the `fx:*` topics or the C++ `world()` accessor (a static-link host drives the world directly
+via `spawn`/`setSprite`/`setText`/`addBehavior`, then `process(dt)`).
 
 ## Slices (shipped, TDD — each prove-it-bites)
 
@@ -66,17 +74,20 @@ JSON; **robust accessors fail soft** — never throw on a malformed payload); ea
 | **E1** — `FxWorld` pure core | `fc9e027` | effects + components + behavior lib (`move/spin/lifetime`) + retained-render diff. `FxWorldUnit`. |
 | **E2** — `FxModule` | `e0b2c00` | `fx:*` topics + C++ `world()` → `render:sprite:*` (cx,cy). Robust fail-soft parse. `IT_059`. |
 | **E3** — archetypes/prefabs | `ffec0b2` | `fx:prefab` + `fx:spawn {archetype}` with per-instance overrides; deep-copy fresh state. `FxWorldUnit [prefab]` + `IT_059c`. |
-| rename → `grove::fx`/`FxModule` + VFX re-scope | (this) | the naming-footgun fix + docs re-scoped + anti-crowd panel + roadmap. |
+| rename → `grove::fx`/`FxModule` + VFX re-scope | `9c64901` | the naming-footgun fix + docs re-scoped + anti-crowd panel + roadmap. |
+| **F1** — `fade` + `velocity+drag` behaviors | (this) | two lifecycle primitives; fade ramps sprite/text alpha, velocity spreads + decays. `FxWorldUnit [fade]/[velocity]` + `IT_059d`. |
+| **F2** — `Text` component + floating-numbers | (this) | `Text` component + own `render:text:*` diff pass; `damage_number` archetype (drifterra #1). `FxWorldUnit [text]` + `IT_059e`. |
 
 (Commits E1-E3 predate the rename — the code they reference was `grove::entity`/`EntityModule` at the time.)
 New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — changes **no** existing behavior.
 
 ## Follow-ons
 
-- **Behaviors** (effect-lifecycle only): `fade{fromA,toA}` (alpha over life), `velocity+drag`. NOT
-  follow/path/oscillate.
-- **Components**: `text` (damage numbers), `particle`.
+- ~~**Behaviors**: `fade`, `velocity+drag`~~ — **shipped (F1)**. Remaining lifecycle ideas stay effect-only
+  (NOT follow/path/oscillate — gameplay movement is consumer-owned).
+- ~~**Components**: `text` (damage numbers)~~ — **shipped (F2)**. Remaining: `particle` component.
 - **Hot-reload** full-world serialization (`getState`/`setState` are minimal — health counter only).
+- A by-eye windowed VFX demo (explosion + rising damage numbers) — the logic is E2E-locked; a visual is nice-to-have.
 
 ## Key files
 

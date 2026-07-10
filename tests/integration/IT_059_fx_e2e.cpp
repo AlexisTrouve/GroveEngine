@@ -37,9 +37,17 @@ struct Harness {
 
     int addCount = 0, updateCount = 0, removeCount = 0;
     int lastAddId = -1, lastUpdateId = -1, lastRemoveId = -1;
+    // render:text:* observers (floating numbers) — separate retained pool from sprites.
+    int txtAddCount = 0, txtUpdateCount = 0, txtRemoveCount = 0;
+    int lastTxtId = -1;
+    double lastTxtX = 0, lastTxtY = 0;
+    std::string lastTxtString;
+    uint32_t lastTxtColor = 0;
+    int lastTxtFontSize = -1;
     double lastAddCx = 0, lastAddCy = 0, lastUpdateCx = 0, lastUpdateCy = 0;
     std::string lastAddAsset;
     int lastAddLayer = -1;
+    uint32_t lastAddColor = 0, lastUpdateColor = 0;   // sprite color (0xRRGGBBAA) — fade drives the AA byte
 
     Harness() {
         auto& mgr = IntraIOManager::getInstance();
@@ -55,13 +63,30 @@ struct Harness {
             ++addCount; lastAddId = m.data->getInt("renderId", -1);
             lastAddCx = m.data->getDouble("cx", 0); lastAddCy = m.data->getDouble("cy", 0);
             lastAddAsset = m.data->getString("asset", ""); lastAddLayer = m.data->getInt("layer", -1);
+            lastAddColor = static_cast<uint32_t>(m.data->getInt("color", 0));
         });
         obsIO->subscribe("render:sprite:update", [this](const Message& m) {
             ++updateCount; lastUpdateId = m.data->getInt("renderId", -1);
             lastUpdateCx = m.data->getDouble("cx", 0); lastUpdateCy = m.data->getDouble("cy", 0);
+            lastUpdateColor = static_cast<uint32_t>(m.data->getInt("color", 0));
         });
         obsIO->subscribe("render:sprite:remove", [this](const Message& m) {
             ++removeCount; lastRemoveId = m.data->getInt("renderId", -1);
+        });
+        obsIO->subscribe("render:text:add", [this](const Message& m) {
+            ++txtAddCount; lastTxtId = m.data->getInt("renderId", -1);
+            lastTxtX = m.data->getDouble("x", 0); lastTxtY = m.data->getDouble("y", 0);
+            lastTxtString = m.data->getString("text", "");
+            lastTxtColor = static_cast<uint32_t>(m.data->getInt("color", 0));
+            lastTxtFontSize = m.data->getInt("fontSize", -1);
+        });
+        obsIO->subscribe("render:text:update", [this](const Message& m) {
+            ++txtUpdateCount; lastTxtId = m.data->getInt("renderId", -1);
+            lastTxtX = m.data->getDouble("x", 0); lastTxtY = m.data->getDouble("y", 0);
+            lastTxtColor = static_cast<uint32_t>(m.data->getInt("color", 0));
+        });
+        obsIO->subscribe("render:text:remove", [this](const Message& m) {
+            ++txtRemoveCount; lastTxtId = m.data->getInt("renderId", -1);
         });
     }
 
@@ -156,4 +181,80 @@ TEST_CASE("IT_059c: prefab/archetype — register once, spawn with per-instance 
     REQUIRE_THAT(h.lastUpdateCx, WithinAbs(75.0, 0.001));   // 50 + 100*0.25
     h.step(0.25);
     REQUIRE(h.removeCount == 1);            // lifetime 0.5 expired -> the engine removed it
+}
+
+TEST_CASE("IT_059d: fade + velocity behaviors drive the sprite through the module", "[integration][fx][e2e]") {
+    Harness h;
+
+    // A muzzle-flash-like effect: a white sprite that fades out over 1 s while drifting east and slowing (drag).
+    // fade + velocity are ENGINE-side behaviors — the game just declares them, no per-project tick code.
+    // Tick at a realistic frame dt (0.1 s) so the drag deceleration is gradual (a single big dt would kill vx).
+    h.send("fx:spawn", json{{"id", "flash"},
+                                {"transform", {{"cx", 0.0}, {"cy", 0.0}}},
+                                {"sprite", {{"textureId", 1}, {"color", 0xFFFFFFFF}}},
+                                {"behaviors", json::array({
+                                    json{{"type", "velocity"}, {"vx", 100.0}, {"vy", 0.0}, {"drag", 1.0}},
+                                    json{{"type", "fade"}, {"seconds", 1.0}, {"fromAlpha", 1.0}, {"toAlpha", 0.0}}})}},
+           0.0);   // dt=0 so the Add reports the spawn state (full alpha, cx=0)
+    REQUIRE(h.addCount == 1);
+    REQUIRE((h.lastAddColor & 0xFFu) == 0xFFu);          // spawn: full alpha
+    REQUIRE_THAT(h.lastAddCx, WithinAbs(0.0, 0.001));
+    const int flashId = h.lastAddId;
+
+    // 5 frames of 0.1 s -> t=0.5. Each frame: fades a bit AND drifts east (by a shrinking amount — drag).
+    double prevCx = 0.0;
+    for (int i = 0; i < 5; ++i) {
+        h.step(0.1);
+        REQUIRE(h.lastUpdateId == flashId);
+        REQUIRE(h.lastUpdateCx > prevCx);                // velocity: monotonically drifting east...
+        prevCx = h.lastUpdateCx;
+    }
+    REQUIRE((h.lastUpdateColor & 0xFFu) == 128u);        // fade: alpha halved at t=0.5 (255*0.5)
+    const double cxAt05 = h.lastUpdateCx;
+
+    // 5 more frames -> t=1.0: fully faded (alpha 0) and it kept drifting (slower — drag).
+    for (int i = 0; i < 5; ++i) h.step(0.1);
+    REQUIRE((h.lastUpdateColor & 0xFFu) == 0u);          // fully transparent
+    REQUIRE(h.lastUpdateCx > cxAt05);                    // still moved east over the 2nd half
+}
+
+TEST_CASE("IT_059e: floating damage number archetype -> render:text:* (rise, fade, expire)", "[integration][fx][e2e][text]") {
+    Harness h;
+
+    // Register the drifterra-priority archetype ONCE: a text label that rises (velocity up), fades out over
+    // 0.5 s, and self-expires. The string is a per-instance override (the resolved damage value) — the engine
+    // never localizes (i18n-agnostic). No sprite: this drives render:text:*, a pool distinct from sprites.
+    h.send("fx:prefab", json{{"name", "damage_number"},
+                                 {"text", {{"text", ""}, {"color", 0xFFFFFFFF}, {"layer", 1000}, {"fontSize", 18}}},
+                                 {"behaviors", json::array({
+                                     json{{"type", "velocity"}, {"vx", 0.0}, {"vy", -40.0}, {"drag", 0.0}},
+                                     json{{"type", "fade"}, {"seconds", 0.5}, {"fromAlpha", 1.0}, {"toAlpha", 0.0}},
+                                     json{{"type", "lifetime"}, {"seconds", 0.5}}})}}, 0.0);
+    REQUIRE(h.txtAddCount == 0);          // registering a prefab renders nothing
+
+    // Spawn a hit: "-25" at (300,150). Only the string + position are per-instance.
+    h.send("fx:spawn", json{{"id", "hit1"}, {"archetype", "damage_number"},
+                                {"transform", {{"cx", 300.0}, {"cy", 150.0}}},
+                                {"text", {{"text", "-25"}}}}, 0.0);
+    REQUIRE(h.txtAddCount == 1);
+    REQUIRE(h.lastTxtString == "-25");                    // per-instance string override
+    REQUIRE(h.lastTxtFontSize == 18);                     // inherited from the archetype
+    REQUIRE_THAT(h.lastTxtX, WithinAbs(300.0, 0.001));    // render:text x,y = the transform position (corner anchor)
+    REQUIRE_THAT(h.lastTxtY, WithinAbs(150.0, 0.001));
+    const int hitId = h.lastTxtId;
+    REQUIRE((h.lastTxtColor & 0xFFu) == 0xFFu);           // spawn: opaque
+    REQUIRE(h.addCount == 0);                             // NO sprite traffic — text pool only
+
+    // Tick to t=0.25: it rose (y decreased) and is half-faded.
+    h.step(0.25);
+    REQUIRE(h.txtUpdateCount >= 1);
+    REQUIRE(h.lastTxtId == hitId);
+    REQUIRE(h.lastTxtY < 150.0);                          // rose (velocity vy=-40)
+    REQUIRE((h.lastTxtColor & 0xFFu) == 128u);            // half-faded at t=0.25 of a 0.5 s fade
+
+    // Tick past the lifetime -> the engine removes it from the text pool.
+    h.step(0.30);
+    REQUIRE(h.txtRemoveCount == 1);
+    REQUIRE(h.lastTxtId == hitId);
+    REQUIRE(h.removeCount == 0);                          // never touched the sprite pool
 }

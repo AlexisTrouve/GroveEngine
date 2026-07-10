@@ -52,25 +52,47 @@ struct Sprite {
     int layer = 0;
 };
 
+// A text label this entity draws (floating damage numbers, callouts). i18n-agnostic: the string is
+// ALREADY RESOLVED by the consumer (the engine never localizes). Rendered via render:text (its native
+// anchor is the top-left CORNER, so the entity's Transform position maps to the text's x,y — see emitDiff).
+struct Text {
+    bool present = false;
+    std::string text;                  // the pre-resolved string to draw
+    uint32_t color = 0xFFFFFFFFu;      // 0xRRGGBBAA (fade ramps the AA byte, like Sprite)
+    int layer = 0;
+    int fontSize = 16;
+};
+
 // ---- Behavior: a FIXED, engine-provided, data-parameterized primitive (NOT a script) ------------
 // The multi-project library. Add a new reusable behavior = add a Type + a tick case here (every project
 // inherits it). Params live in a,b; `age` is per-behavior state. Use the factory helpers for readable sites.
 struct Behavior {
-    enum class Type { Move, Spin, Lifetime };
+    enum class Type { Move, Spin, Lifetime, Fade, Velocity };
     Type type;
-    float a = 0.0f;   // Move: vx      | Spin: degPerSec | Lifetime: seconds
-    float b = 0.0f;   // Move: vy      | (unused)        | (unused)
-    float age = 0.0f; // Lifetime: elapsed seconds
+    float a = 0.0f;   // Move: vx | Spin: degPerSec | Lifetime/Fade: seconds | Velocity: vx0
+    float b = 0.0f;   // Move: vy | Fade: fromAlpha (0..1)                   | Velocity: vy0
+    float c = 0.0f;   // Fade: toAlpha (0..1)                               | Velocity: drag (per-second)
+    float age = 0.0f; // Lifetime/Fade: elapsed seconds
+    float vx = 0.0f, vy = 0.0f;  // Velocity: current velocity (state; decays by drag). Init from a,b.
 };
-inline Behavior move(float vx, float vy) { return Behavior{Behavior::Type::Move, vx, vy, 0.0f}; }
-inline Behavior spin(float degPerSec)    { return Behavior{Behavior::Type::Spin, degPerSec, 0.0f, 0.0f}; }
-inline Behavior lifetime(float seconds)  { return Behavior{Behavior::Type::Lifetime, seconds, 0.0f, 0.0f}; }
+inline Behavior move(float vx, float vy) { return Behavior{Behavior::Type::Move, vx, vy, 0, 0, 0, 0}; }
+inline Behavior spin(float degPerSec)    { return Behavior{Behavior::Type::Spin, degPerSec, 0, 0, 0, 0, 0}; }
+inline Behavior lifetime(float seconds)  { return Behavior{Behavior::Type::Lifetime, seconds, 0, 0, 0, 0, 0}; }
+// Fade the sprite's alpha from `fromA` to `toA` over `seconds` (then hold). Effect fade-out = fade(s,1,0).
+inline Behavior fade(float seconds, float fromA = 1.0f, float toA = 0.0f) {
+    return Behavior{Behavior::Type::Fade, seconds, fromA, toA, 0, 0, 0};
+}
+// Move at an initial velocity that DECELERATES by `drag` per second (debris/spark spread). drag 0 = constant.
+inline Behavior velocity(float vx0, float vy0, float drag) {
+    return Behavior{Behavior::Type::Velocity, vx0, vy0, drag, 0, vx0, vy0};
+}
 
 struct Entity {
     EntityId id = 0;
     bool alive = true;
     Transform transform;
     Sprite sprite;
+    Text text;                         // optional text label (floating numbers); orthogonal to sprite
     std::vector<Behavior> behaviors;
 };
 
@@ -81,6 +103,7 @@ struct Entity {
 struct Prefab {
     Transform transform;
     Sprite sprite;
+    Text text;                         // optional text label carried by the template (floating-numbers archetype)
     std::vector<Behavior> behaviors;
 };
 
@@ -106,6 +129,7 @@ public:
 
     void setTransform(EntityId id, const Transform& t) { if (Entity* e = get(id)) e->transform = t; }
     void setSprite(EntityId id, const Sprite& s)       { if (Entity* e = get(id)) { e->sprite = s; e->sprite.present = true; } }
+    void setText(EntityId id, const Text& tx)          { if (Entity* e = get(id)) { e->text = tx; e->text.present = true; } }
     void addBehavior(EntityId id, const Behavior& b)   { if (Entity* e = get(id)) e->behaviors.push_back(b); }
 
     // --- Prefabs / archetypes (the multi-project entity-template library) ---
@@ -120,6 +144,7 @@ public:
         Entity& e = *get(id);
         e.transform = it->second.transform;
         e.sprite    = it->second.sprite;
+        e.text      = it->second.text;
         e.behaviors = it->second.behaviors;
         return id;
     }
@@ -140,47 +165,28 @@ public:
         }
     }
 
-    // One render op the module turns into render:sprite:add / :update / :remove (keyed by id = renderId).
+    // One render op the module turns into render:<prim>:add / :update / :remove (keyed by id = renderId).
+    // `prim` picks the retained pool: Sprite -> render:sprite:*, Text -> render:text:* (separate id spaces,
+    // so one entity can carry BOTH a sprite and a text label without a renderId collision).
     struct RenderOp {
         enum class Kind { Add, Update, Remove } kind;
+        enum class Prim { Sprite, Text } prim = Prim::Sprite;
         EntityId id;
         Transform transform;   // valid for Add / Update
-        Sprite sprite;         // valid for Add / Update
+        Sprite sprite;         // valid for Add / Update when prim == Sprite
+        Text text;             // valid for Add / Update when prim == Text
     };
 
     // The minimal retained-render diff vs the last emitted snapshot. Call ONCE per frame, AFTER tick().
-    // Emits Add for a newly-visible entity, Update when its render state changed, Remove when it died or
-    // dropped its sprite; then GCs dead entities. Idempotent if nothing changed (returns no ops).
+    // Emits Add for a newly-visible primitive, Update when its render state changed, Remove when the entity
+    // died or dropped that component; then GCs dead entities. Idempotent if nothing changed (no ops).
+    // Two independent passes: sprite (render:sprite:*) and text (render:text:*).
     std::vector<RenderOp> diffRender() {
         std::vector<RenderOp> ops;
+        diffSprites(ops);
+        diffTexts(ops);
 
-        // Add / Update every alive, sprite-bearing entity whose render state differs from the snapshot.
-        for (auto& kv : m_entities) {
-            Entity& e = kv.second;
-            if (!e.alive || !e.sprite.present) continue;
-            const RenderState cur{e.transform, e.sprite};
-            auto snap = m_snapshot.find(e.id);
-            if (snap == m_snapshot.end()) {
-                ops.push_back({RenderOp::Kind::Add, e.id, e.transform, e.sprite});
-                m_snapshot.emplace(e.id, cur);
-            } else if (!(snap->second == cur)) {
-                ops.push_back({RenderOp::Kind::Update, e.id, e.transform, e.sprite});
-                snap->second = cur;
-            }
-        }
-
-        // Remove any snapshot id that is no longer an alive, sprite-bearing entity.
-        for (auto it = m_snapshot.begin(); it != m_snapshot.end();) {
-            Entity* e = get(it->first);
-            if (!e || !e->alive || !e->sprite.present) {
-                ops.push_back({RenderOp::Kind::Remove, it->first, Transform{}, Sprite{}});
-                it = m_snapshot.erase(it);
-            } else {
-                ++it;
-            }
-        }
-
-        // GC dead entities now that their Remove has been emitted (their ids are never reused).
+        // GC dead entities now that their Removes have been emitted (their ids are never reused).
         for (auto it = m_entities.begin(); it != m_entities.end();) {
             if (!it->second.alive) it = m_entities.erase(it);
             else ++it;
@@ -189,7 +195,7 @@ public:
     }
 
 private:
-    // The render-relevant slice of an entity, cached to detect changes between frames.
+    // The render-relevant slice of a sprite-bearing entity, cached to detect changes between frames.
     struct RenderState {
         Transform t;
         Sprite s;
@@ -200,6 +206,68 @@ private:
                    s.color == o.s.color && s.layer == o.s.layer;
         }
     };
+    // The render-relevant slice of a text-bearing entity (position + the text component).
+    struct TextState {
+        Transform t;
+        Text tx;
+        bool operator==(const TextState& o) const {
+            return t.cx == o.t.cx && t.cy == o.t.cy &&
+                   tx.text == o.tx.text && tx.color == o.tx.color &&
+                   tx.layer == o.tx.layer && tx.fontSize == o.tx.fontSize;
+        }
+    };
+
+    // Sprite diff pass: Add/Update/Remove for the render:sprite:* pool.
+    void diffSprites(std::vector<RenderOp>& ops) {
+        for (auto& kv : m_entities) {
+            Entity& e = kv.second;
+            if (!e.alive || !e.sprite.present) continue;
+            const RenderState cur{e.transform, e.sprite};
+            auto snap = m_snapshot.find(e.id);
+            if (snap == m_snapshot.end()) {
+                ops.push_back({RenderOp::Kind::Add, RenderOp::Prim::Sprite, e.id, e.transform, e.sprite, {}});
+                m_snapshot.emplace(e.id, cur);
+            } else if (!(snap->second == cur)) {
+                ops.push_back({RenderOp::Kind::Update, RenderOp::Prim::Sprite, e.id, e.transform, e.sprite, {}});
+                snap->second = cur;
+            }
+        }
+        for (auto it = m_snapshot.begin(); it != m_snapshot.end();) {
+            Entity* e = get(it->first);
+            if (!e || !e->alive || !e->sprite.present) {
+                ops.push_back({RenderOp::Kind::Remove, RenderOp::Prim::Sprite, it->first, Transform{}, Sprite{}, {}});
+                it = m_snapshot.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    // Text diff pass: Add/Update/Remove for the render:text:* pool (mirrors the sprite pass).
+    void diffTexts(std::vector<RenderOp>& ops) {
+        for (auto& kv : m_entities) {
+            Entity& e = kv.second;
+            if (!e.alive || !e.text.present) continue;
+            const TextState cur{e.transform, e.text};
+            auto snap = m_textSnapshot.find(e.id);
+            if (snap == m_textSnapshot.end()) {
+                ops.push_back({RenderOp::Kind::Add, RenderOp::Prim::Text, e.id, e.transform, {}, e.text});
+                m_textSnapshot.emplace(e.id, cur);
+            } else if (!(snap->second == cur)) {
+                ops.push_back({RenderOp::Kind::Update, RenderOp::Prim::Text, e.id, e.transform, {}, e.text});
+                snap->second = cur;
+            }
+        }
+        for (auto it = m_textSnapshot.begin(); it != m_textSnapshot.end();) {
+            Entity* e = get(it->first);
+            if (!e || !e->alive || !e->text.present) {
+                ops.push_back({RenderOp::Kind::Remove, RenderOp::Prim::Text, it->first, Transform{}, {}, Text{}});
+                it = m_textSnapshot.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 
     // The fixed behavior library. One pure case per primitive.
     static void tickBehavior(Entity& e, Behavior& b, float dt) {
@@ -215,13 +283,38 @@ private:
                 b.age += dt;
                 if (b.age >= b.a) e.alive = false;
                 break;
+            case Behavior::Type::Fade: {
+                // Ramp the ALPHA (the AA byte of 0xRRGGBBAA) from fromA to toA over `seconds`, then hold.
+                // Applies to WHICHEVER visual component is present — sprite AND/OR text (floating numbers
+                // fade out the same way). Ramping an absent component is harmless (it's never emitted).
+                b.age += dt;
+                const float t = b.a > 0.0f ? (b.age / b.a) : 1.0f;
+                const float tc = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+                float alpha = b.b + (b.c - b.b) * tc;                     // lerp fromAlpha -> toAlpha
+                alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+                const uint32_t a8 = static_cast<uint32_t>(alpha * 255.0f + 0.5f);
+                e.sprite.color = (e.sprite.color & 0xFFFFFF00u) | a8;
+                e.text.color   = (e.text.color   & 0xFFFFFF00u) | a8;
+                break;
+            }
+            case Behavior::Type::Velocity: {
+                // Move by the current velocity, then decay it by `drag` per second (spread that slows: debris/sparks).
+                e.transform.cx += b.vx * dt;
+                e.transform.cy += b.vy * dt;
+                float damp = 1.0f - b.c * dt;
+                if (damp < 0.0f) damp = 0.0f;
+                b.vx *= damp;
+                b.vy *= damp;
+                break;
+            }
         }
     }
 
     EntityId m_nextId = 0;
-    std::map<EntityId, Entity> m_entities;        // ordered -> deterministic tick / diff
-    std::map<EntityId, RenderState> m_snapshot;   // last-emitted render state per id (drives the diff)
-    std::map<std::string, Prefab> m_prefabs;      // the archetype/prefab library (spawn templates)
+    std::map<EntityId, Entity> m_entities;          // ordered -> deterministic tick / diff
+    std::map<EntityId, RenderState> m_snapshot;     // last-emitted sprite render state per id
+    std::map<EntityId, TextState> m_textSnapshot;   // last-emitted text render state per id
+    std::map<std::string, Prefab> m_prefabs;        // the archetype/prefab library (spawn templates)
 };
 
 } // namespace fx
