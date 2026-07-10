@@ -84,6 +84,10 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
     m.coordinate.boundsMax = {{CX * CW - 1, CY * CH - 1, 0}};
     m.coordinate.chunkDims = {{CW, CH, 1}};
     m.fields               = mvdemo::demoSchema();
+    // Two synthetic resource-density fields (Unorm8 0..1) so the HUD's resource discovery + heatmap lens are
+    // exercised end to end: res_iron_ore -> "Métaux", res_ice -> "Glaces&volatils" (per the HUD's category table).
+    m.fields.push_back(mapview::FieldDecl{"res_iron_ore", mapview::Encoding::Unorm8, 8, 1.0, 0.0});
+    m.fields.push_back(mapview::FieldDecl{"res_ice",      mapview::Encoding::Unorm8, 8, 1.0, 0.0});
     m.chunksDir            = "chunks";
 
     std::vector<mapview::ChunkData> chunks;
@@ -93,11 +97,20 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
             d.coord = {cx, cy, 0};
             d.cellCount = static_cast<uint32_t>(CW * CH);
             std::vector<uint32_t> elev(static_cast<size_t>(CW) * CH);
+            std::vector<uint32_t> iron(static_cast<size_t>(CW) * CH);   // res_iron_ore density, raw 0..255
+            std::vector<uint32_t> ice(static_cast<size_t>(CW) * CH);    // res_ice density, raw 0..255
             for (int ly = 0; ly < CH; ++ly)
-                for (int lx = 0; lx < CW; ++lx)
-                    elev[static_cast<size_t>(ly) * CW + lx] =
-                        static_cast<uint32_t>(gentleElev(cx * CW + lx, cy * CH + ly) * 4.0 + 0.5);
+                for (int lx = 0; lx < CW; ++lx) {
+                    const int gx = cx * CW + lx, gy = cy * CH + ly;
+                    const size_t i = static_cast<size_t>(ly) * CW + lx;
+                    elev[i] = static_cast<uint32_t>(gentleElev(gx, gy) * 4.0 + 0.5);
+                    // Smooth 0..255 blobs so the heatmap has variation (and the fields are non-empty per chunk).
+                    iron[i] = static_cast<uint32_t>(127.5 + 127.0 * std::sin(gx * 0.02) * std::cos(gy * 0.017));
+                    ice[i]  = static_cast<uint32_t>(127.5 + 127.0 * std::cos(gx * 0.013) * std::sin(gy * 0.021));
+                }
             d.fields.emplace_back("elevation", std::move(elev));
+            d.fields.emplace_back("res_iron_ore", std::move(iron));
+            d.fields.emplace_back("res_ice", std::move(ice));
             chunks.push_back(std::move(d));
         }
     }
@@ -279,6 +292,22 @@ int main(int argc, char** argv) {
     hudClick(330, 20);                                                   // "Métaux" button (x 274..384, y 6..34)
     CHECK(hud.actionCount() > actionsBefore, "a click on a HUD category button reaches the UI (input->ui->declarative event)");
     CHECK(hud.lastCategory() == std::string("Métaux"), "the category button published its cat:select {id} arg");
+
+    // Data-driven discovery: the resource fields come from the world's res_* schema; only res_->category is a table.
+    CHECK(hud.categoryCount() >= 2, "resource categories discovered data-driven from the world's res_* schema");
+    CHECK(hud.listItemCount() > 0, "the category click populated the resource sub-menu list (res_iron_ore in Métaux)");
+
+    // Click the first resource row in the (now-open) left drawer -> the map swaps to its density heatmap lens.
+    for (int i = 0; i < 4; ++i) { pump(); app.renderFrame(dt); }         // let the drawer open + the list render
+    hudClick(120, 92);                                                   // list row 0 (drawer x~8, y~76, rowHeight 30)
+    CHECK(hud.activeLens().rfind("resource:", 0) == 0,
+          "clicking a resource row swaps the map to its density heatmap lens (ui:list:selected -> makeResourceLens)");
+    // "Élévation" returns to the terrain lens (right end, clear of the open left drawer).
+    hudClick(1190, 20);                                                  // catElev button (x 1130..1250)
+    CHECK(hud.activeLens() == std::string("terrain"), "the Élévation button returns to the terrain lens");
+    // The planet-core side-car (mock) reaches the core panel — exercised end to end (its visual is eyeball).
+    hud.setMockCore();
+    for (int i = 0; i < 2; ++i) { pump(); app.renderFrame(dt); }
 
     // Pan + zoom the camera hard, then click the SAME screen position -> it must still hit the button.
     camera::CameraView moved = app.camera(); moved.x += 500.0f; moved.y += 300.0f; moved.zoom *= 3.0f;
