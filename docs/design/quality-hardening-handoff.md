@@ -227,8 +227,19 @@ gitea + github + bitbucket).
 
 ### Phase 4 — Anti-regression gates (lock the wins)
 
-- Promote today's **LSan leak harness** (currently in the session scratchpad — *ephemeral*) into a
-  committed `tests/` target so the leak check survives.
+- ✅ **DONE (2026-07-11) — committed LSan leak gate.** The ephemeral Phase-1 leak sweep is now a permanent
+  `tests/regression/test_leak_gate.cpp` (ctest **`LeakGate`**): a FAST, deterministic scenario that loops the
+  core allocation-heavy paths (DebugEngine lifecycle + static-module registration/routing via `engine.step`,
+  and raw `IntraIOManager` instance churn with shared-payload pub/sub) so LSan flags any per-cycle leak. Plain
+  `main()` — the leak *check* is LSan's job (non-zero exit at process exit on any leak); the test only asserts
+  the scenario actually ran. **On Windows = a fast smoke test** (MinGW has no sanitizer); **under a Linux
+  `-DGROVE_ENABLE_ASAN=ON` build LSan makes it the real gate.** Verified: Windows smoke (exit 0, 8 cycles);
+  **VPS142 g++ + `-DGROVE_ENABLE_ASAN=ON` → 0 leaks** (exit 0, no LSan output); **prove-it-bites** — an injected
+  `new int[64]` → `LeakSanitizer: 256 byte(s) leaked`, exit 1 (gate would fail). Coverage line (honest): core
+  lifecycle + module routing + IntraIO alloc/pub/sub; NOT the dlopen path (covered by the reload ctests under
+  ASan) or GPU/SDL. **Gotcha: WSL can't run this** — a fresh WSL build needs `FetchContent` to git-clone
+  nlohmann/spdlog/Catch2, but WSL in NAT mode has no proxy → clone fails; run the gate on **VPS142** (network +
+  `libasan`) via a `git worktree` at HEAD (mirror of the PART-2 clang-tidy recipe), or a Linux box with network.
 - Turn the **zero-copy perf benchmark** into a soft gate (assert `ns/publish` stays under a ceiling)
   or at least document it as a release-check.
 - **Doc-example compile check** — we shipped two stale examples this cycle (`pullMessage()`,

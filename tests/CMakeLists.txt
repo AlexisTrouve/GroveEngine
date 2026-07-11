@@ -1178,6 +1178,18 @@ target_link_libraries(test_static_engine_hosting PRIVATE
 )
 grove_add_test(StaticEngineHosting test_static_engine_hosting ${CMAKE_CURRENT_BINARY_DIR})
 
+# Anti-regression LEAK GATE (quality Phase 4): a fast core-path scenario (engine lifecycle + module routing +
+# IntraIO churn) looped so LeakSanitizer flags any per-cycle leak. On Windows = a smoke test; under a Linux/WSL
+# -DGROVE_ENABLE_ASAN=ON build, LSan makes it the real gate (non-zero exit on leak -> ctest fails). Plain main().
+add_executable(test_leak_gate
+    regression/test_leak_gate.cpp
+)
+target_link_libraries(test_leak_gate PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+grove_add_test(LeakGate test_leak_gate ${CMAKE_CURRENT_BINARY_DIR})
+
 # grove::EngineClock — the engine's authoritative fixed-timestep clock (grove/EngineClock.h).
 # Pure, header-only, no engine link: turns real frame deltas into deterministic sim ticks
 # (tick / simTime = tick*dt / realTime) plus pause / slow-mo / fast-forward. Part 1 of the
