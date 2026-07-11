@@ -1190,6 +1190,19 @@ target_link_libraries(test_leak_gate PRIVATE
 )
 grove_add_test(LeakGate test_leak_gate ${CMAKE_CURRENT_BINARY_DIR})
 
+# Anti-regression PERF GATE (quality Phase 4): guards the IIO zero-copy O(1) fan-out. Publishes a fat payload
+# to N=1 vs N=32 subscribers and asserts the per-SUBSCRIBER cost DROPS (a machine-independent ratio, no flaky
+# absolute-ns ceiling). A reintroduced per-subscriber payload copy keeps it flat -> fails. Real gate on any OS.
+add_executable(test_iio_perf_gate
+    regression/test_iio_perf_gate.cpp
+)
+target_link_libraries(test_iio_perf_gate PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+)
+grove_add_test(IIOPerfGate test_iio_perf_gate ${CMAKE_CURRENT_BINARY_DIR})
+
 # grove::EngineClock — the engine's authoritative fixed-timestep clock (grove/EngineClock.h).
 # Pure, header-only, no engine link: turns real frame deltas into deterministic sim ticks
 # (tick / simTime = tick*dt / realTime) plus pause / slow-mo / fast-forward. Part 1 of the

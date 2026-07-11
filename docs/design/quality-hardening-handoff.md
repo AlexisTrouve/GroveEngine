@@ -240,8 +240,13 @@ gitea + github + bitbucket).
   ASan) or GPU/SDL. **Gotcha: WSL can't run this** — a fresh WSL build needs `FetchContent` to git-clone
   nlohmann/spdlog/Catch2, but WSL in NAT mode has no proxy → clone fails; run the gate on **VPS142** (network +
   `libasan`) via a `git worktree` at HEAD (mirror of the PART-2 clang-tidy recipe), or a Linux box with network.
-- Turn the **zero-copy perf benchmark** into a soft gate (assert `ns/publish` stays under a ceiling)
-  or at least document it as a release-check.
+- ✅ **DONE (2026-07-11) — committed IIO perf gate.** `tests/regression/test_iio_perf_gate.cpp` (ctest
+  **`IIOPerfGate`**) guards the zero-copy **O(1) fan-out** invariant with a **machine-independent RATIO**, not a
+  flaky absolute-ns ceiling: it publishes a fat payload to N=1 vs N=32 subscribers and asserts the per-SUBSCRIBER
+  cost DROPS below half as fan-out grows (real drop ~25–30×; a reintroduced per-subscriber json copy keeps it
+  ~flat → fails). Node built OUTSIDE the timer (isolates publish+route). Verified stable across runs (~25×,
+  never near the 2× threshold — no flake) + prove-it-bites (impossible 1000× threshold → the FAIL branch fires).
+  ~6.8 s (M=6000). The full A/B `benchmark_iio_zerocopy.cpp` stays the by-hand release tool.
 - **Doc-example compile check** — we shipped two stale examples this cycle (`pullMessage()`,
   `setChild(std::move(msg.data))`); a check that extracts + compiles doc code blocks would catch the
   next one. (Doctrine: doc accuracy is paramount.)
