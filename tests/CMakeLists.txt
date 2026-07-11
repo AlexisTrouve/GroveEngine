@@ -1203,6 +1203,19 @@ target_link_libraries(test_iio_perf_gate PRIVATE
 )
 grove_add_test(IIOPerfGate test_iio_perf_gate ${CMAKE_CURRENT_BINARY_DIR})
 
+# Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
+# hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
+# API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.
+add_executable(test_doc_examples
+    regression/test_doc_examples.cpp
+)
+target_include_directories(test_doc_examples PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_doc_examples PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+)
+grove_add_test(DocExamples test_doc_examples ${CMAKE_CURRENT_BINARY_DIR})
+
 # grove::EngineClock — the engine's authoritative fixed-timestep clock (grove/EngineClock.h).
 # Pure, header-only, no engine link: turns real frame deltas into deterministic sim ticks
 # (tick / simTime = tick*dt / realTime) plus pause / slow-mo / fast-forward. Part 1 of the

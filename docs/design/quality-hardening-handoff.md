@@ -247,9 +247,15 @@ gitea + github + bitbucket).
   ~flat → fails). Node built OUTSIDE the timer (isolates publish+route). Verified stable across runs (~25×,
   never near the 2× threshold — no flake) + prove-it-bites (impossible 1000× threshold → the FAIL branch fires).
   ~6.8 s (M=6000). The full A/B `benchmark_iio_zerocopy.cpp` stays the by-hand release tool.
-- **Doc-example compile check** — we shipped two stale examples this cycle (`pullMessage()`,
-  `setChild(std::move(msg.data))`); a check that extracts + compiles doc code blocks would catch the
-  next one. (Doctrine: doc accuracy is paramount.)
+- ✅ **DONE (2026-07-11) — doc-example compile check.** `tests/regression/test_doc_examples.cpp` (ctest
+  **`DocExamples`**) mirrors the docs' load-bearing C++ API snippets (IIO pub/sub, DebugEngine hosting + a
+  minimal `IModule`, `JsonDataNode`, the `grove::fx` authoring surface) and compiles them against the REAL
+  headers — prose isn't compiler-checked, this TU is, so a renamed/removed documented API stops the build and
+  flags the doc. The snippets need not RUN (an always-false branch), so it's a fast side-effect-free compile
+  gate. Prove-it-bites: swapping in the exact stale `pullMessage()` → a compile error ("no member named
+  pullMessage"). Coverage (honest): the core GPU/SDL-free surfaces; NOT `submitSpriteBatch`/`render:*` (need
+  the BgfxRenderer link) or the topic wire formats (their own E2Es). **Phase 4 is now complete** (leak gate +
+  perf gate + doc-example check); the deferred axes below remain (CI declined, fuzz/coverage, `[gpu]` sanitizer).
 
 ---
 
