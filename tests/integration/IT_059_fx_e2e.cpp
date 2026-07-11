@@ -324,3 +324,51 @@ TEST_CASE("IT_059g: continuous emitter streams a moving trail through the module
     for (int i = 0; i < 5; ++i) h.step(0.1);
     REQUIRE(h.addCount == addsAtStop);                   // emission stopped
 }
+
+TEST_CASE("IT_059h: getState/setState round-trips the full world across a hot-reload (no orphan)", "[integration][fx][e2e][hotreload]") {
+    Harness old;   // the pre-reload module
+
+    // A bullet archetype (moves right) + a text label. Give the bullet a distinct id and let it fly a bit.
+    old.send("fx:prefab", json{{"name","bullet"}, {"sprite", {{"asset","b"}, {"layer",5}}},
+                                   {"behaviors", json::array({ json{{"type","move"},{"vx",100},{"vy",0}} })}}, 0.0);
+    old.send("fx:spawn", json{{"id","b1"}, {"archetype","bullet"}, {"transform", {{"cx",0},{"cy",0}}}}, 0.0);
+    const int bulletId = old.lastAddId;                  // the bullet's renderId (= world EntityId)
+    old.send("fx:spawn", json{{"id","label"}, {"transform", {{"cx",50},{"cy",60}}}, {"text", {{"text","hi"}}}}, 0.0);
+    old.step(0.5);                                       // bullet flies to cx = 100*0.5 = 50
+    REQUIRE_THAT(old.module->world().get(bulletId)->transform.cx, WithinAbs(50.0f, 0.001f));
+
+    // Serialize the OLD module's FULL world (entities + ids + behaviors mid-state + prefab + name map).
+    auto state = old.module->getState();
+
+    // A NEW ("reloaded") module on its own IIO + an observer for its remove traffic.
+    auto& mgr = IntraIOManager::getInstance();
+    auto newIO  = mgr.createInstance(uid("fx_new"));
+    auto newPub = mgr.createInstance(uid("fx_newpub"));
+    auto newObs = mgr.createInstance(uid("fx_newobs"));
+    auto newMod = std::make_unique<FxModule>();
+    JsonDataNode cfg("config");
+    newMod->setConfiguration(cfg, newIO.get(), nullptr);
+    int remCount = 0, remId = -1;
+    newObs->subscribe("render:sprite:remove", [&](const Message& m) { ++remCount; remId = m.data->getInt("renderId", -1); });
+
+    // === THE RELOAD: transfer the state. ===
+    newMod->setState(*state);
+
+    // World restored 1:1 — same live count, the prefab, and the bullet resumed AT its mid-flight position.
+    REQUIRE(newMod->world().aliveCount() == old.module->world().aliveCount());
+    REQUIRE(newMod->world().hasPrefab("bullet"));
+    REQUIRE(newMod->world().get(bulletId) != nullptr);
+    REQUIRE_THAT(newMod->world().get(bulletId)->transform.cx, WithinAbs(50.0f, 0.001f));
+
+    // It CONTINUES ticking: the bullet's move behavior advances from cx=50 (no reset).
+    { JsonDataNode in("input"); in.setDouble("deltaTime", 0.5); newMod->process(in); }
+    REQUIRE_THAT(newMod->world().get(bulletId)->transform.cx, WithinAbs(100.0f, 0.001f));   // 50 + 100*0.5
+
+    // ANTI-ORPHAN: the string-id -> renderId map was restored, so destroy-by-"b1" removes the ORIGINAL renderId
+    // (a state-less reload could never do this -> the renderer's sprite would leak forever).
+    newPub->publish("fx:destroy", std::make_unique<JsonDataNode>("m", json{{"id","b1"}}));
+    { JsonDataNode in("input"); in.setDouble("deltaTime", 0.0); newMod->process(in); }
+    while (newObs->hasMessages() > 0) newObs->pullAndDispatch();
+    REQUIRE(remCount >= 1);
+    REQUIRE(remId == bulletId);
+}

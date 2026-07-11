@@ -1053,8 +1053,9 @@ Build with `-DGROVE_BUILD_FX_MODULE=ON` (SDL-free). The pure logic is locked by 
 `move`+`lifetime` driving a sprite to its `:remove`, `fade`+`velocity` ramping alpha while drifting, a
 `damage_number` archetype → `render:text:*` that rises/fades/expires, an `Emitter` burst → a batch of particle
 `render:sprite:add`, and a continuous stream emitter → a moving trail that keeps emitting, drops particles at
-the moved position, and stops on `ratePerSec:0`). Hot-reload full-world serialization is a follow-on (`getState`
-is minimal for now).
+the moved position, and stops on `ratePerSec:0`). **Hot-reload** round-trips the full live world through
+`getState`/`setState` (entities verbatim with their ids + internal behavior/emitter state, prefabs, and the
+string-id map) so effects resume mid-flight and the renderer's sprites never orphan (`IT_059h`).
 
 ---
 

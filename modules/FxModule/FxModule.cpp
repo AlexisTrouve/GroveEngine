@@ -94,6 +94,100 @@ fx::Prefab parsePrefab(const nlohmann::json& j) {
         for (const auto& jb : *b) { fx::Behavior beh; if (parseBehavior(jb, beh)) p.behaviors.push_back(beh); }
     return p;
 }
+
+// ---- Hot-reload FULL-STATE serialization (struct <-> json) -----------------------------------------------
+// A distinct, VERBOSE wire format from the authoring fx:* topics: it captures EVERY field incl. INTERNAL state
+// (a behavior's elapsed `age` + decayed velocity, the emitter's `fired`/accumulator/rngState, each component's
+// `present` flag) so a reloaded module resumes effects mid-flight and preserves entity ids (= renderIds). The
+// render snapshots are NOT serialized — see FxWorld's serialization note (the next diffRender re-Adds, which is
+// idempotent on the renderer). All loaders are fail-soft (robust accessors default; never throw on a bad node).
+bool boolOf(const nlohmann::json& j, const char* key) {
+    auto it = j.find(key);
+    return it != j.end() && it->is_boolean() && it->get<bool>();
+}
+nlohmann::json dumpTransform(const fx::Transform& t) {
+    return {{"cx", t.cx}, {"cy", t.cy}, {"rot", t.rotation}, {"sx", t.scaleX}, {"sy", t.scaleY}};
+}
+fx::Transform loadTransform(const nlohmann::json& j) {
+    fx::Transform t; t.cx = num(j, "cx", 0); t.cy = num(j, "cy", 0); t.rotation = num(j, "rot", 0);
+    t.scaleX = num(j, "sx", 1); t.scaleY = num(j, "sy", 1); return t;
+}
+nlohmann::json dumpSprite(const fx::Sprite& s) {
+    return {{"p", s.present}, {"asset", s.asset}, {"tex", s.textureId},
+            {"color", static_cast<int64_t>(s.color)}, {"layer", s.layer}};
+}
+fx::Sprite loadSprite(const nlohmann::json& j) {
+    fx::Sprite s; s.present = boolOf(j, "p"); s.asset = str(j, "asset"); s.textureId = inum(j, "tex", 0);
+    s.color = color(j, "color", 0xFFFFFFFFu); s.layer = inum(j, "layer", 0); return s;
+}
+nlohmann::json dumpText(const fx::Text& t) {
+    return {{"p", t.present}, {"text", t.text}, {"color", static_cast<int64_t>(t.color)},
+            {"layer", t.layer}, {"fs", t.fontSize}};
+}
+fx::Text loadText(const nlohmann::json& j) {
+    fx::Text t; t.present = boolOf(j, "p"); t.text = str(j, "text"); t.color = color(j, "color", 0xFFFFFFFFu);
+    t.layer = inum(j, "layer", 0); t.fontSize = inum(j, "fs", 16); return t;
+}
+nlohmann::json dumpEmitter(const fx::Emitter& e) {
+    return {{"p", e.present}, {"prefab", e.prefab}, {"count", e.count}, {"smin", e.speedMin},
+            {"smax", e.speedMax}, {"spread", e.spreadDeg}, {"dir", e.dirDeg}, {"one", e.oneShot},
+            {"fired", e.fired}, {"rate", e.ratePerSec}, {"acc", e.accumulator},
+            {"rng", static_cast<int64_t>(e.rngState)}};
+}
+fx::Emitter loadEmitter(const nlohmann::json& j) {
+    fx::Emitter e; e.present = boolOf(j, "p"); e.prefab = str(j, "prefab"); e.count = inum(j, "count", 0);
+    e.speedMin = num(j, "smin", 0); e.speedMax = num(j, "smax", 0); e.spreadDeg = num(j, "spread", 360);
+    e.dirDeg = num(j, "dir", 0); e.oneShot = boolOf(j, "one"); e.fired = boolOf(j, "fired");
+    e.ratePerSec = num(j, "rate", 0); e.accumulator = num(j, "acc", 0);
+    e.rngState = static_cast<uint32_t>(inum(j, "rng", 0)); return e;
+}
+// A behavior serializes RAW (type enum + the a/b/c params + the age/vx/vy state) — NOT the authoring form.
+nlohmann::json dumpBehavior(const fx::Behavior& b) {
+    return {{"t", static_cast<int>(b.type)}, {"a", b.a}, {"b", b.b}, {"c", b.c},
+            {"age", b.age}, {"vx", b.vx}, {"vy", b.vy}};
+}
+fx::Behavior loadBehavior(const nlohmann::json& j) {
+    fx::Behavior b; b.type = static_cast<fx::Behavior::Type>(inum(j, "t", 0));
+    b.a = num(j, "a", 0); b.b = num(j, "b", 0); b.c = num(j, "c", 0);
+    b.age = num(j, "age", 0); b.vx = num(j, "vx", 0); b.vy = num(j, "vy", 0); return b;
+}
+nlohmann::json dumpBehaviors(const std::vector<fx::Behavior>& v) {
+    nlohmann::json a = nlohmann::json::array();
+    for (const auto& b : v) a.push_back(dumpBehavior(b));
+    return a;
+}
+std::vector<fx::Behavior> loadBehaviors(const nlohmann::json& j) {
+    std::vector<fx::Behavior> v;
+    if (j.is_array()) for (const auto& jb : j) v.push_back(loadBehavior(jb));
+    return v;
+}
+nlohmann::json dumpEntity(const fx::Entity& e) {
+    return {{"id", static_cast<int64_t>(e.id)}, {"alive", e.alive}, {"t", dumpTransform(e.transform)},
+            {"s", dumpSprite(e.sprite)}, {"x", dumpText(e.text)}, {"e", dumpEmitter(e.emitter)},
+            {"b", dumpBehaviors(e.behaviors)}};
+}
+fx::Entity loadEntity(const nlohmann::json& j) {
+    fx::Entity e; e.id = static_cast<fx::EntityId>(inum(j, "id", 0)); e.alive = boolOf(j, "alive");
+    if (auto it = j.find("t"); it != j.end()) e.transform = loadTransform(*it);
+    if (auto it = j.find("s"); it != j.end()) e.sprite = loadSprite(*it);
+    if (auto it = j.find("x"); it != j.end()) e.text = loadText(*it);
+    if (auto it = j.find("e"); it != j.end()) e.emitter = loadEmitter(*it);
+    if (auto it = j.find("b"); it != j.end()) e.behaviors = loadBehaviors(*it);
+    return e;
+}
+nlohmann::json dumpPrefab(const std::string& name, const fx::Prefab& p) {
+    return {{"name", name}, {"t", dumpTransform(p.transform)}, {"s", dumpSprite(p.sprite)},
+            {"x", dumpText(p.text)}, {"e", dumpEmitter(p.emitter)}, {"b", dumpBehaviors(p.behaviors)}};
+}
+fx::Prefab loadPrefabState(const nlohmann::json& j) {
+    fx::Prefab p;
+    if (auto it = j.find("t"); it != j.end()) p.transform = loadTransform(*it);
+    if (auto it = j.find("s"); it != j.end()) p.sprite = loadSprite(*it);
+    if (auto it = j.find("x"); it != j.end()) p.text = loadText(*it);
+    if (auto it = j.find("e"); it != j.end()) p.emitter = loadEmitter(*it);
+    if (auto it = j.find("b"); it != j.end()) p.behaviors = loadBehaviors(*it);
+    return p;
+}
 } // namespace
 
 FxModule::FxModule()
@@ -239,14 +333,52 @@ void FxModule::shutdown() {
     m_world = fx::FxWorld{};
 }
 
-// Hot-reload state: MVP keeps only the health counter. Full live-world serialization (entities + behaviors
-// + snapshot) is a follow-on — on hot-reload the scene is currently rebuilt by the host re-issuing spawns.
+// Hot-reload state: serialize the FULL live world so a reloaded module resumes seamlessly. Entities are dumped
+// VERBATIM (ids = renderIds preserved) with their internal behavior/emitter state; plus the prefab library, the
+// string-id -> EntityId name map, and the id counter. NOT serialized: the render snapshots (the next diffRender
+// re-Adds every entity, which the renderer applies idempotently) — see FxWorld's serialization note. Preserving
+// the ids is what avoids the real hazard: orphaned renderer sprites a state-less reload could never remove.
 std::unique_ptr<IDataNode> FxModule::getState() {
-    auto s = std::make_unique<JsonDataNode>("state");
-    s->setInt("spawned", static_cast<int>(m_spawned));
-    return s;
+    nlohmann::json j;
+    j["nextId"]  = static_cast<int64_t>(m_world.peekNextId());
+    j["spawned"] = static_cast<int64_t>(m_spawned);
+
+    nlohmann::json names = nlohmann::json::array();
+    for (const auto& kv : m_names) names.push_back({{"n", kv.first}, {"id", static_cast<int64_t>(kv.second)}});
+    j["names"] = std::move(names);
+
+    nlohmann::json prefabs = nlohmann::json::array();
+    for (const auto& kv : m_world.prefabs()) prefabs.push_back(dumpPrefab(kv.first, kv.second));
+    j["prefabs"] = std::move(prefabs);
+
+    nlohmann::json ents = nlohmann::json::array();
+    for (const auto& kv : m_world.entities()) ents.push_back(dumpEntity(kv.second));
+    j["entities"] = std::move(ents);
+
+    return std::make_unique<JsonDataNode>("state", std::move(j));
 }
-void FxModule::setState(const IDataNode& /*state*/) {}
+
+void FxModule::setState(const IDataNode& state) {
+    const auto* jn = dynamic_cast<const JsonDataNode*>(&state);
+    if (!jn) return;                                  // only our JSON state format is understood (fail soft)
+    const nlohmann::json& j = jn->getJsonData();
+
+    m_world = fx::FxWorld{};                           // start from a clean world, then restore into it
+    m_names.clear();
+    m_spawned = static_cast<uint64_t>(inum(j, "spawned", 0));
+
+    if (auto it = j.find("prefabs"); it != j.end() && it->is_array())
+        for (const auto& jp : *it) m_world.registerPrefab(str(jp, "name"), loadPrefabState(jp));
+
+    if (auto it = j.find("entities"); it != j.end() && it->is_array())
+        for (const auto& je : *it) m_world.restoreEntity(loadEntity(je));   // verbatim -> ids (renderIds) preserved
+
+    if (auto it = j.find("names"); it != j.end() && it->is_array())
+        for (const auto& jn2 : *it) m_names[str(jn2, "n")] = static_cast<fx::EntityId>(inum(jn2, "id", 0));
+
+    // The id counter LAST — after the restores — so future spawn()s never alias a restored renderId.
+    m_world.setNextId(static_cast<fx::EntityId>(inum(j, "nextId", 0)));
+}
 
 const IDataNode& FxModule::getConfiguration() { return *m_config; }
 

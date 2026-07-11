@@ -90,7 +90,8 @@ via `spawn`/`setSprite`/`setText`/`setEmitter`/`addBehavior`, then `process(dt)`
 | **F1** — `fade` + `velocity+drag` behaviors | `96e8608` | two lifecycle primitives; fade ramps sprite/text alpha, velocity spreads + decays. `FxWorldUnit [fade]/[velocity]` + `IT_059d`. |
 | **F2** — `Text` component + floating-numbers | `96e8608` | `Text` component + own `render:text:*` diff pass; `damage_number` archetype (drifterra #1). `FxWorldUnit [text]` + `IT_059e`. |
 | **F3** — `Emitter` component (particle burst) | `5787c14` | one-shot burst → `count` prefab particles in a cone, deterministic-PRNG velocity, self-cleaning; explosion archetype carries the emitter. `FxWorldUnit [emitter]` + `IT_059f`. |
-| **F4** — continuous (stream) emitter | (this) | `oneShot:false` → `ratePerSec` particles/sec every tick, persistent PRNG + fractional accumulator, no self-destruct (trails/smoke/exhaust; comet = Sprite+Emitter+move). `FxWorldUnit [stream]` + `IT_059g` + the `test_fx_demo` comet. |
+| **F4** — continuous (stream) emitter | `f83d333` | `oneShot:false` → `ratePerSec` particles/sec every tick, persistent PRNG + fractional accumulator, no self-destruct (trails/smoke/exhaust; comet = Sprite+Emitter+move). `FxWorldUnit [stream]` + `IT_059g` + the `test_fx_demo` comet. |
+| **F5** — hot-reload full-world serialization | (this) | `getState`/`setState` round-trip the whole live world (entities verbatim w/ ids, internal behavior/emitter state, prefabs, name map, id counter); snapshots skipped (idempotent re-Add). Fixes the orphan-sprite leak of the old no-op setState. `FxWorldUnit [serialize]` + `IT_059h`. |
 
 (Commits E1-E3 predate the rename — the code they reference was `grove::entity`/`EntityModule` at the time.)
 New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — changes **no** existing behavior.
@@ -101,7 +102,9 @@ New **opt-in** module (`GROVE_BUILD_FX_MODULE=OFF` default) + a header — chang
   (NOT follow/path/oscillate — gameplay movement is consumer-owned).
 - ~~**Components**: `text` (damage numbers), `particle`~~ — **shipped (F2 text, F3 particle-burst Emitter)**.
 - ~~Continuous (rate-based) emitter~~ — **shipped (F4)** — trails / smoke / exhaust; a comet in the demo.
-- **Hot-reload** full-world serialization (`getState`/`setState` are minimal — health counter only).
+- ~~Hot-reload full-world serialization~~ — **shipped (F5)** — full round-trip; fixed the orphan-sprite leak.
+- The FX layer is now **feature-complete for drifterra's stated VFX**; open items are speculative (more
+  behaviors on demand, a real particle-renderer bridge if VFX ever needs GPU-scale counts).
 - ~~by-eye windowed VFX demo~~ — **shipped** (`tests/visual/test_fx_demo.cpp`): explosion bursts + rising
   damage numbers rendered through BgfxRenderer. Interactive window (LMB/Space/auto) + a headless `--shot`
   PNG. Verified by eye (bursts spread + fade, numbers rise). Windows/SDL, compiles the module directly.

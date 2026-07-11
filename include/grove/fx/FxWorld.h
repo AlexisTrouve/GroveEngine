@@ -200,6 +200,20 @@ public:
         return id;
     }
 
+    // --- Hot-reload serialization support (round-trip the full live scene across a module reload) ---
+    // Read-only access to the world's contents so a host (FxModule) can serialize them. The render SNAPSHOTS
+    // are deliberately NOT exposed: after a restore they start empty, so the next diffRender() re-Adds every
+    // entity — and a render:*:add on a renderId the renderer already holds just OVERWRITES its retained entry
+    // (idempotent, same data => no visual change, no duplicate). Restoring the entities + their ids (=renderIds)
+    // + prefabs is what prevents the real hazard: orphaned renderer sprites the reloaded module has forgotten.
+    const std::map<EntityId, Entity>& entities() const { return m_entities; }
+    const std::map<std::string, Prefab>& prefabs() const { return m_prefabs; }
+    EntityId peekNextId() const { return m_nextId; }
+    void setNextId(EntityId n) { m_nextId = n; }   // call AFTER restoreEntity so future spawns never alias a renderId
+    // Restore an entity VERBATIM — preserving its id (=renderId) and its component `present` flags. Use this to
+    // deserialize, NOT spawn()+setters (which allocate a fresh id and force present=true).
+    void restoreEntity(const Entity& e) { m_entities[e.id] = e; }
+
     size_t aliveCount() const {
         size_t n = 0;
         for (const auto& kv : m_entities) if (kv.second.alive) ++n;

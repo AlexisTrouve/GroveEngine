@@ -310,6 +310,34 @@ TEST_CASE("FxWorldUnit: a prefab can carry an emitter (explosion archetype)", "[
     REQUIRE(w.aliveCount() == 12);                    // 12 debris particles; the emitter retired
 }
 
+// The hot-reload serialization primitives: restoreEntity puts an entity back VERBATIM (id + present flags),
+// and setNextId keeps future spawns from aliasing a restored renderId.
+TEST_CASE("FxWorldUnit: restoreEntity preserves id + present flags; setNextId guards future spawns", "[fx][unit][serialize]") {
+    FxWorld w;
+    // Hand-build an entity as if just deserialized: id 7, a TEXT-only entity (sprite deliberately NOT present),
+    // with a fade behavior already half-elapsed (internal state that must survive).
+    Entity e;
+    e.id = 7; e.alive = true;
+    e.transform = Transform{10.0f, 20.0f};
+    e.text = Text{true, "restored", 0xFF00FF80u, 100, 22};
+    e.sprite.present = false;                              // explicitly not a sprite
+    e.behaviors = { fade(1.0f) };
+    e.behaviors[0].age = 0.5f;                            // mid-fade
+    w.restoreEntity(e);
+    w.setNextId(7);
+
+    Entity* r = w.get(7);
+    REQUIRE(r != nullptr);
+    REQUIRE(r->id == 7);
+    REQUIRE(r->text.present);
+    REQUIRE_FALSE(r->sprite.present);                     // present flag kept VERBATIM (not forced true by a setter)
+    REQUIRE(r->text.text == "restored");
+    REQUIRE_THAT(r->behaviors[0].age, WithinAbs(0.5f, 0.001f));   // internal behavior state survived
+
+    REQUIRE(w.spawn() == 8);                              // next id is 8 (> 7) -> never aliases the restored renderId
+    REQUIRE(w.entities().size() == 2);                   // the read accessor sees both
+}
+
 // A CONTINUOUS (stream) emitter emits ratePerSec particles/second every tick and does NOT self-destruct
 // (engine trails / smoke). Use a persist-forever particle (sprite only, no lifetime) to count emission exactly.
 TEST_CASE("FxWorldUnit: continuous emitter streams at ratePerSec and persists", "[fx][unit][emitter][stream]") {
