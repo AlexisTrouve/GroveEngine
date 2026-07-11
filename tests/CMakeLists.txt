@@ -489,6 +489,12 @@ target_link_libraries(test_iio_backpressure PRIVATE
 
 # CTest integration
 grove_add_test(LimitsTest test_07_limits ${CMAKE_CURRENT_BINARY_DIR})
+# RUN_SERIAL: LimitsTest is a hot-reload STRESS test that loads ~9 copies of libHeavyStateModule.dll in one
+# process (reused ModuleLoader -> leaked DLL handles accumulate). Under a parallel ctest run it can hit
+# address-space exhaustion and SIGSEGV (Bug A) when OTHER memory-heavy tests run concurrently; alone it passes.
+# Running it serially (no concurrent tests) removes that external pressure -> reliably green. Root-cause analysis
+# + the deeper ModuleLoader unload-lifetime debt: docs/design/limitstest-segfault-handoff.md.
+set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL TRUE)
 grove_add_test(DataNodeTest test_12_datanode ${CMAKE_CURRENT_BINARY_DIR})
 grove_add_test(IIOBackpressure test_iio_backpressure ${CMAKE_CURRENT_BINARY_DIR})
 

@@ -1,10 +1,13 @@
 # LimitsTest SEGFAULT — analysis + handoff
 
-**Status (2026-07-12): DIAGNOSED, not fixed.** A reproducible SIGSEGV in the hot-reload stress test
-`LimitsTest` (`tests/integration/test_07_limits.cpp` → exe `test_07_limits`) under **parallel** execution.
-Root cause localized to a real **Windows `ModuleLoader` hot-reload/unload lifetime fragility** (not a simple
-test misuse). The exact crash frame is not yet captured (gdb Heisenbugs it). No code changed — the test file is
-back at its original state. This doc is the resume aid.
+**Status (2026-07-12): SUITE FLAKE FIXED via `RUN_SERIAL`; the underlying engine bug is tracked debt.** A
+reproducible SIGSEGV in the hot-reload stress test `LimitsTest` (`tests/integration/test_07_limits.cpp` → exe
+`test_07_limits`) under **parallel** execution. Root cause localized to a real **Windows `ModuleLoader`
+hot-reload/unload lifetime fragility** (not a simple test misuse). The exact crash frame is not yet captured
+(gdb Heisenbugs it). **The test source is UNCHANGED** (original) — the flake was killed at the ctest layer:
+`set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL TRUE)` (`tests/CMakeLists.txt`), so LimitsTest runs with
+no concurrent tests = the solo condition (always passed). Verified: full suite 156/156, LimitsTest scheduled
+last/alone. The deeper Bug A/B engine investigation remains debt (this doc). This is the resume aid.
 
 ## TL;DR
 - `test_07_limits` **alone → passes**. **6 copies in parallel → 6/6 SIGSEGV** (exit 139), 100% reproducible.
@@ -75,12 +78,13 @@ DLL load/unload lifetime.
   turn Bug B from "unload path" into an exact file:line.
 
 ## Recommended fixes
-1. **Short-term (kill the suite flake, low-risk, validated reasoning):** in `tests/CMakeLists.txt`,
-   `set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL TRUE)` (and consider the same for the other
-   DLL-reload-heavy stress tests: `ChaosMonkey`, `MemoryLeakHunter`, `StressTest`, `ProductionHotReload`). Solo
-   passes ⇒ LimitsTest-alone passes ⇒ `RUN_SERIAL` passes. It stops LimitsTest running under concurrent
-   memory pressure WITHOUT touching the fragile DLL code. (Trade-off: those tests no longer overlap other tests,
-   a small wall-clock cost — MemoryLeakHunter already dominates at ~156s anyway.)
+1. ✅ **DONE (2026-07-12) — the suite flake is fixed.** `set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL
+   TRUE)` in `tests/CMakeLists.txt` (right after its `grove_add_test`). Solo passes ⇒ LimitsTest-alone passes ⇒
+   `RUN_SERIAL` passes — it stops LimitsTest running under concurrent memory pressure WITHOUT touching the
+   fragile DLL code. Verified: full `ctest -j4` = 156/156, LimitsTest scheduled last/alone (~14s), suite +19s
+   wall-clock. **If `ChaosMonkey` / `MemoryLeakHunter` / `StressTest` / `ProductionHotReload` (same DLL-reload
+   class) ever flake the same way, give them RUN_SERIAL too** — not applied pre-emptively (only LimitsTest was
+   observed to crash; it's the worst offender at ~9 loads).
 2. **Engine debt (tracked, non-urgent):** the `ModuleLoader` Windows hot-reload/unload lifetime.
    - **Bug A:** reused-loader `load()` leaks the previous handle (only warns). Options: hard-error instead of
      warn+leak, or a bounded-lifetime handle registry. But the API contract IS "one loader per module" — so this
@@ -100,7 +104,7 @@ DLL load/unload lifetime.
   suite otherwise green). `docs/design/quality-hardening-handoff.md`.
 
 ## Open decisions (for Alexi)
-- Apply the `RUN_SERIAL` mitigation now, or leave as tracked debt with this doc?
+- ~~Apply `RUN_SERIAL` now?~~ — **done** (Alexi's call 2026-07-12).
 - Is Bug A acceptable as a documented API constraint (one loader per module), or should the engine hard-fail /
   manage handle lifetime on reuse?
 - Worth the ASan-on-Linux setup to get Bug B's exact frame, or park it (hot-reload works in single-run)?
