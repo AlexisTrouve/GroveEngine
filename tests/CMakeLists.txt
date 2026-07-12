@@ -554,6 +554,14 @@ target_include_directories(test_build_config PRIVATE
 target_link_libraries(test_build_config PRIVATE GroveEngine::core Catch2::Catch2WithMain)
 grove_add_test(BuildConfigUnit test_build_config ${CMAKE_CURRENT_BINARY_DIR})
 
+# Profiler zones B3: grove::profile (pure header-only; std + nlohmann). GROVE_PROFILE_ZONE is DEBUG-
+# only — compiled under BOTH configs (debug: times a scope; shipping -DGROVE_DEBUG=OFF: stripped).
+add_executable(test_profile_zone unit/test_profile_zone.cpp)
+target_include_directories(test_profile_zone PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_profile_zone PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(ProfileZoneUnit test_profile_zone ${CMAKE_CURRENT_BINARY_DIR})
+
 # Memory tracker B2: grove::mem::Tracker (pure header-only leak layer; std + nlohmann). Two TUs
 # lock both build-gate paths: the OFF macro (default) is a no-op, the ON macro (local #define) records.
 add_executable(test_mem_tracker unit/test_mem_tracker.cpp)
