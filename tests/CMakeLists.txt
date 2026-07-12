@@ -1195,6 +1195,16 @@ target_link_libraries(test_static_engine_hosting PRIVATE
 )
 grove_add_test(StaticEngineHosting test_static_engine_hosting ${CMAKE_CURRENT_BINARY_DIR})
 
+# Debug/Prod gate (A1): DebugEngine::step() per-frame logging is GROVE_DEBUG-gated. Spy sink on the
+# engine logger — compiled under BOTH configs (debug: emits >0; shipping -DGROVE_DEBUG=OFF: emits 0).
+add_executable(test_debug_gate integration/test_debug_gate.cpp)
+target_link_libraries(test_debug_gate PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(DebugGateE2E test_debug_gate ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load engine glue: DebugEngine::saveState/loadState over registered modules -> a SaveFile on disk.
 add_executable(test_save_engine integration/test_save_engine.cpp)
 target_link_libraries(test_save_engine PRIVATE

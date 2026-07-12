@@ -1,4 +1,5 @@
 #include <grove/DebugEngine.h>
+#include <grove/BuildConfig.h>      // GROVE_DEBUG / GROVE_DEBUG_ONLY — strip the debug skin in a shipping build
 #include <grove/JsonDataNode.h>
 #include <grove/JsonDataValue.h>
 #include <grove/ModuleSystemFactory.h>
@@ -86,9 +87,15 @@ void DebugEngine::run() {
 }
 
 void DebugEngine::step(float deltaTime) {
-    logFrameStart(deltaTime);
+    // Per-frame verbose logging + frame-timing are the engine's DEBUG SKIN: compiled OUT of a
+    // shipping build (GROVE_DEBUG=OFF) so step() carries zero introspection cost. Everything
+    // below that isn't gated (clock advance, message/module processing, IIO pump, frameCount)
+    // is the PROD CORE and runs identically in both builds.
+    GROVE_DEBUG_ONLY(logFrameStart(deltaTime);)
 
+#if GROVE_DEBUG
     auto frameStartTime = std::chrono::high_resolution_clock::now();
+#endif
 
     try {
         // Advance the authoritative engine clock FIRST: fold this frame's real deltaTime into
@@ -104,13 +111,13 @@ void DebugEngine::step(float deltaTime) {
 
         // Process coordinator messages
         if (coordinatorSocket) {
-            logger->trace("📨 Processing coordinator messages");
+            GROVE_DEBUG_ONLY(logger->trace("📨 Processing coordinator messages");)
             processCoordinatorMessages();
         }
 
         // Process client messages
         if (!clientSockets.empty()) {
-            logger->trace("👥 Processing {} client socket(s)", clientSockets.size());
+            GROVE_DEBUG_ONLY(logger->trace("👥 Processing {} client socket(s)", clientSockets.size());)
             processClientMessages();
         }
 
@@ -120,7 +127,7 @@ void DebugEngine::step(float deltaTime) {
         // processInput(), so pumping its inbox BEFORE process() would let beginFrame()
         // wipe the click before updateUI() ever sees it. Hence: process, THEN pump.
         if (!moduleSystems.empty()) {
-            logger->trace("🔧 Processing {} module system(s)", moduleSystems.size());
+            GROVE_DEBUG_ONLY(logger->trace("🔧 Processing {} module system(s)", moduleSystems.size());)
             processModuleSystems(deltaTime);
         }
 
@@ -131,11 +138,15 @@ void DebugEngine::step(float deltaTime) {
         // self-draining module's beginFrame()/processInput() ordering above.
         pumpModuleIO();
 
-        // Health monitoring every 30 frames
+        // Health monitoring every 30 frames — DEBUG-ONLY today: the helpers only LOG, no action
+        // is taken on the health data yet (the "consider module restart" of IEngine.h is a TODO).
+        // When health->action lands, that action must live OUTSIDE this gate so it survives shipping.
+#if GROVE_DEBUG
         if (frameCount % 30 == 0) {
             logModuleHealth();
             logSocketHealth();
         }
+#endif
 
         frameCount++;
 
@@ -145,10 +156,14 @@ void DebugEngine::step(float deltaTime) {
         throw; // Re-throw to allow caller to handle
     }
 
+    // Frame-timing + end-of-frame log are DEBUG-ONLY (they exist only to feed logFrameEnd, which
+    // reports frame duration + a slow-frame warning). Stripped in a shipping build alongside the
+    // frameStartTime that feeds them, so no unused-variable dangles.
+#if GROVE_DEBUG
     auto frameEndTime = std::chrono::high_resolution_clock::now();
     float frameTime = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
-
     logFrameEnd(frameTime);
+#endif
 }
 
 EngineClock& DebugEngine::clock() {
