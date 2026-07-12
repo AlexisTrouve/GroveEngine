@@ -55,6 +55,27 @@ TEST_CASE("AnimationPlayer - one-shot plays, applies, and finishes at the end", 
     REQUIRE_THAT(h.local(0).x, WithinAbs(100.0f, 0.001f));
 }
 
+TEST_CASE("AnimationPlayer - setSpeed / setLoop / clip take effect", "[anim][player][unit]") {
+    Clip clip = makeXClip();                 // duration 1.0, X: 0 -> 100
+    Hierarchy h; h.addNode(-1, Transform2D{});
+
+    AnimationPlayer p;
+    p.play(&clip, /*loop*/ true, /*speed*/ 1.0f);
+    REQUIRE(p.clip() == &clip);              // clip() returns the currently-playing clip
+
+    // setSpeed doubles the advance rate: 0.25 dt * speed 2 = 0.5 time.
+    p.setSpeed(2.0f);
+    p.update(0.25f, h);
+    REQUIRE_THAT(p.time(), WithinAbs(0.5f, 0.001f));
+    REQUIRE_THAT(h.local(0).x, WithinAbs(50.0f, 0.001f));
+
+    // setLoop(false): overrunning the end now clamps + stops instead of wrapping.
+    p.setLoop(false);
+    p.update(1.0f, h);                       // 0.5 + 1.0*2 overruns duration -> clamp to end, stop
+    REQUIRE_THAT(h.local(0).x, WithinAbs(100.0f, 0.001f));
+    REQUIRE_FALSE(p.isPlaying());
+}
+
 TEST_CASE("AnimationPlayer - loop wraps the time", "[anim][player][unit]") {
     Clip clip = makeXClip();
     Hierarchy h; h.addNode(-1, Transform2D{});

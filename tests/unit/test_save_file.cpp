@@ -131,11 +131,16 @@ TEST_CASE("SaveFileUnit: load fails soft on missing / malformed / future-version
     std::ofstream(future) << R"({"grove_save":{"formatVersion":9999,"modules":{}}})";
     REQUIRE_FALSE(sf.load(future));                           // newer format than this build understands
 
+    const auto v0 = tempPath("v0");
+    std::ofstream(v0) << R"({"grove_save":{"formatVersion":0,"modules":{}}})";
+    REQUIRE_FALSE(sf.load(v0));                               // version 0 (== the missing-key default) is rejected
+
     const auto wrong = tempPath("wrong");
     std::ofstream(wrong) << R"({"hello":1})";
     REQUIRE_FALSE(sf.load(wrong));                            // valid json, but not a grove save
 
     std::filesystem::remove(bad);
     std::filesystem::remove(future);
+    std::filesystem::remove(v0);
     std::filesystem::remove(wrong);
 }
