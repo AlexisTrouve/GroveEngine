@@ -36,7 +36,9 @@ public:
                  JsonDataNode* parent = nullptr,
                  bool readOnly = false);
 
-    virtual ~JsonDataNode() = default;
+    // Out-of-line (not =default) so grove::mem can track the free when GROVE_MEM_TRACKING is on
+    // (JsonDataNode is IIO's workhorse alloc). Behaviourally identical — members self-destruct.
+    virtual ~JsonDataNode();
 
     // Tree navigation
     std::unique_ptr<IDataNode> getChild(const std::string& name) override;

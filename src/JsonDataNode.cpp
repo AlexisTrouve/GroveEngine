@@ -1,4 +1,5 @@
 #include "grove/JsonDataNode.h"
+#include "grove/mem/Tracker.h"   // GROVE_MEM_TRACK_ALLOC/_FREE — opt-in leak tracking of the IIO node
 #include <regex>
 #include <sstream>
 #include <iomanip>
@@ -16,6 +17,15 @@ namespace grove {
 
 JsonDataNode::JsonDataNode(const std::string& name, const json& data, JsonDataNode* parent, bool readOnly)
     : m_name(name), m_data(data), m_parent(parent), m_readOnly(readOnly) {
+    // Opt-in leak tracking of IIO's workhorse allocation. Zero cost (a no-op macro) unless a build
+    // sets GROVE_MEM_TRACKING; then a leaked node shows up under the "iio:jsonnode" tag.
+    GROVE_MEM_TRACK_ALLOC(this, sizeof(JsonDataNode), "iio:jsonnode");
+}
+
+// Paired free tracking (see the ctor). Out-of-line only to host this call — the members still
+// destruct exactly as a defaulted dtor would.
+JsonDataNode::~JsonDataNode() {
+    GROVE_MEM_TRACK_FREE(this);
 }
 
 // ========================================

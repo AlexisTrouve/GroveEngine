@@ -576,6 +576,12 @@ target_include_directories(test_mem_tracker_on PRIVATE
 target_link_libraries(test_mem_tracker_on PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(MemTrackerOnUnit test_mem_tracker_on ${CMAKE_CURRENT_BINARY_DIR})
 
+# Mem tracking FO2: grove::mem wired into JsonDataNode (the IIO hot alloc). Config-aware on
+# GROVE_MEM_TRACKING — default build: nothing recorded; a -DGROVE_MEM_TRACKING=ON build: nodes tracked.
+add_executable(test_jsonnode_memtrack unit/test_jsonnode_memtrack.cpp)
+target_link_libraries(test_jsonnode_memtrack PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(JsonNodeMemTrackUnit test_jsonnode_memtrack ${CMAKE_CURRENT_BINARY_DIR})
+
 # Crash reporter B1a: grove::crash::CrashContext (pure header-only report payload; std + nlohmann).
 add_executable(test_crash_context unit/test_crash_context.cpp)
 target_include_directories(test_crash_context PRIVATE
