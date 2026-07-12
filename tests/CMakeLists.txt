@@ -554,6 +554,14 @@ target_include_directories(test_build_config PRIVATE
 target_link_libraries(test_build_config PRIVATE GroveEngine::core Catch2::Catch2WithMain)
 grove_add_test(BuildConfigUnit test_build_config ${CMAKE_CURRENT_BINARY_DIR})
 
+# Crash reporter B1a: grove::crash::CrashContext (pure header-only report payload; std + nlohmann).
+add_executable(test_crash_context unit/test_crash_context.cpp)
+target_include_directories(test_crash_context PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_crash_context PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(CrashContextUnit test_crash_context ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load: grove::save::SaveFile (header-only; needs core for JsonDataNode/IModule).
 add_executable(test_save_file unit/test_save_file.cpp)
 target_include_directories(test_save_file PRIVATE
