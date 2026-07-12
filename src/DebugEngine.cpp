@@ -11,6 +11,7 @@
 #include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
 #include <grove/save/SaveFile.h>    // whole-engine saveState/loadState
 #include <grove/crash/ICrashHandler.h>  // crash reporter: makeCrashHandler + install/uninstall (B1c)
+#include <grove/profile/ProfileZone.h>  // GROVE_PROFILE_ZONE — per-frame phase timing (debug-only)
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <grove/platform/FileSystem.h>
@@ -98,6 +99,11 @@ void DebugEngine::step(float deltaTime) {
     // is the PROD CORE and runs identically in both builds.
     GROVE_DEBUG_ONLY(logFrameStart(deltaTime);)
 
+    // Per-frame phase profiling (debug-only): the whole step + each heavy phase are timed into named
+    // zones, so a consumer can read grove::profile::profiler().report() for a frame-time breakdown
+    // (and reset() per frame for a rolling view). Compiled to nothing in a shipping build.
+    GROVE_PROFILE_ZONE("engine:step");
+
 #if GROVE_DEBUG
     auto frameStartTime = std::chrono::high_resolution_clock::now();
 #endif
@@ -133,6 +139,7 @@ void DebugEngine::step(float deltaTime) {
         // wipe the click before updateUI() ever sees it. Hence: process, THEN pump.
         if (!moduleSystems.empty()) {
             GROVE_DEBUG_ONLY(logger->trace("🔧 Processing {} module system(s)", moduleSystems.size());)
+            GROVE_PROFILE_ZONE("engine:modules");
             processModuleSystems(deltaTime);
         }
 
@@ -141,7 +148,10 @@ void DebugEngine::step(float deltaTime) {
         // their routed IIO queues fill but no subscribed handler ever fires). Runs
         // AFTER processing (one-frame delivery latency, standard) so it never races a
         // self-draining module's beginFrame()/processInput() ordering above.
-        pumpModuleIO();
+        {
+            GROVE_PROFILE_ZONE("engine:iopump");
+            pumpModuleIO();
+        }
 
         // Health monitoring every 30 frames — DEBUG-ONLY today: the helpers only LOG, no action
         // is taken on the health data yet (the "consider module restart" of IEngine.h is a TODO).

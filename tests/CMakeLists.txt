@@ -1260,6 +1260,12 @@ target_link_libraries(test_debug_gate PRIVATE
 )
 grove_add_test(DebugGateE2E test_debug_gate ${CMAKE_CURRENT_BINARY_DIR})
 
+# Profiler wiring FO1: DebugEngine::step() records profiler zones (engine:step / engine:iopump).
+# Compiled under BOTH configs — debug records (count>0), shipping strips (count==0).
+add_executable(test_engine_profile integration/test_engine_profile.cpp)
+target_link_libraries(test_engine_profile PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(EngineProfileE2E test_engine_profile ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load engine glue: DebugEngine::saveState/loadState over registered modules -> a SaveFile on disk.
 add_executable(test_save_engine integration/test_save_engine.cpp)
 target_link_libraries(test_save_engine PRIVATE
