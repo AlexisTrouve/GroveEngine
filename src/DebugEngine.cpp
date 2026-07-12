@@ -8,6 +8,7 @@
 #include <grove/IModule.h>          // full IModule (setConfiguration) for static hosting
 #include <grove/IntraIOManager.h>   // routed IIO instances for static modules
 #include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
+#include <grove/save/SaveFile.h>    // whole-engine saveState/loadState
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <grove/platform/FileSystem.h>
@@ -886,6 +887,49 @@ void DebugEngine::dumpModuleState(const std::string& name) {
         logger->error("║ ❌ Error dumping state: {}", e.what());
         logger->info("╚══════════════════════════════════════════════════════════════");
     }
+}
+
+// Whole-engine SAVE: capture every SEQUENTIAL-hosted module's getState() into a SaveFile and write it to disk.
+// Non-destructive (getModule(), not extractModule()). THREADED/THREAD_POOL modules are skipped with a warning
+// (same limitation as hot-reload / the state dump). Call between frames — getState() must not race process().
+bool DebugEngine::saveState(const std::string& path) {
+    save::SaveFile sf;
+    int captured = 0, skipped = 0;
+    for (size_t i = 0; i < moduleNames.size(); ++i) {
+        auto* seq = (i < moduleSystems.size()) ? dynamic_cast<SequentialModuleSystem*>(moduleSystems[i].get())
+                                               : nullptr;
+        if (!seq) {
+            logger->warn("💾 saveState: module '{}' skipped (only SequentialModuleSystem supported)", moduleNames[i]);
+            ++skipped; continue;
+        }
+        if (IModule* m = seq->getModule()) { sf.captureModule(moduleNames[i], *m); ++captured; }
+    }
+    if (!sf.save(path)) { logger->error("💾 saveState: failed to write '{}'", path); return false; }
+    logger->info("💾 saveState: {} module(s) saved to '{}' ({} skipped)", captured, path, skipped);
+    return true;
+}
+
+// Whole-engine LOAD: read the SaveFile and apply each saved state to the matching registered module via
+// setState(). Fail-soft per module (a corrupt state that makes setState() throw is caught + logged, not fatal);
+// modules absent from the save keep their state, saved modules no longer present are ignored.
+bool DebugEngine::loadState(const std::string& path) {
+    save::SaveFile sf;
+    if (!sf.load(path)) { logger->error("📂 loadState: failed to read/parse '{}'", path); return false; }
+    int restored = 0;
+    for (size_t i = 0; i < moduleNames.size(); ++i) {
+        auto* seq = (i < moduleSystems.size()) ? dynamic_cast<SequentialModuleSystem*>(moduleSystems[i].get())
+                                               : nullptr;
+        if (!seq) continue;
+        IModule* m = seq->getModule();
+        if (!m || !sf.has(moduleNames[i])) continue;
+        try {
+            if (sf.restoreInto(moduleNames[i], *m)) ++restored;
+        } catch (const std::exception& e) {
+            logger->warn("📂 loadState: module '{}' rejected the saved state: {}", moduleNames[i], e.what());
+        }
+    }
+    logger->info("📂 loadState: {} module(s) restored from '{}'", restored, path);
+    return true;
 }
 
 void DebugEngine::dumpAllModulesState() {

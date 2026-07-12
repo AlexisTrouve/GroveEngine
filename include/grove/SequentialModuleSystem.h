@@ -72,6 +72,10 @@ public:
     // Hot-reload support
     std::unique_ptr<IModule> extractModule();
 
+    // Non-destructive access to the hosted module (nullptr if none) — for in-place state save/load
+    // (getState/setState). Unlike extractModule(), this leaves the module registered and running.
+    IModule* getModule() const { return module.get(); }
+
     // ITaskScheduler implementation (inherited)
     void scheduleTask(const std::string& taskType, std::unique_ptr<IDataNode> taskData) override;
     int hasCompletedTasks() const override;

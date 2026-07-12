@@ -149,6 +149,30 @@ public:
     std::vector<std::string> getModuleNames() const { return moduleNames; }
 
     /**
+     * @brief Save the WHOLE engine state (every registered module's getState()) to a JSON file on disk.
+     *
+     * Iterates the registered modules, captures each one's serialized state into a grove::save::SaveFile, and
+     * writes it to `path`. The reverse of loadState(). Built on the same per-module getState()/setState()
+     * contract as hot-reload, so a module that hot-reloads correctly also saves/loads correctly.
+     *
+     * ⚠️ Call BETWEEN frames (not during step()): getState() must not race a module's process(). Currently
+     * supports SEQUENTIAL-hosted modules (same limitation as hot-reload / the state dump); THREADED / THREAD_POOL
+     * modules are skipped with a warning (follow-on). @return false on any IO/serialization failure.
+     */
+    bool saveState(const std::string& path);
+
+    /**
+     * @brief Restore the engine state from a save file written by saveState().
+     *
+     * Loads the file, then for each currently-registered module with a matching saved state calls its
+     * setState(). Modules absent from the save keep their current state; saved modules no longer registered are
+     * ignored (the game may have evolved). A module's setState() throwing on a corrupt state is caught + logged
+     * per module, so one bad entry doesn't abort the whole load. @return false only if the file can't be
+     * read/parsed; true once applied (per-module failures are warnings).
+     */
+    bool loadState(const std::string& path);
+
+    /**
      * @brief Dump the current state of a specific module to logs
      * @param name Module identifier
      *

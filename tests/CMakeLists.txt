@@ -1186,6 +1186,15 @@ target_link_libraries(test_static_engine_hosting PRIVATE
 )
 grove_add_test(StaticEngineHosting test_static_engine_hosting ${CMAKE_CURRENT_BINARY_DIR})
 
+# Save/Load engine glue: DebugEngine::saveState/loadState over registered modules -> a SaveFile on disk.
+add_executable(test_save_engine integration/test_save_engine.cpp)
+target_link_libraries(test_save_engine PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    Catch2::Catch2WithMain
+)
+grove_add_test(SaveEngineE2E test_save_engine ${CMAKE_CURRENT_BINARY_DIR})
+
 # Anti-regression LEAK GATE (quality Phase 4): a fast core-path scenario (engine lifecycle + module routing +
 # IntraIO churn) looped so LeakSanitizer flags any per-cycle leak. On Windows = a smoke test; under a Linux/WSL
 # -DGROVE_ENABLE_ASAN=ON build, LSan makes it the real gate (non-zero exit on leak -> ctest fails). Plain main().

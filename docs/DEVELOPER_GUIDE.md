@@ -1059,6 +1059,50 @@ string-id map) so effects resume mid-flight and the renderer's sprites never orp
 
 ---
 
+## Save / Load (`grove::save::SaveFile`)
+
+Persist a whole game to disk and resume it. A save is a versioned container of `{ moduleName -> that module's
+serialized state }`, built on the **same per-module `getState()`/`setState()` contract as hot-reload** — so a
+module that hot-reloads correctly also saves/loads correctly. Two ways to drive it:
+
+**Whole-engine (one call saves everything):**
+```cpp
+DebugEngine engine;                       // ... register your modules, run ...
+engine.saveState("save1.json");           // captures every registered module's getState() -> disk
+// later, in a fresh engine with the same modules registered:
+engine.loadState("save1.json");           // applies each saved state via setState()
+```
+Call `saveState`/`loadState` **between frames** (not during `step()`) — `getState()` must not race a module's
+`process()`. Currently covers **SEQUENTIAL-hosted modules** (same limitation as hot-reload / the state dump);
+THREADED / THREAD_POOL modules are skipped with a warning (follow-on). Modules absent from a save keep their
+state; a saved module no longer registered is ignored (the game evolved). A corrupt saved state that makes a
+module's `setState()` throw is caught + logged per module — it never aborts the whole load.
+
+**Direct-drive (you own the module objects — e.g. a static-link host):**
+```cpp
+#include <grove/save/SaveFile.h>
+using namespace grove;
+
+save::SaveFile sf;
+sf.captureModule("fleet",   fleetModule);       // = capture("fleet", fleetModule.getState())
+sf.captureModule("economy", economyModule);
+sf.save("save1.json");                          // {"grove_save":{formatVersion,savedAtUnixMs,modules:{...}}}
+
+save::SaveFile loaded;
+if (loaded.load("save1.json")) {                // fail-soft: false on missing/malformed/future-version
+    loaded.restoreInto("fleet",   fleetModule); // builds a host-owned node, calls fleetModule.setState()
+    loaded.restoreInto("economy", economyModule);
+}
+```
+
+`SaveFile` is header-only and pure (no engine coupling), and **cross-DLL-safe**: `capture()` deep-copies the
+state JSON immediately (never holding an `IDataNode` a hot-loaded module returned — its vtable lives in the
+module DLL), and `restoreInto()` builds a host-owned node before `setState()`. So a save survives a module
+reload/unload (the same reason `ModuleLoader::reload()` re-homes state). Locked by `SaveFileUnit` (round-trip,
+restore, deep-copy-survives-source, fail-soft) + `SaveEngineE2E` (through `DebugEngine::saveState/loadState`).
+
+---
+
 ## IIO Topics Reference
 
 ### Input Events
