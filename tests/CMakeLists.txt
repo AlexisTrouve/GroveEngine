@@ -545,6 +545,14 @@ target_include_directories(test_fx_world PRIVATE
 target_link_libraries(test_fx_world PRIVATE Catch2::Catch2WithMain)
 grove_add_test(FxWorldUnit test_fx_world ${CMAKE_CURRENT_BINARY_DIR})
 
+# Save/Load: grove::save::SaveFile (header-only; needs core for JsonDataNode/IModule).
+add_executable(test_save_file unit/test_save_file.cpp)
+target_include_directories(test_save_file PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_save_file PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(SaveFileUnit test_save_file ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system slice 2a: Easing curves (grove::anim). Header-only, std-only, reusable.
 add_executable(test_easing unit/test_easing.cpp)
 target_include_directories(test_easing PRIVATE
