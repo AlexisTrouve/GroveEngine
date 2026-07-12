@@ -16,10 +16,16 @@ namespace grove {
 
 namespace grove {
 
+// Engine implementation identifier. NOTE: debug-vs-prod is NOT this axis — it is the GROVE_DEBUG
+// BUILD FLAG (see the interface comment below + BuildConfig.h). DEBUG is the ONLY implemented type
+// (DebugEngine, which is the production engine too, just lean when built with -DGROVE_DEBUG=OFF).
+// PRODUCTION / HIGH_PERFORMANCE were part of a multi-engine plan that was never built and is
+// retired — EngineFactory THROWS for them. Kept only so existing switch/enum references still
+// compile; do not treat them as selectable engines.
 enum class EngineType {
     DEBUG = 0,
-    PRODUCTION = 1,
-    HIGH_PERFORMANCE = 2
+    PRODUCTION = 1,        // unimplemented stub — EngineFactory throws (see note above)
+    HIGH_PERFORMANCE = 2   // unimplemented stub — EngineFactory throws (see note above)
 };
 
 /**
