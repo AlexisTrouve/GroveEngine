@@ -1,8 +1,26 @@
-# IIO concurrency race — investigation handoff (needs TSan)
+# IIO concurrency race — investigation handoff (RESOLVED via TSan)
 
-**Status (2026-07-12): PARTIALLY RESOLVED. The one-owning-thread-per-instance violation is now caught
-by a debug tripwire (G1, shipped). A residual deeper race in concurrent routing remains — reading hit
-its limit; pinning it needs ThreadSanitizer (VPS142, not Windows/MinGW).**
+**Status (2026-07-12): RESOLVED. TSan on VPS142 pinned the residual race; fixed + TSan-re-proven clean.**
+
+## RESOLUTION (TSan on VPS142)
+Built `-DGROVE_ENABLE_TSAN=ON` on VPS142 (g++ 14.2), ran test_11 under `setarch -R`. TSan named ONE
+data race: **ConsumerModule.cpp:40 (the subscribe callback) read+written concurrently by 2 consumer
+threads, both via `IntraIO::pullAndDispatch()`** — because TEST 6 drained ONE consumerIO from 3 threads
+and pullAndDispatch dispatches the callback OUTSIDE operationMutex (phase 2, the ABBA-deadlock fix), so
+the callbacks ran concurrently. It's the SAME one-owning-thread-per-instance violation as publish, on
+the PULL side. (The publish side was already caught by G1's guard — TSan's log also shows 492 guard
+violations on the shared-producerIO publishers.)
+
+**Fix (commit 29190c1):** (1) extended the ScopedAccessGuard tripwire to pullAndDispatch (shares
+m_activeCallers with publish — one thread at a time across ALL instance ops); (2) test_11 TEST 6 now
+uses one consumer thread + 5 stable per-instance publishers (the supported concurrency). **TSan re-run
+on the fix: RUN_DONE rc=0, ZERO data races, ZERO guard violations** (halt_on_error=0 → reports all).
+Windows test_11: 15/15. The "reads as fully locked yet corrupts" mystery below was resolved: the racing
+access is the module CALLBACK (unlocked phase-2 dispatch), not the engine's deque — reading missed it
+because the callback is in the test module (.so), invoked via std::function past the lock.
+
+---
+## Original investigation (kept for reference)
 
 ## Symptom
 `IOSystemStress` (`tests/integration/test_11_io_system.cpp`, ctest #… `test_11_io_system`) fails
