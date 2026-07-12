@@ -102,6 +102,13 @@ int main() {
         std::cout << "  State size: " << stateSizeMB << " MB\n";
         reporter.addMetric("state_size_mb", stateSizeMB);
     }
+    // Release the state BEFORE the reload below unloads its DLL. `state` is a JsonDataNode allocated by the OLD
+    // module DLL (grove_impl is static -> the DLL carries its own JsonDataNode vtable), so its vtable points INTO
+    // that DLL. reload() below FreeLibrary's it; destroying `state` afterwards would call a virtual dtor in the
+    // freed DLL -> ACCESS_VIOLATION (flaky: faults only once the OS reclaims the region, i.e. under memory
+    // pressure / parallel runs; gdb can't repro it). reload() itself re-homes state safely — the hazard is only
+    // for a getState() result the caller holds RAW across the unload, which is what we do here for the size probe.
+    state.reset();
 
     // Recharger le module (simuler hot-reload)
     std::cout << "Reloading module...\n";
@@ -129,6 +136,7 @@ int main() {
         reporter.addAssertion("particles_preserved", particleCount == 100000);
         std::cout << "  ✓ Particles preserved: " << particleCount << "\n";
     }
+    stateAfter.reset();   // same cross-DLL hazard: release the module-owned state before its DLL can unload
 
     // Ré-enregistrer pour continuer
     moduleSystem->registerModule("HeavyStateModule", std::move(heavyModuleAfter));

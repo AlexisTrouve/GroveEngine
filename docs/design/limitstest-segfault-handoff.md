@@ -1,110 +1,73 @@
-# LimitsTest SEGFAULT — analysis + handoff
+# LimitsTest SEGFAULT — SOLVED (post-mortem)
 
-**Status (2026-07-12): SUITE FLAKE FIXED via `RUN_SERIAL`; the underlying engine bug is tracked debt.** A
-reproducible SIGSEGV in the hot-reload stress test `LimitsTest` (`tests/integration/test_07_limits.cpp` → exe
-`test_07_limits`) under **parallel** execution. Root cause localized to a real **Windows `ModuleLoader`
-hot-reload/unload lifetime fragility** (not a simple test misuse). The exact crash frame is not yet captured
-(gdb Heisenbugs it). **The test source is UNCHANGED** (original) — the flake was killed at the ctest layer:
-`set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL TRUE)` (`tests/CMakeLists.txt`), so LimitsTest runs with
-no concurrent tests = the solo condition (always passed). Verified: full suite 156/156, LimitsTest scheduled
-last/alone. The deeper Bug A/B engine investigation remains debt (this doc). This is the resume aid.
+**Status (2026-07-12): FIXED at the root. NO engine bug.** A reproducible SIGSEGV in the hot-reload stress
+test `LimitsTest` (`tests/integration/test_07_limits.cpp`) under parallel execution. Root cause: a **cross-DLL
+object-lifetime bug in the TEST** — it held a module's `getState()` result (a `JsonDataNode` whose vtable lives
+in the module DLL) across a `reload()` that unloads that DLL, so the object's virtual destructor later jumped
+into the freed DLL region. The engine's hot-reload path itself is CLEAN (it already re-homes state to survive
+unload). Fixed by releasing the module-owned state before its DLL unloads. `RUN_SERIAL` (an earlier stop-gap)
+was REMOVED — the flake is gone at the root.
 
-## TL;DR
-- `test_07_limits` **alone → passes**. **6 copies in parallel → 6/6 SIGSEGV** (exit 139), 100% reproducible.
-  Not a random flake — a deterministic latent bug that only **parallel memory pressure** tips over.
-- Two latent bugs the original code accidentally BALANCES:
-  - **Bug A (handle-leak accumulation):** the test reuses ONE `ModuleLoader` for ~9 independent loads of the
-    same DLL. `ModuleLoader::load()` on a reused loader does NOT free the old handle — it only warns
-    (`src/ModuleLoader.cpp:239-247`) — so ~9 DLL copies accumulate and fragment/exhaust the address space →
-    SIGSEGV at load ~8+ under memory pressure. (The loader's own comment at `ModuleLoader.cpp:250-260` already
-    names this: *"reducing the risk of SIGSEGV at reload 8+ from exhaustion"* / *"address space fragmentation"*.)
-    **This is what fires in `ctest -j4`.**
-  - **Bug B (unload lifetime):** actually *unloading* the module DLLs (FreeLibrary) crashes — a module/DLL
-    lifetime problem in the reload/unload path. The original **masks Bug B by never unloading** (Bug A's leak).
-- **Recommended fix (short-term, low-risk):** mark the DLL-hot-reload stress tests `RUN_SERIAL` in ctest so
-  they never run under the parallel pressure that triggers Bug A. Deeper Bug A/B engine investigation = tracked
-  debt (non-urgent — hot-reload works in single-run).
+## The bug, exactly
+- `test_07_limits.cpp:87` `auto state = heavyModule->getState();` — a `unique_ptr<IDataNode>` holding a
+  `JsonDataNode` **allocated by the module DLL**. `grove_impl` is a STATIC lib, so the DLL carries its OWN copy
+  of `JsonDataNode`'s vtable/type_info → the object's vtable pointer points INTO that DLL.
+- `test_07_limits.cpp:111` `loader.reload(...)` FreeLibrary's that old DLL.
+- `state` (and `stateAfter` at :123) stay alive in `main` until teardown. Destroying them calls
+  `~JsonDataNode` **via a vtable in the unmapped DLL** → `EXCEPTION_ACCESS_VIOLATION`.
+- **Why parallel-only / flaky:** after `FreeLibrary`, Windows doesn't immediately unmap the region. In an
+  isolated run it's often still resident → the virtual dtor "works" by luck. Under memory pressure (a parallel
+  ctest run) the OS reclaims/unmaps the freed DLL faster → the dtor faults reliably. (This is also why gdb can't
+  repro it — see below.)
 
-## Reproduce (Git Bash, from `build/tests`)
-```bash
-cd build/tests
-# solo — passes:
-./test_07_limits.exe; echo $?          # 0
-
-# parallel — 100% SIGSEGV (exit 139 = 128+SIGSEGV):
-for i in 1 2 3 4 5 6; do ( ./test_07_limits.exe >/tmp/lt_$i.log 2>&1; echo "$? " ) & done; wait
-# every instance: "Segmentation fault", exit 139.
+## The fix (test-side; engine untouched)
+Release the raw `getState()` results BEFORE the reload unloads their DLL:
+```cpp
+// after the size probe, before reload():
+state.reset();
+// after the particle-count check:
+stateAfter.reset();
 ```
-The real `ctest -j4` failure is the same thing: `LimitsTest` runs concurrently with 3 other memory-heavy tests
-→ Bug A tips. Under isolated re-run (`ctest -R '^LimitsTest$'`) it passes (that's why it looked like a "flake").
+Verified: **6 parallel instances × 3 rounds = 0/6 crashes** (was 6/6), and full `ctest -j4` = **156/156** with
+`RUN_SERIAL` removed. Suite back to ~161s.
 
-## What the test does (the trigger)
-`test_07_limits.cpp` is a hot-reload stress test. It uses ONE `ModuleLoader loader;` (line 41) and calls
-`loader.load(...)` / `loader.reload(...)` **~9 times** for the same real `libHeavyStateModule.dll` across 5
-sub-tests (TEST 1 large-state, TEST 2 timeout, TEST 3 50MB memory-pressure reload, TEST 4 incremental reloads,
-TEST 5 corruption). The modules are `std::move`d into per-test `SequentialModuleSystem`s that all stay alive, so
-the DLL copies accumulate. `ModuleLoader::load()` copies the DLL to a **unique temp file per load**
-(`GetTempFileNameA`, cross-process-safe — NOT the collision point) and LoadLibrary's it.
+## Why the engine is NOT buggy
+`ModuleLoader::reload()` (`src/ModuleLoader.cpp:785-805`) **already** handles this exact hazard — its "Step 1b"
+RE-HOMES the extracted state into a host-owned `JsonDataNode` (built in `grove_impl`, whose vtable is in the
+never-unloaded host image) before `unload()`. Its comment describes the bug precisely, including *"SIGSEGV
+intermittent... impossible to reproduce under gdb."* So the hot-reload path is safe; the crash only happened
+because the TEST held a getState() result RAW across the unload, bypassing that protection.
 
-## Localization (evidence)
-`std::cout` section markers are LOST in the crash (buffered, unflushed); only flushed **spdlog** lines survive.
-- **All 6 crash logs end at the identical line:** `[HeavyStateModule] [error] frameCount must be integer` →
-  **TEST 5**, immediately after `moduleCorrupt->setState(corrupted)`. That `setState`
-  (`tests/modules/HeavyStateModule.cpp:198-199`) `throw`s `std::runtime_error` when `validateState` fails
-  (frameCount is a string) — an exception unwinding **across the DLL→exe boundary**.
-- The log also shows `⚠️ Loading new module while previous handle still open` before the crash — the reused-loader
-  anti-pattern, at load #8–9 (matches "reload 8+").
+## How it was cracked (method — reusable)
+1. **Reproduce reliably:** run N copies in parallel (`for i in ...; do ./test_07_limits.exe & done`). Isolated
+   passed; **6-parallel = 6/6 SIGSEGV (exit 139)**, 100% — a deterministic latent bug, not a random flake.
+2. **Bitness check killed a false lead:** the exe/dll are **PE32+ (64-bit)** → the loader's own comment blaming
+   "address-space exhaustion at reload 8+" is IMPOSSIBLE (128 TB user space). Re-proving the documented cause
+   (doctrine) saved a wrong fix.
+3. **gdb is an anti-Heisenbug here** — the traced instance runs clean while background ones die (gdb's Windows
+   exception hooks / heap layout suppress the fault). So an **in-process SEH backtrace** was used instead:
+   `tests/helpers/CrashBacktrace.h` (`SetUnhandledExceptionFilter` + `StackWalk64`, printing module+offset;
+   symbolize offline with `addr2line -f -C -e <module> 0x<VA>`, VA = ImageBase + offset). It caught the fault
+   with no perturbation.
+4. **Symbolized frame (definitive):** `#00 test_07_limits.exe +0xd040d` → (via `nm`/`addr2line` with the full
+   VA `0x1400d040d`) `std::default_delete<grove::IDataNode>::operator()` at `unique_ptr.h:93` — a
+   `unique_ptr<IDataNode>` destructor, faulting on a `0x7ffc…438` DLL-region address (a vtable slot in a freed
+   DLL; consistent low bits across ASLR'd runs = same vtable target).
 
-## Two differential tests (both refuted a simple hypothesis — this is the value)
-1. **Give each independent load its own `ModuleLoader`** (still declared inside each test): the TEST 5 crash
-   **disappears** — the run gets PAST TEST 5 to teardown, and crashes at `✅ Module unloaded successfully`.
-   → **Confirms Bug A** (reused-loader accumulation WAS the TEST 5 crash) AND **exposes Bug B** (the crash moved
-   to the unload path once handles are actually freed).
-2. **Hoist all loaders to the top of `main`** (so they outlive the modules — a module's dtor is CODE IN ITS
-   DLL, so the DLL must not unload first): crashes **even SOLO**, at the unload path.
-   → The original's single-loader-declared-first + handle-leak was accidentally the MOST stable arrangement
-   (never unloads → Bug B never fires; but Bug A fires under parallel pressure).
+## Reusable helper left in the tree
+`tests/helpers/CrashBacktrace.h` — header-only, no-op off-Windows. To debug a similar Windows crash: `#include`
+it, call `installCrashHandler()` at the top of `main()`, link `dbghelp`, build the target (+ the .dll it loads)
+with `-g`, run, and `addr2line` the printed offsets. It succeeds where gdb Heisenbugs.
 
-Net: it is NOT a one-line test fix. Separate loaders fix A but trip B; the two are entangled in the Windows
-DLL load/unload lifetime.
+## Lessons
+- A `getState()` result (or any polymorphic object a hot-reloadable module returns) is **tied to that module's
+  DLL lifetime**. Don't hold it across a reload/unload — copy/re-home it (as `reload()` does) or release it
+  first. Worth a line in the hot-reload docs / `IModule::getState` contract.
+- "Documented cause" ≠ proof: the loader comment's "exhaustion" was wrong for a 64-bit build. Measure.
+- gdb isn't the only tracer; an in-process SEH handler beats a Heisenbug.
 
-## The exact crash frame is not yet captured
-- **gdb is an anti-Heisenbug here:** under `gdb -batch -ex run -ex bt`, the traced instance runs CLEAN while the
-  background load instances crash. gdb's Windows exception hooks / different heap layout prevent the fault.
-- **To get the frame, use instead:** a Windows post-mortem crash dump (WER / `procdump -e -ma test_07_limits.exe`
-  while running the parallel load), or an **ASan build** (ASan reports the fault with a stack + flags any
-  use-after-free precisely). ASan can't run from MinGW — use WSL/VPS142 (`-DGROVE_ENABLE_ASAN=ON`), but the
-  `dlopen` module path must build as a `.so` there; feasible but a real setup step. This is the next move to
-  turn Bug B from "unload path" into an exact file:line.
-
-## Recommended fixes
-1. ✅ **DONE (2026-07-12) — the suite flake is fixed.** `set_tests_properties(LimitsTest PROPERTIES RUN_SERIAL
-   TRUE)` in `tests/CMakeLists.txt` (right after its `grove_add_test`). Solo passes ⇒ LimitsTest-alone passes ⇒
-   `RUN_SERIAL` passes — it stops LimitsTest running under concurrent memory pressure WITHOUT touching the
-   fragile DLL code. Verified: full `ctest -j4` = 156/156, LimitsTest scheduled last/alone (~14s), suite +19s
-   wall-clock. **If `ChaosMonkey` / `MemoryLeakHunter` / `StressTest` / `ProductionHotReload` (same DLL-reload
-   class) ever flake the same way, give them RUN_SERIAL too** — not applied pre-emptively (only LimitsTest was
-   observed to crash; it's the worst offender at ~9 loads).
-2. **Engine debt (tracked, non-urgent):** the `ModuleLoader` Windows hot-reload/unload lifetime.
-   - **Bug A:** reused-loader `load()` leaks the previous handle (only warns). Options: hard-error instead of
-     warn+leak, or a bounded-lifetime handle registry. But the API contract IS "one loader per module" — so this
-     may stay a documented constraint (see CLAUDE.md "ModuleLoader Usage").
-   - **Bug B:** unloading a module DLL while/after its module object exists faults. Needs the ASan/dump frame to
-     pinpoint (a module dtor into an unmapped DLL? a static-destruction-order issue? spdlog logger from the DLL
-     outliving it?). This is the load-bearing unknown.
-
-## Files / anchors
-- `tests/integration/test_07_limits.cpp` — the test (ONE `loader`, ~9 loads; TEST 5 corruption at line ~376).
-- `tests/modules/HeavyStateModule.cpp` — the reloaded module; `setState` throws at `:198-199`,
-  `validateState` "frameCount must be integer" at `:325-327`.
-- `src/ModuleLoader.cpp:239-260` — the reused-load warn-don't-unload + the "SIGSEGV at reload 8+ / address-space
-  fragmentation" mitigation comment (Bug A is already known here).
-- CLAUDE.md → "ModuleLoader Usage" ("Don't reuse loader for multiple independent modules (causes SEGFAULT)").
-- Related: [[quality-hardening]] (this surfaced during the Phase-4 leak/perf/doc gate work; the full 156-test
-  suite otherwise green). `docs/design/quality-hardening-handoff.md`.
-
-## Open decisions (for Alexi)
-- ~~Apply `RUN_SERIAL` now?~~ — **done** (Alexi's call 2026-07-12).
-- Is Bug A acceptable as a documented API constraint (one loader per module), or should the engine hard-fail /
-  manage handle lifetime on reuse?
-- Worth the ASan-on-Linux setup to get Bug B's exact frame, or park it (hot-reload works in single-run)?
+## Anchors
+- `tests/integration/test_07_limits.cpp:87,123` — the fix (`state.reset()` / `stateAfter.reset()`).
+- `src/ModuleLoader.cpp:785-805` — the engine's correct state re-homing (why the engine is clean).
+- `tests/helpers/CrashBacktrace.h` — the diagnostic helper.
+- Related: [[quality-hardening]] (surfaced during the Phase-4 gate work).
