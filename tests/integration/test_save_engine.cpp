@@ -15,12 +15,22 @@
 #include <grove/JsonDataNode.h>
 
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 
 using namespace grove;
 
 namespace {
+
+// Hot-reload artifacts: .dll on Windows, .so elsewhere (registerModuleFromFile loads a real library).
+std::string modPath(const std::string& base) {
+#ifdef _WIN32
+    return "./lib" + base + ".dll";
+#else
+    return "./lib" + base + ".so";
+#endif
+}
 
 // A stateful module: an int `count` round-tripped through getState/setState.
 class CounterModule : public IModule {
@@ -127,6 +137,34 @@ TEST_CASE("SaveEngineE2E: round-trips THREADED and THREAD_POOL module state", "[
         engine.shutdown();
     }
 
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("SaveEngineE2E: a FILE-loaded THREADED module initializes, saves, and tears down cleanly",
+          "[integration][save][e2e]") {
+    // Two regressions in one (found by the adversarial hunt):
+    //  (1) registerModuleFromFile skipped setConfiguration -> a THREADED system's worker called
+    //      process() on an uninitialized module (null logger) and the run SEGFAULTED at teardown.
+    //      Reaching the asserts below (no crash) is the prove-it-bites.
+    //  (2) saveState probed only the SHARED threadedSystem_/poolSystem_, missing the PER-MODULE
+    //      worker system a file-loaded module lives in -> its state was silently dropped. We assert
+    //      the module now appears in the save file.
+    const auto path = tempPath("filethreaded");
+    std::filesystem::remove(path);
+
+    DebugEngine engine;
+    engine.initialize();
+    engine.registerModuleFromFile("hs", modPath("HeavyStateModule"), ModuleSystemType::THREADED);
+    REQUIRE(engine.saveState(path));            // captures the worker module's state (routing fix)
+    engine.shutdown();                          // no segfault (the init fix) — getting here is the proof
+
+    nlohmann::json saved;
+    {
+        std::ifstream f(path);          // scoped: close the handle before remove() (Windows)
+        REQUIRE(f.good());
+        f >> saved;
+    }
+    REQUIRE(saved["grove_save"]["modules"].contains("hs"));   // captured (was skipped before)
     std::filesystem::remove(path);
 }
 

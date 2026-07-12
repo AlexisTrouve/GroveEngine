@@ -1285,6 +1285,7 @@ target_link_libraries(test_save_engine PRIVATE
     GroveEngine::impl
     Catch2::Catch2WithMain
 )
+add_dependencies(test_save_engine HeavyStateModule)   # the .so it loads (file-loaded worker-strategy test)
 grove_add_test(SaveEngineE2E test_save_engine ${CMAKE_CURRENT_BINARY_DIR})
 
 # Diagnostics adoptability: a runnable reference that prints a leak report + a per-frame profile + a

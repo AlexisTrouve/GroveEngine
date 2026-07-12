@@ -766,6 +766,18 @@ void DebugEngine::registerModuleFromFile(const std::string& name, const std::str
         logger->debug("🏗️ Creating module system with strategy {}", static_cast<int>(strategy));
         auto moduleSystem = ModuleSystemFactory::create(strategy);
 
+        // INITIALIZE the module BEFORE the system may start a worker thread that calls process().
+        // registerStaticModule does this; skipping it here left a file-loaded module with
+        // uninitialized state (e.g. a null logger set only in setConfiguration) — so a THREADED
+        // system's worker calling process(), OR any teardown calling shutdown(), dereferenced null
+        // and SEGFAULTED (only THREADED/THREAD_POOL crashed today because only they auto-process
+        // without a frame; a SEQUENTIAL module would crash the same way on the first step()).
+        // File-loaded modules self-wire their OWN IIO, so io = nullptr; the per-module system is the
+        // scheduler; the engine clock is injected read-only.
+        module->setClock(&m_clock);
+        auto fileCfg = std::make_unique<JsonDataNode>("config", json::object());
+        module->setConfiguration(*fileCfg, nullptr, moduleSystem.get());
+
         // Register module with system
         logger->debug("🔗 Registering module with system");
         moduleSystem->registerModule(name, std::move(module));
@@ -958,12 +970,16 @@ bool DebugEngine::saveState(const std::string& path) {
             continue;
         }
 
-        // Worker-hosted (THREADED / THREAD_POOL): snapshot the state under the module's processMutex.
-        // Probe the threaded host first, then the pool (a module lives in exactly one; the other returns
-        // nullptr). SaveFile.capture then deep-copies the snapshot, so it survives the module's DLL.
+        // Worker-hosted (THREADED / THREAD_POOL): snapshot under the module's processMutex. The host is
+        // EITHER a PER-MODULE worker system in moduleSystems[i] (a .so loaded via registerModuleFromFile)
+        // OR the SHARED threadedSystem_/poolSystem_ (a static module). Probe both — a module lives in
+        // exactly one; the others return nullptr. SaveFile.capture then deep-copies (cross-DLL-safe).
         std::unique_ptr<IDataNode> state;
-        if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get())) state = ts->captureModuleState(name);
-        if (!state) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get())) state = ps->captureModuleState(name); }
+        IModuleSystem* perModule = (i < moduleSystems.size()) ? moduleSystems[i].get() : nullptr;
+        if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(perModule))            state = ts->captureModuleState(name);
+        if (!state) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(perModule))              state = ps->captureModuleState(name); }
+        if (!state) { if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get()))    state = ts->captureModuleState(name); }
+        if (!state) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get()))       state = ps->captureModuleState(name); }
         if (state) { sf.capture(name, *state); ++captured; }
         else { logger->warn("💾 saveState: module '{}' skipped (no hosting system found it)", name); ++skipped; }
     }
@@ -991,13 +1007,17 @@ bool DebugEngine::loadState(const std::string& path) {
                 continue;
             }
             // Worker-hosted: build a HOST-owned node from the saved json (core vtable → safe across the
-            // module's DLL), then apply via restoreModuleState under the module's processMutex.
+            // module's DLL), then apply via restoreModuleState. Probe the PER-MODULE worker system in
+            // moduleSystems[i] (a file-loaded .so) AND the SHARED threadedSystem_/poolSystem_ (static).
             const nlohmann::json* j = sf.state(name);
             if (!j) continue;
             JsonDataNode hostNode(name, *j);
             bool ok = false;
-            if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get())) ok = ts->restoreModuleState(name, hostNode);
-            if (!ok) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get())) ok = ps->restoreModuleState(name, hostNode); }
+            IModuleSystem* perModule = (i < moduleSystems.size()) ? moduleSystems[i].get() : nullptr;
+            if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(perModule))            ok = ts->restoreModuleState(name, hostNode);
+            if (!ok) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(perModule))              ok = ps->restoreModuleState(name, hostNode); }
+            if (!ok) { if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get()))    ok = ts->restoreModuleState(name, hostNode); }
+            if (!ok) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get()))       ok = ps->restoreModuleState(name, hostNode); }
             if (ok) ++restored;
         } catch (const std::exception& e) {
             logger->warn("📂 loadState: module '{}' rejected the saved state: {}", name, e.what());
