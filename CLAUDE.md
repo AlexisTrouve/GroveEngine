@@ -47,6 +47,10 @@ GroveEngine is a C++17 hot-reload module system for game engines. It supports dy
 
 **Save / Load** (`grove::save::SaveFile` + `DebugEngine::saveState/loadState`): persist the whole game to a versioned JSON file, built on the per-module `getState()`/`setState()` contract (same as hot-reload → a module that hot-reloads also saves/loads). `engine.saveState(path)`/`loadState(path)` captures/restores every registered module in one call — **ALL hosting strategies** (SEQUENTIAL via `getModule()`; THREADED/THREAD_POOL via a thread-safe `captureModuleState`/`restoreModuleState` that snapshots under the module's `processMutex` so it can't race a worker's `process()`); still call between frames; or drive `SaveFile` directly (`captureModule`/`save`/`load`/`restoreInto`) if you own the module objects. **Cross-DLL-safe** (`capture()` deep-copies immediately, `restoreInto()` builds a host-owned node — a save survives a module reload/unload, the LimitsTest lesson). Fail-soft (missing/malformed/future-version → false; absent module skipped). Locked by `SaveFileUnit` + `SaveEngineE2E`. Docs: DEVELOPER_GUIDE "Save / Load".
 
+**Debug/Prod = ONE engine, two builds** (NOT two classes): `DebugEngine` IS the engine; the `GROVE_DEBUG` CMake flag (default ON; `include/grove/BuildConfig.h` → `GROVE_DEBUG` macro + `grove::kDebugBuild` + `GROVE_DEBUG_ONLY(...)`) strips its **debug skin** (per-frame logging, `getDetailedStatus`/`dumpModuleState`/`stepSingleFrame`) from a lean **shipping** build (`cmake -DGROVE_DEBUG=OFF`). Kept in shipping: prod core + save/load + pause/resume + error logs. `EngineType::PRODUCTION`/`HIGH_PERFORMANCE` are dead stubs (EngineFactory throws). Docs: DEVELOPER_GUIDE "Debug vs Shipping build". Plan: `docs/design/engine-debug-prod-plan.md`.
+
+**Diagnostics** (all opt-in / debug-gated, zero cost in shipping — DEVELOPER_GUIDE "Diagnostics" + `tests/integration/test_diagnostics_demo.cpp`): (1) **Crash reporter** — `DebugEngine::initialize()` installs a handler (`GROVE_CRASH_REPORTER`, ON; off under sanitizers) that on a crash writes `<base>.dmp` (minidump) + `<base>.json` (`grove::crash::CrashContext`: clock/frame/modules + **last-200 IIO messages**); `setCrashOutputBase()`, `snapshotCrashContext()` for non-fatal; real Windows SEH backend, Noop elsewhere (POSIX = follow-on). (2) **`grove::mem::Tracker`** — tagged alloc leak report by tag; `GROVE_MEM_TRACK_ALLOC/_FREE` no-op unless `-DGROVE_MEM_TRACKING=ON`; wired into JsonDataNode (`iio:jsonnode`). (3) **`grove::profile`** — `GROVE_PROFILE_ZONE("x")` scoped timer (debug-only); `step()` already instrumented (`engine:step`/`engine:iopump`).
+
 **Integration:** All modules communicate via IIO topics. See [DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for complete IIO topics reference.
 
 ## Build & Test
@@ -88,7 +92,7 @@ In a debug build the gates re-expand to the original code (byte-identical, no be
 ### Key Components
 - **ModuleLoader**: Handles dlopen/dlclose of .so modules with hot-reload support
 - **SequentialModuleSystem**: Single-threaded module execution for testing
-- **IntraIOManager**: Inter-module communication with pub/sub routing
+- **IntraIOManager**: Inter-module communication with pub/sub routing. ⚠️ **`IntraIO` is ONE-OWNING-THREAD-PER-INSTANCE** (each module owns one instance driven by one worker; distinct instances route concurrently + safely, but 2 threads on ONE instance = a data race → heap corruption). A debug tripwire in `publish()`/`pullAndDispatch()` (`grove::detail::ScopedAccessGuard`) catches violations loudly. TSan-proven clean on the supported path. Contract in `IntraIO.h`; the race hunt in `docs/design/iio-concurrency-race-handoff.md`.
 - **TopicTree**: O(k) topic matching with wildcard support
 
 ### Thread Safety Patterns
