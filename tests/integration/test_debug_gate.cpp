@@ -24,6 +24,7 @@
 
 #include <grove/DebugEngine.h>
 #include <grove/BuildConfig.h>
+#include <grove/JsonDataNode.h>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/base_sink.h>
@@ -74,5 +75,29 @@ TEST_CASE("DebugEngine::step() per-frame logging is GROVE_DEBUG-gated", "[debugg
 #else
     // Shipping build: every per-frame log call site was compiled out — step() is silent.
     REQUIRE(emitted == 0);
+#endif
+}
+
+// A2: getDetailedStatus() is introspection — a rich internal snapshot in debug, stripped to a
+// minimal marker node in a shipping build. Proves the method-body gate (not just logging) bites.
+TEST_CASE("DebugEngine::getDetailedStatus is GROVE_DEBUG-gated", "[debuggate][config]") {
+    spdlog::drop("DebugEngine");  // order-independent (see the note in the first case)
+    grove::DebugEngine engine;
+
+    auto node = engine.getDetailedStatus();
+    REQUIRE(node != nullptr);
+    auto* jn = dynamic_cast<grove::JsonDataNode*>(node.get());
+    REQUIRE(jn != nullptr);
+    const auto& j = jn->getJsonData();
+
+#if GROVE_DEBUG
+    // Debug: the full internal snapshot (frame count, module count, sockets, ...).
+    REQUIRE(j.contains("frame_count"));
+    REQUIRE(j.contains("modules_loaded"));
+#else
+    // Shipping: the body is compiled out — only the minimal "stripped" marker remains.
+    REQUIRE(j.contains("introspection"));
+    REQUIRE(j["introspection"] == "stripped");
+    REQUIRE_FALSE(j.contains("frame_count"));
 #endif
 }

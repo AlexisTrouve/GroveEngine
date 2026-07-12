@@ -340,6 +340,7 @@ void DebugEngine::resumeExecution() {
 }
 
 void DebugEngine::stepSingleFrame() {
+#if GROVE_DEBUG
     logger->info("👣 Executing single frame step");
     if (debugPaused.load()) {
         float deltaTime = calculateDeltaTime();
@@ -348,6 +349,9 @@ void DebugEngine::stepSingleFrame() {
     } else {
         logger->warn("⚠️ Cannot step single frame - engine not paused");
     }
+#else
+    // Shipping build: single-frame step-debugging is a debug-only tool (no-op; symbol kept).
+#endif
 }
 
 bool DebugEngine::isPaused() const {
@@ -357,6 +361,7 @@ bool DebugEngine::isPaused() const {
 }
 
 std::unique_ptr<IDataNode> DebugEngine::getDetailedStatus() const {
+#if GROVE_DEBUG
     logger->debug("📊 Detailed status requested");
 
     json status = {
@@ -379,6 +384,13 @@ std::unique_ptr<IDataNode> DebugEngine::getDetailedStatus() const {
 
     logger->trace("📄 Status: {}", status.dump());
     return std::make_unique<JsonDataNode>("status", status);
+#else
+    // Shipping build: engine introspection is stripped. The symbol stays (callers still link) but
+    // returns a minimal marker node instead of the rich internal snapshot — a shipping build must
+    // neither expose that detail nor spend cycles building it.
+    json status = { {"type", "DEBUG"}, {"introspection", "stripped"} };
+    return std::make_unique<JsonDataNode>("status", status);
+#endif
 }
 
 void DebugEngine::setLogLevel(spdlog::level::level_enum level) {
@@ -838,6 +850,7 @@ void DebugEngine::reloadModule(const std::string& name) {
 }
 
 void DebugEngine::dumpModuleState(const std::string& name) {
+#if GROVE_DEBUG
     logger->info("╔══════════════════════════════════════════════════════════════");
     logger->info("║ 📊 STATE DUMP: {}", name);
     logger->info("╠══════════════════════════════════════════════════════════════");
@@ -902,6 +915,9 @@ void DebugEngine::dumpModuleState(const std::string& name) {
         logger->error("║ ❌ Error dumping state: {}", e.what());
         logger->info("╚══════════════════════════════════════════════════════════════");
     }
+#else
+    (void)name;  // Shipping build: state-dump introspection stripped (symbol kept for linkers).
+#endif
 }
 
 // Whole-engine SAVE: capture every SEQUENTIAL-hosted module's getState() into a SaveFile and write it to disk.
@@ -948,6 +964,7 @@ bool DebugEngine::loadState(const std::string& path) {
 }
 
 void DebugEngine::dumpAllModulesState() {
+#if GROVE_DEBUG
     logger->info("╔══════════════════════════════════════════════════════════════");
     logger->info("║ 📊 DUMPING ALL MODULE STATES ({} modules)", moduleNames.size());
     logger->info("╚══════════════════════════════════════════════════════════════");
@@ -958,6 +975,8 @@ void DebugEngine::dumpAllModulesState() {
     }
 
     logger->info("✅ All module states dumped");
+#endif
+    // Shipping build: no-op (all module-state dumping is debug-only introspection).
 }
 
 } // namespace grove
