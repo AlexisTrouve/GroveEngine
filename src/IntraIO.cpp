@@ -177,6 +177,14 @@ int IntraIO::hasMessages() const {
 }
 
 void IntraIO::pullAndDispatch() {
+    // INVARIANT TRIPWIRE (debug-only, no-op in release): same one-owning-thread-per-instance contract
+    // as publish(). Draining ONE instance from >=2 threads runs the dispatched callbacks CONCURRENTLY
+    // (phase 2 below is intentionally OUTSIDE operationMutex to avoid the ABBA deadlock), so the
+    // callbacks race on whatever state they touch (TSan-confirmed: ConsumerModule.cpp:40 via 3 consumer
+    // threads on one instance). The guard shares m_activeCallers with publish() — one thread at a time,
+    // across ALL ops on this instance. Detect-only (no lock): can't mask the flaw or deadlock.
+    grove::detail::ScopedAccessGuard _pullGuard(m_activeCallers, "pullAndDispatch", instanceId);
+
     // DEADLOCK PREVENTION — do NOT hold operationMutex while invoking user callbacks.
     //
     // WHY this is a deadlock without this fix (ABBA pattern):

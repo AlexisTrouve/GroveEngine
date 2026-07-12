@@ -16,6 +16,7 @@
 #include "grove/IModule.h"
 #include "grove/IOFactory.h"
 #include "grove/IntraIOManager.h"
+#include "grove/IntraIO.h"   // per-thread IIO instances in the concurrency test (TEST 6)
 #include "grove/JsonDataNode.h"
 #include "../helpers/TestMetrics.h"
 #include "../helpers/TestAssertions.h"
@@ -483,7 +484,15 @@ int main() {
         receivedTotal++;
     });
 
-    std::cout << "  Launching 5 publisher threads...\n";
+    // CONTRACT: one owning thread per IntraIO instance (TSan-confirmed — sharing one instance across
+    // threads races: producerIO in publish(), consumerIO in the dispatched callback). Each publisher
+    // thread gets its OWN, STABLE instance (created up front, like N modules each owning a lifetime
+    // instance) — the SUPPORTED concurrency: distinct instances route concurrently + safely.
+    std::cout << "  Launching 5 publisher threads (each with its OWN stable IIO instance)...\n";
+    std::vector<std::shared_ptr<IntraIO>> pubIOs;
+    for (int t = 0; t < 5; t++) {
+        pubIOs.push_back(IntraIOManager::getInstance().createInstance("pub_" + std::to_string(t)));
+    }
     std::vector<std::thread> publishers;
     for (int t = 0; t < 5; t++) {
         publishers.emplace_back([&, t]() {
@@ -492,16 +501,18 @@ int main() {
                     {"thread", t},
                     {"id", i}
                 });
-                producerIO->publish("thread:test", std::move(data));
+                pubIOs[t]->publish("thread:test", std::move(data));   // own instance → no cross-thread race
                 publishedTotal++;
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         });
     }
 
-    std::cout << "  Launching 3 consumer threads...\n";
+    // ONE consumer thread owns consumerIO (draining one instance from N threads is the same violation
+    // as multi-publish — it ran the callback concurrently, the TSan-confirmed ConsumerModule race).
+    std::cout << "  Launching 1 consumer thread (single owner of consumerIO)...\n";
     std::vector<std::thread> consumers;
-    for (int t = 0; t < 3; t++) {
+    for (int t = 0; t < 1; t++) {
         consumers.emplace_back([&]() {
             while (running || consumerIO->hasMessages() > 0) {
                 if (consumerIO->hasMessages() > 0) {
