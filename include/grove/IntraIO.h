@@ -64,7 +64,11 @@ public:
  * - Low-frequency batching with configurable intervals
  * - Message replacement for reducible topics (latest-only semantics)
  * - Comprehensive health monitoring and metrics
- * - Thread-safe operations
+ * - Thread-safe ACROSS instances; ONE OWNING THREAD PER INSTANCE. Different modules on different
+ *   threads (each with its own instance) route concurrently and safely. But concurrent access to a
+ *   SINGLE instance (e.g. two threads calling publish() on the same instance) is a CONTRACT
+ *   VIOLATION — a data race that corrupts the heap in a release build. A debug tripwire
+ *   (AccessGuard.h) catches it loudly. Do not share one instance across threads; give each its own.
  * - Pull-based message consumption
  *
  * Performance characteristics:
@@ -77,6 +81,12 @@ class IntraIO : public IIO, public IIntraIODelivery {
 private:
     std::shared_ptr<spdlog::logger> logger;
     mutable std::mutex operationMutex; // Thread safety for all operations
+
+    // Debug tripwire counter for the one-owning-thread-per-instance invariant (see AccessGuard.h,
+    // used by publish()). Counts threads currently inside the guarded section; a concurrent OVERLAP
+    // is a contract violation (a data race). It only DETECTS (logs loudly) — it never serializes, so
+    // it can't mask the flaw or reintroduce the ABBA deadlock the publish path was fixed for.
+    std::atomic<int> m_activeCallers{0};
 
     // Instance identification for routing
     std::string instanceId;

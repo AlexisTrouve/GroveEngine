@@ -1,6 +1,7 @@
 #include <grove/IntraIO.h>
 #include <grove/IntraIOManager.h>
 #include <grove/JsonDataNode.h>
+#include <grove/detail/AccessGuard.h>   // debug tripwire: one owning thread per instance (publish)
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
@@ -51,6 +52,13 @@ IntraIO::~IntraIO() {
 }
 
 void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> message) {
+    // INVARIANT TRIPWIRE (debug-only, no-op in release): this instance is single-owning-thread by
+    // contract. If a second thread is publishing on THIS instance concurrently, that's a data race
+    // (heap corruption in release) — the guard logs it loudly + counts it. It does NOT serialize
+    // (no lock), so it can't mask the flaw or reintroduce the ABBA deadlock handled below. Held for
+    // the whole call so it spans the racy region. Fix a hit by giving each thread its OWN instance.
+    grove::detail::ScopedAccessGuard _publishGuard(m_activeCallers, "publish", instanceId);
+
     // DEADLOCK PREVENTION — do NOT hold operationMutex while calling routeMessage().
     //
     // WHY this is a deadlock without this fix (ABBA pattern):

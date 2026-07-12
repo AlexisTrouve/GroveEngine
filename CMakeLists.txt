@@ -218,6 +218,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/DebugEngine.cpp  # âœ… Needs migration
         src/ModuleLoader.cpp  # âœ… Hot-reload support
         src/crash/CrashHandler.cpp  # Crash reporter backend (Windows SEH + minidump / Noop elsewhere)
+        src/detail/AccessGuard.cpp  # Debug tripwire for the one-owning-thread-per-instance invariant
 
         # --- TODO: Fix API mismatch (json vs IDataNode) ---
         # src/ImGuiUI.cpp  # Requires imgui dependency

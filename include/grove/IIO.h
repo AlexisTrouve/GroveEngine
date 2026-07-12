@@ -105,7 +105,10 @@ using MessageHandler = std::function<void(const Message&)>;
  * Design:
  * - Modules retain control over WHEN to process (pull-based)
  * - No if-forest dispatch (callbacks registered at subscription)
- * - Thread-safe for multi-threaded module systems
+ * - Thread-safe for multi-threaded module systems ACROSS instances: each module owns ONE instance
+ *   driven by ONE thread, and instances route to each other concurrently + safely. A SINGLE
+ *   instance is NOT to be shared across threads (that's a data race — see IntraIO's class doc; a
+ *   debug tripwire catches it).
  *
  * Features:
  * - Topic patterns with wildcards (e.g., "player:*", "economy:*")

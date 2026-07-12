@@ -545,6 +545,12 @@ target_include_directories(test_fx_world PRIVATE
 target_link_libraries(test_fx_world PRIVATE Catch2::Catch2WithMain)
 grove_add_test(FxWorldUnit test_fx_world ${CMAKE_CURRENT_BINARY_DIR})
 
+# Concurrency tripwire G1: grove::detail::ScopedAccessGuard (one-owning-thread-per-instance invariant).
+# Compiled under BOTH configs — debug flags a forced overlap; shipping is a no-op.
+add_executable(test_access_guard unit/test_access_guard.cpp)
+target_link_libraries(test_access_guard PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+grove_add_test(AccessGuardUnit test_access_guard ${CMAKE_CURRENT_BINARY_DIR})
+
 # Debug/Prod build flag: grove::kDebugBuild / GROVE_DEBUG (BuildConfig.h). Compiled under BOTH
 # configs — locks ON→true in the default CTest run, OFF→false under -DGROVE_DEBUG=OFF (A0).
 add_executable(test_build_config unit/test_build_config.cpp)
