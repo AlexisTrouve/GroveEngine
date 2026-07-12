@@ -158,6 +158,24 @@ target_link_libraries(grove_core INTERFACE
 # Alias for consistent naming
 add_library(GroveEngine::core ALIAS grove_core)
 
+# ============================================================================
+# Debug / Prod build configuration (see docs/design/engine-debug-prod-plan.md)
+# ----------------------------------------------------------------------------
+# ONE engine, two builds — NOT two engine classes. GROVE_DEBUG=ON (default) keeps the
+# "debug skin" (engine introspection + verbose per-frame logging); GROVE_DEBUG=OFF is a
+# lean SHIPPING build that compiles that skin OUT (zero runtime cost, identical prod core).
+# The definition rides grove_core (INTERFACE) so it propagates to grove_impl + every test +
+# the game. include/grove/BuildConfig.h normalizes it into the GROVE_DEBUG switch.
+# ============================================================================
+option(GROVE_DEBUG "Debug build: engine introspection + verbose per-frame logging (OFF = lean shipping build)" ON)
+if(GROVE_DEBUG)
+    target_compile_definitions(grove_core INTERFACE GROVE_DEBUG_BUILD=1)
+    message(STATUS "GROVE_DEBUG=ON  — debug build (introspection + verbose logging)")
+else()
+    target_compile_definitions(grove_core INTERFACE GROVE_DEBUG_BUILD=0)
+    message(STATUS "GROVE_DEBUG=OFF — shipping build (debug skin stripped)")
+endif()
+
 # Optional: Build implementations
 option(GROVE_BUILD_IMPLEMENTATIONS "Build GroveEngine implementations" ON)
 

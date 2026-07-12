@@ -545,6 +545,15 @@ target_include_directories(test_fx_world PRIVATE
 target_link_libraries(test_fx_world PRIVATE Catch2::Catch2WithMain)
 grove_add_test(FxWorldUnit test_fx_world ${CMAKE_CURRENT_BINARY_DIR})
 
+# Debug/Prod build flag: grove::kDebugBuild / GROVE_DEBUG (BuildConfig.h). Compiled under BOTH
+# configs — locks ON→true in the default CTest run, OFF→false under -DGROVE_DEBUG=OFF (A0).
+add_executable(test_build_config unit/test_build_config.cpp)
+target_include_directories(test_build_config PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_build_config PRIVATE GroveEngine::core Catch2::Catch2WithMain)
+grove_add_test(BuildConfigUnit test_build_config ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load: grove::save::SaveFile (header-only; needs core for JsonDataNode/IModule).
 add_executable(test_save_file unit/test_save_file.cpp)
 target_include_directories(test_save_file PRIVATE
