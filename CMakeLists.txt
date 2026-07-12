@@ -227,6 +227,16 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         target_link_libraries(grove_impl PUBLIC dbghelp)
     endif()
 
+    # Crash reporter policy: DebugEngine::initialize() installs the minidump+context handler when ON.
+    # Only DebugEngine.cpp reads GROVE_CRASH_REPORTER, so scope it PRIVATE to grove_impl (no global
+    # recompile). It is additionally skipped at RUNTIME under sanitizers (they own the crash signals).
+    option(GROVE_CRASH_REPORTER "Install crash reporter (minidump + engine context) in the engine" ON)
+    if(GROVE_CRASH_REPORTER)
+        target_compile_definitions(grove_impl PRIVATE GROVE_CRASH_REPORTER=1)
+    else()
+        target_compile_definitions(grove_impl PRIVATE GROVE_CRASH_REPORTER=0)
+    endif()
+
     if(GROVE_USE_OPENSSL)
         target_link_libraries(grove_impl PUBLIC OpenSSL::Crypto)
         target_compile_definitions(grove_impl PUBLIC GROVE_USE_OPENSSL=1)

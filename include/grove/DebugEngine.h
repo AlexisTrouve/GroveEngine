@@ -14,8 +14,12 @@
 #include "IDataNode.h"
 #include "ModuleLoader.h"
 #include "EngineClock.h"   // authoritative fixed-timestep clock (owned by value, advanced in step())
+#include "crash/CrashContext.h"   // crash-report payload built by snapshotCrashContext()
 
 namespace grove {
+
+namespace crash { class ICrashHandler; }   // fwd — the engine owns one (unique_ptr, dtor in the .cpp)
+
 
 /**
  * @brief Debug engine implementation with comprehensive logging
@@ -80,6 +84,13 @@ private:
     // Configuration
     std::unique_ptr<IDataNode> engineConfig;
 
+    // Crash reporter (B1c): a process-wide handler installed in initialize() (gated by
+    // GROVE_CRASH_REPORTER + skipped under sanitizers). On an unhandled crash it writes a native
+    // minidump + a CrashContext JSON (engine clock/frame/modules + the last-N IIO messages) next
+    // to it, under crashOutputBase_ ("<base>.dmp" / "<base>.json").
+    std::unique_ptr<crash::ICrashHandler> crashHandler_;
+    std::string crashOutputBase_ = "logs/crash";
+
     // Helper methods
     void logEngineStart();
     void logEngineShutdown();
@@ -93,6 +104,11 @@ private:
     void processCoordinatorMessages();
     float calculateDeltaTime();
     void validateConfiguration();
+
+    // Crash reporter helpers. installCrashReporter() is called from initialize() (gated);
+    // writeCrashReport() is the installed callback — builds a CrashContext and writes its JSON.
+    void installCrashReporter();
+    void writeCrashReport(const std::string& reason, const std::string& jsonPath) const;
 
 public:
     DebugEngine();
@@ -147,6 +163,24 @@ public:
      * @brief Get list of all registered module names
      */
     std::vector<std::string> getModuleNames() const { return moduleNames; }
+
+    /**
+     * @brief Redirect where the crash reporter writes its artifacts (default "logs/crash").
+     * @param base path prefix — the reporter writes "<base>.dmp" (minidump) + "<base>.json" (context).
+     * Call BEFORE initialize() (which installs the handler with this base). Mainly for tests / to
+     * place crash artifacts under a per-run directory.
+     */
+    void setCrashOutputBase(const std::string& base) { crashOutputBase_ = base; }
+
+    /**
+     * @brief Snapshot the current engine state into a crash-report context (does NOT require a crash).
+     * @param reason a human tag for the report (e.g. an exception name, or "manual").
+     * Captures the clock (tick/simTime/timeScale), pause flag, frame count, registered module names,
+     * and the last-N IIO messages from the ReplaySink (empty if the sink is disabled — fail-soft).
+     * This is exactly what the installed crash handler writes on a real crash; exposed so a game can
+     * also grab it for a non-fatal error report, and so it's unit-testable without crashing.
+     */
+    crash::CrashContext snapshotCrashContext(const std::string& reason) const;
 
     /**
      * @brief Save the WHOLE engine state (every registered module's getState()) to a JSON file on disk.

@@ -10,6 +10,7 @@
 #include <grove/IntraIOManager.h>   // routed IIO instances for static modules
 #include <grove/IntraIO.h>          // concrete IntraIO (createInstance return type)
 #include <grove/save/SaveFile.h>    // whole-engine saveState/loadState
+#include <grove/crash/ICrashHandler.h>  // crash reporter: makeCrashHandler + install/uninstall (B1c)
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <grove/platform/FileSystem.h>
@@ -47,6 +48,10 @@ void DebugEngine::initialize() {
     engineStartTime = std::chrono::high_resolution_clock::now();
     lastFrameTime = engineStartTime;
     frameCount = 0;
+
+    // Install the crash reporter (best-effort, gated by GROVE_CRASH_REPORTER + skipped under
+    // sanitizers). From here on, an unhandled crash writes a minidump + engine-context JSON.
+    installCrashReporter();
 
     logger->info("✅ DebugEngine initialization complete");
     logger->debug("🕐 Engine start time recorded: {}",
@@ -175,6 +180,11 @@ EngineClock& DebugEngine::clock() {
 void DebugEngine::shutdown() {
     logger->info("🛑 DebugEngine shutdown initiated");
     logEngineShutdown();
+
+    // Remove the crash hook FIRST — once we start tearing down modules/sockets, the engine state
+    // the reporter would snapshot is no longer coherent, and we don't want a shutdown-time fault
+    // writing a misleading report.
+    if (crashHandler_) { crashHandler_->uninstall(); crashHandler_.reset(); }
 
     running.store(false);
     logger->debug("🔄 Running flag set to false");
@@ -977,6 +987,57 @@ void DebugEngine::dumpAllModulesState() {
     logger->info("✅ All module states dumped");
 #endif
     // Shipping build: no-op (all module-state dumping is debug-only introspection).
+}
+
+// --- Crash reporter (B1c) --------------------------------------------------------------------
+
+crash::CrashContext DebugEngine::snapshotCrashContext(const std::string& reason) const {
+    crash::CrashContext ctx;
+    ctx.reason      = reason;
+    ctx.tick        = m_clock.tick();
+    ctx.simTime     = m_clock.simTime();
+    ctx.timeScale   = m_clock.timeScale();
+    ctx.paused      = debugPaused.load();
+    ctx.frameCount  = frameCount;
+    ctx.moduleNames = moduleNames;
+
+    // The last-N IIO messages from the OPT-IN ReplaySink — the event trail that led here, the most
+    // valuable post-mortem artifact for a message-bus engine. Fail-soft: a disabled sink yields an
+    // empty timeline → no recentMessages. Bounded to the tail so a huge ring can't bloat the report.
+    const auto timeline = IntraIOManager::getInstance().replaySink().timeline();
+    constexpr size_t kMaxTrail = 200;
+    const size_t start = timeline.size() > kMaxTrail ? timeline.size() - kMaxTrail : 0;
+    ctx.recentMessages.reserve(timeline.size() - start);
+    for (size_t i = start; i < timeline.size(); ++i) {
+        const auto& e = timeline[i];
+        ctx.recentMessages.push_back(crash::MessageTrace{
+            e.topic, e.env.source, e.env.tick, e.env.seq, e.env.lamport});
+    }
+    return ctx;
+}
+
+void DebugEngine::writeCrashReport(const std::string& reason, const std::string& jsonPath) const {
+    // Runs IN a crash context: keep it minimal and DON'T log (spdlog's mutex could be poisoned by
+    // the fault). Just build the context and write the JSON — that file is the artifact.
+    const crash::CrashContext ctx = snapshotCrashContext(reason);
+    std::ofstream out(jsonPath);
+    if (out) out << crash::toJson(ctx).dump(2);
+}
+
+void DebugEngine::installCrashReporter() {
+#if GROVE_CRASH_REPORTER && !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
+    crashHandler_ = crash::makeCrashHandler();
+    crashHandler_->setDumpPath(crashOutputBase_ + ".dmp");
+    const std::string jsonPath = crashOutputBase_ + ".json";
+    // On a crash the handler calls back here (with `this` + the json path) to write the context.
+    // The handler is a member → uninstalled when the engine dies, so `this` never dangles.
+    crashHandler_->install([this, jsonPath](const std::string& reason) {
+        this->writeCrashReport(reason, jsonPath);
+    });
+    logger->info("🧯 Crash reporter installed (artifacts: {}.dmp / {}.json)", crashOutputBase_, crashOutputBase_);
+#else
+    logger->debug("🧯 Crash reporter disabled (GROVE_CRASH_REPORTER off or sanitizer build)");
+#endif
 }
 
 } // namespace grove

@@ -577,6 +577,16 @@ target_link_libraries(test_crash_handler_real PRIVATE GroveEngine::core GroveEng
 add_dependencies(test_crash_handler_real crash_child)   # the child exe must exist before the test runs
 grove_add_test(CrashHandlerRealE2E test_crash_handler_real ${CMAKE_CURRENT_BINARY_DIR})
 
+# Crash reporter B1c: the handler wired into DebugEngine. In-process snapshot (engine state + IIO
+# trail) + a real-crash child (crash_child_engine) driven through initialize()->install->fault.
+add_executable(crash_child_engine integration/crash_child_engine_main.cpp)
+target_link_libraries(crash_child_engine PRIVATE GroveEngine::core GroveEngine::impl)
+
+add_executable(test_crash_reporter_engine integration/test_crash_reporter_engine.cpp)
+target_link_libraries(test_crash_reporter_engine PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+add_dependencies(test_crash_reporter_engine crash_child_engine)
+grove_add_test(CrashReporterEngineE2E test_crash_reporter_engine ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load: grove::save::SaveFile (header-only; needs core for JsonDataNode/IModule).
 add_executable(test_save_file unit/test_save_file.cpp)
 target_include_directories(test_save_file PRIVATE
