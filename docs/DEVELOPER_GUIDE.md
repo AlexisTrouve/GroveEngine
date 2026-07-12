@@ -81,6 +81,35 @@ cmake --build build -j4
 cd build && ctest --output-on-failure
 ```
 
+### Debug vs Shipping build (`GROVE_DEBUG`)
+
+Debug and prod are **one engine, two builds** — not two engine classes. `DebugEngine` *is* the
+engine (its threaded/pool module hosting, authoritative clock, asset streaming and save/load are
+the production core). A single CMake flag, `GROVE_DEBUG` (default **ON**), gates the engine's
+**debug skin** and compiles it out of a lean shipping build:
+
+```bash
+# Normal dev build — full introspection + verbose per-frame logging
+cmake -B build && cmake --build build -j4
+
+# Shipping build — debug skin stripped, zero introspection cost, identical core
+cmake -B build-shipping -DGROVE_DEBUG=OFF && cmake --build build-shipping -j4
+```
+
+- **Stripped when `GROVE_DEBUG=OFF`**: `step()`'s per-frame logging + frame-timing;
+  `DebugEngine::getDetailedStatus()` (returns a minimal marker node); `dumpModuleState` /
+  `dumpAllModulesState` / `stepSingleFrame` (become no-ops — the symbols stay so callers link).
+- **Always present** (both builds): the whole prod core, error logging, `saveState`/`loadState`,
+  and engine **control** — `pauseExecution` / `resumeExecution` / `isPaused` (a pause menu is a
+  real shipping feature, not introspection).
+- In your own code you can gate debug-only work the same way: include `<grove/BuildConfig.h>` and
+  use `if constexpr (grove::kDebugBuild)` or wrap a whole statement in `GROVE_DEBUG_ONLY(...)`
+  (it vanishes entirely — arguments not even evaluated — in a shipping build).
+
+The `EngineType::PRODUCTION` / `HIGH_PERFORMANCE` factory types were never implemented and remain
+stubs (`EngineFactory` throws for them) — the debug/prod axis is this build flag, not an engine
+type. Full rationale + roadmap: [engine-debug-prod-plan.md](design/engine-debug-prod-plan.md).
+
 ### Documentation Structure
 
 - **[USER_GUIDE.md](USER_GUIDE.md)** - Module system basics, hot-reload, IIO communication

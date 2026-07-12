@@ -69,7 +69,19 @@ cd build && ctest --output-on-failure
 # Build with ThreadSanitizer
 cmake -DGROVE_ENABLE_TSAN=ON -B build-tsan
 cmake --build build-tsan -j4
+
+# Shipping (lean) build — strips the debug skin (introspection + verbose per-frame logging)
+cmake -B build-shipping -DGROVE_DEBUG=OFF
+cmake --build build-shipping -j4
 ```
+
+### Debug vs Shipping build (`GROVE_DEBUG`)
+**Debug and prod are ONE engine, two builds — NOT two engine classes.** `DebugEngine` IS the engine (its threaded/pool hosting, authoritative clock, asset streaming and save/load are the prod core). The `GROVE_DEBUG` CMake flag (default **ON**; `include/grove/BuildConfig.h` → `GROVE_DEBUG` macro + `constexpr grove::kDebugBuild` + `GROVE_DEBUG_ONLY(...)`) gates only the **debug skin**, compiled OUT of a shipping build (`-DGROVE_DEBUG=OFF`):
+- **Stripped in shipping**: `step()`'s per-frame logging + frame-timing; `getDetailedStatus()` (→ minimal marker node); `dumpModuleState`/`dumpAllModulesState`/`stepSingleFrame` (→ no-op, symbols kept).
+- **KEPT in shipping**: the whole prod core + error logging (`catch`) + `pauseExecution`/`resumeExecution`/`isPaused` (engine CONTROL, not introspection) + `saveState`/`loadState`.
+- Health monitoring is debug-only *for now* (the helpers only LOG, no action yet); when health→action lands it must live outside the gate.
+
+In a debug build the gates re-expand to the original code (byte-identical, no behavior change). Locked by `BuildConfigUnit` (the flag/macro/strip mechanism) + `DebugGateE2E` (step() logging + `getDetailedStatus` on the real engine) — both compiled under BOTH configs (default CTest run = ON; a `-DGROVE_DEBUG=OFF` build = the shipping contract). The `EngineType::PRODUCTION`/`HIGH_PERFORMANCE` stubs stay unimplemented (`EngineFactory` throws). Plan: **[docs/design/engine-debug-prod-plan.md](docs/design/engine-debug-prod-plan.md)**.
 
 ## Architecture
 

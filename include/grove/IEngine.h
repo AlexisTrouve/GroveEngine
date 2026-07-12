@@ -37,10 +37,13 @@ enum class EngineType {
  * - Log IOHealth.droppedMessageCount for debugging
  * - Monitor IOHealth.averageProcessingRate for performance analysis
  *
- * Evolution path:
- * - DebugEngine: Development/testing with step-by-step execution
- * - HighPerfEngine: Production optimized with threading
- * - DataOrientedEngine: Massive scale with SIMD and clustering
+ * Debug vs prod is a BUILD CONFIGURATION, not an engine class. DebugEngine is THE engine —
+ * its threaded/pool hosting, authoritative clock, asset streaming and save/load ARE the prod
+ * core. The GROVE_DEBUG flag (include/grove/BuildConfig.h) strips only its debug skin
+ * (introspection + verbose per-frame logging) from a shipping build (cmake -DGROVE_DEBUG=OFF).
+ * The old "DebugEngine -> HighPerfEngine -> DataOrientedEngine" evolution path was never built
+ * and is retired; EngineType::PRODUCTION / HIGH_PERFORMANCE stay unimplemented (EngineFactory
+ * throws for them). See docs/design/engine-debug-prod-plan.md.
  */
 class IEngine {
 public:
