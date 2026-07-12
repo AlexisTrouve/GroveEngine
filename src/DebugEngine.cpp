@@ -940,20 +940,32 @@ void DebugEngine::dumpModuleState(const std::string& name) {
 #endif
 }
 
-// Whole-engine SAVE: capture every SEQUENTIAL-hosted module's getState() into a SaveFile and write it to disk.
-// Non-destructive (getModule(), not extractModule()). THREADED/THREAD_POOL modules are skipped with a warning
-// (same limitation as hot-reload / the state dump). Call between frames — getState() must not race process().
+// Whole-engine SAVE: capture every registered module's getState() into a SaveFile and write to disk.
+// SEQUENTIAL modules via the non-destructive getModule(); THREADED / THREAD_POOL modules via a
+// thread-safe captureModuleState() that snapshots under the module's processMutex (so it can't race a
+// worker's process()). SaveFile.capture deep-copies immediately (cross-DLL-safe). Call between frames.
 bool DebugEngine::saveState(const std::string& path) {
     save::SaveFile sf;
     int captured = 0, skipped = 0;
     for (size_t i = 0; i < moduleNames.size(); ++i) {
+        const std::string& name = moduleNames[i];
+
+        // SEQUENTIAL-hosted: borrow the live module non-destructively.
         auto* seq = (i < moduleSystems.size()) ? dynamic_cast<SequentialModuleSystem*>(moduleSystems[i].get())
                                                : nullptr;
-        if (!seq) {
-            logger->warn("💾 saveState: module '{}' skipped (only SequentialModuleSystem supported)", moduleNames[i]);
-            ++skipped; continue;
+        if (seq) {
+            if (IModule* m = seq->getModule()) { sf.captureModule(name, *m); ++captured; }
+            continue;
         }
-        if (IModule* m = seq->getModule()) { sf.captureModule(moduleNames[i], *m); ++captured; }
+
+        // Worker-hosted (THREADED / THREAD_POOL): snapshot the state under the module's processMutex.
+        // Probe the threaded host first, then the pool (a module lives in exactly one; the other returns
+        // nullptr). SaveFile.capture then deep-copies the snapshot, so it survives the module's DLL.
+        std::unique_ptr<IDataNode> state;
+        if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get())) state = ts->captureModuleState(name);
+        if (!state) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get())) state = ps->captureModuleState(name); }
+        if (state) { sf.capture(name, *state); ++captured; }
+        else { logger->warn("💾 saveState: module '{}' skipped (no hosting system found it)", name); ++skipped; }
     }
     if (!sf.save(path)) { logger->error("💾 saveState: failed to write '{}'", path); return false; }
     logger->info("💾 saveState: {} module(s) saved to '{}' ({} skipped)", captured, path, skipped);
@@ -968,15 +980,27 @@ bool DebugEngine::loadState(const std::string& path) {
     if (!sf.load(path)) { logger->error("📂 loadState: failed to read/parse '{}'", path); return false; }
     int restored = 0;
     for (size_t i = 0; i < moduleNames.size(); ++i) {
-        auto* seq = (i < moduleSystems.size()) ? dynamic_cast<SequentialModuleSystem*>(moduleSystems[i].get())
-                                               : nullptr;
-        if (!seq) continue;
-        IModule* m = seq->getModule();
-        if (!m || !sf.has(moduleNames[i])) continue;
+        const std::string& name = moduleNames[i];
+        if (!sf.has(name)) continue;   // module absent from the save → keep its current state
         try {
-            if (sf.restoreInto(moduleNames[i], *m)) ++restored;
+            // SEQUENTIAL-hosted: restoreInto builds a host-owned node then setState (cross-DLL-safe).
+            auto* seq = (i < moduleSystems.size()) ? dynamic_cast<SequentialModuleSystem*>(moduleSystems[i].get())
+                                                   : nullptr;
+            if (seq) {
+                if (IModule* m = seq->getModule()) { if (sf.restoreInto(name, *m)) ++restored; }
+                continue;
+            }
+            // Worker-hosted: build a HOST-owned node from the saved json (core vtable → safe across the
+            // module's DLL), then apply via restoreModuleState under the module's processMutex.
+            const nlohmann::json* j = sf.state(name);
+            if (!j) continue;
+            JsonDataNode hostNode(name, *j);
+            bool ok = false;
+            if (auto* ts = dynamic_cast<ThreadedModuleSystem*>(threadedSystem_.get())) ok = ts->restoreModuleState(name, hostNode);
+            if (!ok) { if (auto* ps = dynamic_cast<ThreadPoolModuleSystem*>(poolSystem_.get())) ok = ps->restoreModuleState(name, hostNode); }
+            if (ok) ++restored;
         } catch (const std::exception& e) {
-            logger->warn("📂 loadState: module '{}' rejected the saved state: {}", moduleNames[i], e.what());
+            logger->warn("📂 loadState: module '{}' rejected the saved state: {}", name, e.what());
         }
     }
     logger->info("📂 loadState: {} module(s) restored from '{}'", restored, path);

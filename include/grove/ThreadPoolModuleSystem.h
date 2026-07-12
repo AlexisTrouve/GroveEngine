@@ -152,6 +152,13 @@ public:
     void processModules(float deltaTime) override;
     void setIOLayer(std::unique_ptr<IIO> ioLayer) override;
     std::unique_ptr<IDataNode> queryModule(const std::string& name, const IDataNode& input) override;
+
+    // Thread-safe state snapshot / restore for whole-engine save-load. Runs getState()/setState()
+    // UNDER the module's per-slot processMutex (same guard as queryModule) so it can't race the pool
+    // worker running the module's frame task. nullptr / false if `name` isn't hosted here (fail-soft).
+    std::unique_ptr<IDataNode> captureModuleState(const std::string& name);
+    bool restoreModuleState(const std::string& name, const IDataNode& state);
+
     ModuleSystemType getType() const override;
     int getPendingTaskCount(const std::string& moduleName) const override;
 

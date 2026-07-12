@@ -279,6 +279,25 @@ std::unique_ptr<IDataNode> ThreadedModuleSystem::queryModule(const std::string& 
     return std::make_unique<JsonDataNode>("query_result", json{{"status", "processed"}});
 }
 
+std::unique_ptr<IDataNode> ThreadedModuleSystem::captureModuleState(const std::string& name) {
+    std::shared_lock<std::shared_mutex> lock(workersMutex);
+    auto workerIt = findWorker(name);
+    if (workerIt == workers.end()) return nullptr;   // not hosted here — let the engine try the pool
+    // Serialize with the worker's process() via the SAME per-module processMutex queryModule uses:
+    // getState() must not read module state while a frame is mutating it.
+    std::lock_guard<std::mutex> processGuard((*workerIt)->processMutex);
+    return (*workerIt)->module->getState();
+}
+
+bool ThreadedModuleSystem::restoreModuleState(const std::string& name, const IDataNode& state) {
+    std::shared_lock<std::shared_mutex> lock(workersMutex);
+    auto workerIt = findWorker(name);
+    if (workerIt == workers.end()) return false;
+    std::lock_guard<std::mutex> processGuard((*workerIt)->processMutex);
+    (*workerIt)->module->setState(state);   // `state` is a host-owned node (engine-built) — cross-DLL-safe
+    return true;
+}
+
 ModuleSystemType ThreadedModuleSystem::getType() const {
     return ModuleSystemType::THREADED;
 }

@@ -285,6 +285,24 @@ std::unique_ptr<IDataNode> ThreadPoolModuleSystem::queryModule(const std::string
     return std::make_unique<JsonDataNode>("query_result", nlohmann::json{{"status", "processed"}});
 }
 
+std::unique_ptr<IDataNode> ThreadPoolModuleSystem::captureModuleState(const std::string& name) {
+    std::shared_lock<std::shared_mutex> lock(modulesMutex);
+    auto it = findModule(name);
+    if (it == modules.end()) return nullptr;   // not hosted here — fail-soft
+    // Serialize with the pool worker that may be running this module's frame task (per-slot mutex).
+    std::lock_guard<std::mutex> processGuard((*it)->processMutex);
+    return (*it)->module->getState();
+}
+
+bool ThreadPoolModuleSystem::restoreModuleState(const std::string& name, const IDataNode& state) {
+    std::shared_lock<std::shared_mutex> lock(modulesMutex);
+    auto it = findModule(name);
+    if (it == modules.end()) return false;
+    std::lock_guard<std::mutex> processGuard((*it)->processMutex);
+    (*it)->module->setState(state);   // host-owned node (engine-built) — cross-DLL-safe
+    return true;
+}
+
 ModuleSystemType ThreadPoolModuleSystem::getType() const {
     return ModuleSystemType::THREAD_POOL;
 }
