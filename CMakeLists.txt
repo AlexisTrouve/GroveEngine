@@ -208,6 +208,7 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         src/EngineFactory.cpp  # âœ… Needs check
         src/DebugEngine.cpp  # âœ… Needs migration
         src/ModuleLoader.cpp  # âœ… Hot-reload support
+        src/crash/CrashHandler.cpp  # Crash reporter backend (Windows SEH + minidump / Noop elsewhere)
 
         # --- TODO: Fix API mismatch (json vs IDataNode) ---
         # src/ImGuiUI.cpp  # Requires imgui dependency
@@ -220,6 +221,11 @@ if(GROVE_BUILD_IMPLEMENTATIONS)
         spdlog::spdlog
         ${CMAKE_DL_LIBS}
     )
+
+    # Windows crash reporter needs dbghelp (MiniDumpWriteDump). MinGW ships libdbghelp.a.
+    if(WIN32)
+        target_link_libraries(grove_impl PUBLIC dbghelp)
+    endif()
 
     if(GROVE_USE_OPENSSL)
         target_link_libraries(grove_impl PUBLIC OpenSSL::Crypto)

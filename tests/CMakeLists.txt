@@ -562,6 +562,21 @@ target_include_directories(test_crash_context PRIVATE
 target_link_libraries(test_crash_context PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 grove_add_test(CrashContextUnit test_crash_context ${CMAKE_CURRENT_BINARY_DIR})
 
+# Crash handler B1b: ICrashHandler install->callback contract via the Mock backend (headless).
+add_executable(test_crash_handler_mock unit/test_crash_handler_mock.cpp)
+target_link_libraries(test_crash_handler_mock PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+grove_add_test(CrashHandlerMockUnit test_crash_handler_mock ${CMAKE_CURRENT_BINARY_DIR})
+
+# Crash handler B1b real-fault E2E: a bare-main doomed child (crash_child) + a Catch2 parent that
+# spawns it and asserts a minidump + the callback's CrashContext marker were written.
+add_executable(crash_child integration/crash_child_main.cpp)
+target_link_libraries(crash_child PRIVATE GroveEngine::core GroveEngine::impl nlohmann_json::nlohmann_json)
+
+add_executable(test_crash_handler_real integration/test_crash_handler_real.cpp)
+target_link_libraries(test_crash_handler_real PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+add_dependencies(test_crash_handler_real crash_child)   # the child exe must exist before the test runs
+grove_add_test(CrashHandlerRealE2E test_crash_handler_real ${CMAKE_CURRENT_BINARY_DIR})
+
 # Save/Load: grove::save::SaveFile (header-only; needs core for JsonDataNode/IModule).
 add_executable(test_save_file unit/test_save_file.cpp)
 target_include_directories(test_save_file PRIVATE
