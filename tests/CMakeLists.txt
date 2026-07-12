@@ -554,6 +554,20 @@ target_include_directories(test_build_config PRIVATE
 target_link_libraries(test_build_config PRIVATE GroveEngine::core Catch2::Catch2WithMain)
 grove_add_test(BuildConfigUnit test_build_config ${CMAKE_CURRENT_BINARY_DIR})
 
+# Memory tracker B2: grove::mem::Tracker (pure header-only leak layer; std + nlohmann). Two TUs
+# lock both build-gate paths: the OFF macro (default) is a no-op, the ON macro (local #define) records.
+add_executable(test_mem_tracker unit/test_mem_tracker.cpp)
+target_include_directories(test_mem_tracker PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mem_tracker PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(MemTrackerUnit test_mem_tracker ${CMAKE_CURRENT_BINARY_DIR})
+
+add_executable(test_mem_tracker_on unit/test_mem_tracker_on.cpp)
+target_include_directories(test_mem_tracker_on PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_mem_tracker_on PRIVATE GroveEngine::core Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(MemTrackerOnUnit test_mem_tracker_on ${CMAKE_CURRENT_BINARY_DIR})
+
 # Crash reporter B1a: grove::crash::CrashContext (pure header-only report payload; std + nlohmann).
 add_executable(test_crash_context unit/test_crash_context.cpp)
 target_include_directories(test_crash_context PRIVATE

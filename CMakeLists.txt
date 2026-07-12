@@ -176,6 +176,15 @@ else()
     message(STATUS "GROVE_DEBUG=OFF — shipping build (debug skin stripped)")
 endif()
 
+# grove::mem allocation tracking (B2). Opt-in + OFF by default: when OFF we add NO definition, so
+# the GROVE_MEM_TRACK_* macros are no-ops and nothing recompiles. Turn ON to activate the wired
+# alloc/free sites (a QA/leak-hunt build). Rides grove_core so any TU using the macros respects it.
+option(GROVE_MEM_TRACKING "Enable grove::mem allocation tracking (opt-in; OFF = zero cost)" OFF)
+if(GROVE_MEM_TRACKING)
+    target_compile_definitions(grove_core INTERFACE GROVE_MEM_TRACKING=1)
+    message(STATUS "GROVE_MEM_TRACKING=ON — grove::mem alloc tracking active")
+endif()
+
 # Optional: Build implementations
 option(GROVE_BUILD_IMPLEMENTATIONS "Build GroveEngine implementations" ON)
 
