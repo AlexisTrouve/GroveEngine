@@ -25,6 +25,9 @@
 #include <grove/IntraIO.h>
 #include <grove/IntraIOManager.h>
 #include <grove/JsonDataNode.h>
+#include <grove/mem/Tracker.h>          // Diagnostics: leak tracker
+#include <grove/profile/ProfileZone.h>  // Diagnostics: profiler zones
+#include <grove/crash/CrashContext.h>   // Diagnostics: crash-context snapshot
 
 #include "grove/fx/FxWorld.h"
 
@@ -141,6 +144,35 @@ void fx_authoring() {
     (void)ops;
 }
 
+// --- DEVELOPER_GUIDE "Diagnostics": crash reporter, mem tracker, profiler -------------------------
+void diagnostics() {
+    // Crash reporter: choose the output base + take a non-fatal context snapshot.
+    DebugEngine engine;
+    engine.setCrashOutputBase("logs/crash");   // -> logs/crash.dmp + logs/crash.json
+    engine.initialize();
+    grove::crash::CrashContext ctx = engine.snapshotCrashContext("manual");
+    std::string crashReport = grove::crash::toJson(ctx).dump(2);
+    (void)crashReport;
+    engine.shutdown();
+
+    // Memory leak tracker (drive it directly for your own allocations).
+    int x;
+    grove::mem::Tracker t;
+    t.onAlloc(&x, sizeof(x), "my:pool");
+    t.onFree(&x);
+    auto memReport = t.report();
+    auto leaks = t.liveBytesByTag();
+    (void)memReport; (void)leaks;
+
+    // Profiler zone + read the rolling per-frame view.
+    {
+        GROVE_PROFILE_ZONE("doc:zone");
+    }
+    auto profile = grove::profile::profiler().report();
+    grove::profile::profiler().reset();
+    (void)profile;
+}
+
 } // namespace doc
 
 int main(int argc, char**) {
@@ -150,6 +182,7 @@ int main(int argc, char**) {
         doc::engine_hosting();
         doc::json_node();
         doc::fx_authoring();
+        doc::diagnostics();
     }
     return 0;
 }

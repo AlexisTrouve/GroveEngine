@@ -1102,10 +1102,77 @@ engine.saveState("save1.json");           // captures every registered module's 
 engine.loadState("save1.json");           // applies each saved state via setState()
 ```
 Call `saveState`/`loadState` **between frames** (not during `step()`) — `getState()` must not race a module's
-`process()`. Currently covers **SEQUENTIAL-hosted modules** (same limitation as hot-reload / the state dump);
-THREADED / THREAD_POOL modules are skipped with a warning (follow-on). Modules absent from a save keep their
-state; a saved module no longer registered is ignored (the game evolved). A corrupt saved state that makes a
-module's `setState()` throw is caught + logged per module — it never aborts the whole load.
+`process()`. Covers **all hosting strategies**: SEQUENTIAL via the live module, THREADED / THREAD_POOL via a
+thread-safe snapshot taken under the module's `processMutex` (so it can't race a worker). Modules absent from a
+save keep their state; a saved module no longer registered is ignored (the game evolved). A corrupt saved state
+that makes a module's `setState()` throw is caught + logged per module — it never aborts the whole load.
+
+---
+
+## Diagnostics — crash reports, leaks, profiling
+
+The engine ships a diagnostics layer for finding problems in dev AND in a shipped build. All of it is
+**opt-in / debug-gated** (zero cost in a lean shipping build — see *Debug vs Shipping build*).
+
+### Crash reporter — a minidump + engine context on any crash
+`DebugEngine::initialize()` installs a process-wide crash handler (flag `GROVE_CRASH_REPORTER`, ON by
+default; skipped under sanitizers). On an unhandled crash it writes two files next to each other:
+`<base>.dmp` (a native minidump — stack/registers) and `<base>.json` (a **CrashContext**: engine clock,
+frame count, module list, and **the last 200 IIO messages** — the event trail that led to the fault, the
+killer artifact for a message-bus engine).
+
+```cpp
+DebugEngine engine;
+engine.setCrashOutputBase("logs/crash");   // -> logs/crash.dmp + logs/crash.json (call BEFORE initialize)
+engine.initialize();                        // crash reporter installed here
+// ... run. On a crash, the two files are written automatically. ...
+
+// You can also grab the context WITHOUT crashing (e.g. for a non-fatal error report):
+grove::crash::CrashContext ctx = engine.snapshotCrashContext("manual");
+std::string report = grove::crash::toJson(ctx).dump(2);   // the same JSON a crash would write
+```
+Enable the IIO message trail by turning the replay sink on: `IntraIOManager::getInstance().enableReplaySink(200)`.
+
+### Memory leak tracking — which grove allocation leaked, by tag
+`grove::mem::Tracker` records tagged allocations and reports what's still live (i.e. leaked) grouped by
+tag. It is NOT a global `operator new` override — grove tags its own hot allocations (e.g. IIO nodes as
+`"iio:jsonnode"`) via `GROVE_MEM_TRACK_ALLOC/_FREE`, which are **no-ops unless you build with
+`-DGROVE_MEM_TRACKING=ON`** (a QA/leak-hunt build). Drive the tracker directly for your own allocations:
+
+```cpp
+#include <grove/mem/Tracker.h>
+grove::mem::Tracker t;
+t.onAlloc(ptr, size, "my:pool");     // at your allocation site
+t.onFree(ptr);                        // at the matching free
+// ... at a checkpoint or shutdown:
+auto report = t.report();             // {"grove_mem":{liveCount, liveBytes, byTag:{...}}}
+auto leaks  = t.liveBytesByTag();     // e.g. {"my:pool": 4096} = 4 KB never freed under that tag
+```
+
+### Profiler zones — where per-frame time goes
+`GROVE_PROFILE_ZONE("name")` times the enclosing scope into a named zone (debug-only; compiled out in a
+shipping build). The engine already instruments `step()` — read `engine:step` (whole frame) and
+`engine:iopump` (IIO delivery) for a breakdown; add your own zones anywhere:
+
+```cpp
+#include <grove/profile/ProfileZone.h>
+void MyModule::process(const IDataNode& in) {
+    GROVE_PROFILE_ZONE("mymodule:process");   // times this scope
+    // ... heavy work ...
+}
+// each frame (or per second) read + reset the rolling view:
+auto profile = grove::profile::profiler().report();   // {"grove_profile":{"engine:step":{seconds,count}, ...}}
+grove::profile::profiler().reset();
+```
+
+### IIO threading contract (one owning thread per instance)
+An `IntraIO` instance is **single-owning-thread**: each module owns one instance driven by one worker. Two
+threads touching one instance (e.g. both `publish()`ing, or draining it from N threads) is a data race. A
+**debug tripwire** in `publish()`/`pullAndDispatch()` catches a violation loudly (an error log +
+`grove::detail::accessViolationCount()`) instead of letting it corrupt silently. For concurrency, give each
+thread its OWN instance — distinct instances route to each other concurrently and safely.
+
+A runnable reference exercising all of the above (prints each report): `tests/integration/test_diagnostics_demo.cpp`.
 
 **Direct-drive (you own the module objects — e.g. a static-link host):**
 ```cpp

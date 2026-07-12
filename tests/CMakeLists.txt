@@ -1287,6 +1287,12 @@ target_link_libraries(test_save_engine PRIVATE
 )
 grove_add_test(SaveEngineE2E test_save_engine ${CMAKE_CURRENT_BINARY_DIR})
 
+# Diagnostics adoptability: a runnable reference that prints a leak report + a per-frame profile + a
+# CrashContext (with the IIO trail). Guards the DEVELOPER_GUIDE "Diagnostics" snippets.
+add_executable(test_diagnostics_demo integration/test_diagnostics_demo.cpp)
+target_link_libraries(test_diagnostics_demo PRIVATE GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+grove_add_test(DiagnosticsDemo test_diagnostics_demo ${CMAKE_CURRENT_BINARY_DIR})
+
 # Anti-regression LEAK GATE (quality Phase 4): a fast core-path scenario (engine lifecycle + module routing +
 # IntraIO churn) looped so LeakSanitizer flags any per-cycle leak. On Windows = a smoke test; under a Linux/WSL
 # -DGROVE_ENABLE_ASAN=ON build, LSan makes it the real gate (non-zero exit on leak -> ctest fails). Plain main().
