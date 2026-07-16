@@ -150,6 +150,29 @@ inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade) 
     return mapview::Lens{"resource:" + field, {base, heatLayer}, {}, {}};
 }
 
+// A BIOME lens: the terrain underneath (elevation ramp + optional hillshade) + a CATEGORICAL biome overlay.
+// WHAT : field "biome" holds an integer index; Palette::categorical maps table[index] -> colour. Index 0
+//        (ocean / unclassified) is TRANSPARENT so the terrain shows through for water; land biomes paint over.
+// WHY  : gives the coloured biome map (rainforest/desert/tundra…) the ASCII/PNG worldscope views produce, but
+//        interactive (pan/zoom). `table` is built from the .world's biomes.json side-car (id -> colour) so the
+//        palette is data-driven — no biome name hardcoded in the viewer.
+// HOW  : the biome layer ALSO carries the elevation hillshade, so relief reads on the coloured land (a flat
+//        overlay would wash the shading out). Table entry 0 (and any gap) must be transparent for the water/base.
+inline mapview::Lens makeBiomeLens(const std::vector<mapview::Rgba>& table, bool hillshade) {
+    const auto stops = terrainStops();
+    mapview::Layer base{"elevation", mapview::Palette::ramp(stops), mapview::Filter::always(), 0, 1.0f};
+    if (hillshade) {
+        base.hillshadeField = "elevation";
+        base.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
+    }
+    mapview::Layer biome{"biome", mapview::Palette::categorical(table), mapview::Filter::always(), 10, 1.0f};
+    if (hillshade) {
+        biome.hillshadeField = "elevation";                                     // relief on the coloured land
+        biome.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
+    }
+    return mapview::Lens{"biome", {base, biome}, {}, {}};
+}
+
 // Build the terrain lens. `banded` switches the palette from a continuous ramp to discrete altitude bands;
 // `hillshade` toggles the relief shading. Includes a marker layer (drawn on top, layerZ 1000) so a host that
 // setMarkers() + renders MarkerDraw as sprites shows point icons over the terrain.

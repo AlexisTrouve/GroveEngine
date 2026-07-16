@@ -55,12 +55,48 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 using namespace grove;
+
+// Load the biome id->colour table from the .world's biomes.json side-car (written by `worldscope
+// --export-biomes`) -> the categorical palette table for makeBiomeLens.
+// WHAT : returns a table sized (maxId+1) where table[id] = the biome's map colour (parsed #RRGGBB, opaque);
+//        index 0 and any gap stay TRANSPARENT {0,0,0,0} so ocean/unclassified reveals the terrain base beneath.
+// WHY  : the biome INDEX rides in the .world grid (field "biome"); the id->colour mapping is NON-spatial, so it
+//        rides beside as a side-car (like core.json) — the viewer stays data-driven (no biome name hardcoded).
+// HOW  : nlohmann parse; a missing/malformed file returns an EMPTY table (caller falls back to the terrain lens).
+static std::vector<mapview::Rgba> loadBiomeColors(const std::string& dir) {
+    std::vector<mapview::Rgba> table;
+    if (dir.empty()) return table;
+    const std::filesystem::path path = std::filesystem::path(dir) / "biomes.json";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return table;
+    nlohmann::json j;
+    try { in >> j; } catch (const std::exception&) { return table; }
+    if (!j.contains("biomes") || !j["biomes"].is_array()) return table;
+    int maxId = 0;
+    for (auto& b : j["biomes"]) maxId = std::max(maxId, b.value("id", 0));
+    table.assign(static_cast<size_t>(maxId) + 1, mapview::Rgba{0.0f, 0.0f, 0.0f, 0.0f}); // 0/gaps transparent
+    for (auto& b : j["biomes"]) {
+        const int id = b.value("id", 0);
+        if (id < 0 || id > maxId) continue;
+        std::string hex = b.value("color", std::string("#808080"));
+        const char* p = hex.c_str(); if (*p == '#') ++p;
+        const unsigned rgb = static_cast<unsigned>(std::strtoul(p, nullptr, 16));
+        table[static_cast<size_t>(id)] = mapview::Rgba{
+            static_cast<float>((rgb >> 16) & 0xFFu) / 255.0f,
+            static_cast<float>((rgb >> 8)  & 0xFFu) / 255.0f,
+            static_cast<float>( rgb        & 0xFFu) / 255.0f, 1.0f};
+    }
+    return table;
+}
 
 int main(int argc, char** argv) {
     // --- args: --selftest [out.png] | --shot [out.png] [--size WxH], --load <dir> (any order) ---
@@ -71,6 +107,7 @@ int main(int argc, char** argv) {
     int  ppc = 4;                           // --ppc: pixels per cell for the poster (bigger map -> bigger PNG)
     std::string outPath = "mapview_viewer_selftest.png";
     std::string loadDir;
+    std::string lensName = "terrain";       // --lens terrain|biome : which lens the shot / initial view uses
     int outW = W, outH = H;                 // --shot output resolution (default = window size)
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -99,6 +136,8 @@ int main(int argc, char** argv) {
             }
         } else if (a == "--load") {
             if (i + 1 < argc) loadDir = argv[++i];
+        } else if (a == "--lens") {
+            if (i + 1 < argc) lensName = argv[++i];   // "biome" -> categorical biome overlay (needs biomes.json)
         }
     }
     // Clamp the shot size to a safe range (uint16 framebuffer + GPU texture limits).
@@ -204,9 +243,21 @@ int main(int argc, char** argv) {
         gIO->publish("asset:register", std::move(a));
     }
 
+    // The lens builder for the initial view / --shot. Default = terrain (elevation ramp + hillshade). `--lens
+    //   biome` swaps to the categorical biome overlay built from the .world's biomes.json side-car (id->colour);
+    //   an absent/empty side-car falls back to terrain (so the flag is safe on any world).
+    std::function<mapview::Lens(bool, bool)> lensBuilder = mvdemo::makeTerrainLens;
+    if (lensName == "biome") {
+        const std::vector<mapview::Rgba> biomeTable = loadBiomeColors(loadDir);
+        if (!biomeTable.empty())
+            lensBuilder = [biomeTable](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade); };
+        else
+            std::fprintf(stderr, "--lens biome: no/empty biomes.json in '%s' -> using terrain lens\n", loadDir.c_str());
+    }
+
     // The interaction + render object (drives the same code the E2E test injects events into).
     mvdemo::ViewerApp app(&engine, renderer, gIO.get(), vpW, vpH, *providerOwned, schema, grid,
-                          mvdemo::makeTerrainLens, resetCam);
+                          lensBuilder, resetCam);
     app.setMarkers(markers);
     app.setRegions(regions);
     app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);   // 'T' switches terrain to the retained-tile path
