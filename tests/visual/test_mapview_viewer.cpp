@@ -23,6 +23,9 @@
  *        test_mapview_viewer --load <dir> --poster [out.png] [--ppc N]
  *                                                     (headless: the WHOLE map tiled+stitched to ONE PNG at N
  *                                                      pixels/cell — no cell ceiling, no size cap: big map -> big PNG)
+ *        --lens terrain|biome|res_<type>              (which lens the initial view / --shot / --poster uses;
+ *                                                      `biome` needs the world's biomes.json side-car, `res_*` a
+ *                                                      matching density field — both fall back to terrain)
  */
 
 #define SDL_MAIN_HANDLED
@@ -222,6 +225,12 @@ int main(int argc, char** argv) {
             lensBuilder = [biomeTable](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade); };
         else
             std::fprintf(stderr, "--lens biome: no/empty biomes.json in '%s' -> using terrain lens\n", loadDir.c_str());
+    } else if (lensName.rfind("res_", 0) == 0) {
+        // `--lens res_<type>` -> that resource's density heatmap over the terrain (the same lens the HUD's
+        //   resource rows use). Lets a headless --shot/--poster capture a resource map, not just terrain/biome.
+        //   An unknown field simply renders nothing on the heat layer (MapView skips a field a chunk lacks).
+        const std::string field = lensName;
+        lensBuilder = [field](bool hillshade, bool /*banded*/) { return mvdemo::makeResourceLens(field, hillshade); };
     }
 
     // The interaction + render object (drives the same code the E2E test injects events into).
