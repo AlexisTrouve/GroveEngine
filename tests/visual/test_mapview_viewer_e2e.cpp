@@ -39,10 +39,12 @@
 #include "MapViewViewerApp.h"
 #include "MapViewHud.h"           // resources/core HUD (Input+UI on the engine) — no-op unless GROVE_MAPVIEW_HUD
 #include "MapViewPoster.h"        // renderPoster (the --poster tiled+stitched whole-map export)
+#include "MapViewBiomes.h"        // loadBiomeColors: the biomes.json side-car -> categorical palette table
 #include "PngCapture.h"
 #include "TerrainTileset.h"       // writeTerrainTileset (for the 'T' tiling mode)
 
 #include <cmath>
+#include <cstring>               // memcpy: RAW Float32 bit patterns for the synthetic biome field
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -89,6 +91,10 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
     // exercised end to end: res_iron_ore -> "Métaux", res_ice -> "Glaces&volatils" (per the HUD's category table).
     m.fields.push_back(mapview::FieldDecl{"res_iron_ore", mapview::Encoding::Unorm8, 8, 1.0, 0.0});
     m.fields.push_back(mapview::FieldDecl{"res_ice",      mapview::Encoding::Unorm8, 8, 1.0, 0.0});
+    // A synthetic BIOME index field (Float32, as Theomen's --export-biomes writes it) so the HUD's "Biomes"
+    // button + the categorical lens are exercised end to end. Values cycle 0/1/2: 0 is the transparent
+    // ocean/unclassified slot, 1 and 2 are land biomes declared in the biomes.json side-car below.
+    m.fields.push_back(mapview::FieldDecl{"biome", mapview::Encoding::Float32, 32, 1.0, 0.0});
     m.chunksDir            = "chunks";
 
     std::vector<mapview::ChunkData> chunks;
@@ -100,6 +106,7 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
             std::vector<uint32_t> elev(static_cast<size_t>(CW) * CH);
             std::vector<uint32_t> iron(static_cast<size_t>(CW) * CH);   // res_iron_ore density, raw 0..255
             std::vector<uint32_t> ice(static_cast<size_t>(CW) * CH);    // res_ice density, raw 0..255
+            std::vector<uint32_t> biome(static_cast<size_t>(CW) * CH);  // biome index, RAW Float32 bit pattern
             for (int ly = 0; ly < CH; ++ly)
                 for (int lx = 0; lx < CW; ++lx) {
                     const int gx = cx * CW + lx, gy = cy * CH + ly;
@@ -108,10 +115,14 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
                     // Smooth 0..255 blobs so the heatmap has variation (and the fields are non-empty per chunk).
                     iron[i] = static_cast<uint32_t>(127.5 + 127.0 * std::sin(gx * 0.02) * std::cos(gy * 0.017));
                     ice[i]  = static_cast<uint32_t>(127.5 + 127.0 * std::cos(gx * 0.013) * std::sin(gy * 0.021));
+                    // Big 0/1/2 patches (RAW = the float's bits, never a physical conversion — as the producer writes it).
+                    const float b = static_cast<float>(((gx / 40) + (gy / 40)) % 3);
+                    std::memcpy(&biome[i], &b, sizeof(b));
                 }
             d.fields.emplace_back("elevation", std::move(elev));
             d.fields.emplace_back("res_iron_ore", std::move(iron));
             d.fields.emplace_back("res_ice", std::move(ice));
+            d.fields.emplace_back("biome", std::move(biome));
             chunks.push_back(std::move(d));
         }
     }
@@ -126,6 +137,14 @@ static void writeTestDoc(const std::string& dir, const mapview::Compressor& z) {
             {{"material", "uranium_ore"}, {"quantity", 4.0e20}, {"fraction", 0.4}},
         })}};
     std::ofstream(std::filesystem::path(dir) / "core.json") << core.dump(2);
+
+    // A BIOME side-car (id -> {name, colour}) next to the doc, so the E2E drives the REAL biomes.json path that
+    // backs the HUD's "Biomes" button — ids 1/2 match the synthetic biome field above (0 stays the transparent slot).
+    const nlohmann::json biomes = {{"biomes", nlohmann::json::array({
+        {{"id", 1}, {"name", "forest"}, {"color", "#2E7D32"}},
+        {{"id", 2}, {"name", "desert"}, {"color", "#E6D9A8"}},
+    })}};
+    std::ofstream(std::filesystem::path(dir) / "biomes.json") << biomes.dump(2);
 }
 
 int main(int argc, char** argv) {
@@ -316,6 +335,15 @@ int main(int argc, char** argv) {
     // "Élévation" returns to the terrain lens (right end, clear of the open left drawer).
     hudClick(1190, 20);                                                  // catElev button (x 1130..1250)
     CHECK(hud.activeLens() == std::string("terrain"), "the Élévation button returns to the terrain lens");
+
+    // "Biomes" swaps to the CATEGORICAL biome lens, driven by the REAL biomes.json side-car (id -> colour).
+    hud.setBiomeTable(mvdemo::loadBiomeColors(docDir));                  // what the live viewer hands the HUD
+    CHECK(hud.hasBiomes(), "the real biomes.json side-car parses into the HUD's biome table");
+    hudClick(1072, 20);                                                  // catBiome button (x 1022..1122)
+    CHECK(hud.activeLens() == std::string("biome"),
+          "the Biomes button swaps the map to the categorical biome lens (lens:biome -> makeBiomeLens)");
+    hudClick(1190, 20);                                                  // back to terrain (leave a known state)
+    CHECK(hud.activeLens() == std::string("terrain"), "Élévation returns from the biome lens too");
     // The REAL planet-core side-car (<docDir>/core.json) reaches the core panel — NOT the mock. The HUD reads
     // it, precomputes fractionPct per composition row, and pushes the real temperature to the {{core.*}} bindings.
     CHECK(hud.loadCoreFromDir(docDir), "the real core.json side-car loads into the core panel (not the mock)");

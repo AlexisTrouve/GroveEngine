@@ -76,6 +76,7 @@ public:
         gio_->subscribe("ui:capture",       [this](const Message& m) { mouseCaptured_ = m.data->getBool("mouse", false); });
         gio_->subscribe("cat:select",       [this](const Message& m) { onCategory(m); });
         gio_->subscribe("lens:terrain",     [this](const Message&)   { app_.useTerrainLens(); activeLens_ = "terrain"; ++actionCount_; });
+        gio_->subscribe("lens:biome",       [this](const Message&)   { onBiome(); });
         gio_->subscribe("ui:list:selected", [this](const Message& m) { onResourceSelected(m); });
         gio_->subscribe("core:pick",        [this](const Message& m) { lastMaterial_ = m.data->getString("material", ""); });
     }
@@ -145,6 +146,13 @@ public:
                 {{"material", "uranium"},    {"quantity", 52000000},  {"fraction", 0.07}, {"fractionPct", 7}},
             })}});
     }
+
+    // The biome id->colour table (from the world's biomes.json side-car) that backs the "Biomes" button.
+    // WHY  : the HUD does not read the side-car itself — the host already loads it (it also drives `--lens
+    //        biome`), so it just hands the table over. An EMPTY table leaves the button a no-op, which keeps
+    //        the HUD safe on worlds exported without `--export-biomes`.
+    void setBiomeTable(std::vector<mapview::Rgba> table) { biomeTable_ = std::move(table); }
+    bool hasBiomes() const { return !biomeTable_.empty(); }
 
     // --- E2E introspection ---
     int actionCount() const { return actionCount_; }
@@ -221,6 +229,16 @@ private:
         ++actionCount_;
     }
 
+    // The "Biomes" button -> the CATEGORICAL biome lens (colour per biome index, ocean transparent so the
+    // terrain reads beneath). A world exported without `--export-biomes` has no side-car -> empty table ->
+    // the click is a NO-OP (the map keeps its current lens) rather than a blank/garbage view.
+    void onBiome() {
+        if (biomeTable_.empty()) return;                        // no biomes.json -> button inert (safe)
+        app_.setLens(mvdemo::makeBiomeLens(biomeTable_, app_.hillshade()));
+        activeLens_ = "biome";
+        ++actionCount_;
+    }
+
     static std::string prettyLabel(const std::string& field) {
         std::string s = field.rfind("res_", 0) == 0 ? field.substr(4) : field;   // drop the res_ prefix
         for (char& c : s) if (c == '_') c = ' ';
@@ -238,6 +256,7 @@ private:
     int         actionCount_ = 0;
     int         lastListCount_ = 0;
     std::string activeLens_ = "terrain";
+    std::vector<mapview::Rgba> biomeTable_;   // id -> colour (from biomes.json, set by the host); empty = no biomes
     std::string lastCategory_;
     std::string lastMaterial_;
     double      coreTempC_ = 0.0;

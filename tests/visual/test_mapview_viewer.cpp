@@ -52,51 +52,18 @@
 #include "SdlNativeHandle.h"
 #include "TerrainTileset.h"
 
+#include "MapViewBiomes.h"         // loadBiomeColors: biomes.json side-car -> categorical palette table
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 using namespace grove;
-
-// Load the biome id->colour table from the .world's biomes.json side-car (written by `worldscope
-// --export-biomes`) -> the categorical palette table for makeBiomeLens.
-// WHAT : returns a table sized (maxId+1) where table[id] = the biome's map colour (parsed #RRGGBB, opaque);
-//        index 0 and any gap stay TRANSPARENT {0,0,0,0} so ocean/unclassified reveals the terrain base beneath.
-// WHY  : the biome INDEX rides in the .world grid (field "biome"); the id->colour mapping is NON-spatial, so it
-//        rides beside as a side-car (like core.json) — the viewer stays data-driven (no biome name hardcoded).
-// HOW  : nlohmann parse; a missing/malformed file returns an EMPTY table (caller falls back to the terrain lens).
-static std::vector<mapview::Rgba> loadBiomeColors(const std::string& dir) {
-    std::vector<mapview::Rgba> table;
-    if (dir.empty()) return table;
-    const std::filesystem::path path = std::filesystem::path(dir) / "biomes.json";
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return table;
-    nlohmann::json j;
-    try { in >> j; } catch (const std::exception&) { return table; }
-    if (!j.contains("biomes") || !j["biomes"].is_array()) return table;
-    int maxId = 0;
-    for (auto& b : j["biomes"]) maxId = std::max(maxId, b.value("id", 0));
-    table.assign(static_cast<size_t>(maxId) + 1, mapview::Rgba{0.0f, 0.0f, 0.0f, 0.0f}); // 0/gaps transparent
-    for (auto& b : j["biomes"]) {
-        const int id = b.value("id", 0);
-        if (id < 0 || id > maxId) continue;
-        std::string hex = b.value("color", std::string("#808080"));
-        const char* p = hex.c_str(); if (*p == '#') ++p;
-        const unsigned rgb = static_cast<unsigned>(std::strtoul(p, nullptr, 16));
-        table[static_cast<size_t>(id)] = mapview::Rgba{
-            static_cast<float>((rgb >> 16) & 0xFFu) / 255.0f,
-            static_cast<float>((rgb >> 8)  & 0xFFu) / 255.0f,
-            static_cast<float>( rgb        & 0xFFu) / 255.0f, 1.0f};
-    }
-    return table;
-}
 
 int main(int argc, char** argv) {
     // --- args: --selftest [out.png] | --shot [out.png] [--size WxH], --load <dir> (any order) ---
@@ -246,9 +213,11 @@ int main(int argc, char** argv) {
     // The lens builder for the initial view / --shot. Default = terrain (elevation ramp + hillshade). `--lens
     //   biome` swaps to the categorical biome overlay built from the .world's biomes.json side-car (id->colour);
     //   an absent/empty side-car falls back to terrain (so the flag is safe on any world).
+    // The biome id->colour table from the world's biomes.json side-car (EMPTY when the world ships none).
+    //   Drives BOTH `--lens biome` (below) and the HUD's "Biomes" button (handed over further down).
+    const std::vector<mapview::Rgba> biomeTable = mvdemo::loadBiomeColors(loadDir);
     std::function<mapview::Lens(bool, bool)> lensBuilder = mvdemo::makeTerrainLens;
     if (lensName == "biome") {
-        const std::vector<mapview::Rgba> biomeTable = loadBiomeColors(loadDir);
         if (!biomeTable.empty())
             lensBuilder = [biomeTable](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade); };
         else
@@ -351,7 +320,9 @@ int main(int argc, char** argv) {
         // Real planet core from Theomen's <loadDir>/core.json side-car; fall back to a mock for the synthetic
         // world (no --load) or an older export without the side-car.
         if (!hud.loadCoreFromDir(loadDir)) hud.setMockCore();
-        std::fprintf(stdout, "  + resources/core HUD (%zu resource categories from the world schema)\n", hud.categoryCount());
+        hud.setBiomeTable(biomeTable);   // "Biomes" button -> categorical biome lens (inert without a side-car)
+        std::fprintf(stdout, "  + resources/core HUD (%zu resource categories from the world schema)%s\n",
+                     hud.categoryCount(), hud.hasBiomes() ? ", +Biomes lens" : "");
 #endif
         Uint32 last = SDL_GetTicks();
         while (app.running()) {
