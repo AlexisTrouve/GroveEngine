@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
     const camera::CameraView resetCam = mvdemo::fitCamera(0.0, 0.0, worldW, worldH, W, H);
 
     mvdemo::ViewerApp app(&engine, renderer, gIO.get(), W, H, provider, provider.schema(), provider.gridSpec(),
-                          mvdemo::makeTerrainLens, resetCam);
+                          [](bool hs, bool bd) { return mvdemo::makeTerrainLens(hs, bd); }, resetCam);
 
     // Region overlays (render:sector) + the 'T' tiling mode, so the E2E exercises both new paths for real.
     const int tilesetTexId = 7;
@@ -378,7 +378,7 @@ int main(int argc, char** argv) {
         const int cellsX = coord.boundsMax[0] - coord.boundsMin[0] + 1;   // 384
         const int cellsY = coord.boundsMax[1] - coord.boundsMin[1] + 1;   // 256
         mvdemo::ViewerApp posterApp(&engine, renderer, gIO.get(), tilePx, tilePx, provider,
-                                    provider.schema(), provider.gridSpec(), mvdemo::makeTerrainLens, resetCam);
+                                    provider.schema(), provider.gridSpec(), [](bool hs, bool bd) { return mvdemo::makeTerrainLens(hs, bd); }, resetCam);
         const mvdemo::PosterResult pr = mvdemo::renderPoster(posterApp, renderer, coord.boundsMin[0], coord.boundsMin[1],
                                                              cellsX, cellsY, coord.cellSize[0], ppc, tileCells);
         CHECK(pr.ok, "poster render succeeds");

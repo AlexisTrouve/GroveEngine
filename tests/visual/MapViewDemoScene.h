@@ -133,8 +133,9 @@ inline std::vector<mapview::Marker> demoMarkers() {
 // one `res_<type>` field (Unorm8 0..1, sparse per chunk). The heat palette is alpha=0 at density 0 so the
 // terrain shows through where the resource is absent; MapView skips a field missing from a chunk (sparse res_*
 // fields just work). Drives the map-viewer's resource HUD: clicking a resource swaps the active lens to this.
-inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade) {
-    const auto stops = terrainStops();
+inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade,
+                                      const std::vector<std::pair<double, mapview::Rgba>>& stopsIn = {}) {
+    const auto stops = stopsIn.empty() ? terrainStops() : stopsIn;
     mapview::Layer base{"elevation", mapview::Palette::ramp(stops), mapview::Filter::always(), 0, 1.0f};
     if (hillshade) {
         base.hillshadeField = "elevation";
@@ -158,8 +159,9 @@ inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade) 
 //        palette is data-driven — no biome name hardcoded in the viewer.
 // HOW  : the biome layer ALSO carries the elevation hillshade, so relief reads on the coloured land (a flat
 //        overlay would wash the shading out). Table entry 0 (and any gap) must be transparent for the water/base.
-inline mapview::Lens makeBiomeLens(const std::vector<mapview::Rgba>& table, bool hillshade) {
-    const auto stops = terrainStops();
+inline mapview::Lens makeBiomeLens(const std::vector<mapview::Rgba>& table, bool hillshade,
+                                   const std::vector<std::pair<double, mapview::Rgba>>& stopsIn = {}) {
+    const auto stops = stopsIn.empty() ? terrainStops() : stopsIn;
     mapview::Layer base{"elevation", mapview::Palette::ramp(stops), mapview::Filter::always(), 0, 1.0f};
     if (hillshade) {
         base.hillshadeField = "elevation";
@@ -176,8 +178,13 @@ inline mapview::Lens makeBiomeLens(const std::vector<mapview::Rgba>& table, bool
 // Build the terrain lens. `banded` switches the palette from a continuous ramp to discrete altitude bands;
 // `hillshade` toggles the relief shading. Includes a marker layer (drawn on top, layerZ 1000) so a host that
 // setMarkers() + renders MarkerDraw as sprites shows point icons over the terrain.
-inline mapview::Lens makeTerrainLens(bool hillshade, bool banded) {
-    const auto stops = terrainStops();
+// `stops` empty -> the demo ramp (a toy world: sea level ~330, peaks 1000). A REAL world-document
+//   exports elevation RELATIVE TO SEA LEVEL and its land can run to thousands of metres — feeding it
+//   the demo ramp silently clips it to snow (measured: 69% of a Theomen world's land rendered white).
+//   Callers on the --load path pass hypsometricStops(), calibrated on the document itself.
+inline mapview::Lens makeTerrainLens(bool hillshade, bool banded,
+                                     const std::vector<std::pair<double, mapview::Rgba>>& stopsIn = {}) {
+    const auto stops = stopsIn.empty() ? terrainStops() : stopsIn;
     mapview::Palette pal = banded ? mapview::Palette::banded(stops) : mapview::Palette::ramp(stops);
     mapview::Layer layer{"elevation", pal, mapview::Filter::always(), 0, 1.0f};
     if (hillshade) {

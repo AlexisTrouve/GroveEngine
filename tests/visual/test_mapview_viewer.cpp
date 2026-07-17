@@ -56,6 +56,7 @@
 #include "TerrainTileset.h"
 
 #include "MapViewBiomes.h"         // loadBiomeColors: biomes.json side-car -> categorical palette table
+#include "MapViewHypsometry.h"     // elevation ramp calibrated ON THE DOC (the demo ramp clips real land to snow)
 
 #include <algorithm>
 #include <cstdio>
@@ -163,6 +164,8 @@ int main(int argc, char** argv) {
     // World extent in CELLS, for --poster (filled from the manifest on the --load path; poster requires --load).
     int posterMinCellX = 0, posterMinCellY = 0, posterCellsX = 0, posterCellsY = 0;
     double posterCellSize = 1.0;
+    // Chunk range of the doc, for the hypsometric sampling below (filled on the --load path).
+    int chunkX0 = 0, chunkY0 = 0, chunkX1 = -1, chunkY1 = -1;
 
     if (!loadDir.empty()) {
         // Open the .world dir. Pass a zlib compressor so both raw AND compressed documents load (readChunk
@@ -175,6 +178,12 @@ int main(int argc, char** argv) {
         posterCellsX = coord.boundsMax[0] - coord.boundsMin[0] + 1;
         posterCellsY = coord.boundsMax[1] - coord.boundsMin[1] + 1;
         posterCellSize = coord.cellSize[0];
+        {   // plage de chunks -> échantillonnage hypsométrique (rampe calibrée sur le doc)
+            const int cw = coord.chunkDims[0] > 0 ? coord.chunkDims[0] : 128;
+            const int chh = coord.chunkDims[1] > 0 ? coord.chunkDims[1] : 128;
+            chunkX0 = coord.boundsMin[0] / cw; chunkY0 = coord.boundsMin[1] / chh;
+            chunkX1 = coord.boundsMax[0] / cw; chunkY1 = coord.boundsMax[1] / chh;
+        }
         const double worldW = static_cast<double>(coord.boundsMax[0] - coord.boundsMin[0] + 1) * coord.cellSize[0];
         const double worldH = static_cast<double>(coord.boundsMax[1] - coord.boundsMin[1] + 1) * coord.cellSize[1];
         resetCam = mvdemo::fitCamera(coord.boundsMin[0] * coord.cellSize[0], coord.boundsMin[1] * coord.cellSize[1],
@@ -219,10 +228,27 @@ int main(int argc, char** argv) {
     // The biome id->colour table from the world's biomes.json side-car (EMPTY when the world ships none).
     //   Drives BOTH `--lens biome` (below) and the HUD's "Biomes" button (handed over further down).
     const std::vector<mapview::Rgba> biomeTable = mvdemo::loadBiomeColors(loadDir);
-    std::function<mapview::Lens(bool, bool)> lensBuilder = mvdemo::makeTerrainLens;
+
+    // HYPSOMETRY — calibrate the elevation ramp ON THE DOCUMENT (see MapViewHypsometry.h for the why).
+    //   The demo stops are a toy world's (sea ~330, peaks 1000); a real doc exports elevation RELATIVE
+    //   TO SEA LEVEL with land in the thousands, so the demo ramp clips it to snow — measured on a
+    //   Theomen world: land median 2214 m vs a ramp going white at 1000 -> 69% of all land WHITE, every
+    //   ridge and cordillera invisible. Sampled once here and shared by ALL THREE lenses: terrain,
+    //   resource and biome each draw the same elevation base underneath, so fixing only `terrain` would
+    //   leave two of three maps still washed out. Empty (demo path / no elevation) -> demo stops.
+    std::vector<std::pair<double, mapview::Rgba>> hypsoStops;
+    if (!loadDir.empty() && chunkX1 >= chunkX0) {
+        // stride 1: a world-overview doc is a handful of chunks — no need to sub-sample yet.
+        auto samples = mvdemo::sampleElevation(*providerOwned, schema, chunkX0, chunkY0, chunkX1, chunkY1, 1);
+        hypsoStops = mvdemo::hypsometricStops(std::move(samples), {});
+        mvdemo::logHypsometry(hypsoStops.empty() ? mvdemo::terrainStops() : hypsoStops, !hypsoStops.empty());
+    }
+
+    std::function<mapview::Lens(bool, bool)> lensBuilder =
+        [hypsoStops](bool hillshade, bool banded) { return mvdemo::makeTerrainLens(hillshade, banded, hypsoStops); };
     if (lensName == "biome") {
         if (!biomeTable.empty())
-            lensBuilder = [biomeTable](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade); };
+            lensBuilder = [biomeTable, hypsoStops](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade, hypsoStops); };
         else
             std::fprintf(stderr, "--lens biome: no/empty biomes.json in '%s' -> using terrain lens\n", loadDir.c_str());
     } else if (lensName.rfind("res_", 0) == 0) {
@@ -230,7 +256,7 @@ int main(int argc, char** argv) {
         //   resource rows use). Lets a headless --shot/--poster capture a resource map, not just terrain/biome.
         //   An unknown field simply renders nothing on the heat layer (MapView skips a field a chunk lacks).
         const std::string field = lensName;
-        lensBuilder = [field](bool hillshade, bool /*banded*/) { return mvdemo::makeResourceLens(field, hillshade); };
+        lensBuilder = [field, hypsoStops](bool hillshade, bool /*banded*/) { return mvdemo::makeResourceLens(field, hillshade, hypsoStops); };
     }
 
     // The interaction + render object (drives the same code the E2E test injects events into).
