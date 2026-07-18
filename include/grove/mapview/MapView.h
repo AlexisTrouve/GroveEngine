@@ -57,6 +57,13 @@ struct GridSpec {
     int    chunkD{1};
     double cellW{1.0};
     double cellH{1.0};
+    // World size in CELLS (0 = unknown). Needed to decode PARTIAL edge chunks: a world whose width isn't a
+    //   multiple of chunkW has a last column of chunks only (worldW - lastChunkX*chunkW) cells wide — their
+    //   blob is row-major at THAT stride, not chunkW. Without this, MapView decodes them at the full chunkW
+    //   stride and scrambles the cells into horizontal streaks (a 1536-wide world hid the bug: 1536 = 12*128
+    //   exactly; a derived world like 1625 does not). 0 -> assume full chunks (back-compat).
+    int    worldW{0};
+    int    worldH{0};
 };
 
 class MapView {
@@ -87,7 +94,6 @@ public:
 
         const int W = grid_.chunkW, H = grid_.chunkH, D = grid_.chunkD;
         if (W <= 0 || H <= 0 || D <= 0 || grid_.cellW <= 0.0 || grid_.cellH <= 0.0) return;
-        const int cellsPerLayer = W * H;
         const int chunkZ = static_cast<int>(std::floor(static_cast<double>(zSlice_) / D));
 
         // 1. cull (viewport + prefetch margin) -> visible chunks at this layer.
@@ -104,6 +110,15 @@ public:
             const ChunkData* cd = cache_.get(cc);
             if (cd == nullptr) continue;  // absent chunk -> nothing to draw
 
+            // ACTUAL width/height of THIS chunk (partial at the world's right/bottom edge). If the world
+            //   size is known and this is a boundary chunk, the blob is only cw×ch cells (row-major at
+            //   stride cw), not chunkW×chunkH -> decode at the real stride or the cells scramble (streaks).
+            //   worldW/H == 0 (unknown) -> full chunk (back-compat with the demo world).
+            int cw = W, ch = H;
+            if (grid_.worldW > 0) { const int r = grid_.worldW - cc.x * W; if (r > 0 && r < W) cw = r; }
+            if (grid_.worldH > 0) { const int r = grid_.worldH - cc.y * H; if (r > 0 && r < H) ch = r; }
+            const int cellsPerLayer = cw * ch;
+
             for (const Layer& layer : lens_.layers) {
                 const auto fit = fieldByName_.find(layer.field);
                 if (fit == fieldByName_.end()) continue;            // field not in schema
@@ -118,8 +133,8 @@ public:
                     const int gz = cc.z * D + localZ;
                     if (gz != zSlice_) continue;                    // only the active z-slice
 
-                    const int gx = cc.x * W + (rem % W);
-                    const int gy = cc.y * H + (rem / W);
+                    const int gx = cc.x * W + (rem % cw);   // stride = ACTUAL chunk width (partial-aware)
+                    const int gy = cc.y * H + (rem / cw);
                     const double phys = decodePhysical(fd, (*vals)[idx]);
 
                     // Filter — a leaf may reference OTHER fields, resolved at this cell via the sampler.
@@ -161,24 +176,30 @@ public:
         if (!lens_.tileLayers.empty()) {
             const int localZ = zSlice_ - chunkZ * D;                 // the z-layer within a visible chunk
             if (localZ >= 0 && localZ < D) {
-                const size_t sliceOff = static_cast<size_t>(localZ) * static_cast<size_t>(cellsPerLayer);
                 for (const ChunkCoord& cc : visible) {
                     const ChunkData* cd = cache_.get(cc);
                     if (cd == nullptr) continue;                     // absent chunk -> no tiles (fail-franc)
+                    // ACTUAL chunk size (partial at the world edge) — same rule as the cell path above ; the
+                    //   tilemap must be cw×ch, not chunkW×chunkH, or the edge chunk streaks/reads OOB.
+                    int cw = W, ch = H;
+                    if (grid_.worldW > 0) { const int r = grid_.worldW - cc.x * W; if (r > 0 && r < W) cw = r; }
+                    if (grid_.worldH > 0) { const int r = grid_.worldH - cc.y * H; if (r > 0 && r < H) ch = r; }
+                    const int cellsPerLayer = cw * ch;
+                    const size_t sliceOff = static_cast<size_t>(localZ) * static_cast<size_t>(cellsPerLayer);
                     for (const TileLayer& tl : lens_.tileLayers) {
                         const auto fit = fieldByName_.find(tl.field);
                         if (fit == fieldByName_.end()) continue;     // field not in schema
                         const FieldDecl& fd = *fit->second;
                         const std::vector<uint32_t>* vals = cd->get(tl.field);
                         if (vals == nullptr) continue;               // field absent in this chunk (fail-franc)
-                        // Guard a ragged/short chunk: the active z-slice's dense W*H block must fit.
+                        // Guard a ragged/short chunk: the active z-slice's dense cw*ch block must fit.
                         if (sliceOff + static_cast<size_t>(cellsPerLayer) > vals->size()) continue;
 
                         TileChunkDraw tc;
                         tc.chunkX = cc.x;
                         tc.chunkY = cc.y;
-                        tc.width  = W;
-                        tc.height = H;
+                        tc.width  = cw;   // ACTUAL width (partial-aware)
+                        tc.height = ch;
                         tc.worldX = static_cast<double>(cc.x) * W * grid_.cellW;  // chunk top-left corner
                         tc.worldY = static_cast<double>(cc.y) * H * grid_.cellH;
                         tc.tileW  = grid_.cellW;
@@ -270,9 +291,17 @@ private:
         if (vals == nullptr) return false;
         const auto fit = fieldByName_.find(field);
         if (fit == fieldByName_.end()) return false;
+        // ACTUAL chunk stride (partial at the world edge) — MUST match the blob's row-major layout, else the
+        //   local index is wrong and hillshade/filter reads a scrambled cell (the residual streaks). Same rule
+        //   as the cell/tile paths. A coord in the phantom part of a partial chunk (lx>=cw) is OFF-WORLD -> false
+        //   (so a hillshade neighbour past the right/bottom edge falls back to the centre, as intended).
+        int cw = W, ch = H;
+        if (grid_.worldW > 0) { const int r = grid_.worldW - cx * W; if (r > 0 && r < W) cw = r; }
+        if (grid_.worldH > 0) { const int r = grid_.worldH - cy * H; if (r > 0 && r < H) ch = r; }
         const int lx = gx - cx * W, ly = gy - cy * H, lz = gz - cz * D;
-        const size_t i = static_cast<size_t>(lz) * static_cast<size_t>(W * H)
-                       + static_cast<size_t>(ly) * static_cast<size_t>(W)
+        if (lx >= cw || ly >= ch) return false;                 // phantom cell of a partial chunk -> off-world
+        const size_t i = static_cast<size_t>(lz) * static_cast<size_t>(cw * ch)
+                       + static_cast<size_t>(ly) * static_cast<size_t>(cw)
                        + static_cast<size_t>(lx);
         if (i >= vals->size()) return false;
         out = decodePhysical(*fit->second, (*vals)[i]);

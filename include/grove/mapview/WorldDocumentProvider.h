@@ -66,7 +66,13 @@ public:
     GridSpec gridSpec() const {
         const auto& cd = manifest_.coordinate.chunkDims;   // {W,H,D} cells per chunk
         const auto& cs = manifest_.coordinate.cellSize;    // {x,y} world units per cell
-        return GridSpec{cd[0], cd[1], cd[2], cs[0], cs[1]};
+        const auto& bmin = manifest_.coordinate.boundsMin; // inclusive
+        const auto& bmax = manifest_.coordinate.boundsMax;
+        // World size in CELLS (inclusive bounds) -> MapView decodes PARTIAL edge chunks at their real stride.
+        //   Without it, a world whose width isn't a multiple of chunkW streaks at the right/bottom edge.
+        const int worldW = bmax[0] - bmin[0] + 1;
+        const int worldH = bmax[1] - bmin[1] + 1;
+        return GridSpec{cd[0], cd[1], cd[2], cs[0], cs[1], worldW, worldH};
     }
 
 private:
