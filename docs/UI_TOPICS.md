@@ -76,6 +76,9 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `render:text:add` | `{renderId, x, y, text, fontSize, color, layer}` | Register new text |
 | `render:text:update` | `{renderId, x, y, text, fontSize, color, layer}` | Update existing text |
 | `render:text:remove` | `{renderId}` | Unregister text |
+| `render:nineslice:add` | `{renderId, x, y, w, h, asset\|textureId, srcW, srcH, left, right, top, bottom, color, layer, clip?}` | Register a 9-slice (nine-patch) **frame** — a composed border texture that keeps crisp corners + continuous edges at any size. `x,y`=**top-left corner** (like `render:rect`, NOT a centre); `srcW/srcH`=the art's native px dims; `left/right/top/bottom`=margin thicknesses (px, source space). The renderer expands it into up to 9 quads (corners native, edges/centre stretched); `asset` (atlas-aware) wins over `textureId`; `color` tints the whole frame |
+| `render:nineslice:update` | same as `:add` | Re-expand the frame in place (resize restretches edges, retexture/tint swaps art) |
+| `render:nineslice:remove` | `{renderId}` | Unregister the frame (drops all expanded quads) |
 
 ### Rendering (Immediate Mode - Legacy)
 

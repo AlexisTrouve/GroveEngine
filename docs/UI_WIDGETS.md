@@ -103,10 +103,26 @@ Clickable button with hover/press states.
 - `onClick` - Action name published to `ui:action`
 - `asset` - Streamed **asset id** (string, e.g. `"icons/iron"`) — draws the bg as a sprite resolved by the
   AssetManager (atlas-aware, on-demand stream + budget). Bindable: `"asset":"{{icon}}"`. Wins over `texture`/`textureId`.
+- `frame` - **9-slice (nine-patch) border** (see below) — a composed border texture that gives the button a
+  continuous, crisp border at any size. When set, it REPLACES the flat border-rect + bg fill.
 - `style` - Visual states (normal, hover, pressed)
-  - `bgColor` - Background color (hex RGBA)
+  - `bgColor` - Background color (hex RGBA) — also the **tint of the 9-slice frame**, so hover/pressed re-tint it
   - `textColor` - Text color (hex RGBA)
   - `textureId` - Sprite texture ID (0 = solid color)
+
+**`frame` — composed 9-slice border** (buttons AND windows):
+
+```json
+"frame": { "asset": "ui/button_frame", "srcW": 32, "srcH": 32, "inset": 8 }
+```
+
+- `asset` - streamed border art id (atlas-aware). A numeric `textureId` alternative is also accepted.
+- `srcW`, `srcH` - the border art's **native pixel dimensions**.
+- `inset` - margin thickness (px, source space) applied to all four sides. Override per-side with
+  `left` / `right` / `top` / `bottom`. The margins keep their native pixel size (crisp corners); the edges
+  stretch along one axis and the centre fills — so the border stays continuous at any button/window size.
+- Publishes `render:nineslice:add` (one entry, expanded renderer-side into up to 9 quads). Empty/absent
+  `frame` → the classic flat look, unchanged.
 
 **Events:**
 - `ui:click` - `{widgetId, x, y}`

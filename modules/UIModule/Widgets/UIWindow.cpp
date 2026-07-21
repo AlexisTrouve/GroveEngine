@@ -94,19 +94,32 @@ void UIWindow::render(UIRenderer& renderer) {
         m_titleTextId = renderer.registerEntry();  // title text
         m_closeId    = renderer.registerEntry();   // close button
         m_resizeGripId = renderer.registerEntry(); // resize grip (bottom-right)
+        m_frameId    = renderer.registerEntry();   // 9-slice chrome (used only when frameAsset is set)
         m_registered = true;
         setDestroyCallback([&renderer, tb = m_titleBarId, tt = m_titleTextId, cl = m_closeId,
-                            gr = m_resizeGripId](uint32_t id) {
+                            gr = m_resizeGripId, fr = m_frameId](uint32_t id) {
             renderer.unregisterEntry(id);
             renderer.unregisterEntry(tb);
             renderer.unregisterEntry(tt);
             renderer.unregisterEntry(cl);
             renderer.unregisterEntry(gr);
+            renderer.unregisterEntry(fr);
         });
     }
 
-    // Window background (whole window), then the title bar strip over its top.
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
+    // Window background: a 9-slice composed frame (continuous border) when frameAsset is set, else a solid
+    // rect. The two are mutually exclusive — the unused one is collapsed to zero so they never co-draw. The
+    // title bar + chrome always draw ON TOP of whichever background was used.
+    const bool useFrame = !frameAsset.empty() && frameSrcW > 0.0f && frameSrcH > 0.0f;
+    if (useFrame) {
+        renderer.updateNineSlice(m_frameId, absX, absY, width, height, frameAsset, /*textureId=*/0,
+                                 frameSrcW, frameSrcH, frameL, frameR, frameT, frameB,
+                                 bgColor, renderer.nextLayer());
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());        // solid bg idle
+    } else {
+        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
+        renderer.updateNineSlice(m_frameId, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, bgColor, renderer.nextLayer()); // frame idle
+    }
     renderer.updateRect(m_titleBarId, absX, absY, width, titleBarHeight, titleBarColor, renderer.nextLayer());
 
     // Title text, vertically centered in the bar.
@@ -147,6 +160,7 @@ void UIWindow::releaseRenderEntries(UIRenderer& renderer) {
     if (m_titleTextId != 0)  { renderer.unregisterEntry(m_titleTextId);  m_titleTextId = 0; }
     if (m_closeId != 0)      { renderer.unregisterEntry(m_closeId);      m_closeId = 0; }
     if (m_resizeGripId != 0) { renderer.unregisterEntry(m_resizeGripId); m_resizeGripId = 0; }
+    if (m_frameId != 0)      { renderer.unregisterEntry(m_frameId);      m_frameId = 0; }
     UIWidget::releaseRenderEntries(renderer);
 }
 

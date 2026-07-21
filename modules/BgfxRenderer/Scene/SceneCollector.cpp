@@ -3,6 +3,7 @@
 #include "grove/IDataNode.h"
 #include "../Frame/FrameAllocator.h"
 #include "../Assets/AssetManager.h"   // resolve a sprite's "asset" id -> texture id
+#include "grove/ui/NineSlice.h"        // pure 9-slice geometry (render:nineslice expansion)
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -79,6 +80,18 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         }
         else if (msg.topic == "render:sprite:remove") {
             parseSpriteRemove(*msg.data);
+        }
+        // Retained mode - 9-slice (nine-patch) frame: ONE message describes a bordered box; we expand it
+        // into up to 9 retained sprites (corners/edges/centre) so the whole retained pipeline (HUD bucket,
+        // clip, tint) draws it with no new pass. See parseNineSliceAdd.
+        else if (msg.topic == "render:nineslice:add") {
+            parseNineSliceAdd(*msg.data);
+        }
+        else if (msg.topic == "render:nineslice:update") {
+            parseNineSliceUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:nineslice:remove") {
+            parseNineSliceRemove(*msg.data);
         }
         // Retained mode - text
         else if (msg.topic == "render:text:add") {
@@ -1123,6 +1136,109 @@ void SceneCollector::parseSpriteRemove(const IDataNode& data) {
     // is a no-op. render:sprite:remove carries no "space", so we can't know which without this.
     m_retainedSprites.erase(renderId);
     m_retainedHudSprites.erase(renderId);
+}
+
+// ============================================================================
+// 9-slice (nine-patch) frame — retained. See the declarations in SceneCollector.h.
+// ============================================================================
+
+void SceneCollector::parseNineSliceAdd(const IDataNode& data)    { expandNineSlice(data); }
+void SceneCollector::parseNineSliceUpdate(const IDataNode& data) { expandNineSlice(data); }
+
+void SceneCollector::parseNineSliceRemove(const IDataNode& data) {
+    uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    // Drop every possible child (0..8) from BOTH buckets — the parent may have expanded to fewer than 9
+    // quads, and remove carries no "space", so erase the full superset in both (each erase is a no-op miss).
+    for (int i = 0; i < 9; ++i) {
+        const uint32_t cid = nineSliceChildId(renderId, i);
+        m_retainedSprites.erase(cid);
+        m_retainedHudSprites.erase(cid);
+    }
+}
+
+// QUOI : (ré)expanse un nine-slice en jusqu'à 9 sprites retained. POURQUOI : porter le bord continu sur le
+//   pipeline sprite existant (bucket HUD, clip, teinte) sans nouveau pass — 1 message -> N quads. COMMENT :
+//   1. lire la cible (x,y = coin haut-gauche, w,h) + la NinePatch (dims source + marges) ; 2. résoudre la
+//   texture (asset streamé -> texId + sous-rect UV d'atlas ; sinon textureId numérique, UV plein [0,1]) ;
+//   3. calculer les quads (grove::ui::computeNineSlice) ; 4. purger les 9 enfants des DEUX buckets (état
+//   propre : le nombre de quads a pu changer, ou l'espace a basculé) ; 5. pour chaque quad, composer
+//   l'UV d'atlas avec l'UV du quad (atlasUV ∘ sliceUV), fabriquer la SpriteInstance (centre = coin+½taille)
+//   et l'insérer dans le bon bucket (screen -> HUD). Le clip/teinte rident dans reserved[]/r,g,b,a comme un
+//   sprite normal, donc finalize() les traite à l'identique.
+void SceneCollector::expandNineSlice(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    // 1. Cible + NinePatch. x,y = coin haut-gauche (convention render:rect/text, PAS de centre ici).
+    const float dx = static_cast<float>(data.getDouble("x", 0.0));
+    const float dy = static_cast<float>(data.getDouble("y", 0.0));
+    const float dw = static_cast<float>(data.getDouble("w", 0.0));
+    const float dh = static_cast<float>(data.getDouble("h", 0.0));
+    grove::ui::NinePatch np;
+    np.srcW   = static_cast<float>(data.getDouble("srcW", 0.0));
+    np.srcH   = static_cast<float>(data.getDouble("srcH", 0.0));
+    np.left   = static_cast<float>(data.getDouble("left", 0.0));
+    np.right  = static_cast<float>(data.getDouble("right", 0.0));
+    np.top    = static_cast<float>(data.getDouble("top", 0.0));
+    np.bottom = static_cast<float>(data.getDouble("bottom", 0.0));
+
+    // 2. Texture + UV d'atlas de base. asset streamé (atlas-aware) l'emporte sur textureId numérique.
+    int texId = 0;
+    float au0 = 0.0f, av0 = 0.0f, au1 = 1.0f, av1 = 1.0f;
+    const std::string asset = data.getString("asset", "");
+    if (!asset.empty() && m_assetMgr) {
+        texId = static_cast<int>(m_assetMgr->resolveSprite(asset, au0, av0, au1, av1));
+    } else {
+        texId = data.getInt("textureId", 0);
+    }
+
+    // 3. Géométrie des 9 quads (maths pures, headless-testées).
+    grove::ui::NinePatchQuad quads[9];
+    const int n = grove::ui::computeNineSlice(np, dx, dy, dw, dh, quads);
+
+    // Couleur (teinte de tout le cadre) + clip container, décodés une fois pour les N enfants.
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
+    const float cr = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    const float cg = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    const float cb = static_cast<float>((color >> 8)  & 0xFF) / 255.0f;
+    const float ca = static_cast<float>( color        & 0xFF) / 255.0f;
+    const float layer = static_cast<float>(data.getInt("layer", 0));
+    const float clipX = static_cast<float>(data.getDouble("clipX", 0.0));
+    const float clipY = static_cast<float>(data.getDouble("clipY", 0.0));
+    const float clipW = static_cast<float>(data.getDouble("clipW", 0.0));
+    const float clipH = static_cast<float>(data.getDouble("clipH", 0.0));
+
+    // 4. Purge des enfants dans LES DEUX buckets (état propre avant réinsertion).
+    for (int i = 0; i < 9; ++i) {
+        const uint32_t cid = nineSliceChildId(renderId, i);
+        m_retainedSprites.erase(cid);
+        m_retainedHudSprites.erase(cid);
+    }
+    auto& bucket = isScreenSpace(data) ? m_retainedHudSprites : m_retainedSprites;
+
+    // 5. Une SpriteInstance par quad : centre = coin + ½taille ; UV = atlasUV ∘ sliceUV.
+    const float aw = au1 - au0, ah = av1 - av0;
+    for (int i = 0; i < n; ++i) {
+        const grove::ui::NinePatchQuad& q = quads[i];
+        SpriteInstance sprite;
+        sprite.x = q.x + q.w * 0.5f;     // le pipeline sprite attend un CENTRE
+        sprite.y = q.y + q.h * 0.5f;
+        sprite.scaleX = q.w;
+        sprite.scaleY = q.h;
+        sprite.rotation = 0.0f;
+        sprite.u0 = au0 + q.u0 * aw;      // composer le sous-rect du quad DANS le sous-rect d'atlas
+        sprite.v0 = av0 + q.v0 * ah;
+        sprite.u1 = au0 + q.u1 * aw;
+        sprite.v1 = av0 + q.v1 * ah;
+        sprite.textureId = static_cast<float>(texId);
+        sprite.layer = layer;
+        sprite.padding0 = 0.0f;
+        sprite.reserved[0] = clipX; sprite.reserved[1] = clipY;
+        sprite.reserved[2] = clipW; sprite.reserved[3] = clipH;
+        sprite.r = cr; sprite.g = cg; sprite.b = cb; sprite.a = ca;
+        bucket[nineSliceChildId(renderId, i)] = sprite;
+    }
 }
 
 void SceneCollector::parseTextAdd(const IDataNode& data) {

@@ -30,21 +30,50 @@ void UIButton::update(UIContext& ctx, float deltaTime) {
 }
 
 void UIButton::render(UIRenderer& renderer) {
-    // Register with renderer on first render (need 2 entries: bg + text)
+    // Register with renderer on first render (bg + text + border rect + optional 9-slice frame)
     if (!m_registered) {
         m_renderId = renderer.registerEntry();       // Background
         m_textRenderId = renderer.registerEntry();   // Text
-        m_borderId = renderer.registerEntry();       // Border frame
+        m_borderId = renderer.registerEntry();       // Border frame (flat-rect look)
+        m_frameId = renderer.registerEntry();        // 9-slice chrome (used only when frameAsset is set)
         m_registered = true;
-        // Set destroy callback to unregister all three
-        setDestroyCallback([&renderer, textId = m_textRenderId, borderId = m_borderId](uint32_t id) {
+        // Set destroy callback to unregister all four
+        setDestroyCallback([&renderer, textId = m_textRenderId, borderId = m_borderId,
+                            frameId = m_frameId](uint32_t id) {
             renderer.unregisterEntry(id);
             renderer.unregisterEntry(textId);
             renderer.unregisterEntry(borderId);
+            renderer.unregisterEntry(frameId);
         });
     }
 
     const ButtonStyle& style = getCurrentStyle();
+
+    // 9-slice CHROME path: a composed border texture replaces the flat border-rect + bg fill entirely. The
+    // whole box is one render:nineslice, TINTED by the state's bgColor (hover/pressed re-tint for free). We
+    // still draw the text on top. The flat-look entries (border rect + bg) are collapsed to zero so they
+    // don't double-draw. `frameSrcW/H > 0` is required (no source dims -> can't map UVs) — else fall through.
+    if (!frameAsset.empty() && frameSrcW > 0.0f && frameSrcH > 0.0f) {
+        int frameLayer = renderer.nextLayer();
+        renderer.updateNineSlice(m_frameId, absX, absY, width, height, frameAsset, /*textureId=*/0,
+                                 frameSrcW, frameSrcH, frameL, frameR, frameT, frameB,
+                                 style.bgColor, frameLayer);
+        // Collapse the flat-look entries so they never co-draw with the frame.
+        renderer.updateRect(m_borderId, 0, 0, 0, 0, 0, renderer.nextLayer());
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());
+
+        if (!text.empty()) {
+            int textLayer = renderer.nextLayer();
+            renderer.updateText(m_textRenderId, absX + width * 0.5f, absY + height * 0.5f,
+                                text, fontSize, style.textColor, textLayer);
+        } else {
+            renderer.updateText(m_textRenderId, 0, 0, "", fontSize, 0, renderer.nextLayer());
+        }
+        renderChildren(renderer);
+        return;
+    }
+    // No 9-slice: keep the frame entry idle (collapsed) so a widget that toggles frameAsset off recovers.
+    renderer.updateNineSlice(m_frameId, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, renderer.nextLayer());
 
     static int logCount = 0;
     if (logCount < 10) {  // Log first 10 buttons to see all textured ones
@@ -131,6 +160,7 @@ bool UIButton::containsPoint(float px, float py) const {
 void UIButton::releaseRenderEntries(UIRenderer& renderer) {
     if (m_textRenderId != 0) { renderer.unregisterEntry(m_textRenderId); m_textRenderId = 0; }
     if (m_borderId != 0)     { renderer.unregisterEntry(m_borderId);     m_borderId = 0; }
+    if (m_frameId != 0)      { renderer.unregisterEntry(m_frameId);      m_frameId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId (bg) + recurses to children
 }
 

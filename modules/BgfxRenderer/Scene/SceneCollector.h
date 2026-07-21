@@ -136,6 +136,22 @@ private:
     void parseSpriteAdd(const IDataNode& data);
     void parseSpriteUpdate(const IDataNode& data);
     void parseSpriteRemove(const IDataNode& data);
+
+    // 9-slice (nine-patch) frame — retained. ONE render:nineslice:{add,update} describes a bordered box
+    // (target rect + border texture/asset + margin insets); we EXPAND it into up to 9 retained sprites
+    // (corners native, edges/centre stretched) so the existing sprite pipeline (HUD bucket, clip, tint)
+    // draws it — no new pass. add == update == a full re-expand (erase the 9 children, rebuild); remove
+    // drops the 9 children. The children live in a RESERVED render-id space (nineSliceChildId, top bit set)
+    // so they never collide with ordinary retained sprites (whose ids are small + never set the top bit).
+    void parseNineSliceAdd(const IDataNode& data);
+    void parseNineSliceUpdate(const IDataNode& data);
+    void parseNineSliceRemove(const IDataNode& data);
+    void expandNineSlice(const IDataNode& data);   // shared add/update body (erase children + rebuild)
+    // Derive the i-th (0..8) child sprite id of a nine-slice parent. Reserved top-bit space, parent masked
+    // to 28 bits then shifted 4 to leave room for the index — collision-free vs ordinary small render ids.
+    static uint32_t nineSliceChildId(uint32_t parent, int i) {
+        return 0x80000000u | ((parent & 0x0FFFFFFFu) << 4) | (static_cast<uint32_t>(i) & 0xFu);
+    }
     void parseTextAdd(const IDataNode& data);
     void parseTextUpdate(const IDataNode& data);
     void parseTextRemove(const IDataNode& data);

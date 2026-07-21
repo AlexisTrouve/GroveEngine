@@ -23,6 +23,8 @@ void UIRenderer::unregisterEntry(uint32_t renderId) {
         // Send remove message based on type
         if (it->second.type == RenderEntryType::Text) {
             publishTextRemove(renderId);
+        } else if (it->second.type == RenderEntryType::NineSlice) {
+            publishNineSliceRemove(renderId);   // renderer drops all 9 expanded children
         } else {
             publishSpriteRemove(renderId);
         }
@@ -193,6 +195,109 @@ bool UIRenderer::updateSpriteImpl(uint32_t renderId, float x, float y, float w, 
     }
 
     return false;
+}
+
+bool UIRenderer::updateNineSlice(uint32_t renderId, float x, float y, float w, float h,
+                                 const std::string& assetId, int textureId,
+                                 float srcW, float srcH, float left, float right, float top, float bottom,
+                                 uint32_t color, int layer) {
+    if (!m_io) return false;
+
+    const ClipRect clip = currentClip();
+    auto it = m_entries.find(renderId);
+    if (it == m_entries.end()) {
+        // New entry — store the full 9-slice descriptor and publish the add.
+        RenderEntry entry;
+        entry.type = RenderEntryType::NineSlice;
+        entry.x = x; entry.y = y; entry.w = w; entry.h = h;
+        entry.textureId = textureId; entry.assetId = assetId;
+        entry.color = color; entry.layer = layer;
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
+        entry.nsSrcW = srcW; entry.nsSrcH = srcH;
+        entry.nsL = left; entry.nsR = right; entry.nsT = top; entry.nsB = bottom;
+        m_entries[renderId] = entry;
+        publishNineSliceAdd(renderId, x, y, w, h, assetId, textureId, srcW, srcH, left, right, top, bottom, color, layer);
+        return true;
+    }
+
+    // Change-detect: any of the target rect, texture, tint, clip, source dims or margins moving republishes
+    // (a resize restretches the edges; a retexture/tint swaps the art; a clip change re-scissors).
+    RenderEntry& entry = it->second;
+    bool changed = !floatEqual(entry.x, x) || !floatEqual(entry.y, y) ||
+                   !floatEqual(entry.w, w) || !floatEqual(entry.h, h) ||
+                   entry.textureId != textureId || entry.assetId != assetId || entry.color != color ||
+                   !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
+                   !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h) ||
+                   !floatEqual(entry.nsSrcW, srcW) || !floatEqual(entry.nsSrcH, srcH) ||
+                   !floatEqual(entry.nsL, left) || !floatEqual(entry.nsR, right) ||
+                   !floatEqual(entry.nsT, top) || !floatEqual(entry.nsB, bottom);
+
+    if (changed) {
+        entry.x = x; entry.y = y; entry.w = w; entry.h = h;
+        entry.textureId = textureId; entry.assetId = assetId; entry.color = color;
+        entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
+        entry.nsSrcW = srcW; entry.nsSrcH = srcH;
+        entry.nsL = left; entry.nsR = right; entry.nsT = top; entry.nsB = bottom;
+        publishNineSliceUpdate(renderId, x, y, w, h, assetId, textureId, srcW, srcH, left, right, top, bottom, color, entry.layer);
+        return true;
+    }
+    return false;
+}
+
+// Shared body for the add/update publish (identical payload, different topic). x,y = top-left CORNER of the
+// target box (nine-patch is a frame, like render:rect/text — NOT a centre). space:"screen" -> HUD bucket.
+static void fillNineSliceNode(JsonDataNode& node, uint32_t renderId, float x, float y, float w, float h,
+                              const std::string& assetId, int textureId,
+                              float srcW, float srcH, float left, float right, float top, float bottom,
+                              uint32_t color, int layer, float clipX, float clipY, float clipW, float clipH) {
+    node.setInt("renderId", static_cast<int>(renderId));
+    node.setDouble("x", static_cast<double>(x));
+    node.setDouble("y", static_cast<double>(y));
+    node.setDouble("w", static_cast<double>(w));
+    node.setDouble("h", static_cast<double>(h));
+    node.setDouble("srcW", static_cast<double>(srcW));
+    node.setDouble("srcH", static_cast<double>(srcH));
+    node.setDouble("left", static_cast<double>(left));
+    node.setDouble("right", static_cast<double>(right));
+    node.setDouble("top", static_cast<double>(top));
+    node.setDouble("bottom", static_cast<double>(bottom));
+    node.setInt("color", static_cast<int>(color));
+    node.setInt("textureId", textureId);
+    if (!assetId.empty()) node.setString("asset", assetId);   // streamed asset wins over textureId
+    node.setInt("layer", layer);
+    if (clipW > 0.0f) {
+        node.setDouble("clipX", clipX); node.setDouble("clipY", clipY);
+        node.setDouble("clipW", clipW); node.setDouble("clipH", clipH);
+    }
+    node.setString("space", "screen");   // UI chrome is HUD -> camera-immune bucket
+}
+
+void UIRenderer::publishNineSliceAdd(uint32_t renderId, float x, float y, float w, float h,
+                                     const std::string& assetId, int textureId,
+                                     float srcW, float srcH, float left, float right, float top, float bottom,
+                                     uint32_t color, int layer) {
+    auto node = std::make_unique<JsonDataNode>("nineslice");
+    const ClipRect c = currentClip();
+    fillNineSliceNode(*node, renderId, x, y, w, h, assetId, textureId, srcW, srcH, left, right, top, bottom,
+                      color, layer, c.x, c.y, c.w, c.h);
+    m_io->publish("render:nineslice:add", std::move(node));
+}
+
+void UIRenderer::publishNineSliceUpdate(uint32_t renderId, float x, float y, float w, float h,
+                                        const std::string& assetId, int textureId,
+                                        float srcW, float srcH, float left, float right, float top, float bottom,
+                                        uint32_t color, int layer) {
+    auto node = std::make_unique<JsonDataNode>("nineslice");
+    const ClipRect c = currentClip();
+    fillNineSliceNode(*node, renderId, x, y, w, h, assetId, textureId, srcW, srcH, left, right, top, bottom,
+                      color, layer, c.x, c.y, c.w, c.h);
+    m_io->publish("render:nineslice:update", std::move(node));
+}
+
+void UIRenderer::publishNineSliceRemove(uint32_t renderId) {
+    auto node = std::make_unique<JsonDataNode>("nineslice");
+    node->setInt("renderId", static_cast<int>(renderId));
+    m_io->publish("render:nineslice:remove", std::move(node));
 }
 
 void UIRenderer::publishSpriteAdd(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,

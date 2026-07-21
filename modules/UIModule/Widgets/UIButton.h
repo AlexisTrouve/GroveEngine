@@ -52,6 +52,15 @@ public:
     // a hardcoded texture id. Set as a literal JSON "asset" or data-bound via {{...}} (applyBoundProp).
     std::string assetId;
 
+    // 9-slice (nine-patch) FRAME — a composed border texture that gives the button a continuous, crisp border
+    // at any size. Non-empty `frameAsset` REPLACES the flat border-rect + bg fill: the whole chrome is drawn as
+    // one render:nineslice (corners native, edges/centre stretched), TINTED by the current state's bgColor (so
+    // hover/pressed re-tint the frame for free). `frameSrcW/H` = the art's native px dims; `frameL/R/T/B` = the
+    // margin thicknesses (px, source space). Empty `frameAsset` -> unchanged legacy look.
+    std::string frameAsset;
+    float frameSrcW = 0.0f, frameSrcH = 0.0f;
+    float frameL = 0.0f, frameR = 0.0f, frameT = 0.0f, frameB = 0.0f;
+
     // Data-binding: a ship "part" is a clickable button bound to data — "color" (a "0xRRGGBBAA" block),
     // "texture" (a numeric sprite id; >0 -> draw the sprite) and "asset" (a streamed asset id string, wins
     // over texture). Applied to all states (flat part). Other props fall through to the base.
@@ -70,6 +79,9 @@ public:
             // Streamed asset id (string) — e.g. an inventory icon or ship part by stable id. Bound from the
             // item scope in a repeater ("asset":"{{icon}}"); render() emits it as the sprite's `asset` field.
             assetId = s;
+        } else if (prop == "frameAsset") {
+            // Bindable 9-slice border art id — e.g. a repeater whose items each pick a themed frame ("{{frame}}").
+            frameAsset = s;
         } else if (prop == "text") {
             // Bindable label — e.g. a data-driven fleet vignette whose caption is {{name}}. The button
             // already renders `text`; this just lets the repeater/binding write it from the item scope.
@@ -149,6 +161,7 @@ private:
     // Retained mode render IDs
     uint32_t m_textRenderId = 0;    // Separate ID for text element
     uint32_t m_borderId = 0;        // Border frame (drawn behind the bg; enables hover/selection borders)
+    uint32_t m_frameId = 0;         // 9-slice chrome entry (used only when frameAsset is set; else idle)
 };
 
 } // namespace grove

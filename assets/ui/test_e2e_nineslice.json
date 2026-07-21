@@ -1,0 +1,22 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0, "y": 0, "width": 400, "height": 300,
+  "style": { "bgColor": "0x101418FF" },
+  "children": [
+    {
+      "type": "button",
+      "id": "framedBtn",
+      "x": 20, "y": 20, "width": 160, "height": 48,
+      "text": "OK",
+      "frame": { "asset": "ui/button_frame", "srcW": 32, "srcH": 32, "inset": 8 }
+    },
+    {
+      "type": "window",
+      "id": "framedWin",
+      "x": 40, "y": 100, "width": 200, "height": 140,
+      "title": "Framed",
+      "frame": { "asset": "ui/window_frame", "srcW": 48, "srcH": 48, "left": 12, "right": 12, "top": 12, "bottom": 12 }
+    }
+  ]
+}

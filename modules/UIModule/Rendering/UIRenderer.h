@@ -12,7 +12,8 @@ namespace grove {
 enum class RenderEntryType {
     Rect,
     Sprite,
-    Text
+    Text,
+    NineSlice   // a 9-slice (nine-patch) frame — one entry, expanded renderer-side into up to 9 quads
 };
 
 // Cached state for a render entry (to detect changes)
@@ -37,6 +38,10 @@ struct RenderEntry {
     // non-flipbook garde ces défauts, donc sa sortie est byte-identique. Change-detected pour qu'un
     // simple changement d'UV (avance d'une cellule, position/texture inchangées) republie quand même.
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    // 9-slice descriptor (RenderEntryType::NineSlice only): the border texture's native dims + the 4 margin
+    // insets (px, source space). The target rect rides in x/y/w/h, the texture in assetId/textureId, the tint
+    // in color — reused from above. Change-detected so a resize/retexture republishes the frame.
+    float nsSrcW = 0.0f, nsSrcH = 0.0f, nsL = 0.0f, nsR = 0.0f, nsT = 0.0f, nsB = 0.0f;
 };
 
 /**
@@ -173,6 +178,21 @@ public:
                         float u0, float v0, float u1, float v1, uint32_t color, int layer);
 
     /**
+     * @brief Update a 9-slice (nine-patch) frame — a bordered box from ONE border texture that keeps crisp
+     *        corners and continuous edges at any size. Only publishes if changed (retained). The renderer
+     *        expands it into up to 9 quads; the UI still holds a single entry.
+     *
+     * The target rect is (x,y)=top-left corner + (w,h). The border art is a STREAMED asset id (atlas-aware,
+     * wins) OR a numeric textureId; `srcW/srcH` are its native pixel dims and `left/right/top/bottom` the
+     * margin thicknesses (px, source space) that stay unstretched. `color` tints the whole frame.
+     * @return true if published (changed), false if skipped (unchanged)
+     */
+    bool updateNineSlice(uint32_t renderId, float x, float y, float w, float h,
+                         const std::string& assetId, int textureId,
+                         float srcW, float srcH, float left, float right, float top, float bottom,
+                         uint32_t color, int layer);
+
+    /**
      * @brief Number of currently-registered retained entries (introspection).
      *
      * WHY: lets a test assert an invariant on registration count — e.g. a VIRTUALIZED list registers a
@@ -209,6 +229,18 @@ private:
     void publishSpriteUpdate(uint32_t renderId, float x, float y, float w, float h, int textureId, const std::string& assetId, uint32_t color, int layer,
                              float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f);
     void publishSpriteRemove(uint32_t renderId);
+    // 9-slice publish helpers — topic render:nineslice:{add,update,remove}. The add/update carry the target
+    // rect (x,y=corner,w,h), the border texture (asset|textureId), the source dims + margin insets, tint,
+    // layer, the active container clip, and space:"screen" (UI is HUD). remove carries just the renderId.
+    void publishNineSliceAdd(uint32_t renderId, float x, float y, float w, float h,
+                             const std::string& assetId, int textureId,
+                             float srcW, float srcH, float left, float right, float top, float bottom,
+                             uint32_t color, int layer);
+    void publishNineSliceUpdate(uint32_t renderId, float x, float y, float w, float h,
+                                const std::string& assetId, int textureId,
+                                float srcW, float srcH, float left, float right, float top, float bottom,
+                                uint32_t color, int layer);
+    void publishNineSliceRemove(uint32_t renderId);
     void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
     void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
     void publishTextRemove(uint32_t renderId);

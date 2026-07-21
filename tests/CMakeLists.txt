@@ -828,6 +828,17 @@ target_include_directories(test_mapview_bake PRIVATE
 target_link_libraries(test_mapview_bake PRIVATE Catch2::Catch2WithMain)
 grove_add_test(MapViewBakeUnit test_mapview_bake ${CMAKE_CURRENT_BINARY_DIR})
 
+# UI 9-slice (nine-patch) geometry: grove::ui::computeNineSlice (include/grove/ui/NineSlice.h). Pure math that
+# turns one border texture into a continuous-border frame at any size — corners native, edges/centre stretched.
+# Locks the grid layout, exact tiling (no gap/overlap), contiguous UV coverage, corner-squeeze + degenerate
+# guards. Header-only, std-only, headless — the cheap first proof under render:nineslice (GPU --shot is second).
+add_executable(test_nine_slice unit/test_nine_slice.cpp)
+target_include_directories(test_nine_slice PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_nine_slice PRIVATE Catch2::Catch2WithMain)
+grove_add_test(NineSliceUnit test_nine_slice ${CMAKE_CURRENT_BINARY_DIR})
+
 # Map-viewer engine slice S1e: Hillshade — fake-3D relief from a field gradient (Lambertian illumination
 # factor), the §5 colour modifier. Header-only, std-only. Pure shading math, locked before integration.
 add_executable(test_mapview_hillshade unit/test_mapview_hillshade.cpp)
@@ -2263,6 +2274,16 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_scene_collector PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(SceneCollectorTest test_scene_collector ${CMAKE_CURRENT_BINARY_DIR})
 
+    # render:nineslice primitive: ONE message -> up to 9 retained sprites (continuous-border frame). Locks the
+    # IIO wiring + world/HUD bucket routing + SpriteInstance construction of the 9-slice expansion (the pure
+    # geometry is NineSliceUnit). Same collector-over-IntraIO harness as test_scene_collector.
+    add_executable(test_nine_slice_collector integration/test_nine_slice_collector.cpp ${_GROVE_RHI_HEADLESS_SRCS})
+    target_include_directories(test_nine_slice_collector PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_nine_slice_collector PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(NineSliceCollectorTest test_nine_slice_collector ${CMAKE_CURRENT_BINARY_DIR})
+
     # Camera helper (grove::camera): pure 2D camera math exposed to consuming games
     # (seamless zoom/pan). Header-only — no bgfx, no GPU. Just the header + Catch2.
     add_executable(test_camera unit/test_camera.cpp)
@@ -2801,6 +2822,13 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIAssetSpriteE2E IT_052_ui_asset_sprite_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_060: a UIButton AND a UIWindow can wear a 9-slice (nine-patch) composed border — the `frame` JSON
+    # block reaches the renderer as render:nineslice:add (continuous-border chrome, end-to-end through the module).
+    add_executable(IT_060_ui_nineslice_e2e integration/IT_060_ui_nineslice_e2e.cpp)
+    target_link_libraries(IT_060_ui_nineslice_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UINineSliceE2E IT_060_ui_nineslice_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)
@@ -3112,6 +3140,22 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         spdlog::spdlog
         Catch2::Catch2WithMain)
     grove_add_test(RuntimeTextureGpu test_runtime_texture_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
+    # GPU test: render:nineslice samples the right source region per quad (continuous-border proof). A border
+    # texture with a red ring / blue core, drawn as a nineslice over the whole FB, must read red at the edges
+    # and blue in the centre — the pixel readback the doctrine demands (headless can't see a UV-sampling bug).
+    add_executable(test_nine_slice_gpu unit/test_nine_slice_gpu.cpp)
+    target_include_directories(test_nine_slice_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_nine_slice_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(NineSliceGpu test_nine_slice_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
