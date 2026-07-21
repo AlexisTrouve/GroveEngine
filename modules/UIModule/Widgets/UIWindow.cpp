@@ -112,9 +112,13 @@ void UIWindow::render(UIRenderer& renderer) {
     // title bar + chrome always draw ON TOP of whichever background was used.
     const bool useFrame = !frameAsset.empty() && frameSrcW > 0.0f && frameSrcH > 0.0f;
     if (useFrame) {
+        // A window has no hover/press states, so the frame is drawn at its authored colours (WHITE tint = the
+        // art as-is), NOT tinted by the dark bgColor (which would crush a coloured frame to near-black). The
+        // frame art carries the whole window look (border + translucent glass); bgColor is used only for the
+        // non-frame solid-fill path below.
         renderer.updateNineSlice(m_frameId, absX, absY, width, height, frameAsset, /*textureId=*/0,
                                  frameSrcW, frameSrcH, frameL, frameR, frameT, frameB,
-                                 bgColor, renderer.nextLayer());
+                                 0xFFFFFFFFu, renderer.nextLayer());
         renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());        // solid bg idle
     } else {
         renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());

@@ -3569,6 +3569,24 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         spdlog::spdlog
     )
     message(STATUS "Vessel screen demo 'test_vessel_screen_demo' enabled")
+
+    # Interactive 9-SLICE (nine-patch) border demo: framed buttons at many sizes + resizable framed windows,
+    # frame textures generated at runtime (rounded translucent panel). The by-eye proof of the continuous border.
+    add_executable(test_nineslice_demo WIN32 visual/test_nineslice_demo.cpp)
+    target_include_directories(test_nineslice_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_nineslice_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "9-slice border demo 'test_nineslice_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline

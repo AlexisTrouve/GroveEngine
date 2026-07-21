@@ -123,6 +123,12 @@ Clickable button with hover/press states.
   stretch along one axis and the centre fills — so the border stays continuous at any button/window size.
 - Publishes `render:nineslice:add` (one entry, expanded renderer-side into up to 9 quads). Empty/absent
   `frame` → the classic flat look, unchanged.
+- **Tint** — a **button** tints its frame by the current state's `bgColor` (so hover/pressed re-tint for free;
+  author the frame art NEUTRAL/white and let `bgColor` colour it). A **window** draws its frame at the authored
+  colours (white tint — windows have no hover state), so a coloured window frame art shows as-is.
+
+There is also an interactive demo: `./build/tests/test_nineslice_demo` (framed buttons at many sizes,
+resizable framed windows, an auto-pulsing button — the by-eye proof of the continuous border).
 
 **Events:**
 - `ui:click` - `{widgetId, x, y}`

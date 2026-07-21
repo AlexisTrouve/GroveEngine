@@ -271,6 +271,11 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 if (UIWidget* widget = m_root->findById(widgetId)) {
                     widget->x = static_cast<float>(msg.data->getDouble("x", widget->x));
                     widget->y = static_cast<float>(msg.data->getDouble("y", widget->y));
+                    // Optional SIZE — omitted keys keep the current width/height (so an x/y-only move is
+                    // unchanged). Lets a host animate a widget's size at runtime (e.g. show a 9-slice frame
+                    // staying continuous as the box grows/shrinks) without a layout reload.
+                    widget->width  = static_cast<float>(msg.data->getDouble("width",  widget->width));
+                    widget->height = static_cast<float>(msg.data->getDouble("height", widget->height));
                     // absX/absY (what render() uses) are computed at LOAD, not per frame — recompute
                     // them from the parent chain now, or the widget would render at its OLD position.
                     widget->computeAbsolutePosition();

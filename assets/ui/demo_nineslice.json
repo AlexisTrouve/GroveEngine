@@ -1,0 +1,50 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "style": { "bgColor": "0x11151cFF" },
+  "children": [
+    { "type": "label", "id": "title", "x": 40, "y": 24, "text": "9-slice — bordures composees (bord continu a toute taille)", "fontSize": 24, "style": { "textColor": "0xE8EEF7FF" } },
+    { "type": "label", "id": "hint", "x": 40, "y": 58, "text": "Les cadres sont UNE texture 9-slicee. Survole les boutons (re-teinte), etire les fenetres (drag coin) — les coins restent nets.", "fontSize": 14, "style": { "textColor": "0x8b98acFF" } },
+
+    { "type": "label", "id": "lblBtns", "x": 40, "y": 100, "text": "Boutons framed — memes 32x32, tailles differentes :", "fontSize": 15, "style": { "textColor": "0xb9c4d4FF" } },
+
+    { "type": "button", "id": "b_small", "x": 40,  "y": 128, "width": 90,  "height": 40, "text": "Petit",
+      "frame": { "asset": "ui_btn_frame", "srcW": 32, "srcH": 32, "inset": 10 },
+      "style": { "normal": { "bgColor": "0x2aa5b8FF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x4fd3e6FF" }, "pressed": { "bgColor": "0x1b6f7cFF" } } },
+
+    { "type": "button", "id": "b_norm", "x": 150, "y": 128, "width": 170, "height": 40, "text": "Normal",
+      "frame": { "asset": "ui_btn_frame", "srcW": 32, "srcH": 32, "inset": 10 },
+      "style": { "normal": { "bgColor": "0x2aa5b8FF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x4fd3e6FF" }, "pressed": { "bgColor": "0x1b6f7cFF" } } },
+
+    { "type": "button", "id": "b_wide", "x": 340, "y": 128, "width": 320, "height": 40, "text": "Large (le bord ne s'etire pas)",
+      "frame": { "asset": "ui_btn_frame", "srcW": 32, "srcH": 32, "inset": 10 },
+      "style": { "normal": { "bgColor": "0x2aa5b8FF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x4fd3e6FF" }, "pressed": { "bgColor": "0x1b6f7cFF" } } },
+
+    { "type": "button", "id": "b_tall", "x": 680, "y": 128, "width": 120, "height": 90, "text": "Haut",
+      "frame": { "asset": "ui_btn_frame", "srcW": 32, "srcH": 32, "inset": 10 },
+      "style": { "normal": { "bgColor": "0x2aa5b8FF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x4fd3e6FF" }, "pressed": { "bgColor": "0x1b6f7cFF" } } },
+
+    { "type": "label", "id": "lblAnim", "x": 40, "y": 240, "text": "Auto-anime (la largeur pulse — le cadre reste continu, sans seam) :", "fontSize": 15, "style": { "textColor": "0xb9c4d4FF" } },
+    { "type": "button", "id": "b_anim", "x": 40, "y": 268, "width": 200, "height": 46, "text": "Pulse",
+      "frame": { "asset": "ui_btn_frame", "srcW": 32, "srcH": 32, "inset": 10 },
+      "style": { "normal": { "bgColor": "0xe0a83cFF", "textColor": "0x1a1206FF" }, "hover": { "bgColor": "0xffca63FF" }, "pressed": { "bgColor": "0xb2812aFF" } } },
+
+    { "type": "label", "id": "lblFlat", "x": 40, "y": 340, "text": "Contraste — bouton PLAT (borderColor/borderWidth, pas de cadre) :", "fontSize": 15, "style": { "textColor": "0xb9c4d4FF" } },
+    { "type": "button", "id": "b_flat", "x": 40, "y": 368, "width": 200, "height": 44, "text": "Plat",
+      "style": { "normal": { "bgColor": "0x334155FF", "textColor": "0xFFFFFFFF", "borderColor": "0x64748bFF", "borderWidth": 2 }, "hover": { "bgColor": "0x475569FF" } } },
+
+    { "type": "window", "id": "winFramed", "x": 720, "y": 250, "width": 300, "height": 200, "title": "Fenetre framed (drag le coin)",
+      "frame": { "asset": "ui_win_frame", "srcW": 48, "srcH": 48, "inset": 14 },
+      "style": { "bgColor": "0x1a2230F0", "titleBarColor": "0x2a3a52FF", "titleColor": "0xFFFFFFFF" },
+      "children": [
+        { "type": "label", "id": "winTxt", "x": 16, "y": 16, "text": "Etire-moi : le cadre 9-slice\nsuit sans deformer les coins.", "fontSize": 14, "style": { "textColor": "0xcdd6e4FF" } }
+      ] },
+
+    { "type": "window", "id": "winPlain", "x": 720, "y": 480, "width": 300, "height": 160, "title": "Fenetre PLATE (contraste)",
+      "style": { "bgColor": "0x1a2230F0", "titleBarColor": "0x2a3a52FF", "titleColor": "0xFFFFFFFF" },
+      "children": [
+        { "type": "label", "id": "winTxt2", "x": 16, "y": 16, "text": "Fond plein, pas de cadre compose.", "fontSize": 14, "style": { "textColor": "0xcdd6e4FF" } }
+      ] }
+  ]
+}
