@@ -141,11 +141,25 @@ inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade,
         base.hillshadeField = "elevation";
         base.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
     }
+    // Rampe DÉGRADÉE à luminance croissante (magenta sombre -> rouge -> orange -> jaune clair, type inferno) +
+    //   alpha PROPORTIONNEL à la densité. QUOI : 4 stops sur le champ res_ (déjà LOG-normalisé [~1/255,1] par
+    //   l'export : d = 1 + log10(v/max)/décades). POURQUOI : l'ancienne rampe sautait à alpha 0,55 dès 0,12 +
+    //   couleurs toutes chaudes-vives -> chaque dépôt rendait en APLAT orange à bord franc (« gros points bruts,
+    //   pas lisible », feedback Alexi). La luminance étale les niveaux (riche vs pauvre) et l'alpha ∝ valeur fond
+    //   le bord dans le relief. COMMENT : alpha = 0,10 (trace) -> 0,90 (pic), interpolé linéairement = mêmes
+    //   valeurs que worldscope --png-resource (0,10 + 0,80·t). Aligné sur le rendu validé (theomen blog/seed42-coal.png).
+    // Stops calés pour reproduire le rendu worldscope --png-resource (validé) : CŒURS SERRÉS + relief qui
+    //   transparaît. QUOI : l'export tasse la data en [~0,7 ; 1,0] (d = 1 + log10(v/max)/8) ; on garde le bas
+    //   TRANSPARENT (le relief domine, comme le PNG) et on ne fait ressortir que le HAUT en rouge->orange->jaune,
+    //   avec l'alpha qui monte RAIDE au sommet -> seuls les cœurs riches sont opaques, pas de gros nuages. Sans
+    //   ça (alpha ∝ linéaire) les bords à d~0,7 rendaient à alpha ~0,35 = blobs qui masquent le relief. Aligné
+    //   sur theomen blog/seed42-coal.png.
     mapview::Palette heat = mapview::Palette::ramp({
-        {0.0,  mapview::Rgba{1.0f, 0.85f, 0.10f, 0.0f}},
-        {0.12, mapview::Rgba{1.0f, 0.82f, 0.15f, 0.55f}},
-        {0.5,  mapview::Rgba{1.0f, 0.50f, 0.05f, 0.8f}},
-        {1.0,  mapview::Rgba{0.95f, 0.10f, 0.02f, 0.95f}},
+        {0.00, mapview::Rgba{0.450f, 0.100f, 0.120f, 0.00f}}, // transparent (le relief passe)
+        {0.72, mapview::Rgba{0.550f, 0.130f, 0.160f, 0.05f}}, // rim profond : quasi invisible -> relief visible
+        {0.84, mapview::Rgba{0.800f, 0.240f, 0.150f, 0.35f}}, // rouge : le cœur commence
+        {0.93, mapview::Rgba{0.950f, 0.560f, 0.150f, 0.68f}}, // orange
+        {1.00, mapview::Rgba{0.990f, 0.930f, 0.560f, 0.92f}}, // jaune clair : pic riche seul
     });
     mapview::Layer heatLayer{field, heat, mapview::Filter::always(), 10, 1.0f};
     return mapview::Lens{"resource:" + field, {base, heatLayer}, {}, {}};
