@@ -191,8 +191,16 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
             // COMMENT : stable_sort pour que, à layer ÉGAL, l'ordre d'insertion (retained
             //   avant ephemeral) soit préservé — pas de scintillement entre éléments du
             //   même plan.
-            std::stable_sort(sprites, sprites + totalSprites,
-                [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
+            // Ne trier que si nécessaire. QUOI : is_sorted O(n) avant le stable_sort O(n log n). POURQUOI : les
+            //   sprites d'une carte monde entier (émis layer par layer par MapView) arrivent DÉJÀ triés par
+            //   layer -> un stable_sort sur ~300k+ éléments déjà triés coûtait ~30 ms/frame pour rien. COMMENT :
+            //   clé IDENTIQUE (a.layer < b.layer) ; déjà trié -> on garde l'ordre (retained avant ephemeral à
+            //   layer égal, exactement ce que stable_sort préservait) et on saute le tri.
+            if (!std::is_sorted(sprites, sprites + totalSprites,
+                    [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; })) {
+                std::stable_sort(sprites, sprites + totalSprites,
+                    [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
+            }
             packet.sprites = sprites;
             packet.spriteCount = totalSprites;
         }

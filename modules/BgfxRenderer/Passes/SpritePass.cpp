@@ -145,14 +145,20 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
     for (size_t i = 0; i < count; ++i) {
         m_sortedIndices.push_back(static_cast<uint32_t>(i));
     }
-    std::sort(m_sortedIndices.begin(), m_sortedIndices.end(),
-        [sprites](uint32_t a, uint32_t b) {
-            // Sort by layer first, then by textureId for batching
-            if (sprites[a].layer != sprites[b].layer) {
-                return sprites[a].layer < sprites[b].layer;
-            }
-            return sprites[a].textureId < sprites[b].textureId;
-        });
+    // Ordre (layer, texture) requis pour le z-order + le batching. QUOI : ne TRIER que si l'entrée ne l'est pas
+    //   déjà. POURQUOI : sur une carte monde entier, les sprites arrivent DÉJÀ triés (le SceneCollector les
+    //   ordonne par layer en amont, et une couche de carte a une texture uniforme) -> un std::sort O(n log n) sur
+    //   ~300k+ sprites DÉJÀ triés coûtait ~30 ms/frame pour RIEN (le double avec le tri du collector). COMMENT :
+    //   un std::is_sorted O(n) sur la clé (layer, puis textureId) ; s'il est déjà trié on garde l'ordre identité
+    //   (= même résultat que le sort stable sur données triées) et on saute le tri. Cas non trié : coût O(n) en
+    //   plus, négligeable. Comparateur IDENTIQUE au tri pour garantir l'équivalence.
+    const auto lessKey = [sprites](uint32_t a, uint32_t b) {
+        if (sprites[a].layer != sprites[b].layer) return sprites[a].layer < sprites[b].layer;
+        return sprites[a].textureId < sprites[b].textureId;
+    };
+    if (!std::is_sorted(m_sortedIndices.begin(), m_sortedIndices.end(), lessKey)) {
+        std::sort(m_sortedIndices.begin(), m_sortedIndices.end(), lessKey);
+    }
 
     // Batch sprites by texture
     std::vector<SpriteInstance> batchSprites;
@@ -184,8 +190,16 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
                 spriteLogCount++, spriteTexId, sprite.x, sprite.y, sprite.scaleX, sprite.scaleY, (int)sprite.layer);
         }
 
-        // Start a new batch when the texture OR the clip-rect changes (one scissor per batch).
+        // Start a new batch when the texture OR the clip-rect changes (one scissor per batch), OR when the
+        //   current batch has reached MAX_SPRITES_PER_BATCH. QUOI : borne la taille d'un batch au plafond du
+        //   buffer d'instances. POURQUOI : sans cette borne, une couche mono-texture énorme (ex. une tilemap
+        //   monde entier en vue d'ensemble = ~150k+ cellules, MÊME texture) s'accumulait en UN batch dépassant
+        //   le buffer (transient plein -> fallback sur m_instanceBuffer dimensionné à 10000 -> overflow) ->
+        //   RIEN ne s'affichait (écran « vide ») alors que le rendu réussissait tuile-par-tuile (poster).
+        //   COMMENT : on flush le batch courant dès qu'il atteint le plafond ; la même texture continue dans le
+        //   batch suivant (drawInstanced multiples) -> n'importe quel nombre de sprites rend correctement.
         if (!firstBatch && (spriteTexId != currentTextureId ||
+                            batchSprites.size() >= MAX_SPRITES_PER_BATCH ||
                             (!batchSprites.empty() && !sameClip(sprite, batchSprites.back())))) {
             // Flush previous batch using TRANSIENT BUFFER (one per batch)
             uint32_t batchSize = static_cast<uint32_t>(batchSprites.size());

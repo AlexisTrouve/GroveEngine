@@ -55,6 +55,16 @@ public:
         init.resolution.height = height;
         init.resolution.reset = m_resetFlags;
 
+        // Transient buffer pool sized for large single-frame instance batches (whole-world sprite lenses).
+        //   QUOI : porte la mémoire transiente à 64 MB (défaut bgfx = 6 MB). POURQUOI : les instances de sprites
+        //   sont allouées via bgfx::allocInstanceDataBuffer, qui puise dans ce pool ; à 80 o/instance, 6 MB ne
+        //   tiennent que ~78k sprites/frame -> au-delà, allocTransientInstanceBuffer échoue -> fallback sur un
+        //   buffer partagé écrasé -> des BATCHES ENTIERS disparaissent (trous gris sur une carte monde entier).
+        //   COMMENT : 64 MB -> ~838k sprites/frame (couvre une vue d'ensemble downsamplée et les vues zoomées) ;
+        //   pré-alloué une fois à l'init. Chaînon final après le frame-allocator (SceneCollector) et le split de
+        //   batch >10000 (SpritePass) — les trois plafonds du chemin sprite pour un rendu pleine carte.
+        init.limits.transientVbSize = 64u * 1024u * 1024u;
+
         // Set platform data
         init.platformData.nwh = nativeWindowHandle;
         init.platformData.ndt = nativeDisplayHandle; // X11 Display* on Linux, nullptr on Windows

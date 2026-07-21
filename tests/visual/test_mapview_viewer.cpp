@@ -79,6 +79,7 @@ int main(int argc, char** argv) {
     std::string outPath = "mapview_viewer_selftest.png";
     std::string loadDir;
     std::string lensName = "terrain";       // --lens terrain|biome : which lens the shot / initial view uses
+    bool noBake = false;                     // --no-bake: force the per-frame sprite+LOD path (A/B, debugging)
     int outW = W, outH = H;                 // --shot output resolution (default = window size)
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -109,6 +110,8 @@ int main(int argc, char** argv) {
             if (i + 1 < argc) loadDir = argv[++i];
         } else if (a == "--lens") {
             if (i + 1 < argc) lensName = argv[++i];   // "biome" -> categorical biome overlay (needs biomes.json)
+        } else if (a == "--no-bake") {
+            noBake = true;                            // force the sprite+LOD path (before/after A/B, debugging)
         }
     }
     // Clamp the shot size to a safe range (uint16 framebuffer + GPU texture limits).
@@ -143,6 +146,13 @@ int main(int argc, char** argv) {
 
     DebugEngine engine;
     engine.initialize();
+    // Silence per-frame INFO/TRACE spam in the interactive loop. QUOI : rabat le niveau de log global à `warn`
+    //   APRÈS l'init du moteur (le DebugEngine boote en TRACE = « tout loggé »). POURQUOI : à ~30 batches de
+    //   sprites/frame sur une carte monde entier, les logs info par-batch/par-message (SpritePass, IntraIO
+    //   routing, step) formatent+écrivent des centaines de lignes/seconde -> ça PLOMBE le framerate du viewer.
+    //   COMMENT : `warn` garde les avertissements utiles (« Slow frame detected ») + erreurs, coupe le reste.
+    //   Local au binaire viewer ; n'affecte aucun autre hôte Grove.
+    spdlog::set_level(spdlog::level::warn);
 
     auto rendererOwned = std::make_unique<BgfxRendererModule>();
     BgfxRendererModule* renderer = rendererOwned.get();
@@ -151,6 +161,14 @@ int main(int argc, char** argv) {
         rCfg->setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(nwh)));
         rCfg->setDouble("nativeDisplayHandle", static_cast<double>(reinterpret_cast<uintptr_t>(ndt)));
         rCfg->setInt("windowWidth", vpW); rCfg->setInt("windowHeight", vpH); rCfg->setBool("vsync", !headless);
+        // Frame allocator sized for a WHOLE-WORLD sprite lens (biome/resource). QUOI : porte l'arène de frame à
+        //   256 MB (défaut moteur = 16 MB). POURQUOI : une carte monde entier en vue d'ensemble émet un sprite
+        //   PAR CELLULE (~300k downsamplé, ~1,3M full-res) ; à 80 o/sprite ça dépasse 16 MB -> allocateArray()
+        //   renvoie nullptr -> packet.sprites=null -> ÉCRAN VIDE (le symptôme « je vois pas la map »). Le poster
+        //   y échappait en rendant tuile-par-tuile. COMMENT : 256 MB tient le full-res (1,3M*80 = 105 MB) avec
+        //   marge ; local au viewer (les autres hôtes Grove gardent 16 MB). Va de pair avec le split de batch
+        //   >10000 de SpritePass (sans lui les sprites tiennent en mémoire mais ne se dessinent pas).
+        rCfg->setInt("frameAllocatorSizeMB", 256);
         engine.registerStaticModule("renderer", std::move(rendererOwned), ModuleSystemType::SEQUENTIAL, std::move(rCfg));
     }
 
@@ -265,6 +283,12 @@ int main(int argc, char** argv) {
     app.setMarkers(markers);
     app.setRegions(regions);
     app.enableTiling(mvdemo::makeTileLens(), tilesetTexId);   // 'T' switches terrain to the retained-tile path
+    // Baked static-map path (the "gen once" default for a LOADED world): compile the active lens into ONE texture
+    //   drawn as a single world-space quad -> per-frame cost O(1) in cells (the camera just moves over it). Opt in
+    //   for --load in interactive + --shot; NOT for --poster/--selftest (those keep the proven per-cell tiling /
+    //   sprite-capture paths). A world that can't be baked (the synthetic demo has no bounded extent; a world
+    //   larger than one texture) falls back transparently to the sprite+LOD path, so this is always safe.
+    if (!loadDir.empty() && !poster && !selftest && !noBake) app.enableBakedMap();
 
     if (poster) {
         // WHOLE-MAP poster: tile the world + stitch to ONE PNG at `ppc` px/cell — no per-frame cell ceiling,

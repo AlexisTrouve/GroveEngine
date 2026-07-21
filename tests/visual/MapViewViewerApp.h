@@ -22,6 +22,7 @@
 #include <SDL.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <string>
@@ -135,6 +136,30 @@ public:
     void renderFrame(float dt) {
         const camera::WorldBounds wb = camera::visibleWorldBounds(cam_);
         mv_.setViewport(mapview::Viewport{wb.minX, wb.minY, wb.maxX, wb.maxY});
+
+        // BAKED-MAP path ("gen once"): a static --load world is compiled ONCE into an RGBA texture (the whole
+        //   planet) and drawn each frame as a SINGLE world-space quad the camera pans/zooms over — the per-frame
+        //   cost stops scaling with the number of cells. Active only when opted in (enableBakedMap, --load) AND
+        //   not in the retained-tile 'T' mode. Probes once (doBake): a world with no bounded extent (synthetic
+        //   demo) or larger than one texture fails the probe -> we keep the per-frame sprite+LOD path (fallback).
+        //   Re-bakes on a lens/hillshade change (bakeDirty_), NEVER on pan/zoom.
+        bool drawingBaked = false;
+        if (bakedRequested_ && !tiling_) {
+            if (!bakeProbed_)                     { bakedActive_ = doBake(); bakeProbed_ = true; bakeDirty_ = false; }
+            else if (bakedActive_ && bakeDirty_)  { doBake(); bakeDirty_ = false; }
+            drawingBaked = bakedActive_;
+        }
+        if (drawingBaked) {
+            mv_.setCompileCells(false);           // overlays only -> zero per-cell compile per frame (the O(1) win)
+            if (!bakeSpritePresent_) addBakeSprite();
+        } else {
+            mv_.setCompileCells(true);
+            // LOD : le zoom caméra (px écran / unité monde) pilote le stride d'échantillonnage per-cellule de
+            //   MapView (chemin sprite fallback). En vue d'ensemble, cellules sub-pixel -> MapView en saute ->
+            //   coût borné par l'écran ; en zoom, stride 1 -> grain fin. (cf. MapView::setLod).
+            mv_.setLod(static_cast<double>(cam_.zoom));
+            if (bakeSpritePresent_) removeBakeSprite();   // left baked mode ('T' tiling) -> hide the baked quad
+        }
         mv_.update();
 
         lastTileAdded_ = 0;
@@ -147,7 +172,10 @@ public:
         } else {
             // Left tiling since last frame -> drop every retained chunk so it doesn't linger under the sprites.
             if (tileStreamer_.residentCount() > 0) flushTiles();
-            if (renderer_) {
+            if (drawingBaked) {
+                // The baked map is a RETAINED world-space quad the renderer draws itself; submit no per-cell sprites.
+                if (renderer_) { sprites_.clear(); renderer_->submitSpriteBatch(sprites_.data(), 0); }
+            } else if (renderer_) {
                 const auto& cells = mv_.cells();
                 sprites_.resize(cells.size());
                 if (!cells.empty()) mapview::render::toSpriteInstances(cells.data(), cells.size(), sprites_.data());
@@ -198,8 +226,13 @@ public:
 
     // HUD lens control: swap to an arbitrary active lens (a resource density heatmap), or back to the terrain
     // lens (with the current hillshade/banded/tiling state). Additive — the terrain/tile toggles are unchanged.
-    void setLens(mapview::Lens lens) { mv_.setLens(std::move(lens)); }
+    void setLens(mapview::Lens lens) { mv_.setLens(std::move(lens)); bakeDirty_ = true; }
     void useTerrainLens() { rebuildLens(); }
+
+    // Opt into the baked-map path (the viewer's --load default). The bake itself is probed lazily on the first
+    //   renderFrame; a world that can't be baked (unbounded extent / larger than one texture) transparently keeps
+    //   the per-frame sprite+LOD path, so calling this is always safe.
+    void enableBakedMap() { bakedRequested_ = true; }
 
     // --- state accessors (live main scripting + E2E assertions) ---
     const camera::CameraView& camera() const { return cam_; }
@@ -225,6 +258,68 @@ private:
     void rebuildLens() {
         if (tiling_ && tilingEnabled_) mv_.setLens(tileLens_);
         else mv_.setLens(lensBuilder_(hillshade_, banded_));
+        bakeDirty_ = true;   // lens/hillshade/banded changed -> the baked texture is stale, re-bake next baked frame
+    }
+
+    // Compile the active lens's WHOLE world into one RGBA texture and (re)upload it. Returns true when the baked
+    //   texture is ready to draw, false when the world can't be baked (caller keeps the sprite path). The GPU
+    //   texture is created ONCE; every re-bake re-uploads pixels to the SAME id, so the retained quad refreshes
+    //   in place with no re-add. Mirrors the video slice's runtime-texture path (render:texture:create/upload).
+    bool doBake() {
+        if (!io_) return false;   // no bus -> can't publish the texture (headless logic test) -> keep sprite path
+        std::vector<uint8_t> buf;
+        int bw = 0, bh = 0;
+        double mnx = 0.0, mny = 0.0, spx = 0.0, spy = 0.0;
+        if (!mv_.bakeLensRGBA(buf, bw, bh, mnx, mny, spx, spy)) {
+            std::fprintf(stderr, "[mapview] bake: world has no bounded extent -> keeping per-frame sprite path\n");
+            return false;
+        }
+        // Texture-size guard: a world wider/taller than one GPU texture is NEVER silently truncated — log + fall
+        //   back to the sprite+LOD path (tiling the bake into a texture grid is a documented follow-on).
+        if (bw > kMaxBakeTex || bh > kMaxBakeTex) {
+            std::fprintf(stderr, "[mapview] bake: world %dx%d cells exceeds max texture %d px -> keeping sprite+LOD"
+                                 " path (tiling the bake is a follow-on)\n", bw, bh, kMaxBakeTex);
+            return false;
+        }
+        bakeCx_ = mnx + spx * 0.5; bakeCy_ = mny + spy * 0.5;   // quad CENTRE (render:sprite anchor = cx,cy)
+        bakeSx_ = spx; bakeSy_ = spy;
+        if (!bakeTexCreated_) {
+            // NOTE the key names: render:texture:create reads "width"/"height" (BgfxRendererModule), whereas
+            //   render:texture:upload reads "w"/"h" — mixing them up silently no-ops the create (w<=0 guard) and
+            //   the sprite then samples the 4x4 white default. Keep them exact.
+            auto t = std::make_unique<JsonDataNode>("tex");
+            t->setString("id", kBakeTexId); t->setInt("width", bw); t->setInt("height", bh);
+            io_->publish("render:texture:create", std::move(t));
+            bakeTexCreated_ = true;
+        }
+        auto up = std::make_unique<JsonDataNode>("tex");
+        up->setString("id", kBakeTexId); up->setInt("w", bw); up->setInt("h", bh);
+        up->setBlob("pixels", buf.data(), buf.size());
+        io_->publish("render:texture:upload", std::move(up));
+        std::fprintf(stdout, "[mapview] baked the lens into a %dx%d texture (whole world -> one quad/frame)\n", bw, bh);
+        return true;
+    }
+
+    // (Re)add the retained world-space quad that displays the baked texture (idempotent on its renderId).
+    void addBakeSprite() {
+        if (!io_) return;
+        auto s = std::make_unique<JsonDataNode>("sprite");
+        s->setInt("renderId", kBakeSpriteRenderId);
+        s->setString("asset", kBakeTexId);
+        s->setDouble("cx", bakeCx_); s->setDouble("cy", bakeCy_);       // world-space CENTRE
+        s->setDouble("scaleX", bakeSx_); s->setDouble("scaleY", bakeSy_);
+        s->setInt("color", static_cast<int>(0xFFFFFFFFu));              // white tint -> texel colour unchanged
+        s->setInt("layer", kBakeLayer);                                // under regions(900) + markers(1000)
+        io_->publish("render:sprite:add", std::move(s));
+        bakeSpritePresent_ = true;
+    }
+
+    void removeBakeSprite() {
+        bakeSpritePresent_ = false;
+        if (!io_) return;
+        auto s = std::make_unique<JsonDataNode>("sprite");
+        s->setInt("renderId", kBakeSpriteRenderId);
+        io_->publish("render:sprite:remove", std::move(s));
     }
 
     // Diff the visible tile chunks against what's resident; publish the add/remove deltas to the retained tilemap.
@@ -295,6 +390,22 @@ private:
     mapview::TileChunkStreamer tileStreamer_;
     size_t                     lastTileAdded_ = 0;        // deltas from the last renderFrame (E2E introspection)
     size_t                     lastTileRemoved_ = 0;
+
+    // Baked-map state ("gen once"): the active lens compiled once into a single RGBA texture, drawn each frame as
+    //   one retained world-space quad. bakedRequested_ = opted in (enableBakedMap); bakedActive_ = the probe
+    //   succeeded (world is bakeable); bakeProbed_ = probe ran; bakeDirty_ = pixels stale (lens/hillshade changed)
+    //   -> re-bake on the next baked frame; bakeTexCreated_/bakeSpritePresent_ track the GPU texture + quad.
+    bool   bakedRequested_ = false;
+    bool   bakedActive_ = false;
+    bool   bakeProbed_ = false;
+    bool   bakeDirty_ = true;
+    bool   bakeTexCreated_ = false;
+    bool   bakeSpritePresent_ = false;
+    double bakeCx_ = 0.0, bakeCy_ = 0.0, bakeSx_ = 0.0, bakeSy_ = 0.0;   // baked quad centre + size (world units)
+    static constexpr const char* kBakeTexId = "mapview_baked";
+    static constexpr int kBakeSpriteRenderId = 900001;   // high id: never collides with UI (from 1) / video sprites
+    static constexpr int kBakeLayer = 0;                 // terrain layer: below regions (900) + markers (1000)
+    static constexpr int kMaxBakeTex = 16384;            // D3D11/GL max 2D texture side; full-res 1625x812 fits
 };
 
 } // namespace mvdemo
