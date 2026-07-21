@@ -435,6 +435,52 @@ TEST_CASE("SceneCollector - retained text: add + persist + update + remove", "[s
     REQUIRE(fx.collector.finalize(allocator).textCount == 0);
 }
 
+TEST_CASE("SceneCollector - retained text carries align + bold (defaults + round-trip)", "[scene_collector][retained][text]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Default (no align/bold keys) -> align 0 (left) + bold 0, so pre-feature messages are unchanged.
+    auto plain = std::make_unique<JsonDataNode>("t");
+    plain->setInt("renderId", 1); plain->setString("text", "L");
+    fx.ioPublisher->publish("render:text:add", std::move(plain));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(p.texts[0].align == 0);
+        REQUIRE(p.texts[0].bold == 0);
+    }
+
+    // Explicit align=1 (center) + bold=true round-trips into the TextCommand. (Retained text persists across
+    // clear(), so drop the first one — otherwise finalize would report both.)
+    auto rem1 = std::make_unique<JsonDataNode>("t"); rem1->setInt("renderId", 1);
+    fx.ioPublisher->publish("render:text:remove", std::move(rem1));
+    fx.collector.clear();
+    auto styled = std::make_unique<JsonDataNode>("t");
+    styled->setInt("renderId", 2); styled->setString("text", "C");
+    styled->setInt("align", 1); styled->setBool("bold", true);
+    fx.ioPublisher->publish("render:text:add", std::move(styled));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(p.texts[0].align == 1);
+        REQUIRE(p.texts[0].bold == 1);
+    }
+
+    // Update align to 2 (right) — carried through the retained update path.
+    auto upd = std::make_unique<JsonDataNode>("t");
+    upd->setInt("renderId", 2); upd->setInt("align", 2);
+    fx.ioPublisher->publish("render:text:update", std::move(upd));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(p.texts[0].align == 2);
+        REQUIRE(p.texts[0].bold == 1);   // bold preserved across the update
+    }
+}
+
 // ============================================================================
 // Sprite Parsing
 // ============================================================================

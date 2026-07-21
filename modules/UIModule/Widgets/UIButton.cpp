@@ -49,6 +49,14 @@ void UIButton::render(UIRenderer& renderer) {
 
     const ButtonStyle& style = getCurrentStyle();
 
+    // Text placement, shared by the 9-slice and the flat path. Vertically centred (top = middle − ½font).
+    // Horizontally: left = padding in; centre = the button's middle; right = padding from the right edge.
+    // TextPass interprets x per `textAlign`, so a centred label is truly centred (not "starts at centre").
+    const float tTextX = (textAlign == 0) ? (absX + padding)
+                        : (textAlign == 2) ? (absX + width - padding)
+                        : (absX + width * 0.5f);
+    const float tTextY = absY + (height - fontSize) * 0.5f;
+
     // 9-slice CHROME path: a composed border texture replaces the flat border-rect + bg fill entirely. The
     // whole box is one render:nineslice, TINTED by the state's bgColor (hover/pressed re-tint for free). We
     // still draw the text on top. The flat-look entries (border rect + bg) are collapsed to zero so they
@@ -64,8 +72,7 @@ void UIButton::render(UIRenderer& renderer) {
 
         if (!text.empty()) {
             int textLayer = renderer.nextLayer();
-            renderer.updateText(m_textRenderId, absX + width * 0.5f, absY + height * 0.5f,
-                                text, fontSize, style.textColor, textLayer);
+            renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer, textAlign, bold);
         } else {
             renderer.updateText(m_textRenderId, 0, 0, "", fontSize, 0, renderer.nextLayer());
         }
@@ -106,13 +113,10 @@ void UIButton::render(UIRenderer& renderer) {
         renderer.updateRect(m_renderId, ix, iy, iw, ih, style.bgColor, bgLayer);
     }
 
-    // Render text centered
+    // Render text (aligned + optionally bold, vertically centred)
     if (!text.empty()) {
         int textLayer = renderer.nextLayer();
-        float textX = absX + width * 0.5f;
-        float textY = absY + height * 0.5f;
-
-        renderer.updateText(m_textRenderId, textX, textY, text, fontSize, style.textColor, textLayer);
+        renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer, textAlign, bold);
     }
 
     // Render children on top

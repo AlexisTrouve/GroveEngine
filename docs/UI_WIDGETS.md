@@ -105,10 +105,19 @@ Clickable button with hover/press states.
   AssetManager (atlas-aware, on-demand stream + budget). Bindable: `"asset":"{{icon}}"`. Wins over `texture`/`textureId`.
 - `frame` - **9-slice (nine-patch) border** (see below) — a composed border texture that gives the button a
   continuous, crisp border at any size. When set, it REPLACES the flat border-rect + bg fill.
-- `style` - Visual states (normal, hover, pressed)
+- `style` - Visual states (normal, hover, pressed) + button-level text handling
   - `bgColor` - Background color (hex RGBA) — also the **tint of the 9-slice frame**, so hover/pressed re-tint it
   - `textColor` - Text color (hex RGBA)
   - `textureId` - Sprite texture ID (0 = solid color)
+  - `align` - label alignment `"left"` / `"center"` (default) / `"right"` — a button label is truly centred
+    (vertical centring is automatic)
+  - `bold` - `true` for a bold label
+  - `padding` - px the label is kept off the edges (matters for left/right align + to keep text off a frame border)
+
+**Ultra-standard frame** — a neutral, tintable rounded-panel PNG ships at `assets/textures/ui/frame_standard.png`
+(128², inset 16). Use it as the default composed border: `"frame":{"asset":"frame_standard","srcW":128,"srcH":128,"inset":16}`.
+It's white, so a button tints it to its `bgColor` (and hover/press re-tint). Register it with
+`asset:register {id:"frame_standard", path:"assets/textures/ui/frame_standard.png"}`.
 
 **`frame` — composed 9-slice border** (buttons AND windows):
 
@@ -158,6 +167,9 @@ Static or dynamic text display.
 - `text` - Label text (can be updated via `ui:set_text`)
 - `style.fontSize` - Font size in pixels
 - `style.color` - Text color (hex RGBA)
+- `style.align` - `"left"` (default) / `"center"` / `"right"`. Center/right anchor on the label's `width`
+  (measured per line), so give a centered/right label a `width`.
+- `style.bold` - `true` for synthetic bold (thickens the single-weight bitmap font)
 
 **Dynamic Updates:**
 ```cpp

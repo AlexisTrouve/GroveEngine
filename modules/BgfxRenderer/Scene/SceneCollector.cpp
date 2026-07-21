@@ -903,6 +903,8 @@ void SceneCollector::parseText(const IDataNode& data) {
     text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", 16));
     text.color = static_cast<uint32_t>(data.getInt("color", 0xFFFFFFFF));
     text.layer = static_cast<uint16_t>(data.getInt("layer", 0));
+    text.align = static_cast<uint8_t>(data.getInt("align", 0));           // 0 left / 1 center / 2 right
+    text.bold  = data.getBool("bold", false) ? 1 : 0;
 
     // Store text string - pointer will be fixed up in finalize()
     std::string textStr = data.getString("text", "");
@@ -1256,6 +1258,8 @@ void SceneCollector::parseTextAdd(const IDataNode& data) {
     text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
+    text.align = static_cast<uint8_t>(data.getInt("align", 0));           // 0 left / 1 center / 2 right
+    text.bold  = data.getBool("bold", false) ? 1 : 0;
     text.text = nullptr;  // Will be set from the matching strings map in finalize
 
     // Route by screen-space (same as sprites): a tagged retained widget text goes to the fixed HUD bucket.
@@ -1296,6 +1300,8 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
+    text.align = static_cast<uint8_t>(data.getInt("align", text.align));   // keep current when omitted
+    text.bold  = data.getBool("bold", text.bold != 0) ? 1 : 0;
 
     // Update text string if provided (into the SAME bucket's string map).
     std::string newText = data.getString("text", "");

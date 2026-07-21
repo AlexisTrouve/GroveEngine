@@ -22,9 +22,14 @@ void UILabel::render(UIRenderer& renderer) {
         });
     }
 
-    // Retained mode: only publish if changed
+    // Anchor x by alignment: left = the label's left edge; center = its horizontal middle; right = its right
+    // edge (TextPass interprets x per align). Center/right need a `width` to anchor against (0 -> falls back to
+    // the left edge). Retained mode: only publishes on change (align/bold included in the change check).
+    float ax = absX;
+    if (align == 1)      ax = absX + width * 0.5f;
+    else if (align == 2) ax = absX + width;
     int layer = renderer.nextLayer();
-    renderer.updateText(m_renderId, absX, absY, text, fontSize, color, layer);
+    renderer.updateText(m_renderId, ax, absY, text, fontSize, color, layer, align, bold);
 }
 
 } // namespace grove

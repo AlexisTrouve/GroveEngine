@@ -99,6 +99,13 @@ struct TextCommand {
     uint16_t fontSize;
     uint32_t color;
     uint16_t layer;
+    // Horizontal alignment of the text relative to `x` (0 = left → text starts at x; 1 = center → x is the
+    // centre; 2 = right → text ENDS at x). Applied per line (each \n-delimited line is measured + offset).
+    // Default 0 keeps every existing caller left-aligned (byte-identical). See TextPass.
+    uint8_t align = 0;
+    // Synthetic bold: when 1, each glyph is drawn twice (a sub-pixel x-offset copy) so the single-weight
+    // bitmap font reads bolder. Default 0 = normal weight. Cheap, no extra font atlas.
+    uint8_t bold = 0;
     // Optional clip rect {x,y,w,h} in framebuffer pixels (w<=0 = no clip). TextPass breaks the glyph
     // batch on a clip change and applies a bgfx scissor — same UI-clipping mechanism as sprites.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;

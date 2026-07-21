@@ -150,7 +150,18 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
         float b = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
         float a = static_cast<float>(color & 0xFF) / 255.0f;
 
-        float cursorX = textCmd.x;
+        // Horizontal alignment: measure each line's pixel width and shift its start so `x` means left edge
+        // (factor 0), centre (0.5) or right edge (1). Measured per line so multi-line text aligns line by line.
+        const float alignFactor = (textCmd.align == 1) ? 0.5f : (textCmd.align == 2) ? 1.0f : 0.0f;
+        auto lineWidth = [&](const char* p) {
+            float w = 0.0f;
+            while (*p && *p != '\n') { uint32_t c = decodeUtf8(p); w += m_font.getGlyph(c).advance * scale; }
+            return w;
+        };
+        // Synthetic bold: a second glyph copy shifted by ~1px in x thickens the single-weight bitmap font.
+        const float boldOffset = textCmd.bold ? (scale > 1.0f ? scale : 1.0f) : 0.0f;
+
+        float cursorX = textCmd.x - alignFactor * lineWidth(textCmd.text);
         float cursorY = textCmd.y;
 
         const char* ptr = textCmd.text;
@@ -159,10 +170,10 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
             // instead of reading each byte of a multi-byte char as a separate glyph.
             uint32_t cp = decodeUtf8(ptr);
 
-            // Handle newline
+            // Handle newline — advance a line and re-align the NEXT line (ptr now points past the \n).
             if (cp == '\n') {
-                cursorX = textCmd.x;
                 cursorY += m_font.getLineHeight() * scale;
+                cursorX = textCmd.x - alignFactor * lineWidth(ptr);
                 continue;
             }
 
@@ -209,11 +220,19 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
 
             m_glyphInstances.push_back(inst);
 
+            // Synthetic bold: a shifted duplicate of the same glyph (same UV/color) thickens the stroke.
+            if (boldOffset > 0.0f) {
+                SpriteInstance b = inst;
+                b.x += boldOffset;
+                m_glyphInstances.push_back(b);
+            }
+
             // Advance cursor
             cursorX += glyph.advance * scale;
 
-            // Flush when the glyph batch is full (keeps within MAX per draw).
-            if (m_glyphInstances.size() >= MAX_GLYPHS_PER_BATCH) {
+            // Flush when the glyph batch is full (keeps within MAX per draw). Bold pushes 2/glyph, so the
+            // batch can be one over MAX here — check leaves headroom (MAX is a soft cap, buffer sized to it).
+            if (m_glyphInstances.size() >= MAX_GLYPHS_PER_BATCH - 1) {
                 flush();
             }
         }

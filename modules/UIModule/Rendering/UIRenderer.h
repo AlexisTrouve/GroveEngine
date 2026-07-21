@@ -31,6 +31,10 @@ struct RenderEntry {
     int layer = 0;
     std::string text;
     float fontSize = 0.0f;
+    // Text alignment (0 left / 1 center / 2 right) + synthetic bold. Default left/normal keeps every existing
+    // caller byte-identical; change-detected so toggling either republishes.
+    int textAlign = 0;
+    bool bold = false;
     // Clip rect {x,y,w,h} in screen px applied to this entry (w<=0 = none). Captured from the clip
     // stack at publish time so a container (scroll panel, window) can clip its descendants.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
@@ -150,7 +154,10 @@ public:
      * @brief Update text (only publishes if changed)
      * @return true if published (changed), false if skipped (unchanged)
      */
-    bool updateText(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
+    // align: 0 left / 1 center / 2 right (x is the anchor per alignment). bold: synthetic bold. Both default
+    // to the previous behaviour (left, not bold) so existing callers are unchanged.
+    bool updateText(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color,
+                    int layer, int align = 0, bool bold = false);
 
     /**
      * @brief Update a textured sprite (only publishes if changed)
@@ -241,8 +248,8 @@ private:
                                 float srcW, float srcH, float left, float right, float top, float bottom,
                                 uint32_t color, int layer);
     void publishNineSliceRemove(uint32_t renderId);
-    void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
-    void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer);
+    void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold);
+    void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold);
     void publishTextRemove(uint32_t renderId);
 };
 

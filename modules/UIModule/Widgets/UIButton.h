@@ -82,6 +82,8 @@ public:
         } else if (prop == "frameAsset") {
             // Bindable 9-slice border art id — e.g. a repeater whose items each pick a themed frame ("{{frame}}").
             frameAsset = s;
+        } else if (prop == "bold") {
+            bold = b;
         } else if (prop == "text") {
             // Bindable label — e.g. a data-driven fleet vignette whose caption is {{name}}. The button
             // already renders `text`; this just lets the repeater/binding write it from the item scope.
@@ -121,6 +123,12 @@ public:
     float fontSize = 16.0f;
     std::string onClick;  // Action to publish (e.g., "game:start")
     bool enabled = true;
+    // Text handling: inner padding (text kept this many px off the edges), horizontal alignment of the label
+    // (0 left / 1 center / 2 right — default CENTER, the usual button look) and synthetic bold. Vertical
+    // centring is automatic. `padding` matters for left/right alignment (and keeps text off a 9-slice border).
+    float padding = 8.0f;
+    int textAlign = 1;     // default: centered
+    bool bold = false;
 
     // State-specific styles
     ButtonStyle normalStyle;

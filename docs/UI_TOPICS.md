@@ -73,8 +73,8 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `render:sprite:add` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer, clipX?, clipY?, clipW?, clipH?}` | Register new sprite. Optional `clip{X,Y,W,H}` (screen px, present only inside a clipping container like a scroll panel) → the renderer scissors it; absent = no clip |
 | `render:sprite:update` | `{renderId, x, y, scaleX, scaleY, color, textureId, layer}` | Update existing sprite |
 | `render:sprite:remove` | `{renderId}` | Unregister sprite |
-| `render:text:add` | `{renderId, x, y, text, fontSize, color, layer}` | Register new text |
-| `render:text:update` | `{renderId, x, y, text, fontSize, color, layer}` | Update existing text |
+| `render:text:add` | `{renderId, x, y, text, fontSize, color, layer, align?, bold?}` | Register new text. `align` 0=left (default, `x`=left edge) / 1=center (`x`=centre) / 2=right (`x`=right edge), measured per line; `bold` (bool) = synthetic bold. Both optional → unchanged left/normal |
+| `render:text:update` | `{renderId, x, y, text, fontSize, color, layer, align?, bold?}` | Update existing text |
 | `render:text:remove` | `{renderId}` | Unregister text |
 | `render:nineslice:add` | `{renderId, x, y, w, h, asset\|textureId, srcW, srcH, left, right, top, bottom, color, layer, clip?}` | Register a 9-slice (nine-patch) **frame** — a composed border texture that keeps crisp corners + continuous edges at any size. `x,y`=**top-left corner** (like `render:rect`, NOT a centre); `srcW/srcH`=the art's native px dims; `left/right/top/bottom`=margin thicknesses (px, source space). The renderer expands it into up to 9 quads (corners native, edges/centre stretched); `asset` (atlas-aware) wins over `textureId`; `color` tints the whole frame |
 | `render:nineslice:update` | same as `:add` | Re-expand the frame in place (resize restretches edges, retexture/tint swaps art) |

@@ -220,6 +220,11 @@ void UITree::registerDefaultWidgets() {
                 label->color = static_cast<uint32_t>(std::stoul(colorStr, nullptr, 16));
             }
             label->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
+            // Text handling: align "left"/"center"/"right" -> 0/1/2 ; bold thickens the font. Center/right
+            // anchor on the label's `width`, so give a centered label a width.
+            const std::string al = style->getString("align", "");
+            label->align = (al == "center") ? 1 : (al == "right") ? 2 : 0;
+            label->bold = style->getBool("bold", false);
         }
 
         return label;
@@ -287,6 +292,13 @@ void UITree::registerDefaultWidgets() {
 
             // Font size from style root
             button->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
+            // Text handling (button-level, not per state): align "left"/"center"/"right" -> 0/1/2 (default
+            // center), bold, and padding (px the text is kept off the edges — matters for left/right align
+            // and for keeping the label off a 9-slice border).
+            const std::string al = style->getString("align", "");
+            button->textAlign = (al == "left") ? 0 : (al == "right") ? 2 : (al == "center") ? 1 : button->textAlign;
+            button->bold = style->getBool("bold", button->bold);
+            button->padding = static_cast<float>(style->getDouble("padding", button->padding));
         }
 
         // 9-slice FRAME (optional `frame` block): a composed border texture giving a continuous, crisp border
