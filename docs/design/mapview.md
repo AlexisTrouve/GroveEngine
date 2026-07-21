@@ -317,10 +317,26 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
   **live tiling**). TopDown/axis-aligned only. Locked by `MapViewTileMapperUnit` + `MapViewTileStreamerUnit`;
   E2E in `capture_mapview_tiles` (pixels) + `MapViewViewerE2E` (live 'T' + pan lifecycle). A retained tilemap
   still beats the bulk path for huge **static** square terrain (millions of tiles).
-- **Honest limit:** the bulk path decouples cost from world size *via culling*, but at **extreme zoom-out**
-  the visible static cell count can blow up → needs **LOD / a downsampled overview** (tilemap LOD, or a
-  mip/summary texture). **Deferred, not v1** — but the interfaces must not foreclose it (don't bake "one
-  quad per cell, always").
+- **Baked raster map layer ("gen once") — BUILT (2026-07-21):** for a **static** map (only the camera moves),
+  recompiling every cell → sprite each frame is pure waste — measured **416 ms/frame** at full-res (1664×896,
+  1.5 M cells ≈ 2.4 fps). The baked path compiles the active lens **once** into a single RGBA texture, then draws
+  **one world-space quad** per frame → per-frame cost **O(1) in cells** (bench: **0 ms/frame**, identical for a
+  128² world and a 1.5 M-cell world). Core (`MapView.h`, header-only, **default-off** → other Grove hosts
+  byte-identical): `bakeLensRGBA()` iterates the whole bounded grid (no viewport/no LOD) and composites the
+  layers with **premultiplied-alpha "over"** through the **same `shadeLayer()` kernel** the sprite path uses →
+  a baked texel is **byte-identical** to the stacked-sprite pixel (verified: GPU `--shot` diff mean 0.027/ch,
+  max 1/255); `setCompileCells(false)` drops the per-cell loop **and** the chunk streaming. The viewer opts in
+  (`enableBakedMap()`, default on `--load`): bake → `render:texture:create/:upload` + a retained
+  `render:sprite:add` quad (the video slice's runtime-texture path — **zero new renderer code**); re-bake on a
+  lens/hillshade change, **never on pan/zoom**; **franc fallback + LOG** for an unbounded world (synthetic demo)
+  or a world larger than one GPU texture (16384 px — tiling the bake into a texture grid is a follow-on, §10).
+  Overlays (markers/regions) are untouched. Locked by `MapViewBakeUnit` (parity / O(1) / re-bake / fallback).
+- **Honest limit (now addressed for static maps):** the bulk path decouples cost from world size *via culling*,
+  but at **extreme zoom-out** the visible static cell count can blow up → needs **LOD / a downsampled overview**.
+  Two mechanisms exist: the **per-cell LOD stride** (`MapView::setLod`, thins the sprite grid by apparent cell
+  size — the pansement) and, for a fully static map, the **baked layer above** (one quad, O(1)). The interfaces
+  were kept from foreclosing this (they don't bake "one quad per cell, always") — the baked layer *is* that
+  non-foreclosure realized. A dynamic map with a huge visible cell count still wants tilemap LOD (deferred).
 
 ---
 
@@ -343,11 +359,12 @@ bypasses IIO+JSON). It is **topology/projection/colour/layer-agnostic by constru
 
 Build *for* all axes, ship **one combo first**; each later axis plugs into an interface that already exists.
 
-**Status (2026-07-01): S0 ✅ · S1 ✅ · S2 ✅ (interactive viewer, disk-load) · S3-seam ✅ (file-backed
+**Status (2026-07-21): S0 ✅ · S1 ✅ · S2 ✅ (interactive viewer, disk-load) · S3-seam ✅ (file-backed
 provider — "the file is the interface" proven E2E) · tiling path ✅ (T2/T3 + live retained tiling) · overlays
-on screen ✅ (regions/markers)** — 16 MapView ctests (see [`mapview-handoff.md`](mapview-handoff.md) + memory).
-Remaining: **S3 Theomen adapter** (cross-project — its Claude writes a real `.world`; the engine already
-consumes any `.world` dir), then S4 timeline + S5 plug-ins.
+on screen ✅ (regions/markers) · baked raster map layer ✅ ("gen once", static-map O(1)/frame)** — 18 MapView
+ctests + `MapViewBakeUnit` (see [`mapview-handoff.md`](mapview-handoff.md) + memory). Remaining: **S3 Theomen
+adapter** (cross-project — its Claude writes a real `.world`; the engine already consumes any `.world` dir),
+then S4 timeline + S5 plug-ins.
 
 | Slice | Delivers | New axis exercised |
 |---|---|---|
@@ -356,6 +373,7 @@ consumes any `.world` dir), then S4 timeline + S5 plug-ins.
 | **S2 — viewer app** ✅ | in-engine `test_mapview_viewer` (drag-pan / zoom-to-cursor / H·B·T·R keys), **`--load <dir>`** opens a world-document from disk, CellDraw→SpriteInstance adapter, bulk-sprite emit; real input **E2E** (`MapViewViewerE2E`, injected SDL events) | first pixels (E2E) |
 | **S3-seam — file-backed provider** ✅ | `WorldDocumentProvider` bridges the on-disk world-document → the pure `MapView` (the "file is the interface" thesis, proven E2E in a unit test + a from-disk capture) | the contract, live |
 | **T2/T3 — tiling + overlays on screen** ✅ | `render:tilemap:tileset` + `TileMapper` (value→tile id) + `MapView` tile-chunk emit + **live retained tiling** in the viewer (`TileChunkStreamer`: add/remove chunks on pan, 'T' toggle) + **regions/markers drawn** (`render:sector`/`render:sprite`) | textured tiles + overlays |
+| **Baked map layer — "gen once"** ✅ | `MapView::bakeLensRGBA` + `setCompileCells` → compile the lens into ONE texture, draw a single world quad → per-frame **O(1) in cells** (sprite 416 ms → baked 0 ms at full-res). Byte-identical parity. Viewer opt-in (default on `--load`). Locked by `MapViewBakeUnit` | static-map perf (the §6 non-foreclosure) |
 | **S3 — Theomen adapter** | `World` → world-document (Theomen-side); see a real generated world | real data |
 | **S4 — timeline** | per-phase frames + scrub (deltas → targeted `tilemap:update`-style) | ⑥ time |
 | **S5+ — plug-ins** | hex layout · iso projection + depth-sort · infinite/procedural provider · Z multi-slice render · extreme-zoom LOD · palette-LUT | the deferred axes |
@@ -382,7 +400,12 @@ S0→S3 = "see Theomen's world, generically". Everything after slots into S1's i
 
 ## 10. Open / deferred (don't foreclose)
 
-- Extreme-zoom-out LOD (downsampled overview) — bulk path needs it eventually.
+- Extreme-zoom-out LOD (downsampled overview) — **partly addressed**: `setLod` (per-cell stride) + the baked
+  raster layer (static maps, §6) cover it; a *dynamic* map with a huge visible cell count still wants tilemap LOD.
+- **Tile the baked layer** for a world larger than one GPU texture (> 16384 px/side): today `bakeLensRGBA` +
+  the viewer **fail franc + LOG** and keep the sprite+LOD path (never silent truncation). A texture-grid bake
+  (N tiles, N quads) would extend "gen once" to arbitrarily large worlds; the full-res Theomen world (≈1625²)
+  fits one texture, so this is deferred until a bigger world appears.
 - Palette-LUT continuous colour on the *tilemap* fast-lane (small shader add) — only if/when we want the
   tilemap path for square·top-down.
 - Hex Z (cube-coord + Z), iso inter-slice occlusion, "tall" objects overlapping front cells.

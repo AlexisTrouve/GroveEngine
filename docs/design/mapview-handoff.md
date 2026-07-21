@@ -6,15 +6,16 @@ Resume-from-here for `grove::mapview`, the generic header-only map-viewer engine
 
 ---
 
-## Status (2026-07-01) — ENGINE SIDE COMPLETE; only S3 (Theomen adapter) remains
+## Status (2026-07-21) — ENGINE SIDE COMPLETE; only S3 (Theomen adapter) remains
 
 **SPEC ✅ · S0 format ✅ (frozen) · S1 pure core ✅ · S2 interactive viewer ✅ (disk-load) · S3-seam ✅
 (file-backed provider) · tiling path ✅ (T2/T3 + live retained tiling) · overlays on screen ✅ (regions/
-markers) — 16 MapView ctests green.** The consumer side is DONE and proven E2E: a `.world` written to disk is
-loaded (`WorldDocumentProvider`) and rendered (cells + textured tiles + regions + markers) — `MapViewViewerE2E`
-writes a doc + `--load`s + drives it with real input, all green in ctest. **The only remaining slice is S3:
-Theomen's own adapter that WRITES a `.world`** (its Claude, cross-project). See the "Theomen: write a `.world`"
-recipe below — the contract is frozen and the engine consumes any `.world` dir today.
+markers) · baked raster map layer ✅ ("gen once", static-map O(1)/frame) — 18 MapView ctests green.** The
+consumer side is DONE and proven E2E: a `.world` written to disk is loaded (`WorldDocumentProvider`) and
+rendered (cells + textured tiles + regions + markers) — `MapViewViewerE2E` writes a doc + `--load`s + drives it
+with real input, all green in ctest. **The only remaining slice is S3: Theomen's own adapter that WRITES a
+`.world`** (its Claude, cross-project). See the "Theomen: write a `.world`" recipe below — the contract is
+frozen and the engine consumes any `.world` dir today.
 
 **S1 (pure core, headless TDD)** — `include/grove/mapview/`, commits `9c1fbb4`→`ee0702e`→`3be5f7c`→`5b969b9`:
 - **S1a** geometry — `Geometry.h` (WorldPos/RenderPos/CellQuad), `GridLayout.h` (IGridLayout + SquareLayout:
@@ -51,6 +52,7 @@ SpriteInstance) — grove::mapview is 100% renderer-independent.
 | file-backed provider (S3-seam) | ✅ **DONE** — `WorldDocumentProvider.h` bridges a `.world` on disk → the pure `MapView` (the "file is the interface" thesis, proven E2E: write→load→render) |
 | tiling path (T2/T3) | ✅ **DONE** — `render:tilemap:tileset` + `TileMapper` (value→tile id) + `MapView` tile-chunk emit + **live retained tiling** in the viewer (`TileChunkStreamer`, 'T' toggle). Locks: `MapViewTileMapperUnit`/`MapViewTileStreamerUnit` + capture |
 | overlays on screen | ✅ **DONE** — regions → `render:sector` (rings) + markers → `render:sprite` (icons), drawn world-space by the viewer |
+| **baked map layer ("gen once")** | ✅ **DONE** — `MapView::bakeLensRGBA` + `setCompileCells` compile the lens into ONE texture drawn as a single world quad → per-frame **O(1) in cells** (sprite 416 ms → baked 0 ms at full-res). Byte-identical parity. Viewer opt-in (`enableBakedMap`, default on `--load`; `--no-bake` for A/B). Locked by `MapViewBakeUnit`. See "Baked map layer" ↓ |
 | **`worldcheck` validator** | ✅ **DONE** — headless semantic checker (`WorldCheck.h`/`WorldCheckDisk.h` + `worldcheck` CLI): the deterministic proof a `.world` is correct, so S3 has a feedback loop that is NOT "render + eyeball". Locked by `MapViewWorldCheckUnit`. See "Verify with `worldcheck`" ↓ |
 | **Theomen adapter (S3)** | ❌ **not started (Theomen-side, its Claude) — UNBLOCKED**: format frozen, engine consumes any `.world` today. Recipe ↓ |
 
@@ -172,6 +174,54 @@ the RHI offscreen readback; tile = min(256 cells, 8192/ppc px) per side. Locked 
 render → dims == cells·ppc + the stitched image is varied terrain, not blank). Verified by eye: a 1M-cell world
 that `--shot` rendered blank comes out as a seamless 4096² poster. **This is the way to export a full-res map;
 `--shot` stays the quick fit-view thumbnail.**
+
+---
+
+## Baked map layer ("gen once") — the static-map O(1)/frame path
+
+**Why it exists:** a static map (only the camera moves) recompiled EVERY cell → sprite each frame. Measured
+**416 ms/frame** at full-res (1664×896, 1.5 M cells ≈ 2.4 fps; `--shot ... cells=32768` on the island shows the
+per-frame cell count). The baked path compiles the active lens **once** into a single RGBA texture and draws
+**one world-space quad**/frame → per-frame cost **O(1) in cells** (bench: **0 ms/frame**, identical for a 128²
+world and a 1.5 M-cell world).
+
+**How it works** (`include/grove/mapview/MapView.h` core + `tests/visual/MapViewViewerApp.h` viewer):
+- **Core, header-only, DEFAULT-OFF** (other Grove hosts byte-identical): `shadeLayer()` = the SHARED per-cell
+  colour kernel (filter+palette+opacity+hillshade), factored out of `update()` so the sprite path and the bake
+  produce **byte-identical** colour. `bakeLensRGBA(out,w,h,minX,minY,spanX,spanY)` iterates the WHOLE bounded
+  grid (no viewport/no LOD), composites layers in `layerZ` order with **premultiplied-alpha "over" then
+  un-premultiply** — the derived-correct straight-alpha texel that, drawn once with the renderer's alpha blend,
+  reproduces the exact stacked-sprite pixel; returns `false` on an unbounded world (`GridSpec.worldW/H == 0`).
+  `setCompileCells(false)` makes `update()` skip the per-cell loop AND the chunk streaming (overlays only).
+- **Viewer:** `enableBakedMap()` opts in (called for `--load` in interactive + `--shot`, NOT `--poster`/
+  `--selftest`). On the first baked frame it probes: bake → `render:texture:create` + `:upload` (RGBA blob) +
+  a retained `render:sprite:add` world quad (the **video slice's runtime-texture path** — zero new renderer
+  code). Re-bakes on a lens/hillshade change (`bakeDirty_`), **never on pan/zoom**. **Franc fallback + LOG**
+  (never silent) for an unbounded world or one larger than 16384 px/side → keeps the sprite+LOD path.
+
+**A/B & usage:**
+```bash
+./build/tests/test_mapview_viewer --load <dir>                 # baked by default (interactive)
+./build/tests/test_mapview_viewer --load <dir> --shot b.png    # baked static shot
+./build/tests/test_mapview_viewer --load <dir> --shot s.png --no-bake   # force the sprite+LOD path (A/B)
+```
+A quick bounded fixture to test against: `./build/tests/capture_mapview_from_disk` writes an island world to
+`%TEMP%/mapview_island_doc` — then `--load` that dir.
+
+**⚠️ GPU gotcha that cost a debugging cycle (locked by memory, not just here):** `render:texture:create` reads
+**`width`/`height`**, but `render:texture:upload` reads **`w`/`h`**. Mixing them silently no-ops the create
+(the `w<=0` guard) → the sprite samples the 4×4 **white** default → the whole map bakes WHITE. (VideoModule has
+the same latent `create`-key bug — it uses `w`/`h` for create too — but is only ever run with a mock, so it was
+never caught. Noted, not fixed.) The `--shot` GPU diff is what exposed it (parity went 165/ch → 0.027/ch after
+the fix). **Lesson: a GPU wiring bug is invisible to code-reading + the headless texel unit test — only the
+readback `--shot` bit.**
+
+**Proof:** `MapViewBakeUnit` (`tests/unit/test_mapview_bake.cpp`, headless): parity (baked texel == sprite
+CellDraw composite, ±1/255), transparency fall-through, **O(1)** (`cells==0` for any world size), re-bake reflects
+the current lens, unbounded → fallback. GPU parity: `--shot` baked-vs-sprite mean 0.027/ch, max 1/255, 0% px >16.
+
+**Follow-ons:** (1) tile the bake for a world > one texture (16384 px; today = franc fallback — see `mapview.md`
+§10); (2) fix VideoModule's `create` key + give it a real-GPU test.
 
 ---
 
@@ -315,7 +365,8 @@ mapview into the quality-hardening lenses, [[quality-hardening]]); the app/adapt
   generically"; everything after slots into S1's interfaces without rework.
 
 **One-line resume:** *Engine side COMPLETE — S0 format + S1 core + S2 viewer (`--load`) + S3-seam provider +
-tiling (T2/T3, incl. live retained tiling) + regions/markers on screen, 16 MapView ctests, write→load→render
-proven E2E. The ONLY thing left is S3 = Theomen's adapter that WRITES a `.world` (its Claude, cross-project) —
-see the "Theomen: write a `.world`" recipe above (copy `writeTestDoc`). Everything else (S4 timeline, S5 hex/
-iso/Z/LOD) slots into S1's interfaces without rework.*
+tiling (T2/T3, incl. live retained tiling) + regions/markers on screen + baked raster map layer ("gen once",
+static-map O(1)/frame), 18 MapView ctests, write→load→render proven E2E. The ONLY thing left is S3 = Theomen's
+adapter that WRITES a `.world` (its Claude, cross-project) — see the "Theomen: write a `.world`" recipe above
+(copy `writeTestDoc`). Everything else (S4 timeline, S5 hex/iso/Z/LOD) slots into S1's interfaces without rework.
+Small follow-ons noted in "Baked map layer": tile the bake for >16384 px worlds; fix VideoModule's create key.*
