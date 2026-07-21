@@ -3587,6 +3587,24 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
         spdlog::spdlog
     )
     message(STATUS "9-slice border demo 'test_nineslice_demo' enabled")
+
+    # 9-slice ELABORATE-ART demo: four SVG-drawn PNG frames (sci-fi / ornate / glossy / parchment) loaded as
+    # streamed assets and rendered in-engine on buttons + windows — the real PNG→nineslice→GPU path (--shot).
+    add_executable(test_nineslice_art_demo WIN32 visual/test_nineslice_art_demo.cpp)
+    target_include_directories(test_nineslice_art_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/modules/UIModule
+    )
+    target_link_libraries(test_nineslice_art_demo PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        UIModule_static
+        spdlog::spdlog
+    )
+    message(STATUS "9-slice art demo 'test_nineslice_art_demo' enabled")
 endif()
 
 # Sprite Rendering Diagnostic Test - isolates IIO sprite pipeline

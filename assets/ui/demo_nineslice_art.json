@@ -1,0 +1,56 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0, "y": 0, "width": 1280, "height": 720,
+  "style": { "bgColor": "0x0c1016FF" },
+  "children": [
+    { "type": "label", "id": "title", "x": 36, "y": 22, "text": "9-slice — cadres SVG elabores, rendus par le moteur", "fontSize": 24, "style": { "textColor": "0xE8EEF7FF" } },
+    { "type": "label", "id": "hint", "x": 36, "y": 56, "text": "PNG 128x128 charges comme assets. Survole les boutons, drag / etire les fenetres — coins nets a toute taille.", "fontSize": 14, "style": { "textColor": "0x8b98acFF" } },
+
+    { "type": "label", "id": "lblB", "x": 36, "y": 96, "text": "Bouton verre (glossy) — memes coins, largeurs differentes :", "fontSize": 15, "style": { "textColor": "0xb9c4d4FF" } },
+    { "type": "button", "id": "gb1", "x": 36,  "y": 122, "width": 120, "height": 48, "text": "OK",
+      "frame": { "asset": "frame_glossy", "srcW": 128, "srcH": 128, "inset": 24 },
+      "style": { "normal": { "bgColor": "0xFFFFFFFF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0xd8ecffFF" }, "pressed": { "bgColor": "0xbfcfe6FF" } } },
+    { "type": "button", "id": "gb2", "x": 172, "y": 122, "width": 240, "height": 48, "text": "Valider",
+      "frame": { "asset": "frame_glossy", "srcW": 128, "srcH": 128, "inset": 24 },
+      "style": { "normal": { "bgColor": "0xFFFFFFFF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0xd8ecffFF" }, "pressed": { "bgColor": "0xbfcfe6FF" } } },
+    { "type": "button", "id": "gb3", "x": 428, "y": 122, "width": 360, "height": 48, "text": "Bouton large — le reflet suit",
+      "frame": { "asset": "frame_glossy", "srcW": 128, "srcH": 128, "inset": 24 },
+      "style": { "normal": { "bgColor": "0xFFFFFFFF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0xd8ecffFF" }, "pressed": { "bgColor": "0xbfcfe6FF" } } },
+
+    { "type": "window", "id": "winTech", "x": 40, "y": 210, "width": 300, "height": 200, "title": "Sci-fi HUD",
+      "frame": { "asset": "frame_tech", "srcW": 128, "srcH": 128, "inset": 30 },
+      "style": { "titleBarColor": "0x123244FF", "titleColor": "0xbdeefaFF" },
+      "children": [ { "type": "label", "id": "tTxt", "x": 16, "y": 14, "text": "Cadre HUD cyan.\nEtire le coin -> les\nbrackets restent nets.", "fontSize": 14, "style": { "textColor": "0xbfe6f0FF" } } ] },
+
+    { "type": "window", "id": "winOrn", "x": 370, "y": 210, "width": 300, "height": 200, "title": "Ornemental",
+      "frame": { "asset": "frame_ornate", "srcW": 128, "srcH": 128, "inset": 34 },
+      "style": { "titleBarColor": "0x3a2c12FF", "titleColor": "0xf0d888FF" },
+      "children": [ { "type": "label", "id": "oTxt", "x": 18, "y": 14, "text": "Filigranes dores aux\ncoins, traits fins sur\nles bords.", "fontSize": 14, "style": { "textColor": "0xe6d3a0FF" } } ] },
+
+    { "type": "window", "id": "winPar", "x": 700, "y": 210, "width": 320, "height": 220, "title": "Parchemin",
+      "frame": { "asset": "frame_parchment", "srcW": 128, "srcH": 128, "inset": 30 },
+      "style": { "titleBarColor": "0x5a3d22FF", "titleColor": "0xf3e7c8FF" },
+      "children": [ { "type": "label", "id": "pTxt", "x": 20, "y": 16, "text": "Bordure cuir-bois,\nrivets aux coins,\nfond parchemin.", "fontSize": 14, "style": { "textColor": "0x5a4525FF" } } ] },
+
+    { "type": "label", "id": "lblT", "x": 36, "y": 452, "text": "Texte — gras & alignement + cadre standard :", "fontSize": 16, "style": { "textColor": "0xb9c4d4FF" } },
+    { "type": "label", "id": "lNorm", "x": 36,  "y": 482, "text": "Normal", "fontSize": 18, "style": { "textColor": "0xE8EEF7FF" } },
+    { "type": "label", "id": "lBold", "x": 170, "y": 482, "text": "Gras", "fontSize": 18, "style": { "textColor": "0xE8EEF7FF", "bold": true } },
+
+    { "type": "button", "id": "sb1", "x": 36,  "y": 516, "width": 200, "height": 46, "text": "Gras centre",
+      "frame": { "asset": "frame_standard", "srcW": 128, "srcH": 128, "inset": 16 },
+      "style": { "normal": { "bgColor": "0x3a86ffFF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x5b9bffFF" }, "align": "center", "bold": true } },
+    { "type": "button", "id": "sb2", "x": 250, "y": 516, "width": 200, "height": 46, "text": "A gauche",
+      "frame": { "asset": "frame_standard", "srcW": 128, "srcH": 128, "inset": 16 },
+      "style": { "normal": { "bgColor": "0x2a9d8fFF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0x36b3a3FF" }, "align": "left", "padding": 18 } },
+    { "type": "button", "id": "sb3", "x": 464, "y": 516, "width": 170, "height": 46, "text": "Droite",
+      "frame": { "asset": "frame_standard", "srcW": 128, "srcH": 128, "inset": 16 },
+      "style": { "normal": { "bgColor": "0xe76f51FF", "textColor": "0xFFFFFFFF" }, "hover": { "bgColor": "0xf08466FF" }, "align": "right", "padding": 18 } },
+
+    { "type": "panel", "id": "alignPanel", "x": 700, "y": 470, "width": 320, "height": 92, "style": { "bgColor": "0x1b2430FF" },
+      "children": [
+        { "type": "label", "id": "cLbl", "x": 0, "y": 12, "width": 320, "text": "Label centre (width 320)", "fontSize": 16, "style": { "textColor": "0xE8EEF7FF", "align": "center" } },
+        { "type": "label", "id": "rLbl", "x": 0, "y": 44, "width": 320, "text": "Label aligne a droite", "fontSize": 16, "style": { "textColor": "0xcbd5e1FF", "align": "right" } }
+      ] }
+  ]
+}
