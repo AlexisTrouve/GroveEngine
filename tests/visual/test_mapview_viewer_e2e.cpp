@@ -243,10 +243,31 @@ int main(int argc, char** argv) {
     CHECK(app.camera().zoom > zoomPre, "wheel-up zooms the camera in");
 
     // 3. Keep zooming in hard -> the culled chunk set (and thus the visible-cell count) shrinks.
+    //
+    // ⚠️ DO NOT "simplify" this back to `cellCount() < cellsFit`. That comparison looks obvious and is
+    // WRONG: the two numbers are produced by two DIFFERENT reduction mechanisms.
+    //   - at the fit view, cells are ~2.8 px apart, below MapView's lodTargetPx_ (3.5), so the LOD
+    //     stride is ceil(3.5/2.8125) = 2 -> the whole 24-chunk world compiles at 1/4 = 24576 cells;
+    //   - zoomed in, the stride is pinned at 1 and the CHUNK CULL does the reducing -> 6 chunks of
+    //     64x64 = 24576 cells.
+    // Both land on exactly 24576 on this world: the naive check asserted a strict decrease between two
+    // quantities that happen to be equal, and proved nothing about culling either way.
+    //
+    // So isolate the cull: compare two ZOOMED-IN levels, both already at stride 1 (any zoom above
+    // 3.5 px/cell is), where the only thing that can move the count is the visible chunk set.
     for (int i = 0; i < 10; ++i) pushWheel(1);
     pump();
     app.renderFrame(dt);
-    CHECK(app.cellCount() < cellsFit, "zooming in shrinks the visible-cell set (cull responds to the camera)");
+    const size_t cellsNear = app.cellCount();
+    CHECK(cellsNear > 0, "the zoomed-in view still compiles cells");
+
+    for (int i = 0; i < 12; ++i) pushWheel(1);   // stays under the 64x zoom clamp
+    pump();
+    app.renderFrame(dt);
+    CHECK(app.cellCount() < cellsNear, "zooming in further shrinks the visible-cell set (cull responds to the camera)");
+    // And the end state is well below the overview count — the user-visible claim, now with real margin
+    // (~1 chunk vs the fit view's 24576) instead of riding on a coincidence.
+    CHECK(app.cellCount() < cellsFit, "a strong zoom compiles far fewer cells than the fit view");
 
     // 4. 'H' toggles hillshade (a lens rebuild driven by a key).
     const bool hs0 = app.hillshade();
