@@ -222,6 +222,10 @@ private:
     // runningItemIndex advances only on leaves (so zebra + selected.index stay contiguous). Slice 5d.
     void projectNodes(const std::vector<ListNode>& nodes, int depth, int& runningItemIndex);
     void renderTemplate(UIRenderer& renderer);   // template mode: bg + clipped pooled children + scrollbar
+    // Emit (or hide) the right-edge scrollbar. BOTH render paths — fixed-row and template/pooled — ended
+    // with the same six lines; they live here once. Allocates its two layers in the same order the call
+    // sites used (track then thumb), so the z-order is unchanged.
+    void renderScrollbar(UIRenderer& renderer);
     // Content height = rowHeight x (template data count in template mode, else the projected row count).
     float contentHeight() const {
         const int n = isTemplateMode() ? m_templateRowCount : static_cast<int>(m_rows.size());

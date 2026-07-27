@@ -427,9 +427,16 @@ void UIList::renderTemplate(UIRenderer& renderer) {
     renderChildren(renderer);   // only visible (windowed) instances render; others were hidden
     renderer.popClip();
 
+    renderScrollbar(renderer);
+}
+
+void UIList::renderScrollbar(UIRenderer& renderer) {
+    // Shown only when the content overflows; parked at zero size otherwise (so a list that stops
+    // scrolling doesn't leave a ghost bar). Drawn outside the row clip so it stays fully visible.
     if (scrollbarWidth > 0.0f && isScrollable()) {
+        const int trackLayer = renderer.nextLayer();
         const float trackX = absX + width - scrollbarWidth;
-        renderer.updateRect(m_trackId, trackX, absY, scrollbarWidth, height, scrollbarTrackColor, renderer.nextLayer());
+        renderer.updateRect(m_trackId, trackX, absY, scrollbarWidth, height, scrollbarTrackColor, trackLayer);
         float tx, ty, tw, th; scrollbarThumbRect(tx, ty, tw, th);
         renderer.updateRect(m_thumbId, tx, ty, tw, th, scrollbarColor, renderer.nextLayer());
     } else {
@@ -522,18 +529,8 @@ void UIList::render(UIRenderer& renderer) {
     }
     renderer.popClip();
 
-    // Scrollbar (track + thumb), drawn ON TOP of the rows at the right edge — outside the row clip so it's
-    // always fully visible. Shown only when the content overflows; hidden (zero-size) otherwise.
-    if (scrollbarWidth > 0.0f && isScrollable()) {
-        const int sbLayer = renderer.nextLayer();
-        const float trackX = absX + width - scrollbarWidth;
-        renderer.updateRect(m_trackId, trackX, absY, scrollbarWidth, height, scrollbarTrackColor, sbLayer);
-        float tx, ty, tw, th; scrollbarThumbRect(tx, ty, tw, th);
-        renderer.updateRect(m_thumbId, tx, ty, tw, th, scrollbarColor, renderer.nextLayer());
-    } else {
-        renderer.updateRect(m_trackId, 0, 0, 0, 0, 0, renderer.nextLayer());
-        renderer.updateRect(m_thumbId, 0, 0, 0, 0, 0, renderer.nextLayer());
-    }
+    // Scrollbar (track + thumb), drawn ON TOP of the rows at the right edge.
+    renderScrollbar(renderer);
 }
 
 void UIList::releaseRenderEntries(UIRenderer& renderer) {

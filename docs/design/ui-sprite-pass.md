@@ -24,8 +24,14 @@ coûte ~3 lignes — et la largeur devient quasi gratuite, seul l'**art** coûte
 ### Deux pièces à extraire, pas une
 
 1. **`UIFrame`** — le chrome 9-slice : les 7 champs, le parse, l'émission, le repli.
-2. **La scrollbar (rail + pouce)** — **dupliquée** entre `UIScrollPanel` (l.246/259) et `UIList`
-   (l.432/434 *et* l.530/532 — deux chemins de rendu dans le même widget). Même nature de dette.
+2. **La scrollbar (rail + pouce)** — ⚠️ **ce point du plan était surestimé, corrigé à l'implémentation
+   (P0b)**. La duplication *mot pour mot* est **à l'intérieur de `UIList`** (ses deux chemins de rendu,
+   l.432/434 et l.530/532) — réelle et extraite. **Entre les deux widgets, en revanche, la ressemblance
+   est superficielle** : `UIScrollPanel` porte 4 champs de texture + `scrollbarHoverColor` +
+   `scrollbarBgColor`, `UIList` n'a que `scrollbarTrackColor`. Une struct commune serait soit un plus
+   petit dénominateur (on perdrait les textures du panel), soit un adaptateur par widget plus coûteux
+   que les ~6 lignes gagnées. **Pièce inter-widgets reportée à P2**, où donner à `UIList` un rail/pouce
+   spritable lui donnera une forme dictée par un besoin réel au lieu d'une généralisation spéculative.
 
 ## 2. Priorité — corrigée par l'usage, pas par le nombre de rects
 
@@ -55,7 +61,11 @@ des conteneurs de layout, pas du chrome.
 - `Widgets/UIFrame.h` : struct (asset, srcW/H, l/r/t/b) + `active()` + `parse(const IDataNode&)` +
   `emit(renderer, id, x, y, w, h, color, layer)` + `collapse(renderer, id)`.
 - Rebrancher **button** et **window** dessus ; supprimer les deux blocs de parse jumeaux de `UITree.cpp`.
-- Idem pour la scrollbar (rail + pouce) partagée `UIScrollPanel`/`UIList`.
+- Dédupliquer la scrollbar **de `UIList` avec elle-même** (`UIList::renderScrollbar`) — cf. la
+  correction au §1 : la mise en commun *inter-widgets* n'est pas justifiée aujourd'hui.
+
+**État : ✅ P0a (UIFrame) et P0b (dédup UIList) livrées.** `UINineSliceE2E` + `NineSliceGpu` passent
+sans modification, 54/54 tests UI, 177/177 sur la suite.
 
 **Preuve que c'est invisible** : `UINineSliceE2E` (IT_060) + `NineSliceGpu` (lecture de pixels)
 doivent passer **sans modification**. Plus un `UIFrameUnit` sur le parse (pur, headless).
