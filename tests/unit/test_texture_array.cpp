@@ -48,3 +48,73 @@ TEST_CASE("loadArrayFromFile slices a PNG into a multi-layer RGBA8 array", "[atl
     REQUIRE(d.width == 16);
     REQUIRE(d.height == 16);
 }
+
+// ============================================================================
+// RAW-PIXEL tileset load. A game that GENERATES its tileset at startup (colours straight from its
+// own data) had to encode a PNG and write it to disk just so the engine could read and decode it
+// back. This path takes the pixels directly. Same slice + upload + average as the file path, minus
+// the codec — so it is fully headless-testable with an exact oracle (no asset, no skip).
+// ============================================================================
+
+TEST_CASE("loadArrayFromPixels slices a raw RGBA8 buffer into array layers", "[atlas][tilemap][unit]") {
+    test::MockRHIDevice device;
+
+    // 4x2 px image of 2x2 tiles -> 2 cols x 1 row = 2 layers. Left tile solid RED, right solid BLUE.
+    // Bytes are R,G,B,A per texel — the same wire layout as render:texture:upload and the LOD palette.
+    const uint8_t R[4] = { 255, 0, 0, 255 };
+    const uint8_t B[4] = { 0, 0, 255, 255 };
+    std::vector<uint8_t> px;
+    for (int y = 0; y < 2; ++y) {                       // row-major: R R B B  /  R R B B
+        for (int x = 0; x < 4; ++x) {
+            const uint8_t* c = (x < 2) ? R : B;
+            px.insert(px.end(), c, c + 4);
+        }
+    }
+    REQUIRE(px.size() == 4u * 2u * 4u);
+
+    TextureLoader::LoadResult r =
+        TextureLoader::loadArrayFromPixels(device, px.data(), px.size(), 4, 2, 2, 2);
+
+    REQUIRE(r.success);
+    REQUIRE(r.layers == 2);
+    REQUIRE(r.width == 2);        // per-TILE size, not the image size
+    REQUIRE(r.height == 2);
+
+    REQUIRE(device.textureDescs.size() == 1);
+    const rhi::TextureDesc& d = device.textureDescs.back();
+    REQUIRE(d.format == rhi::TextureDesc::RGBA8);
+    REQUIRE(d.layers == 2);
+    REQUIRE(d.width == 2);
+    REQUIRE(d.height == 2);
+
+    // The zoom-out colour table rides along for free — solid tiles average to themselves.
+    REQUIRE(r.layerColors.size() == 2u);
+    REQUIRE(r.layerColors[0] == 0xFF0000FFu);   // red  (0xAABBGGRR)
+    REQUIRE(r.layerColors[1] == 0xFFFF0000u);   // blue
+}
+
+TEST_CASE("loadArrayFromPixels rejects a buffer that does not match imgW*imgH*4", "[atlas][tilemap][unit]") {
+    // A short buffer would slice garbage (or read out of bounds). Fail FRANKLY — no truncation, no
+    // "best effort" partial atlas that would show as mystery tiles later.
+    test::MockRHIDevice device;
+    std::vector<uint8_t> tooShort(4u * 2u * 4u - 4u);
+
+    TextureLoader::LoadResult r =
+        TextureLoader::loadArrayFromPixels(device, tooShort.data(), tooShort.size(), 4, 2, 2, 2);
+
+    REQUIRE_FALSE(r.success);
+    REQUIRE_FALSE(r.error.empty());
+    REQUIRE(device.textureDescs.empty());        // nothing was uploaded
+}
+
+TEST_CASE("loadArrayFromPixels rejects degenerate dimensions", "[atlas][tilemap][unit]") {
+    test::MockRHIDevice device;
+    std::vector<uint8_t> px(4u * 4u);
+
+    REQUIRE_FALSE(TextureLoader::loadArrayFromPixels(device, px.data(), px.size(), 2, 2, 0, 2).success);
+    REQUIRE_FALSE(TextureLoader::loadArrayFromPixels(device, px.data(), px.size(), 0, 2, 2, 2).success);
+    REQUIRE_FALSE(TextureLoader::loadArrayFromPixels(device, nullptr, 0, 2, 2, 2, 2).success);
+    // Tile larger than the image -> 0 layers, which is an error, not an empty success.
+    REQUIRE_FALSE(TextureLoader::loadArrayFromPixels(device, px.data(), px.size(), 2, 2, 4, 4).success);
+    REQUIRE(device.textureDescs.empty());
+}

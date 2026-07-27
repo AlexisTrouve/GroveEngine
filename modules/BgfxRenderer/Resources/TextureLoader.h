@@ -59,6 +59,17 @@ public:
                                           int tileW, int tileH);
 
     /**
+     * @brief Same as loadArrayFromMemory but from ALREADY-DECODED pixels — no codec involved.
+     *        For a game that GENERATES its tileset at startup (colours straight from its own data):
+     *        it would otherwise have to encode a PNG and write it to disk just so we could read and
+     *        decode it back. loadArrayFromMemory is this function preceded by a decode.
+     * @param pixels Raw RGBA8, row-major, exactly imgW*imgH*4 bytes (R,G,B,A per texel).
+     * @param size   Byte count — validated against imgW*imgH*4; a mismatch FAILS (no truncation).
+     */
+    static LoadResult loadArrayFromPixels(rhi::IRHIDevice& device, const uint8_t* pixels, size_t size,
+                                          int imgW, int imgH, int tileW, int tileH);
+
+    /**
      * @brief Decode an image file to RGBA8 pixels in memory (NO GPU upload). For runtime atlas packing —
      *        the packer decodes several images, assembles them into one buffer, then uploads once.
      * @return true on success; outPixels = w*h*4 bytes (RGBA8), outW/outH = dimensions.

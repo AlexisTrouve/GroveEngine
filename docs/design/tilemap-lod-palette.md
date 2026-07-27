@@ -174,16 +174,31 @@ il pérenniserait l'incohérence par défaut et personne ne l'activerait.
 
 ## 6. Hors périmètre
 
-- **Item #2 du wishlist DAOS** (variante « pixels » de `render:tilemap:tileset`, pour éviter d'écrire
-  un PNG temporaire au démarrage) — **non traité ici**. Avec (b), DAOS écrit toujours son PNG, donc
-  leur friction reste entière. Coût si on l'enchaîne : ~1 h en variante **blob PNG encodé** (une branche
-  vers `loadArrayFromMemory`, qui décode déjà depuis la mémoire) contre 2-3 h en **raw RGBA** tel que
-  le wishlist le formule (nouveau chemin de découpe sans décodage). ⚠️ Le wishlist suppose que
-  `loadArrayFromMemory` accepte des pixels bruts : **c'est faux**, elle prend des octets d'image
-  encodée (`TextureLoader.h:39` le dit explicitement).
+- **Item #2 du wishlist DAOS** (variante « pixels » de `render:tilemap:tileset`) — ✅ **FAIT ensuite**,
+  en **raw RGBA** comme demandé. `TextureLoader::loadArrayFromPixels` est la queue de
+  `loadArrayFromMemory` **moins le décodage** ; cette dernière devient « décode puis délègue ». Zéro
+  logique nouvelle, et le chemin est testable **headless et exactement** via `MockRHIDevice` (pas de
+  GPU, pas de dépendance à un asset, pas de skip). Payload : `{textureId, tileW, tileH, imgW, imgH,
+  +blob "pixels"}`, `pixels` l'emporte sur `path` avec un warning, taille incohérente = échec franc.
+  ⚠️ Le wishlist supposait que `loadArrayFromMemory` acceptait déjà des pixels bruts : **faux**, elle
+  prend des octets d'image encodée. ⚠️ Mon chiffrage initial (2-3 h) était **surévalué** — j'avais
+  estimé avant de lire la fonction ; c'est ~1 h, du même ordre que la variante PNG encodé.
+  Choix de nommage : `imgW`/`imgH` et non les `w`/`h` de `render:texture:upload`, parce que
+  `tileW`/`tileH` cohabitent sur ce topic — divergence assumée et documentée des deux côtés.
 - Rien côté DAOS (leur repo, leur agent).
 
-## 7. Points laissés à l'arbitrage
+## 7. Arbitrages — tranchés
 
-1. **Opt-in ou pas** pour le changement visuel de mapview/Drifterra ? *(reco : pas d'opt-in)*
-2. **Item #2** : enchaîné dans la foulée en variante blob PNG encodé (~1 h), ou abandonné ?
+1. **Opt-in pour le changement visuel de mapview/Drifterra** → **pas d'opt-in**. Un opt-in
+   pérenniserait l'incohérence par défaut et personne ne l'activerait.
+2. **Item #2** → **fait, en raw RGBA** (voir §6).
+3. **Nommage `imgW`/`imgH` vs `w`/`h`** → `imgW`/`imgH` (clarté locale face à `tileW`/`tileH`).
+4. **`path` + `pixels` fournis ensemble** → `pixels` gagne, warning loggé.
+
+## 8. Reste ouvert
+
+- Rien côté moteur pour DAOS : la bande détail ET la bande LOD sont couvertes, sans topic
+  supplémentaire à publier au-delà du tileset lui-même.
+- ⚠️ Sans rapport avec ce chantier mais constaté pendant : **`MapViewViewerE2E` est rouge sur master**
+  (check *« zooming in shrinks the visible-cell set »*, du culling caméra). Vérifié préexistant par
+  stash + rebuild. Non investigué.

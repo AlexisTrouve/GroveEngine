@@ -178,17 +178,42 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
             const int tw = static_cast<int>(d.getInt("tileW", 16));
             const int th = static_cast<int>(d.getInt("tileH", 16));
-            if (path.empty() || texId == 0) return;  // 0 is reserved for the procedural colour atlas
-            TextureLoader::LoadResult res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
+            if (texId == 0) return;                  // 0 is reserved for the procedural colour atlas
+
+            // Two sources, same handling downstream: a PNG on disk (`path`) or ALREADY-DECODED RGBA8
+            // pixels riding beside the json (`pixels` blob + imgW/imgH). The blob spares a game that
+            // GENERATES its tileset at startup from encoding a PNG and writing it to disk just so we
+            // can read and decode it back. Note imgW/imgH rather than render:texture:upload's w/h:
+            // tileW/tileH already live on this topic, so bare w/h would read ambiguously here.
+            const auto* blob = d.getBlob("pixels");
+            TextureLoader::LoadResult res;
+            if (blob != nullptr && !blob->empty()) {
+                // Explicit data beats an indirection: if BOTH are given the pixels win, loudly.
+                if (!path.empty()) {
+                    m_logger->warn("Tileset {}: both 'pixels' and 'path' given — using 'pixels', ignoring '{}'",
+                                   texId, path);
+                }
+                const int iw = static_cast<int>(d.getInt("imgW", 0));
+                const int ih = static_cast<int>(d.getInt("imgH", 0));
+                res = TextureLoader::loadArrayFromPixels(*m_device, blob->data(), blob->size(), iw, ih, tw, th);
+            } else if (!path.empty()) {
+                res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
+            } else {
+                m_logger->warn("Tileset {} ignored: neither 'path' nor a 'pixels' blob", texId);
+                return;
+            }
             if (res.success) {
                 m_tilemapPass->setTileset(texId, res.handle);
                 // Also feed the zoom-out band: each layer's average colour becomes this tileset's LOD
                 // colour table, so dezoomed tiles show the tileset's own colours instead of the
                 // built-in 8-colour palette. Free (computed during the decode) and needs no topic.
                 m_tilemapPass->setTilesetLodColors(texId, std::move(res.layerColors));
-                m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId, path, res.layers, res.width, res.height);
+                m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId,
+                               path.empty() ? std::string("<pixels blob>") : path,
+                               res.layers, res.width, res.height);
             } else {
-                m_logger->warn("Tileset load failed for '{}': {}", path, res.error);
+                m_logger->warn("Tileset {} load failed from {}: {}", texId,
+                               path.empty() ? std::string("<pixels blob>") : path, res.error);
             }
         });
 
