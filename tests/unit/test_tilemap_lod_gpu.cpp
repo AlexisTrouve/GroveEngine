@@ -380,6 +380,20 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
             CHECK(byteOf(after, shift) >= byteOf(ORANGE, shift) - 20);
             CHECK(byteOf(after, shift) <= byteOf(ORANGE, shift) + 20);
         }
+
+        // (3) An EXPLICIT game palette OVERRIDES the derived table for the same tileset — the
+        //     documented precedence (explicit > derived > built-in). Registered LAST and with the
+        //     chunk still NOT dirty, so this re-proves the invalidation on the override path too.
+        //     PURPLE differs from ORANGE *and* from the built-in grey on all three channels, so the
+        //     assert cannot pass by landing on either of the other two candidates.
+        const uint32_t PURPLE = 0xFF800080u;   // R=128 G=0 B=128
+        pass.setLodPalette(8, std::vector<uint32_t>{ PURPLE, PURPLE });
+        const uint32_t overridden = renderCenter(chunk, G);
+        INFO("override-lod got=" << std::hex << overridden << " want=" << PURPLE);
+        for (int shift = 0; shift <= 16; shift += 8) {
+            CHECK(byteOf(overridden, shift) >= byteOf(PURPLE, shift) - 20);
+            CHECK(byteOf(overridden, shift) <= byteOf(PURPLE, shift) + 20);
+        }
         device->destroy(atlasArr);
     }
 
