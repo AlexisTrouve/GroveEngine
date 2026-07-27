@@ -2262,6 +2262,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ../modules/BgfxRenderer/Text/BitmapFont.cpp
     )
     target_include_directories(test_bitmap_font PRIVATE
+        ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb   # stb_truetype (BitmapFont::loadTTF)
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_bitmap_font PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
@@ -2334,7 +2335,8 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_include_directories(test_hud_view PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${bgfx_SOURCE_DIR}/bimg/3rdparty)   # stb_image.h for TextureLoader
+        ${bgfx_SOURCE_DIR}/bimg/3rdparty    # stb_image.h for TextureLoader
+        ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb)  # stb_truetype (BitmapFont::loadTTF)
     target_link_libraries(test_hud_view PRIVATE GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(HudViewUnit test_hud_view ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -2395,6 +2397,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_text_fit PRIVATE Catch2::Catch2WithMain)
     grove_add_test(TextFitUnit test_text_fit ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Real TrueType baking (BitmapFont::loadTTF): headless via MockRHIDevice, skips without a system font.
+    add_executable(test_ttf_font unit/test_ttf_font.cpp ../modules/BgfxRenderer/Text/BitmapFont.cpp)
+    target_include_directories(test_ttf_font PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb)
+    target_link_libraries(test_ttf_font PRIVATE Catch2::Catch2WithMain spdlog::spdlog)
+    grove_add_test(TtfFontUnit test_ttf_font ${CMAKE_CURRENT_BINARY_DIR})
 
     # TextureLoader array load (Slice A3.3c): PNG grid -> texture2DArray. Compiles TextureLoader.cpp
     # directly (stb_image) + MockRHIDevice; no GPU. Skips if the asset isn't found.

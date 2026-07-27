@@ -50,6 +50,25 @@ public:
     bool loadBMFont(rhi::IRHIDevice& device, const std::string& fntPath, const std::string& pngPath);
 
     /**
+     * @brief Bake a REAL TrueType font into the glyph atlas (the lift off the 8x8 bitmap).
+     *
+     * WHAT : rasterises ASCII + Latin-1 (so French accents keep working) at `pixelHeight` with
+     *        stb_truetype — already vendored with bgfx, so no new dependency — and fills the same
+     *        GlyphInfo map the 8x8 path fills. Everything downstream (TextPass, measureWidth,
+     *        alignment, the ellipsis fitter) is unchanged: they only ever read glyph metrics.
+     *
+     * WHY  : the built-in font is an 8x8 monospace bitmap — pixelated, single weight, and every glyph
+     *        the same width, which is what makes the UI read as "mid". A TTF gives real shapes,
+     *        antialiasing and PROPORTIONAL advances (an 'i' narrower than an 'M').
+     *
+     * HOW  : bake once at a generous pixel height; TextPass scales by fontSize/baseSize, so one bake
+     *        serves every requested size (down-scaling a 32px bake beats up-scaling an 8px one).
+     *        Returns false and leaves the current font untouched if the file can't be read or parsed —
+     *        the caller keeps whatever it had (no half-initialised atlas).
+     */
+    bool loadTTF(rhi::IRHIDevice& device, const std::string& path, float pixelHeight = 32.0f);
+
+    /**
      * @brief Cleanup GPU resources
      */
     void shutdown(rhi::IRHIDevice& device);

@@ -83,9 +83,16 @@ Interactif : survole/clique les boutons, drag la barre de titre / le coin d'une 
 
 Par ordre probable d'impact (à **confirmer avec Alexi** — il n'a pas détaillé) :
 
-1. **Police 8×8 bitmap monospace** → texte pixelisé, une seule graisse. Le « gras » est un double-tracé
-   synthétique (dépannage). *Lift* : une vraie police TTF/MSDF ou un BMFont haute-def avec variante bold.
-   `BitmapFont` (`modules/BgfxRenderer/Text/`) est le point d'entrée.
+1. **Police 8×8 bitmap monospace** → ✅ **CAPACITÉ LIVRÉE le 2026-07-27** (reste : l'asset).
+   `BitmapFont::loadTTF(device, path, pixelHeight)` bake une VRAIE TrueType (ASCII + Latin-1, donc les
+   accents survivent) via **stb_truetype, déjà vendoré avec bgfx** — zéro dépendance nouvelle.
+   Topic **`render:font {path, size?}`**. Le 8×8 reste le défaut : ne rien publier ne change rien.
+   ⚠️ `loadBMFont` était un **STUB** qui retombait sur `initDefault` — la « voie BMFont » n'existait pas.
+   **Aucune police n'est vendorée** : livrer une fonte est une décision de contenu/licence côté jeu,
+   même posture que les stems audio et l'art 9-slice. Verrouillé par `TtfFontUnit` (headless via
+   MockRHIDevice) sur la propriété qui DÉFINIT le saut : des avances **proportionnelles** ('i' < 'M'),
+   que le monospace ne peut pas satisfaire par construction. *Reste* : une variante grasse réelle
+   (aujourd'hui le gras est toujours le double-tracé synthétique) et le choix d'une fonte à livrer.
 2. ~~**Chrome de fenêtre par-dessus le cadre**~~ → ✅ **LEVÉE le 2026-07-27.** `UIWindow` a désormais un
    `innerRect` (boîte intérieure = fenêtre moins les marges du cadre) et TOUT le chrome passe par lui :
    barre de titre, titre, bouton fermer, poignée de redimensionnement, zone de contenu — **et les

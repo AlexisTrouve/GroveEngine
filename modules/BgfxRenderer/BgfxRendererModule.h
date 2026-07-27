@@ -92,6 +92,7 @@ private:
 
     // Pass references (non-owning, owned by RenderGraph)
     SpritePass* m_spritePass = nullptr;
+    class TextPass* m_textPass = nullptr;   // non-owning — render:font rebakes its atlas
     TilemapPass* m_tilemapPass = nullptr;   // non-owning (setTileset / setFogTexture)
 
     // IIO (non-owning)

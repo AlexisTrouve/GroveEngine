@@ -3,6 +3,15 @@
 #include "../RHI/RHIDevice.h"
 #include <cstring>
 #include <vector>
+#include <fstream>
+#include <spdlog/spdlog.h>
+
+// Real TrueType rasterisation. stb_truetype ships with bgfx, so this costs no new dependency.
+// STBTT_STATIC keeps every symbol internal to this TU — bgfx compiles its own copy for its debug
+// font, and two external definitions would collide at link time.
+#define STBTT_STATIC
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb_truetype.h>
 
 namespace grove {
 
@@ -361,6 +370,110 @@ bool BitmapFont::loadBMFont(rhi::IRHIDevice& device, [[maybe_unused]] const std:
     // TODO: Implement BMFont loader if needed (fntPath/pngPath will feed the parser then).
     // For now, fall back to default font.
     return initDefault(device);
+}
+
+bool BitmapFont::loadTTF(rhi::IRHIDevice& device, const std::string& path, float pixelHeight) {
+    // 1. Slurp the file. Failing here must leave the CURRENT font untouched — a half-baked atlas is
+    //    worse than the 8x8 fallback, so nothing below mutates state until the bake has succeeded.
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) {
+        spdlog::warn("BitmapFont: cannot open TTF '{}' — keeping the current font", path);
+        return false;
+    }
+    const std::streamsize size = f.tellg();
+    f.seekg(0, std::ios::beg);
+    std::vector<unsigned char> ttf(static_cast<size_t>(size));
+    if (size <= 0 || !f.read(reinterpret_cast<char*>(ttf.data()), size)) {
+        spdlog::warn("BitmapFont: cannot read TTF '{}' — keeping the current font", path);
+        return false;
+    }
+
+    // 2. Bake ASCII 32..126 + Latin-1 160..255 (the accents this engine advertises) into an 8-bit
+    //    coverage bitmap. 1024x1024 at 32px leaves ample room; the packer reports failure if not.
+    constexpr int kAtlas = 1024;
+    constexpr int kAsciiFirst = 32,  kAsciiCount = 95;    // 32..126
+    constexpr int kLatinFirst = 160, kLatinCount = 96;    // 160..255
+    std::vector<unsigned char> coverage(static_cast<size_t>(kAtlas) * kAtlas, 0);
+    std::vector<stbtt_packedchar> ascii(kAsciiCount), latin(kLatinCount);
+
+    stbtt_pack_context pc;
+    if (!stbtt_PackBegin(&pc, coverage.data(), kAtlas, kAtlas, 0, 1, nullptr)) {
+        spdlog::warn("BitmapFont: PackBegin failed for '{}'", path);
+        return false;
+    }
+    stbtt_PackSetOversampling(&pc, 2, 2);   // 2x2 oversampling: noticeably cleaner at small sizes
+    stbtt_pack_range ranges[2] = {};
+    ranges[0].font_size = pixelHeight; ranges[0].first_unicode_codepoint_in_range = kAsciiFirst;
+    ranges[0].num_chars = kAsciiCount;     ranges[0].chardata_for_range = ascii.data();
+    ranges[1].font_size = pixelHeight; ranges[1].first_unicode_codepoint_in_range = kLatinFirst;
+    ranges[1].num_chars = kLatinCount;     ranges[1].chardata_for_range = latin.data();
+    const int packed = stbtt_PackFontRanges(&pc, ttf.data(), 0, ranges, 2);
+    stbtt_PackEnd(&pc);
+    if (!packed) {
+        spdlog::warn("BitmapFont: PackFontRanges failed for '{}' (atlas too small?)", path);
+        return false;
+    }
+
+    // 3. Vertical metrics, in the same pixel space as the bake. TextPass draws from the TOP of the
+    //    line, while stb measures from the BASELINE — so a glyph's offsetY is ascent + its own yoff.
+    stbtt_fontinfo info;
+    if (!stbtt_InitFont(&info, ttf.data(), stbtt_GetFontOffsetForIndex(ttf.data(), 0))) {
+        spdlog::warn("BitmapFont: InitFont failed for '{}'", path);
+        return false;
+    }
+    int a = 0, d = 0, gap = 0;
+    stbtt_GetFontVMetrics(&info, &a, &d, &gap);
+    const float vscale = stbtt_ScaleForPixelHeight(&info, pixelHeight);
+    const float ascentPx = a * vscale;
+
+    // 4. Expand coverage -> RGBA8 white-with-alpha, the format the glyph shader already samples.
+    std::vector<uint32_t> rgba(static_cast<size_t>(kAtlas) * kAtlas);
+    for (size_t i = 0; i < rgba.size(); ++i) {
+        rgba[i] = 0x00FFFFFFu | (static_cast<uint32_t>(coverage[i]) << 24);   // 0xAABBGGRR
+    }
+
+    rhi::TextureDesc desc;
+    desc.width = kAtlas; desc.height = kAtlas;
+    desc.format = rhi::TextureDesc::RGBA8;
+    desc.filter = rhi::TextureDesc::Linear;   // antialiased glyphs want filtering, unlike the 8x8 grid
+    desc.data = rgba.data();
+    desc.dataSize = static_cast<uint32_t>(rgba.size() * sizeof(uint32_t));
+    rhi::TextureHandle tex = device.createTexture(desc);
+    if (!tex.isValid()) {
+        spdlog::warn("BitmapFont: atlas upload failed for '{}'", path);
+        return false;
+    }
+
+    // 5. Commit. Past this point the bake HAS succeeded, so replacing the old font is safe.
+    if (m_texture.isValid()) device.destroy(m_texture);
+    m_texture = tex;
+    m_glyphs.clear();
+    m_baseSize = pixelHeight;
+    m_lineHeight = (a - d + gap) * vscale;
+
+    auto record = [&](int cp, const stbtt_packedchar& pcData) {
+        float xpos = 0.0f, ypos = 0.0f;
+        stbtt_aligned_quad q;
+        stbtt_GetPackedQuad(&pcData, kAtlas, kAtlas, 0, &xpos, &ypos, &q, /*align_to_integer=*/0);
+        GlyphInfo g;
+        g.u0 = q.s0; g.v0 = q.t0; g.u1 = q.s1; g.v1 = q.t1;
+        g.width  = q.x1 - q.x0;
+        g.height = q.y1 - q.y0;
+        g.offsetX = q.x0;
+        g.offsetY = ascentPx + q.y0;   // baseline-relative -> top-of-line relative
+        g.advance = xpos;              // GetPackedQuad advanced xpos by exactly this glyph's advance
+        m_glyphs[static_cast<uint32_t>(cp)] = g;
+    };
+    for (int i = 0; i < kAsciiCount; ++i) record(kAsciiFirst + i, ascii[static_cast<size_t>(i)]);
+    for (int i = 0; i < kLatinCount; ++i) record(kLatinFirst + i, latin[static_cast<size_t>(i)]);
+
+    // A missing codepoint falls back to the space glyph: blank of the right width, never a garbage box.
+    auto sp = m_glyphs.find(static_cast<uint32_t>(' '));
+    if (sp != m_glyphs.end()) m_defaultGlyph = sp->second;
+
+    spdlog::info("BitmapFont: baked '{}' at {}px -> {} glyphs (line height {:.1f})",
+                 path, pixelHeight, m_glyphs.size(), m_lineHeight);
+    return true;
 }
 
 void BitmapFont::shutdown(rhi::IRHIDevice& device) {

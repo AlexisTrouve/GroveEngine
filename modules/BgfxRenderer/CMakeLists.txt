@@ -98,6 +98,7 @@ target_include_directories(BgfxRenderer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
     ${bgfx_SOURCE_DIR}/bimg/3rdparty  # stb_image
+    ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb  # stb_truetype (real TTF baking, BitmapFont::loadTTF)
 )
 
 target_link_libraries(BgfxRenderer PRIVATE
@@ -194,6 +195,7 @@ target_include_directories(BgfxRenderer_static PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
     ${bgfx_SOURCE_DIR}/bimg/3rdparty
+    ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb  # stb_truetype
 )
 
 target_link_libraries(BgfxRenderer_static PUBLIC

@@ -247,6 +247,21 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             m_tilemapPass->setLodPalette(texId, std::move(table));
         });
 
+        // Runtime topic: swap the glyph atlas for a REAL TrueType face.
+        //   render:font {path, size?}
+        // The built-in 8x8 bitmap stays the default, so publishing nothing changes nothing. No font is
+        // vendored with the engine: shipping a face is a content/licensing decision for the game, the
+        // same posture as the audio stems and the 9-slice art. A failed load keeps the current font.
+        m_io->subscribe("render:font", [this](const Message& msg) {
+            if (!msg.data || !m_textPass || !m_device) return;
+            const std::string path = msg.data->getString("path", "");
+            if (path.empty()) { m_logger->warn("render:font ignored: no 'path'"); return; }
+            const float size = static_cast<float>(msg.data->getDouble("size", 32.0));
+            if (!m_textPass->getFont().loadTTF(*m_device, path, size)) {
+                m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
+            }
+        });
+
         m_io->subscribe("render:screenshot", [this](const Message& msg) {
             if (!msg.data || !m_device) return;
             const std::string path = msg.data->getString("path", "");
@@ -262,7 +277,9 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_logger->info("Added SpritePass");
 
     // Create TextPass (uses sprite shader for glyph quads)
-    m_renderGraph->addPass(std::make_unique<TextPass>(spriteShader));
+    auto textPass = std::make_unique<TextPass>(spriteShader);
+    m_textPass = textPass.get();   // non-owning ref, so render:font can rebake the glyph atlas
+    m_renderGraph->addPass(std::move(textPass));
     m_logger->info("Added TextPass");
 
     // Create ParticlePass (uses sprite shader, renders after sprites with additive blending)
