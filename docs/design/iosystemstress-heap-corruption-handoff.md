@@ -25,6 +25,10 @@ en série. Cette confusion a été faite une fois, ne pas la refaire.
 | Violation du contrat une-thread-par-instance | ❌ | le garde-fou `ScopedAccessGuard` reste **silencieux sur 30 exécutions** |
 | Course de données dans la concurrence supportée | ❌ | **TSan propre**, jusqu'à 32 threads × 1000 msg (6× la pression du test) |
 | Capture d'une pile au moment du crash sous Windows | ❌ | `0xC0000374` passe par `RtlFailFast`, qui **contourne** `SetUnhandledExceptionFilter` — `CrashBacktrace.h` ne se déclenche jamais pour cette classe |
+| Débordement / use-after-free détectable | ❌ | **ASan propre sur 40 exécutions du test COMPLET** (modules `.so` inclus) sous Linux |
+| Copie dupliquée du moteur dans chaque DLL | ❌ | `nm --defined-only` sur `libProducerModule.dll` : **0** définition de `IntraIOManager::getInstance` et de `IntraIO::publish` — le module les IMPORTE de l'exe |
+| Tas séparés entre l'hôte et les modules | ❌ | exe et DLL importent **tous deux** `libstdc++-6.dll` et `api-ms-win-crt-heap-l1-1-0.dll` — runtime et tas partagés |
+| Objets détruits après déchargement de la DLL | ❌ (côté test) | le test détruit l'`IntraIO` du module **avant** `FreeLibrary` (`test_11_io_system.cpp:101-107`) |
 
 ## 3. ⚠️ Une conclusion intermédiaire à corriger
 
@@ -36,26 +40,45 @@ Une corruption de tas est détectée au prochain `free`/`alloc` qui touche les m
 simplement l'endroit du test où le trafic d'allocation est le plus dense, donc le plus probable pour
 *heurter* un dégât causé plus tôt. Le crash y apparaît ; rien ne dit qu'il y naît.
 
-## 4. Le suspect reformulé
+## 4. Suspects successifs — et pourquoi ils sont tombés
 
-Le test **charge des modules** (`ProducerModule`, `ConsumerModule`, `BroadcastModule`, `BatchModule`,
-`IOStressModule`) avant d'arriver à TEST 6. La **frontière de tas inter-DLL** est le suspect naturel
-d'une corruption qui se révèle tard : sous MinGW, hôte et `.dll` peuvent servir des tas distincts, et
-un objet alloué d'un côté puis libéré de l'autre corrompt silencieusement les métadonnées.
+⚠️ **Deuxième correction à mon propre raisonnement.** J'ai d'abord désigné la **frontière de tas
+inter-DLL** (précédent `limitstest-segfault-handoff.md`, même famille). Vérification faite, elle
+n'existe pas dans ce build : le module n'embarque aucune copie du moteur (il l'importe de l'exe) et
+les deux partagent `libstdc++-6.dll` + le tas UCRT. **Hypothèse séduisante, historiquement fondée,
+et fausse ici.** Ne pas la reprendre sans re-vérifier les imports.
 
-**Ce repo a exactement ce précédent** : `docs/design/limitstest-segfault-handoff.md` — un
-`JsonDataNode` obtenu d'un module et détruit après déchargement de la DLL. La leçon y était
-« cross-DLL object lifetime », la même famille.
+### Ce qui reste, et l'indice différentiel le plus fort
+
+**Linux est propre, Windows corrompt.** La différence structurelle la plus lourde entre les deux, une
+fois les tas écartés, est le **déchargement de bibliothèque** : `FreeLibrary` démappe réellement le
+code sous Windows, alors que la `dlclose` de la glibc **ne démappe très souvent PAS**. Un accès à du
+code ou à une vtable appartenant à un module déchargé serait donc **invisible sous Linux par
+construction** — ce qui expliquerait d'un coup les 40 exécutions ASan propres.
+
+Le test se protège du cas évident (il détruit l'`IntraIO` du module avant `FreeLibrary`), mais le
+**fil de flush par lots du manager tourne en parallèle**. Une fenêtre de course entre ce fil et la
+destruction/le déchargement collerait au profil : rare (~4 %), dépendante du timing, invisible sous
+Linux. **C'est la piste à instrumenter en premier.**
 
 ## 5. Reprendre ici
 
-1. **ASan, pas TSan.** TSan cherche des courses et a déjà répondu non. ASan attrape la corruption
-   **au moment de l'écriture fautive** (débordement, use-after-free) — c'est l'outil pour ce symptôme.
-2. Il faut le test **complet, modules compris** (le chargement de modules est le suspect), donc
-   construire les `.so` sous Linux. Le cœur compile déjà sous Linux (cf. [linux-port], PARKÉ mais le
-   build cœur fonctionne).
-3. Piste secondaire si ASan est muet : instrumenter les `alloc`/`free` traversant la frontière module
-   (qui alloue, qui libère) plutôt que de chercher un débordement.
+**Les sanitizers Linux sont épuisés** : TSan et ASan ont tous deux répondu non, sur le test complet.
+Continuer à les relancer ne produira rien de neuf.
+
+1. **Instrumenter la fenêtre déchargement × fil de flush**, côté Windows : tracer l'ordre exact
+   (dernière livraison du fil de flush vers l'instance du module ↔ destruction de l'instance ↔
+   `FreeLibrary`) sur ~100 exécutions, et chercher les runs où l'ordre s'inverse. C'est du log
+   horodaté, pas un sanitizer — et c'est ce que le symptôme réclame.
+2. Si l'ordre est toujours correct : suspecter la **destruction statique en fin de processus**
+   (le singleton `IntraIOManager` et son fil, dont `~IntraIOManager` gère déjà un cas délicat
+   documenté à `IntraIOManager.cpp:87-94`).
+3. **Ne PAS** relancer TSan/ASan sur Linux en espérant mieux, et **ne pas** repartir sur les tas
+   séparés : les deux sont mesurés et clos.
+
+**Coût/bénéfice** : le taux de 4 % rend chaque itération longue (~75 exécutions par vérification).
+Décider explicitement si cette chasse vaut une session dédiée, ou si le test doit être marqué connu
+instable en attendant, plutôt que de la poursuivre par petites touches.
 
 ## 6. L'outil construit pour cette chasse (réutilisable)
 
