@@ -2379,6 +2379,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_atlas_slice PRIVATE Catch2::Catch2WithMain)
     grove_add_test(AtlasSliceUnit test_atlas_slice ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Per-layer average colour of a tileset array (tilemap LOD slice S0): pure alpha-weighted
+    # reduction (AtlasAverage.h), no GPU. Feeds the zoom-out LOD colour table.
+    add_executable(test_atlas_average unit/test_atlas_average.cpp)
+    target_include_directories(test_atlas_average PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_atlas_average PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(AtlasAverageUnit test_atlas_average ${CMAKE_CURRENT_BINARY_DIR})
+
     # TextureLoader array load (Slice A3.3c): PNG grid -> texture2DArray. Compiles TextureLoader.cpp
     # directly (stb_image) + MockRHIDevice; no GPU. Skips if the asset isn't found.
     add_executable(test_texture_array
