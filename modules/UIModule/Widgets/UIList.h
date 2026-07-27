@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -207,6 +208,13 @@ public:
     uint32_t subtitleColor = 0x9fb0c4FF;
     uint32_t headerColor = 0x2c3540FF;        // group header row background (distinct from item rows)
     uint32_t headerLabelColor = 0xFFFFFFFF;   // group header label
+    // 9-slice FRAMES — see UIFrame. `frame` dresses the list's own panel background; `rowFrame` dresses
+    // EACH visible row, tinted by the colour the row would have had (selected > hovered > zebra), so the
+    // whole selection/hover feedback keeps working with art — the same trick as a button's state colour.
+    // Both are authored once and both are optional: an empty frame leaves the flat look untouched.
+    UIFrame frame;
+    UIFrame rowFrame;
+
     float scrollbarWidth = 8.0f;              // right scrollbar column width (0 = no visual scrollbar)
     uint32_t scrollbarColor = 0x5a6b80FF;     // thumb
     uint32_t scrollbarTrackColor = 0x161b24FF;// track
@@ -226,6 +234,13 @@ private:
     // with the same six lines; they live here once. Allocates its two layers in the same order the call
     // sites used (track then thumb), so the z-order is unchanged.
     void renderScrollbar(UIRenderer& renderer);
+    // The list's own background: one composed nine-patch when `frame` is set, else the flat rect.
+    void emitListBg(UIRenderer& renderer);
+    // ONE row's background at `bgLayer`. With `rowFrame` set the row is a nine-patch TINTED by the
+    // colour the flat look would have used, so selected/hovered/zebra feedback survives the art pass.
+    // Allocates no layer of its own -> the row loop's layer budget is unchanged.
+    void emitRowBg(UIRenderer& renderer, int slot, float x, float y, float w, float h,
+                   uint32_t color, int bgLayer);
     // Content height = rowHeight x (template data count in template mode, else the projected row count).
     float contentHeight() const {
         const int n = isTemplateMode() ? m_templateRowCount : static_cast<int>(m_rows.size());
@@ -260,6 +275,9 @@ private:
 
     // Recycled retained render-id pool: the panel background (m_renderId) + a viewport-bounded number of
     // row id-sets {bg, icon, label, subtitle}. Slot s shows item (firstVisible + s) for the current frame.
+    uint32_t m_frameId = 0;                  // the list's own 9-slice entry (lazy)
+    bool m_frameRegistered = false;
+    std::vector<uint32_t> m_rowFrameIds;      // per-slot 9-slice entries — allocated ONLY if rowFrame is set
     std::vector<uint32_t> m_rowBgIds;
     std::vector<uint32_t> m_rowIconIds;
     std::vector<uint32_t> m_rowLabelIds;

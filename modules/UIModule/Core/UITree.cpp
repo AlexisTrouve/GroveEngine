@@ -198,6 +198,11 @@ void UITree::registerDefaultWidgets() {
             list->fontSize      = static_cast<float>(style->getDouble("fontSize", list->fontSize));
             list->subtitleFontSize = static_cast<float>(style->getDouble("subtitleFontSize", list->subtitleFontSize));
         }
+        // 9-slice FRAMES: `frame` dresses the list's own background, `rowFrame` dresses each row (tinted
+        // by the row's selected/hovered/zebra colour, so the feedback survives the art).
+        if (auto* f = mutableNode.getChildReadOnly("frame"))    list->frame.parse(*f);
+        if (auto* rf = mutableNode.getChildReadOnly("rowFrame")) list->rowFrame.parse(*rf);
+
         return list;
     });
 

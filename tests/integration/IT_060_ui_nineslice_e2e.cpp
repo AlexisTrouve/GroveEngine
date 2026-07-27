@@ -108,10 +108,36 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     REQUIRE(scr->h == 120.0);          // authored scrollpanel height
     REQUIRE(scr->left == 10.0);        // uniform inset -> left = 10
 
-    // NON-REGRESSION, the whole point of "additif": the ROOT panel carries no `frame` block, and a
-    // frameless widget must publish NOTHING on this topic. Exactly four frames were authored, so a
-    // fifth message would mean a frameless widget started emitting 9-slice chrome.
-    REQUIRE(frames.size() == 4u);
+    // --- The list's own frame (its panel background).
+    const NS* lst = find("ui/list_frame");
+    REQUIRE(lst != nullptr);
+    REQUIRE(lst->w == 180.0);
+    REQUIRE(lst->h == 80.0);
+    REQUIRE(lst->left == 8.0);
+
+    // --- The list's ROW frame. Authored once, emitted per visible row: the existing
+    //     selected > hovered > zebra colour becomes the frame's TINT (same trick as a button's state
+    //     colour), so selection highlighting keeps working with art instead of flat rects.
+    const size_t rowFrames = std::count_if(frames.begin(), frames.end(),
+                                           [](const NS& n){ return n.asset == "ui/row_frame"; });
+    REQUIRE(rowFrames >= 3u);          // three authored items, all inside an 80px-tall viewport
+    const NS* rowf = find("ui/row_frame");
+    REQUIRE(rowf != nullptr);
+    REQUIRE(rowf->h == 24.0);          // authored rowHeight
+    REQUIRE(rowf->left == 4.0);
+
+    // NON-REGRESSION, the whole point of "additif": EVERY published frame must belong to one of the
+    // authored `frame` blocks. The root panel, the labels and every other widget carry none and must
+    // publish nothing here. (Counted this way rather than by a magic total, so it survives the list
+    // emitting one frame per visible row.)
+    const std::vector<std::string> authored = {
+        "ui/button_frame", "ui/window_frame", "ui/panel_frame",
+        "ui/scroll_frame", "ui/list_frame",   "ui/row_frame"
+    };
+    for (const NS& f : frames) {
+        INFO("unexpected frame asset: '" << f.asset << "'");
+        REQUIRE(std::find(authored.begin(), authored.end(), f.asset) != authored.end());
+    }
 
     uiModule->shutdown();
 }

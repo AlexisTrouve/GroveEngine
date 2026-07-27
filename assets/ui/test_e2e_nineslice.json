@@ -31,6 +31,15 @@
       "x": 220, "y": 100, "width": 140, "height": 120,
       "borderWidth": 2,
       "frame": { "asset": "ui/scroll_frame", "srcW": 32, "srcH": 32, "inset": 10 }
+    },
+    {
+      "type": "list",
+      "id": "framedList",
+      "x": 20, "y": 200, "width": 180, "height": 80,
+      "rowHeight": 24,
+      "items": [{ "label": "Alpha" }, { "label": "Beta" }, { "label": "Gamma" }],
+      "frame": { "asset": "ui/list_frame", "srcW": 32, "srcH": 32, "inset": 8 },
+      "rowFrame": { "asset": "ui/row_frame", "srcW": 16, "srcH": 16, "inset": 4 }
     }
   ]
 }

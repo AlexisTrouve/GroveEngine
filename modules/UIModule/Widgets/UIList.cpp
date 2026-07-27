@@ -399,12 +399,21 @@ void UIList::ensurePool(UIRenderer& renderer, int neededSlots) {
         changed = true;
     }
 
+    // Row 9-slice pool: allocated ONLY when a row frame is authored, so a plain list pays nothing for
+    // the feature. Kept in step with the bg pool here rather than in the loop above, so a rowFrame set
+    // AFTER the pool already grew still gets its entries (same reason the LOD tables carry an epoch).
+    if (rowFrame.active() && m_rowFrameIds.size() < m_rowBgIds.size()) {
+        while (m_rowFrameIds.size() < m_rowBgIds.size()) m_rowFrameIds.push_back(renderer.registerEntry());
+        changed = true;
+    }
+
     if (changed) {
         m_registered = true;
         // (Re)set the destroy callback to capture the current ids by value (renderer outlives the widget —
         // shutdown resets m_root before m_renderer — so &renderer stays valid). `id` = m_renderId (the bg).
         setDestroyCallback([&renderer, track = m_trackId, thumb = m_thumbId, bgs = m_rowBgIds,
-                            icons = m_rowIconIds, labels = m_rowLabelIds, subs = m_rowSubtitleIds](uint32_t id) {
+                            icons = m_rowIconIds, labels = m_rowLabelIds, subs = m_rowSubtitleIds,
+                            rowFrames = m_rowFrameIds, listFrame = m_frameId](uint32_t id) {
             renderer.unregisterEntry(id);
             renderer.unregisterEntry(track);
             renderer.unregisterEntry(thumb);
@@ -412,6 +421,8 @@ void UIList::ensurePool(UIRenderer& renderer, int neededSlots) {
             for (uint32_t e : icons)  renderer.unregisterEntry(e);
             for (uint32_t e : labels) renderer.unregisterEntry(e);
             for (uint32_t e : subs)   renderer.unregisterEntry(e);
+            for (uint32_t e : rowFrames) renderer.unregisterEntry(e);
+            if (listFrame != 0) renderer.unregisterEntry(listFrame);
         });
     }
 }
@@ -421,7 +432,7 @@ void UIList::renderTemplate(UIRenderer& renderer) {
     // UIModule::updateTemplateLists. The list draws its bg, clips, renders its children, then the scrollbar.
     ensurePool(renderer, 0);   // registers bg + track + thumb (no fixed row-id pool in template mode)
 
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
+    emitListBg(renderer);
 
     renderer.pushClip(absX, absY, width, height);
     renderChildren(renderer);   // only visible (windowed) instances render; others were hidden
@@ -459,7 +470,7 @@ void UIList::render(UIRenderer& renderer) {
     ensurePool(renderer, count);
 
     // Panel background (full bounds).
-    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
+    emitListBg(renderer);
 
     // Rows, clipped to the panel: a partially-scrolled row is scissored at the edge. Two stacked layers
     // so content (icon/text) always draws over the row backgrounds.
@@ -472,7 +483,7 @@ void UIList::render(UIRenderer& renderer) {
 
         // Slot beyond the visible window (or past the end) -> hide it (zero rect / icon / empty text).
         if (s >= count || i >= n) {
-            renderer.updateRect(m_rowBgIds[s], 0, 0, 0, 0, 0, bgLayer);
+            emitRowBg(renderer, s, 0, 0, 0, 0, 0, bgLayer);
             renderer.updateRect(m_rowIconIds[s], 0, 0, 0, 0, 0, contentLayer);
             renderer.updateText(m_rowLabelIds[s], 0, 0, "", fontSize, labelColor, contentLayer);
             renderer.updateText(m_rowSubtitleIds[s], 0, 0, "", subtitleFontSize, subtitleColor, contentLayer);
@@ -488,7 +499,7 @@ void UIList::render(UIRenderer& renderer) {
         if (row.isHeader) {
             // Group/tree header: distinct bg + a collapse marker ("v"/">" — ASCII, font-safe) + the label.
             // No icon / subtitle. (Drifterra restyles; the engine only needs a functional distinct header.)
-            renderer.updateRect(m_rowBgIds[s], absX, rowY, width, rowHeight, headerColor, bgLayer);
+            emitRowBg(renderer, s, absX, rowY, width, rowHeight, headerColor, bgLayer);
             renderer.updateRect(m_rowIconIds[s], 0, 0, 0, 0, 0, contentLayer);   // no icon on a header
             const std::string marker = row.collapsed ? "> " : "v ";
             const float ly = rowY + (rowHeight - fontSize) * 0.5f;
@@ -502,7 +513,7 @@ void UIList::render(UIRenderer& renderer) {
         uint32_t col = (row.itemIndex % 2 == 0) ? rowColor : rowAltColor;
         if (i == m_hoverIndex)    col = hoverColor;
         if (i == m_selectedIndex) col = selectedColor;
-        renderer.updateRect(m_rowBgIds[s], absX, rowY, width, rowHeight, col, bgLayer);
+        emitRowBg(renderer, s, absX, rowY, width, rowHeight, col, bgLayer);
 
         // Optional left icon. Nested items get a left indent (see `indent` above) so they read as nested.
         float textX = absX + padding + indent;
@@ -541,6 +552,10 @@ void UIList::releaseRenderEntries(UIRenderer& renderer) {
     for (uint32_t e : m_rowIconIds)     if (e != 0) renderer.unregisterEntry(e);
     for (uint32_t e : m_rowLabelIds)    if (e != 0) renderer.unregisterEntry(e);
     for (uint32_t e : m_rowSubtitleIds) if (e != 0) renderer.unregisterEntry(e);
+    for (uint32_t e : m_rowFrameIds)    if (e != 0) renderer.unregisterEntry(e);
+    if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
+    m_frameRegistered = false;
+    m_rowFrameIds.clear();
     if (m_trackId != 0) { renderer.unregisterEntry(m_trackId); m_trackId = 0; }
     if (m_thumbId != 0) { renderer.unregisterEntry(m_thumbId); m_thumbId = 0; }
     m_rowBgIds.clear();
@@ -548,6 +563,37 @@ void UIList::releaseRenderEntries(UIRenderer& renderer) {
     m_rowLabelIds.clear();
     m_rowSubtitleIds.clear();
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId + recurses (no children) + sets dirty
+}
+
+void UIList::emitListBg(UIRenderer& renderer) {
+    const int layer = renderer.nextLayer();
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+        }
+        // White tint = the art as-is (like a window): the frame carries the whole panel look, and
+        // tinting by the dark list bgColor would crush it.
+        frame.emit(renderer, m_frameId, absX, absY, width, height, 0xFFFFFFFFu, layer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat bg idle
+        return;
+    }
+    renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, layer);
+    if (m_frameRegistered) {
+        UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
+    }
+}
+
+void UIList::emitRowBg(UIRenderer& renderer, int slot, float x, float y, float w, float h,
+                       uint32_t color, int bgLayer) {
+    const int frames = static_cast<int>(m_rowFrameIds.size());
+    if (rowFrame.active() && slot < frames) {
+        rowFrame.emit(renderer, m_rowFrameIds[slot], x, y, w, h, color, bgLayer);
+        renderer.updateRect(m_rowBgIds[slot], 0, 0, 0, 0, 0, bgLayer);          // flat row idle
+        return;
+    }
+    renderer.updateRect(m_rowBgIds[slot], x, y, w, h, color, bgLayer);
+    if (slot < frames) UIFrame::collapse(renderer, m_rowFrameIds[slot], bgLayer);
 }
 
 } // namespace grove
