@@ -35,6 +35,9 @@ struct RenderEntry {
     // caller byte-identical; change-detected so toggling either republishes.
     int textAlign = 0;
     bool bold = false;
+    // Optional text width budget in px (0 = unlimited). A longer line is truncated with an ellipsis by
+    // the renderer, which owns the font metrics — see TextPass / Text/TextFit.h.
+    float maxWidth = 0.0f;
     // Clip rect {x,y,w,h} in screen px applied to this entry (w<=0 = none). Captured from the clip
     // stack at publish time so a container (scroll panel, window) can clip its descendants.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
@@ -157,7 +160,7 @@ public:
     // align: 0 left / 1 center / 2 right (x is the anchor per alignment). bold: synthetic bold. Both default
     // to the previous behaviour (left, not bold) so existing callers are unchanged.
     bool updateText(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color,
-                    int layer, int align = 0, bool bold = false);
+                    int layer, int align = 0, bool bold = false, float maxWidth = 0.0f);
 
     /**
      * @brief Update a textured sprite (only publishes if changed)
@@ -248,8 +251,8 @@ private:
                                 float srcW, float srcH, float left, float right, float top, float bottom,
                                 uint32_t color, int layer);
     void publishNineSliceRemove(uint32_t renderId);
-    void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold);
-    void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold);
+    void publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold, float maxWidth);
+    void publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold, float maxWidth);
     void publishTextRemove(uint32_t renderId);
 };
 

@@ -1257,6 +1257,8 @@ void SceneCollector::parseTextAdd(const IDataNode& data) {
     text.clipX = static_cast<float>(data.getDouble("clipX", 0.0));
     text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
+    // Optional width budget: a longer line is truncated with an ellipsis (0 = unlimited).
+    text.maxWidth = static_cast<float>(data.getDouble("maxWidth", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
     text.align = static_cast<uint8_t>(data.getInt("align", 0));           // 0 left / 1 center / 2 right
     text.bold  = data.getBool("bold", false) ? 1 : 0;
@@ -1299,6 +1301,8 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     text.clipX = static_cast<float>(data.getDouble("clipX", 0.0));   // full snapshot: absent -> cleared
     text.clipY = static_cast<float>(data.getDouble("clipY", 0.0));
     text.clipW = static_cast<float>(data.getDouble("clipW", 0.0));
+    // Optional width budget: a longer line is truncated with an ellipsis (0 = unlimited).
+    text.maxWidth = static_cast<float>(data.getDouble("maxWidth", 0.0));
     text.clipH = static_cast<float>(data.getDouble("clipH", 0.0));
     text.align = static_cast<uint8_t>(data.getInt("align", text.align));   // keep current when omitted
     text.bold  = data.getBool("bold", text.bold != 0) ? 1 : 0;

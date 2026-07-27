@@ -83,7 +83,7 @@ bool UIRenderer::updateRect(uint32_t renderId, float x, float y, float w, float 
 }
 
 bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color,
-                            int layer, int align, bool bold) {
+                            int layer, int align, bool bold, float maxWidth) {
     if (!m_io) return false;
 
     const ClipRect clip = currentClip();
@@ -99,9 +99,9 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
         entry.color = color;
         entry.layer = layer;  // Store initial layer (stable)
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
-        entry.textAlign = align; entry.bold = bold;
+        entry.textAlign = align; entry.bold = bold; entry.maxWidth = maxWidth;
         m_entries[renderId] = entry;
-        publishTextAdd(renderId, x, y, text, fontSize, color, layer, align, bold);
+        publishTextAdd(renderId, x, y, text, fontSize, color, layer, align, bold, maxWidth);
         return true;
     }
 
@@ -112,7 +112,8 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
                    entry.color != color ||
                    !floatEqual(entry.clipX, clip.x) || !floatEqual(entry.clipY, clip.y) ||
                    !floatEqual(entry.clipW, clip.w) || !floatEqual(entry.clipH, clip.h) ||
-                   entry.textAlign != align || entry.bold != bold;
+                   entry.textAlign != align || entry.bold != bold ||
+                   !floatEqual(entry.maxWidth, maxWidth);
 
     if (changed) {
         entry.x = x;
@@ -123,7 +124,8 @@ bool UIRenderer::updateText(uint32_t renderId, float x, float y, const std::stri
         entry.clipX = clip.x; entry.clipY = clip.y; entry.clipW = clip.w; entry.clipH = clip.h;
         entry.textAlign = align; entry.bold = bold;
         // Keep original layer (don't update it)
-        publishTextUpdate(renderId, x, y, text, fontSize, color, entry.layer, align, bold);
+        entry.maxWidth = maxWidth;
+        publishTextUpdate(renderId, x, y, text, fontSize, color, entry.layer, align, bold, maxWidth);
         return true;
     }
 
@@ -383,7 +385,7 @@ void UIRenderer::drawSector(float cx, float cy, float r0, float r1, float a0, fl
 // non-default so a left/normal label's message is byte-for-byte what it was before this feature.
 static void fillTextNode(JsonDataNode& n, uint32_t renderId, float x, float y, const std::string& text,
                          float fontSize, uint32_t color, int layer, int align, bool bold,
-                         float clipX, float clipY, float clipW, float clipH) {
+                         float clipX, float clipY, float clipW, float clipH, float maxWidth) {
     n.setInt("renderId", static_cast<int>(renderId));
     n.setDouble("x", static_cast<double>(x));
     n.setDouble("y", static_cast<double>(y));
@@ -398,19 +400,20 @@ static void fillTextNode(JsonDataNode& n, uint32_t renderId, float x, float y, c
         n.setDouble("clipW", clipW); n.setDouble("clipH", clipH);
     }
     n.setString("space", "screen");   // UI text is HUD -> retained screen-space bucket (camera-immune)
+    if (maxWidth > 0.0f) n.setDouble("maxWidth", static_cast<double>(maxWidth));   // 0 = unlimited
 }
 
-void UIRenderer::publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold) {
+void UIRenderer::publishTextAdd(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold, float maxWidth) {
     auto textNode = std::make_unique<JsonDataNode>("text");
     const ClipRect c = currentClip();
-    fillTextNode(*textNode, renderId, x, y, text, fontSize, color, layer, align, bold, c.x, c.y, c.w, c.h);
+    fillTextNode(*textNode, renderId, x, y, text, fontSize, color, layer, align, bold, c.x, c.y, c.w, c.h, maxWidth);
     m_io->publish("render:text:add", std::move(textNode));
 }
 
-void UIRenderer::publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold) {
+void UIRenderer::publishTextUpdate(uint32_t renderId, float x, float y, const std::string& text, float fontSize, uint32_t color, int layer, int align, bool bold, float maxWidth) {
     auto textNode = std::make_unique<JsonDataNode>("text");
     const ClipRect c = currentClip();
-    fillTextNode(*textNode, renderId, x, y, text, fontSize, color, layer, align, bold, c.x, c.y, c.w, c.h);
+    fillTextNode(*textNode, renderId, x, y, text, fontSize, color, layer, align, bold, c.x, c.y, c.w, c.h, maxWidth);
     m_io->publish("render:text:update", std::move(textNode));
 }
 

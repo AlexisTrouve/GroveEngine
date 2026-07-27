@@ -2,6 +2,7 @@
 #include "../RHI/RHIDevice.h"
 #include "../Frame/FramePacket.h"
 #include "../Text/Utf8.h"
+#include "../Text/TextFit.h"   // pure ellipsis truncation (unit-tested headlessly)
 #include <cstring>   // std::memcpy into the transient glyph buffer
 
 namespace grove {
@@ -153,30 +154,20 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
         // Horizontal alignment: measure each line's pixel width and shift its start so `x` means left edge
         // (factor 0), centre (0.5) or right edge (1). Measured per line so multi-line text aligns line by line.
         const float alignFactor = (textCmd.align == 1) ? 0.5f : (textCmd.align == 2) ? 1.0f : 0.0f;
-        auto lineWidth = [&](const char* p) {
-            float w = 0.0f;
-            while (*p && *p != '\n') { uint32_t c = decodeUtf8(p); w += m_font.getGlyph(c).advance * scale; }
-            return w;
-        };
         // Synthetic bold: a second glyph copy shifted by ~1px in x thickens the single-weight bitmap font.
         const float boldOffset = textCmd.bold ? (scale > 1.0f ? scale : 1.0f) : 0.0f;
 
-        float cursorX = textCmd.x - alignFactor * lineWidth(textCmd.text);
+        // On-screen advance of one codepoint. Handed to the PURE fitter, so the truncation logic stays
+        // font-agnostic and unit-testable headlessly (Text/TextFit.h + TextFitUnit).
+        auto advOf = [&](uint32_t c) { return m_font.getGlyph(c).advance * scale; };
+        const float ellipsisW = 3.0f * advOf('.');
+
+        float cursorX = 0.0f;
         float cursorY = textCmd.y;
 
-        const char* ptr = textCmd.text;
-        while (*ptr) {
-            // Decode a full UTF-8 codepoint so accents (é, ç…) map to one glyph (#A1),
-            // instead of reading each byte of a multi-byte char as a separate glyph.
-            uint32_t cp = decodeUtf8(ptr);
-
-            // Handle newline — advance a line and re-align the NEXT line (ptr now points past the \n).
-            if (cp == '\n') {
-                cursorY += m_font.getLineHeight() * scale;
-                cursorX = textCmd.x - alignFactor * lineWidth(ptr);
-                continue;
-            }
-
+        // Emit ONE glyph at the cursor and advance it. Factored out so the ellipsis dots take exactly
+        // the same path as real text — same bold, colour, layer and batching, no second code path.
+        auto emitGlyph = [&](uint32_t cp) {
             const GlyphInfo& glyph = m_font.getGlyph(cp);
 
             // Create sprite instance for this glyph
@@ -234,6 +225,35 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
             // batch can be one over MAX here — check leaves headroom (MAX is a soft cap, buffer sized to it).
             if (m_glyphInstances.size() >= MAX_GLYPHS_PER_BATCH - 1) {
                 flush();
+            }
+        };
+
+        // OVERFLOW: `maxWidth` (0 = unlimited — the default, so every existing caller is byte-identical)
+        // caps each line. A line past it is cut on a WHOLE codepoint and finished with "...": clipping
+        // mid-glyph reads as a rendering bug, an ellipsis reads as "there is more text", which is true.
+        //
+        // Walk line by line: fit, align on the FITTED width (a truncated line must align on what is
+        // actually drawn, not on the text it would have had), emit, then the dots if it was cut.
+        const char* ptr = textCmd.text;
+        while (*ptr) {
+            const grove::text::FitResult fit =
+                grove::text::fitLine(ptr, textCmd.maxWidth, advOf, ellipsisW);
+            cursorX = textCmd.x - alignFactor * fit.width;
+
+            const char* lineEnd = ptr + fit.bytes;
+            while (ptr < lineEnd) {
+                // Decode a full UTF-8 codepoint so accents (é, ç…) map to one glyph, instead of
+                // reading each byte of a multi-byte char as a separate glyph.
+                emitGlyph(decodeUtf8(ptr));
+            }
+            if (fit.ellipsis) {
+                for (int d = 0; d < 3; ++d) emitGlyph('.');
+                while (*ptr && *ptr != '\n') ++ptr;   // drop what was cut
+            }
+
+            if (*ptr == '\n') {                       // next line
+                ++ptr;
+                cursorY += m_font.getLineHeight() * scale;
             }
         }
     }

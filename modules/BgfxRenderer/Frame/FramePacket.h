@@ -109,6 +109,9 @@ struct TextCommand {
     // Optional clip rect {x,y,w,h} in framebuffer pixels (w<=0 = no clip). TextPass breaks the glyph
     // batch on a clip change and applies a bgfx scissor — same UI-clipping mechanism as sprites.
     float clipX = 0.0f, clipY = 0.0f, clipW = 0.0f, clipH = 0.0f;
+    // Optional width budget in framebuffer px (<=0 = unlimited, the default). A line wider than this is
+    // cut on a whole codepoint and finished with an ellipsis — see TextPass / Text/TextFit.h.
+    float maxWidth = 0.0f;
 };
 
 // ============================================================================

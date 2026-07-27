@@ -70,7 +70,10 @@ void UIButton::render(UIRenderer& renderer) {
 
         if (!text.empty()) {
             int textLayer = renderer.nextLayer();
-            renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer, textAlign, bold);
+            // Budget = the box minus the padding on BOTH sides: a long label is ellipsised instead of
+            // running out of the button and over whatever sits beside it.
+            renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer,
+                                textAlign, bold, width - 2.0f * padding);
         } else {
             renderer.updateText(m_textRenderId, 0, 0, "", fontSize, 0, renderer.nextLayer());
         }
@@ -106,7 +109,10 @@ void UIButton::render(UIRenderer& renderer) {
     // Render text (aligned + optionally bold, vertically centred)
     if (!text.empty()) {
         int textLayer = renderer.nextLayer();
-        renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer, textAlign, bold);
+        // Budget = the box minus the padding on BOTH sides: a long label is ellipsised instead of
+        // running out of the button and over whatever sits beside it.
+        renderer.updateText(m_textRenderId, tTextX, tTextY, text, fontSize, style.textColor, textLayer,
+                            textAlign, bold, width - 2.0f * padding);
     }
 
     // Render children on top

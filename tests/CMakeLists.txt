@@ -2388,6 +2388,14 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_atlas_average PRIVATE Catch2::Catch2WithMain)
     grove_add_test(AtlasAverageUnit test_atlas_average ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Text truncation with an ellipsis (grove::text::fitLine): pure, font-agnostic, no GPU.
+    add_executable(test_text_fit unit/test_text_fit.cpp)
+    target_include_directories(test_text_fit PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_fit PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextFitUnit test_text_fit ${CMAKE_CURRENT_BINARY_DIR})
+
     # TextureLoader array load (Slice A3.3c): PNG grid -> texture2DArray. Compiles TextureLoader.cpp
     # directly (stb_image) + MockRHIDevice; no GPU. Skips if the asset isn't found.
     add_executable(test_texture_array

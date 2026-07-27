@@ -93,8 +93,13 @@ Par ordre probable d'impact (à **confirmer avec Alexi** — il n'a pas détaill
    cliquable ne puissent pas diverger. Sans cadre, `innerRect` rend la boîte pleine : comportement
    strictement inchangé. Verrouillé dans `IT_060` (barre = 176×28 et non 200×28 sur la fenêtre 200×140
    à inset 12).
-3. **Pas de gestion d'overflow texte** : un libellé long déborde d'un bouton étroit (le vrai centrage l'a rendu
-   visible). *Lift* : ellipsis / clip / auto-shrink / wrap dans `TextPass` ou côté widget.
+3. ~~**Pas de gestion d'overflow texte**~~ → ✅ **LEVÉE le 2026-07-27.** `TextCommand.maxWidth`
+   (0 = illimité, donc tout appelant existant est byte-identique) ; au-delà, `TextPass` coupe sur un
+   **codepoint entier** et finit par « … ». La décision est une fonction PURE et font-agnostique
+   (`Text/TextFit.h`, l'avance des glyphes est un callable) → testée headless sans police ni GPU
+   (`TextFitUnit`, 8 cas), et le futur passage à une vraie police ne changera que le callable.
+   Exposée sur `render:text*` (`maxWidth`) et câblée sur `UIButton` (budget = boîte − 2×padding).
+   *Reste* : les autres widgets peuvent l'adopter en passant un budget à `updateText`.
 
 Secondaire :
 - Teinte asymétrique (bouton = bgColor, fenêtre = blanc) figée en dur → un `frameTint` explicite par widget
