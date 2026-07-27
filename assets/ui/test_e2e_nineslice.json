@@ -24,6 +24,13 @@
       "x": 220, "y": 20, "width": 150, "height": 60,
       "style": { "bgColor": "0x203040FF" },
       "frame": { "asset": "ui/panel_frame", "srcW": 24, "srcH": 24, "inset": 6 }
+    },
+    {
+      "type": "scrollpanel",
+      "id": "framedScroll",
+      "x": 220, "y": 100, "width": 140, "height": 120,
+      "borderWidth": 2,
+      "frame": { "asset": "ui/scroll_frame", "srcW": 32, "srcH": 32, "inset": 10 }
     }
   ]
 }

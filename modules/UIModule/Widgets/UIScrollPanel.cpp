@@ -77,33 +77,9 @@ void UIScrollPanel::render(UIRenderer& renderer) {
         });
     }
 
-    // Render background
-    int bgLayer = renderer.nextLayer();
-    if (useBgTexture && bgTextureId > 0) {
-        renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
-    } else {
-        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
-    }
-
-    // Render border if needed
-    if (borderWidth > 0.0f) {
-        int borderLayer = renderer.nextLayer();
-        // Top border
-        renderer.updateRect(m_borderTopId, absX, absY, width, borderWidth, borderColor, borderLayer);
-        // Bottom border
-        renderer.updateRect(m_borderBottomId, absX, absY + height - borderWidth, width, borderWidth, borderColor, borderLayer);
-        // Left border
-        renderer.updateRect(m_borderLeftId, absX, absY, borderWidth, height, borderColor, borderLayer);
-        // Right border
-        renderer.updateRect(m_borderRightId, absX + width - borderWidth, absY, borderWidth, height, borderColor, borderLayer);
-    } else {
-        // Hide borders by setting zero size when not needed
-        int borderLayer = renderer.nextLayer();
-        renderer.updateRect(m_borderTopId, 0, 0, 0, 0, 0, borderLayer);
-        renderer.updateRect(m_borderBottomId, 0, 0, 0, 0, 0, borderLayer);
-        renderer.updateRect(m_borderLeftId, 0, 0, 0, 0, 0, borderLayer);
-        renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
-    }
+    // Chrome (background + border): either ONE composed nine-patch, or the flat bg + four border
+    // strips. Mutually exclusive — whichever is unused is parked at zero size so they never co-draw.
+    renderChrome(renderer);
 
     // Render children. Leur absX/absY reflètent DÉJÀ le scroll (posé dans update()), donc rendu et
     // hit-test partagent les mêmes coordonnées — on ne décale/restaure plus rien ici.
@@ -145,9 +121,10 @@ void UIScrollPanel::releaseRenderEntries(UIRenderer& renderer) {
     // let the base drop m_renderId (bg) and recurse to children (the inventory cells). Without this, closing
     // a window holding a scrollpanel leaves its border/scrollbar rects lingering on screen.
     for (uint32_t* id : { &m_borderTopId, &m_borderBottomId, &m_borderLeftId, &m_borderRightId,
-                          &m_scrollTrackId, &m_scrollThumbId }) {
+                          &m_scrollTrackId, &m_scrollThumbId, &m_frameId }) {
         if (*id != 0) { renderer.unregisterEntry(*id); *id = 0; }
     }
+    m_frameRegistered = false;   // lazily re-registered on the next render that needs it
     UIWidget::releaseRenderEntries(renderer);
 }
 
@@ -319,6 +296,58 @@ void UIScrollPanel::updateScrollInteraction(UIContext& ctx) {
         }
         isDraggingContent = false;
         isDraggingScrollbar = false;
+    }
+}
+
+// Emit the panel's background + border, in ONE of two mutually exclusive looks.
+//
+// WHY a helper: the flat look spends five entries (bg + four border strips) and the 9-slice look
+// replaces all five with a single composed border. Inlining both in render() buried the children /
+// clipping / scrollbar code under thirty lines of chrome and one very long else-branch.
+//
+// Layer budget is deliberately UNCHANGED for a panel that never carries a frame: bgLayer then one
+// borderLayer, exactly as before. The frame entry is registered lazily and its collapse only ever
+// runs for a panel that DID carry one, so existing layouts keep their z-order to the number.
+void UIScrollPanel::renderChrome(UIRenderer& renderer) {
+    const int bgLayer = renderer.nextLayer();
+
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+        }
+        frame.emit(renderer, m_frameId, absX, absY, width, height, bgTintColor, bgLayer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat bg idle
+        const int borderLayer = renderer.nextLayer();                           // the four strips idle
+        renderer.updateRect(m_borderTopId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderBottomId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderLeftId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
+        return;
+    }
+
+    if (useBgTexture && bgTextureId > 0) {
+        renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
+    } else {
+        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+    }
+
+    const int borderLayer = renderer.nextLayer();
+    if (borderWidth > 0.0f) {
+        renderer.updateRect(m_borderTopId, absX, absY, width, borderWidth, borderColor, borderLayer);
+        renderer.updateRect(m_borderBottomId, absX, absY + height - borderWidth, width, borderWidth, borderColor, borderLayer);
+        renderer.updateRect(m_borderLeftId, absX, absY, borderWidth, height, borderColor, borderLayer);
+        renderer.updateRect(m_borderRightId, absX + width - borderWidth, absY, borderWidth, height, borderColor, borderLayer);
+    } else {
+        renderer.updateRect(m_borderTopId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderBottomId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderLeftId, 0, 0, 0, 0, 0, borderLayer);
+        renderer.updateRect(m_borderRightId, 0, 0, 0, 0, 0, borderLayer);
+    }
+
+    // A frame turned off at runtime must not ghost over the flat look.
+    if (m_frameRegistered) {
+        UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
 }
 

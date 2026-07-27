@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <cstdint>
 
 namespace grove {
@@ -105,7 +106,20 @@ public:
      */
     void getScrollbarRect(float& outX, float& outY, float& outW, float& outH) const;
 
+    // 9-slice (nine-patch) FRAME — see UIFrame. An active frame REPLACES the flat background AND the
+    // four separate border rects (top/bottom/left/right) with ONE composed border that stays crisp at
+    // any size — the textbook nine-patch case. Tinted by `bgTintColor` (white = art as-is). Registered
+    // lazily in render(), so a frameless scroll panel costs neither an entry nor an extra layer.
+    UIFrame frame;
+
 private:
+    // Emit the background + border in ONE of two mutually exclusive looks (flat strips, or one
+    // composed nine-patch). Split out of render() so the children/clipping/scrollbar logic stays
+    // readable; see the definition for the layer-budget guarantee.
+    void renderChrome(UIRenderer& renderer);
+
+    uint32_t m_frameId = 0;          // 9-slice entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
     void renderScrollbar(UIRenderer& renderer);
     void updateScrollInteraction(UIContext& ctx);
 

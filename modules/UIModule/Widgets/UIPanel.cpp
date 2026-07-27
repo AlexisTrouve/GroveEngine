@@ -82,4 +82,10 @@ void UIPanel::render(UIRenderer& renderer) {
     renderChildren(renderer);
 }
 
+void UIPanel::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
+    m_frameRegistered = false;   // lazily re-registered on the next render that needs it
+    UIWidget::releaseRenderEntries(renderer);   // drops m_renderId (bg) + recurses to children
+}
+
 } // namespace grove

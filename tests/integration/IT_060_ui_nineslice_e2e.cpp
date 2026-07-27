@@ -100,10 +100,18 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     REQUIRE(pan->left == 6.0);         // uniform inset -> left = 6
     REQUIRE(pan->space == "screen");
 
+    // --- The scroll panel's frame. Its flat look draws the border as FOUR separate rects (top, bottom,
+    //     left, right); one nine-patch replaces all four plus the background — the textbook case.
+    const NS* scr = find("ui/scroll_frame");
+    REQUIRE(scr != nullptr);
+    REQUIRE(scr->w == 140.0);          // authored scrollpanel width
+    REQUIRE(scr->h == 120.0);          // authored scrollpanel height
+    REQUIRE(scr->left == 10.0);        // uniform inset -> left = 10
+
     // NON-REGRESSION, the whole point of "additif": the ROOT panel carries no `frame` block, and a
-    // frameless panel must publish NOTHING on this topic. Exactly three frames were authored, so a
-    // fourth message would mean a frameless widget started emitting 9-slice chrome.
-    REQUIRE(frames.size() == 3u);
+    // frameless widget must publish NOTHING on this topic. Exactly four frames were authored, so a
+    // fifth message would mean a frameless widget started emitting 9-slice chrome.
+    REQUIRE(frames.size() == 4u);
 
     uiModule->shutdown();
 }

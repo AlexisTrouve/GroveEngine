@@ -530,6 +530,9 @@ void UITree::registerDefaultWidgets() {
             scrollPanel->scrollbarWidth = static_cast<float>(style->getDouble("scrollbarWidth", 8.0));
         }
 
+        // 9-slice FRAME (optional `frame` block) — replaces the bg AND the four border strips.
+        if (auto* frame = mutableNode.getChildReadOnly("frame")) scrollPanel->frame.parse(*frame);
+
         return scrollPanel;
     });
 

@@ -20,6 +20,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "panel"; }
+    // Release the 9-slice entry too (the base only drops m_renderId + children), so closing a window
+    // holding a framed panel doesn't leave its chrome on screen — same contract as button/window.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     // Style properties
     uint32_t bgColor = 0x333333FF;  // RGBA
