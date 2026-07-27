@@ -62,6 +62,16 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
         });
     });
 
+    // Flat rects, to check WHERE a framed window puts its chrome. NOTE the UI renderer emits a rect as
+    // a retained SPRITE — there is no render:rect:* topic — and it follows the engine anchor convention:
+    // cx,cy = CENTRE, scaleX/scaleY = the box size.
+    struct R { double cx, cy, w, h; };
+    std::vector<R> rects;
+    game->subscribe("render:sprite:add", [&](const Message& m){
+        rects.push_back(R{ m.data->getDouble("cx", -1), m.data->getDouble("cy", -1),
+                           m.data->getDouble("scaleX", -1), m.data->getDouble("scaleY", -1) });
+    });
+
     auto pump = [&]{
         JsonDataNode input("input"); input.setDouble("deltaTime", 0.016);
         uiModule->process(input);
@@ -171,6 +181,20 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     REQUIRE(mod->w == 210.0);
     REQUIRE(mod->h == 130.0);
     REQUIRE(mod->left == 11.0);
+
+    // --- DEBT LIFT: a framed window must put its chrome INSIDE the border art, not on top of it.
+    //     The window is 200x140 with a uniform inset of 12, so its inner box is 176 wide and the title
+    //     bar must be 176x28 at (x+12, y+12) — NOT 200 wide at the window origin, straddling the frame's
+    //     top edge and corners, which is what it did before and what looked wrong.
+    const bool titleBarInset = std::any_of(rects.begin(), rects.end(), [](const R& r) {
+        return r.w == 176.0 && r.h == 28.0;      // 200 - 12 - 12 wide, titleBarHeight tall
+    });
+    const bool titleBarOnFrame = std::any_of(rects.begin(), rects.end(), [](const R& r) {
+        return r.w == 200.0 && r.h == 28.0;      // the old, full-width bar sitting over the border
+    });
+    INFO("rects seen: " << rects.size());
+    REQUIRE(titleBarInset);
+    REQUIRE_FALSE(titleBarOnFrame);
 
     // NON-REGRESSION, the whole point of "additif": EVERY published frame must belong to one of the
     // authored `frame` blocks. The root panel, the labels and every other widget carry none and must

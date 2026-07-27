@@ -6,27 +6,52 @@
 namespace grove {
 
 namespace {
+// The window's INNER box: the area inside the 9-slice border art.
+//
+// WHY: without a frame this IS the window box, unchanged. WITH one, every piece of chrome (title bar,
+// title, close button, resize grip, content) must sit INSIDE the border instead of on top of it — a
+// title bar drawn across the frame's top edge and corners is the visual clash this lifts. The 9-slice
+// draws its corners at their NATIVE source size, so the on-screen border thickness is exactly the
+// margin values; insetting by them lands the chrome flush against the inside of the art.
+//
+// Everything reads its geometry through here, so the drawn chrome and the HIT-TEST can't drift apart
+// (closeRect below feeds both) — the bug you would otherwise ship is a close button you can see but
+// not click.
+void innerRect(const UIWindow& w, float& x, float& y, float& iw, float& ih) {
+    if (!w.frame.active()) { x = w.absX; y = w.absY; iw = w.width; ih = w.height; return; }
+    x  = w.absX + w.frame.left;
+    y  = w.absY + w.frame.top;
+    iw = w.width  - w.frame.left - w.frame.right;
+    ih = w.height - w.frame.top  - w.frame.bottom;
+    if (iw < 0.0f) iw = 0.0f;
+    if (ih < 0.0f) ih = 0.0f;
+}
+
 // The close-button rect (screen px): a square inset into the right end of the title bar.
 void closeRect(const UIWindow& w, float& x, float& y, float& cw, float& ch) {
+    float ix, iy, iw, ih; innerRect(w, ix, iy, iw, ih);
     cw = ch = w.closeButtonSize;
-    x = w.absX + w.width - w.closeButtonSize - w.padding;
-    y = w.absY + (w.titleBarHeight - w.closeButtonSize) * 0.5f;
+    x = ix + iw - w.closeButtonSize - w.padding;
+    y = iy + (w.titleBarHeight - w.closeButtonSize) * 0.5f;
 }
 
 // The resize grip rect (screen px): a square at the bottom-right corner.
 void gripRect(const UIWindow& w, float& x, float& y, float& gw, float& gh) {
+    float ix, iy, iw, ih; innerRect(w, ix, iy, iw, ih);
     gw = gh = w.resizeGripSize;
-    x = w.absX + w.width - w.resizeGripSize;
-    y = w.absY + w.height - w.resizeGripSize;
+    x = ix + iw - w.resizeGripSize;
+    y = iy + ih - w.resizeGripSize;
 }
 } // namespace
 
 void UIWindow::contentRect(float& outX, float& outY, float& outW, float& outH) const {
-    // Everything below the title bar.
-    outX = absX;
-    outY = absY + titleBarHeight;
-    outW = width;
-    outH = height - titleBarHeight;
+    // Everything below the title bar, within the inner box (so children stay off the border art too).
+    float ix, iy, iw, ih; innerRect(*this, ix, iy, iw, ih);
+    outX = ix;
+    outY = iy + titleBarHeight;
+    outW = iw;
+    outH = ih - titleBarHeight;
+    if (outH < 0.0f) outH = 0.0f;
 }
 
 void UIWindow::hitClipRect(float& outX, float& outY, float& outW, float& outH) const {
@@ -38,7 +63,11 @@ bool UIWindow::pointInWindow(float x, float y) const {
 }
 
 bool UIWindow::pointInTitleBar(float x, float y) const {
-    return x >= absX && x <= absX + width && y >= absY && y <= absY + titleBarHeight;
+    // Must track the DRAWN bar (innerRect), not the outer box: with a frame the bar is inset, and a
+    // drag zone that stayed full-width would let you grab the border art where no bar is visible —
+    // and miss the bar's own left edge. Same reason closeRect/gripRect go through innerRect.
+    float ix, iy, iw, ih; innerRect(*this, ix, iy, iw, ih);
+    return x >= ix && x <= ix + iw && y >= iy && y <= iy + titleBarHeight;
 }
 
 bool UIWindow::pointInCloseButton(float x, float y) const {
@@ -121,10 +150,13 @@ void UIWindow::render(UIRenderer& renderer) {
         renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, renderer.nextLayer());
         UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());                // frame idle
     }
-    renderer.updateRect(m_titleBarId, absX, absY, width, titleBarHeight, titleBarColor, renderer.nextLayer());
+    // Chrome sits in the INNER box (see innerRect): flush inside the border art when framed, exactly
+    // where it always was when not.
+    float ix, iy, iw, ih; innerRect(*this, ix, iy, iw, ih);
+    renderer.updateRect(m_titleBarId, ix, iy, iw, titleBarHeight, titleBarColor, renderer.nextLayer());
 
     // Title text, vertically centered in the bar.
-    renderer.updateText(m_titleTextId, absX + padding, absY + (titleBarHeight - fontSize) * 0.5f,
+    renderer.updateText(m_titleTextId, ix + padding, iy + (titleBarHeight - fontSize) * 0.5f,
                         title, fontSize, titleColor, renderer.nextLayer());
 
     // Close button (or hidden at zero size when not closable).

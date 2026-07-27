@@ -86,9 +86,13 @@ Par ordre probable d'impact (à **confirmer avec Alexi** — il n'a pas détaill
 1. **Police 8×8 bitmap monospace** → texte pixelisé, une seule graisse. Le « gras » est un double-tracé
    synthétique (dépannage). *Lift* : une vraie police TTF/MSDF ou un BMFont haute-def avec variante bold.
    `BitmapFont` (`modules/BgfxRenderer/Text/`) est le point d'entrée.
-2. **Chrome de fenêtre par-dessus le cadre** : la barre de titre + le bouton fermer sont dessinés SUR le bord
-   du 9-slice → ça clashe visuellement. *Lift* : insérer la barre de titre DANS le cadre (respecter l'inset),
-   ou un cadre pensé avec une zone titre. Voir `UIWindow::render`.
+2. ~~**Chrome de fenêtre par-dessus le cadre**~~ → ✅ **LEVÉE le 2026-07-27.** `UIWindow` a désormais un
+   `innerRect` (boîte intérieure = fenêtre moins les marges du cadre) et TOUT le chrome passe par lui :
+   barre de titre, titre, bouton fermer, poignée de redimensionnement, zone de contenu — **et les
+   hit-tests correspondants** (`pointInTitleBar`, `closeRect`, `gripRect`), pour que le dessiné et le
+   cliquable ne puissent pas diverger. Sans cadre, `innerRect` rend la boîte pleine : comportement
+   strictement inchangé. Verrouillé dans `IT_060` (barre = 176×28 et non 200×28 sur la fenêtre 200×140
+   à inset 12).
 3. **Pas de gestion d'overflow texte** : un libellé long déborde d'un bouton étroit (le vrai centrage l'a rendu
    visible). *Lift* : ellipsis / clip / auto-shrink / wrap dans `TextPass` ou côté widget.
 
