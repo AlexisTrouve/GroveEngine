@@ -27,7 +27,7 @@
 
 using namespace grove;
 
-TEST_CASE("IT_060: a button and a window publish a 9-slice frame", "[integration][ui][e2e][nineslice]") {
+TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[integration][ui][e2e][nineslice]") {
     auto& mgr = IntraIOManager::getInstance();
     auto uiIO = mgr.createInstance("ns_ui");
     auto game = mgr.createInstance("ns_game");
@@ -90,6 +90,20 @@ TEST_CASE("IT_060: a button and a window publish a 9-slice frame", "[integration
     REQUIRE(win->w == 200.0);          // authored window width
     REQUIRE(win->h == 140.0);          // authored window height
     REQUIRE(win->left == 12.0);        // per-side inset -> left = 12
+
+    // --- The panel's frame. `panel` is the generic container and BY FAR the most-used widget in real
+    //     layouts, so it is the one that makes an art pass visible everywhere.
+    const NS* pan = find("ui/panel_frame");
+    REQUIRE(pan != nullptr);
+    REQUIRE(pan->w == 150.0);          // authored panel width
+    REQUIRE(pan->h == 60.0);           // authored panel height
+    REQUIRE(pan->left == 6.0);         // uniform inset -> left = 6
+    REQUIRE(pan->space == "screen");
+
+    // NON-REGRESSION, the whole point of "additif": the ROOT panel carries no `frame` block, and a
+    // frameless panel must publish NOTHING on this topic. Exactly three frames were authored, so a
+    // fourth message would mean a frameless widget started emitting 9-slice chrome.
+    REQUIRE(frames.size() == 3u);
 
     uiModule->shutdown();
 }

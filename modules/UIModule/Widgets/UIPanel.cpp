@@ -43,6 +43,25 @@ void UIPanel::render(UIRenderer& renderer) {
     // Retained mode: only publish if changed
     int layer = renderer.nextLayer();
 
+    // 9-slice CHROME: an authored `frame` REPLACES the flat bg/texture entirely (the two would otherwise
+    // co-draw). The entry is registered LAZILY — a panel without a frame must allocate no retained entry
+    // and no extra layer, which is what keeps this addition free for the plain panels that make up the
+    // bulk of a real layout. The destroy callback is re-set here so the frame entry is released too.
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+            setDestroyCallback([&renderer, fr = m_frameId](uint32_t id) {
+                renderer.unregisterEntry(id);
+                renderer.unregisterEntry(fr);
+            });
+        }
+        frame.emit(renderer, m_frameId, absX, absY, width, height, tintColor, layer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat bg idle
+        renderChildren(renderer);
+        return;
+    }
+
     // Check if fully transparent (alpha channel = 0)
     bool isFullyTransparent = (bgColor & 0xFF) == 0;
 
@@ -51,6 +70,12 @@ void UIPanel::render(UIRenderer& renderer) {
         renderer.updateSprite(m_renderId, absX, absY, width, height, textureId, tintColor, layer);
     } else if (!isFullyTransparent) {
         renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, layer);
+    }
+
+    // A frame that was turned off at runtime must not ghost under the flat look. Only ever reached by a
+    // panel that DID carry one — a never-framed panel skips this and keeps its single-layer cost.
+    if (m_frameRegistered) {
+        UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
 
     // Render children on top

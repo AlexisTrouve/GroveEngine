@@ -46,6 +46,9 @@ void UITree::registerDefaultWidgets() {
             panel->borderRadius = static_cast<float>(style->getDouble("borderRadius", 0.0));
         }
 
+        // 9-slice FRAME (optional `frame` block) — same authoring as button/window, see UIFrame.
+        if (auto* frame = mutableNode.getChildReadOnly("frame")) panel->frame.parse(*frame);
+
         return panel;
     });
 
