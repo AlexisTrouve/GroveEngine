@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
@@ -34,6 +35,12 @@ public:
     float dialogHeight = 250.0f;
     uint32_t dimColor = 0x00000099;     // semi-transparent backdrop (focus-trap)
     uint32_t dialogColor = 0x2a3038FF;
+
+    // 9-slice FRAME — see UIFrame. Dresses the DIALOG, never the dim backdrop: stretching border art
+    // over a full-screen veil would be meaningless. The backdrop stays a flat dim rect.
+    UIFrame frame;
+    uint32_t m_frameId = 0;      // 9-slice entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
 
 private:
     uint32_t m_dialogBgId = 0;

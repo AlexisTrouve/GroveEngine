@@ -148,6 +148,30 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     REQUIRE(fill->h == 18.0);          // full height (horizontal bar)
     REQUIRE(fill->left == 3.0);
 
+    // --- P4: the four widgets that had NO art path at all. Each dresses the surface that actually
+    //     reads as its chrome — deliberately not "the whole widget rect" everywhere.
+    const NS* inp = find("ui/input_frame");
+    REQUIRE(inp != nullptr);
+    REQUIRE(inp->w == 130.0);          // the field box
+    REQUIRE(inp->left == 5.0);
+
+    const NS* tab = find("ui/tabs_frame");
+    REQUIRE(tab != nullptr);
+    REQUIRE(tab->w == 120.0);          // the content background (the tab strip stays flat for now)
+    REQUIRE(tab->left == 7.0);
+
+    const NS* drw = find("ui/drawer_frame");
+    REQUIRE(drw != nullptr);
+    REQUIRE(drw->left == 9.0);
+
+    // The modal dresses its DIALOG, not its dim backdrop: stretching art over a full-screen dim veil
+    // would be meaningless. So the frame must measure the dialog (210x130), NOT the 400x300 overlay.
+    const NS* mod = find("ui/modal_frame");
+    REQUIRE(mod != nullptr);
+    REQUIRE(mod->w == 210.0);
+    REQUIRE(mod->h == 130.0);
+    REQUIRE(mod->left == 11.0);
+
     // NON-REGRESSION, the whole point of "additif": EVERY published frame must belong to one of the
     // authored `frame` blocks. The root panel, the labels and every other widget carry none and must
     // publish nothing here. (Counted this way rather than by a magic total, so it survives the list
@@ -155,7 +179,8 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     const std::vector<std::string> authored = {
         "ui/button_frame", "ui/window_frame", "ui/panel_frame",
         "ui/scroll_frame", "ui/list_frame",   "ui/row_frame",
-        "ui/check_frame",  "ui/bar_frame",    "ui/bar_fill"
+        "ui/check_frame",  "ui/bar_frame",    "ui/bar_fill",
+        "ui/input_frame",  "ui/tabs_frame",   "ui/drawer_frame", "ui/modal_frame"
     };
     for (const NS& f : frames) {
         INFO("unexpected frame asset: '" << f.asset << "'");

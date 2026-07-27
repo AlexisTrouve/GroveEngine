@@ -66,7 +66,19 @@ void UIModal::render(UIRenderer& renderer) {
     renderer.updateRect(m_renderId, absX, absY, width, height, dimColor, renderer.nextLayer());
     float dx, dy, dw, dh;
     dialogRect(dx, dy, dw, dh);
-    renderer.updateRect(m_dialogBgId, dx, dy, dw, dh, dialogColor, renderer.nextLayer());
+    // The dialog box: a composed frame when authored, else the flat rect. NOT the backdrop above —
+    // stretching border art across a full-screen dim veil would be meaningless.
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+        }
+        frame.emit(renderer, m_frameId, dx, dy, dw, dh, dialogColor, renderer.nextLayer());
+        renderer.updateRect(m_dialogBgId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat dialog idle
+    } else {
+        renderer.updateRect(m_dialogBgId, dx, dy, dw, dh, dialogColor, renderer.nextLayer());
+        if (m_frameRegistered) UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
+    }
 
     renderer.pushClip(dx, dy, dw, dh);
     renderChildren(renderer);

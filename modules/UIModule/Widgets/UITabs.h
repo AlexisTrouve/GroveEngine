@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -43,6 +44,13 @@ public:
     uint32_t labelColor = 0xFFFFFFFF;
     float fontSize = 14.0f;
     float padding = 6.0f;
+
+    // 9-slice FRAME — see UIFrame. Dresses the CONTENT background (below the tab strip). The strip
+    // and the per-tab rects stay flat for now: per-tab art is the same shape as UIList::rowFrame and
+    // deserves its own slice rather than being smuggled in here.
+    UIFrame frame;
+    uint32_t m_frameId = 0;      // 9-slice entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
 
 private:
     void contentRect(float& outX, float& outY, float& outW, float& outH) const;

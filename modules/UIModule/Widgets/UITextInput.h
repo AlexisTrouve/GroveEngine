@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
@@ -172,6 +173,13 @@ public:
     static constexpr float CHAR_WIDTH = 8.0f;  // Average character width
     static constexpr float CURSOR_WIDTH = 2.0f;
     static constexpr float PADDING = 8.0f;
+
+    // 9-slice FRAME — see UIFrame. Dresses the FIELD box; replaces both the flat bg and the border
+    // rect (the border is what a nine-patch expresses natively). Tinted by the state bgColor, so the
+    // focused/unfocused feedback re-tints the art for free.
+    UIFrame frame;
+    uint32_t m_frameId = 0;      // 9-slice entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
 
 private:
     /**

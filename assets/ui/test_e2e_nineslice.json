@@ -55,6 +55,34 @@
       "progress": 0.5,
       "frame": { "asset": "ui/bar_frame", "srcW": 16, "srcH": 16, "inset": 5 },
       "fillFrame": { "asset": "ui/bar_fill", "srcW": 16, "srcH": 16, "inset": 3 }
+    },
+    {
+      "type": "textinput",
+      "id": "framedInput",
+      "x": 20, "y": 120, "width": 130, "height": 26,
+      "frame": { "asset": "ui/input_frame", "srcW": 16, "srcH": 16, "inset": 5 }
+    },
+    {
+      "type": "tabs",
+      "id": "framedTabs",
+      "x": 20, "y": 150, "width": 120, "height": 40,
+      "tabs": [{ "label": "A" }, { "label": "B" }],
+      "frame": { "asset": "ui/tabs_frame", "srcW": 16, "srcH": 16, "inset": 7 }
+    },
+    {
+      "type": "drawer",
+      "id": "framedDrawer",
+      "x": 0, "y": 0, "width": 110, "height": 90,
+      "edge": "left", "open": true, "openExtent": 110,
+      "frame": { "asset": "ui/drawer_frame", "srcW": 16, "srcH": 16, "inset": 9 }
+    },
+    {
+      "type": "modal",
+      "id": "framedModal",
+      "x": 0, "y": 0, "width": 400, "height": 300,
+      "visible": true,
+      "dialogWidth": 210, "dialogHeight": 130,
+      "frame": { "asset": "ui/modal_frame", "srcW": 16, "srcH": 16, "inset": 11 }
     }
   ]
 }

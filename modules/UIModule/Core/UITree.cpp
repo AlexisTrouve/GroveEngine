@@ -112,6 +112,9 @@ void UITree::registerDefaultWidgets() {
             tabs->labelColor = hexColor(style, "labelColor", tabs->labelColor);
             tabs->fontSize = static_cast<float>(style->getDouble("fontSize", tabs->fontSize));
         }
+        // 9-slice FRAME (optional `frame` block) — see UIFrame.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) tabs->frame.parse(*f);
+
         return tabs;
     });
 
@@ -134,6 +137,9 @@ void UITree::registerDefaultWidgets() {
                 drawer->bgColor = static_cast<uint32_t>(std::stoul(v, nullptr, 16));
             }
         }
+        // 9-slice FRAME (optional `frame` block) — see UIFrame.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) drawer->frame.parse(*f);
+
         return drawer;
     });
 
@@ -156,6 +162,9 @@ void UITree::registerDefaultWidgets() {
             modal->dimColor = hexColor(style, "dimColor", modal->dimColor);
             modal->dialogColor = hexColor(style, "dialogColor", modal->dialogColor);
         }
+        // 9-slice FRAME (optional `frame` block) — see UIFrame.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) modal->frame.parse(*f);
+
         return modal;
     });
 
@@ -507,6 +516,9 @@ void UITree::registerDefaultWidgets() {
 
             textInput->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
         }
+
+        // 9-slice FRAME (optional `frame` block) — see UIFrame.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) textInput->frame.parse(*f);
 
         return textInput;
     });

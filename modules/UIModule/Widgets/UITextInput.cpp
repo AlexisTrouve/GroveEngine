@@ -58,22 +58,26 @@ void UITextInput::render(UIRenderer& renderer) {
     // Retained mode: update entries with current state
     int bgLayer = renderer.nextLayer();
 
-    // Render background
-    renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
-
-    // Render border
-    int borderLayer = renderer.nextLayer();
-    uint32_t borderColor = isFocused ? style.focusBorderColor : style.borderColor;
-
-    static int renderCount = 0;
-    if (renderCount < 5) {
-        spdlog::info("🎨 UITextInput '{}' render: isFocused={}, borderColor=0x{:08X} (focus=0x{:08X}, normal=0x{:08X})",
-            id, isFocused, borderColor, style.focusBorderColor, style.borderColor);
-        renderCount++;
+    // 9-slice CHROME: one composed border replaces BOTH the flat background and the border strip —
+    // a field box is exactly what a nine-patch draws well. Tinted by the state bgColor, so focus
+    // feedback re-tints the art. Lazy registration: a frameless input costs nothing extra.
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+        }
+        frame.emit(renderer, m_frameId, absX, absY, width, height, style.bgColor, bgLayer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());          // flat bg idle
+        renderer.updateRect(m_borderRenderId, 0, 0, 0, 0, 0, renderer.nextLayer());    // border idle
+    } else {
+        // Flat look: background, then the border strip along the bottom edge.
+        renderer.updateRect(m_renderId, absX, absY, width, height, style.bgColor, bgLayer);
+        const int borderLayer = renderer.nextLayer();
+        const uint32_t borderColor = isFocused ? style.focusBorderColor : style.borderColor;
+        renderer.updateRect(m_borderRenderId, absX, absY + height - style.borderWidth,
+                            width, style.borderWidth, borderColor, borderLayer);
+        if (m_frameRegistered) UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
-
-    renderer.updateRect(m_borderRenderId, absX, absY + height - style.borderWidth,
-                       width, style.borderWidth, borderColor, borderLayer);
 
     // Calculate text area
     float textX = absX + PADDING;

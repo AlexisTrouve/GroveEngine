@@ -91,10 +91,19 @@ doivent passer **sans modification**. Plus un `UIFrameUnit` sur le parse (pur, h
 
 Utilisés (16 et 12) et entièrement plats. Case+coche, rail+remplissage.
 
-### P4 — la traîne : `textinput`, `tabs`, `modal`, `drawer`
+### P4 — la traîne : `textinput`, `tabs`, `modal`, `drawer` ✅ FAIT
 
-Après P0 ils **héritent de la capacité `frame:` presque gratuitement**. Pas d'art dédié tant que
-personne ne le demande — le mérite de P0 est justement que la capacité arrive sans coût par widget.
+La promesse de P0 s'est vérifiée : les quatre ont été câblés d'un bloc, chacun en un membre + un
+parse + un emit. **Le choix de la surface a demandé plus de réflexion que le code** :
+- `textinput` → le **champ**, et le cadre remplace AUSSI la bande de bordure (c'est ce qu'un
+  nine-patch exprime nativement) ;
+- `tabs` → le **fond de contenu** seulement. L'onglet actif/inactif est la même forme que
+  `UIList::rowFrame` et mérite sa propre tranche plutôt que d'être glissé ici ;
+- `modal` → le **dialogue**, jamais le voile : étirer de l'art sur un fond assombri plein écran
+  n'a aucun sens ;
+- `drawer` → le panneau coulissant.
+
+**État de la passe : P0 → P4 livrées.** 178/178.
 
 **Chaque phase livre un E2E qui clique réellement** (précédent : `UINineSliceE2E`/IT_060) + une
 lecture de pixels GPU là où la continuité de bordure est l'enjeu. Sans ça le verdict reste

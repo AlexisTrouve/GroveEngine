@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <string>
 #include <cstdint>
 
@@ -37,6 +38,11 @@ public:
     float openExtent = 250.0f;     // depth perpendicular to the edge (width for L/R, height for T/B)
     float slideDuration = 0.22f;   // seconds for a full open/close slide
     uint32_t bgColor = 0x1e252cF5;
+
+    // 9-slice FRAME — see UIFrame. Dresses the sliding panel itself.
+    UIFrame frame;
+    uint32_t m_frameId = 0;      // 9-slice entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
 
 private:
     float m_t = 0.0f;              // 0 = fully closed (off edge), 1 = fully open (flush)
