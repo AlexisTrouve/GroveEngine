@@ -3206,6 +3206,21 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TextClipGpu test_text_clip_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: a baked TrueType face really reaches the framebuffer, with PROPORTIONAL spans, and
+    # maxWidth truncation holds end to end. Both properties fail by construction on the 8x8 monospace.
+    add_executable(test_ttf_render_gpu unit/test_ttf_render_gpu.cpp)
+    target_include_directories(test_ttf_render_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_ttf_render_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(TtfRenderGpu test_ttf_render_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU end-to-end: the full "Fleet Command" demo renders on real bgfx (UIModule + BgfxRendererModule,
     # hidden window). Needs the UI module too.
     if(GROVE_BUILD_UI_MODULE)
