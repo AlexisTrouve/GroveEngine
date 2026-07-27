@@ -14,6 +14,7 @@
 #include "Debug/DebugOverlay.h"
 #include "Passes/ClearPass.h"
 #include "Passes/TilemapPass.h"
+#include "Passes/LodColor.h"      // lod::paletteFromBytes — render:tilemap:palette payload decode
 #include "Passes/SpritePass.h"
 #include "Passes/TextPass.h"
 #include "Passes/ParticlePass.h"
@@ -181,6 +182,10 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             TextureLoader::LoadResult res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
             if (res.success) {
                 m_tilemapPass->setTileset(texId, res.handle);
+                // Also feed the zoom-out band: each layer's average colour becomes this tileset's LOD
+                // colour table, so dezoomed tiles show the tileset's own colours instead of the
+                // built-in 8-colour palette. Free (computed during the decode) and needs no topic.
+                m_tilemapPass->setTilesetLodColors(texId, std::move(res.layerColors));
                 m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId, path, res.layers, res.width, res.height);
             } else {
                 m_logger->warn("Tileset load failed for '{}': {}", path, res.error);
@@ -193,6 +198,30 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         // (avant le frame() de process()) -> la capture sort sur la frame courante.
         // SceneCollector ignore ce topic (pas une primitive) ; on le traite ici, ou
         // vit le device -- comme render:tilemap:anim.
+        // Runtime topic: an EXPLICIT zoom-out colour table pushed by the game, overriding the one
+        // derived from the tileset. For a game whose tile colours are pure data with no art to
+        // average (the tileset is the normal path — this is the escape hatch). `colors` is a raw
+        // RGBA8 blob, 4 bytes per entry, entry i = tile id i+1 (the atlas layer convention).
+        // textureId defaults to 0 = the procedural-atlas path. Publishing nothing changes nothing.
+        m_io->subscribe("render:tilemap:palette", [this](const Message& msg) {
+            if (!msg.data || !m_tilemapPass) return;
+            const IDataNode& d = *msg.data;
+            const auto* blob = d.getBlob("colors");
+            if (!blob || blob->empty()) {
+                m_logger->warn("render:tilemap:palette ignored: no 'colors' blob");
+                return;
+            }
+            std::vector<uint32_t> table = lod::paletteFromBytes(blob->data(), blob->size());
+            if (table.empty()) {
+                m_logger->warn("render:tilemap:palette ignored: 'colors' blob too short ({} bytes)",
+                               blob->size());
+                return;
+            }
+            const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
+            m_logger->info("LOD palette for tileset {} <- {} colours", texId, table.size());
+            m_tilemapPass->setLodPalette(texId, std::move(table));
+        });
+
         m_io->subscribe("render:screenshot", [this](const Message& msg) {
             if (!msg.data || !m_device) return;
             const std::string path = msg.data->getString("path", "");

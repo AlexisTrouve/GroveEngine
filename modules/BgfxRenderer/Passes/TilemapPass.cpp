@@ -25,9 +25,14 @@ static rhi::TextureHandle createIndexTexture(rhi::IRHIDevice& device, uint16_t w
 // Bake the chunk's mipped LOD color texture (Slice B): build the mip chain with the pure helper in
 // LodColor.h, then upload it. Linear + mips => GPU trilinear gives the smooth, alias-free zoom-out
 // band. (The mip-chain math is unit-tested headless; see test_lod_color.)
-static rhi::TextureHandle bakeLodColorFor(rhi::IRHIDevice& device, uint16_t w, uint16_t h, const uint16_t* tiles) {
+// `table` (may be null) is the LOD colour table for the LAYER's tileset — the tileset's per-layer
+// average, or a palette the game pushed. Null => the built-in 8 colours, i.e. the historical output.
+static rhi::TextureHandle bakeLodColorFor(rhi::IRHIDevice& device, uint16_t w, uint16_t h,
+                                          const uint16_t* tiles, const std::vector<uint32_t>* table) {
     int mips = 1;
-    std::vector<uint32_t> buf = lod::buildLodMipChain(w, h, tiles, mips);
+    const uint32_t* pal = (table != nullptr && !table->empty()) ? table->data() : nullptr;
+    const int palN = (pal != nullptr) ? static_cast<int>(table->size()) : 0;
+    std::vector<uint32_t> buf = lod::buildLodMipChain(w, h, tiles, mips, pal, palN);
 
     rhi::TextureDesc d;
     d.width     = w;
@@ -41,8 +46,9 @@ static rhi::TextureHandle bakeLodColorFor(rhi::IRHIDevice& device, uint16_t w, u
     return device.createTexture(d);                  // bgfx::copy duplicates `buf`
 }
 
-static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChunk& chunk) {
-    return bakeLodColorFor(device, chunk.width, chunk.height, chunk.tiles);
+static rhi::TextureHandle bakeLodColor(rhi::IRHIDevice& device, const TilemapChunk& chunk,
+                                       const std::vector<uint32_t>* table) {
+    return bakeLodColorFor(device, chunk.width, chunk.height, chunk.tiles, table);
 }
 
 // Bake the chunk's mipped R8 visibility (fog) texture from chunk.fog (Slice fog). Linear + mips =>
@@ -289,7 +295,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 }
                 // The LOD color band depends on tile CONTENT, so any change re-bakes it (Slice B).
                 if (idx.lod.isValid()) device.destroy(idx.lod);
-                idx.lod = bakeLodColor(device, chunk);
+                idx.lod = bakeLodColor(device, chunk, lodTableFor(chunk.textureId));
+                idx.lodEpoch = m_lodEpoch;   // baked against the current tables
                 // Fog (Slice fog): re-bake the R8 visibility texture on any content change (covers fog too).
                 if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
                 if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
@@ -304,7 +311,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                     const TilemapLayer& L = chunk.layers[li + 1];
                     idx.extraIndex[li] = createIndexTexture(device, chunk.width, chunk.height);
                     if (L.tiles) device.updateTexture(idx.extraIndex[li], L.tiles, bytes, 0, 0, chunk.width, chunk.height);
-                    idx.extraLod[li] = bakeLodColorFor(device, chunk.width, chunk.height, L.tiles);
+                    idx.extraLod[li] = bakeLodColorFor(device, chunk.width, chunk.height, L.tiles,
+                                                       lodTableFor(L.textureId));
                 }
             } else if (chunk.fogDirty && chunk.fog != nullptr && chunk.fogDirtyW > 0) {
                 // FOG-ONLY partial reveal: patch just the R8 mask sub-rect (mip 0) — no tile upload, no
@@ -324,6 +332,24 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                                          chunk.fogDirtyX, chunk.fogDirtyY, chunk.fogDirtyW, chunk.fogDirtyH);
                 }
             }
+            // LOD colour tables changed since this chunk was baked (a tileset was registered, or the
+            // game pushed a palette) -> re-bake ONLY the LOD textures. Independent of the branches
+            // above on purpose: a chunk can be both stale and fog-dirty in the same frame, and the
+            // tile ids themselves are untouched, so there is nothing to re-upload.
+            if (idx.lodEpoch != m_lodEpoch) {
+                if (idx.lod.isValid()) device.destroy(idx.lod);
+                idx.lod = bakeLodColor(device, chunk, lodTableFor(chunk.textureId));
+                for (size_t li = 0; li < idx.extraLod.size(); ++li) {
+                    // Guard: the cached extra-layer slots outlive a chunk that dropped its layers.
+                    if (chunk.layers == nullptr || li + 1 >= chunk.layerCount) break;
+                    const TilemapLayer& L = chunk.layers[li + 1];
+                    if (L.tiles == nullptr) continue;
+                    if (idx.extraLod[li].isValid()) device.destroy(idx.extraLod[li]);
+                    idx.extraLod[li] = bakeLodColorFor(device, chunk.width, chunk.height, L.tiles,
+                                                       lodTableFor(L.textureId));
+                }
+                idx.lodEpoch = m_lodEpoch;
+            }
             indexTex = idx.handle;
             lodTex = idx.lod;
             fogTex = idx.fog.isValid() ? idx.fog : m_defaultFog;
@@ -340,10 +366,18 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
                 if (idx.lod.isValid()) device.destroy(idx.lod);
                 if (idx.fog.isValid()) { device.destroy(idx.fog); idx.fog = rhi::TextureHandle{}; }
                 idx.handle = createIndexTexture(device, chunk.width, chunk.height);
-                idx.lod = bakeLodColor(device, chunk);
+                idx.lod = bakeLodColor(device, chunk, lodTableFor(chunk.textureId));
+                idx.lodEpoch = m_lodEpoch;
                 if (chunk.fog != nullptr) idx.fog = bakeFog(device, chunk);
                 idx.width = chunk.width;
                 idx.height = chunk.height;
+            } else if (idx.lodEpoch != m_lodEpoch) {
+                // Same slot, but the colour tables moved under it. The ephemeral path re-uploads tile
+                // ids every frame yet bakes the LOD only on (re)create, so without this the ephemeral
+                // band would stay on the old colours forever.
+                if (idx.lod.isValid()) device.destroy(idx.lod);
+                idx.lod = bakeLodColor(device, chunk, lodTableFor(chunk.textureId));
+                idx.lodEpoch = m_lodEpoch;
             }
             device.updateTexture(idx.handle, chunk.tiles, bytes, 0, 0, chunk.width, chunk.height);
             indexTex = idx.handle;

@@ -31,6 +31,7 @@
 #include "Passes/LodColor.h"
 #include "Passes/TileAnim.h"
 #include "Resources/AtlasSlice.h"
+#include "Resources/AtlasAverage.h"
 #include "Shaders/ShaderManager.h"
 
 #include <cstdint>
@@ -320,6 +321,66 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         CHECK(byteOf(gotOver, 0)  == byteOf(teal, 0));   // overlay covers the base
         CHECK(byteOf(gotOver, 8)  == byteOf(teal, 8));
         CHECK(byteOf(gotOver, 16) == byteOf(teal, 16));
+    }
+
+    // --- DERIVED LOD COLOUR: the zoom-out band takes its colours from the TILESET (per-layer average)
+    //     instead of the built-in 8-colour palette, so both bands agree. Two things are asserted:
+    //     (1) with no table registered the LOD is UNCHANGED (the historical palette) — non-regression;
+    //     (2) a table registered AFTER the chunk was baked still repaints it. (2) is the real trap: the
+    //     LOD texture is cached per chunk id and re-baked only when the chunk is dirty, so without an
+    //     explicit invalidation the feature would silently depend on publish order.
+    {
+        // 2-layer tileset of 1x1 tiles: layer 0 = ORANGE (= tile id 1), layer 1 = TEAL (= id 2).
+        // A solid layer averages to its own colour, so the expected LOD colour is ORANGE exactly.
+        const uint32_t ORANGE = 0xFF0080FFu;   // R=255 G=128 B=0
+        const uint32_t TEAL   = 0xFFFF8000u;   // R=0   G=128 B=255
+        std::vector<uint32_t> grid = { ORANGE, TEAL };
+        int layers = 0;
+        std::vector<uint32_t> arr = grove::atlas::sliceToArray(grid.data(), 2, 1, 1, 1, layers);
+        REQUIRE(layers == 2);
+
+        rhi::TextureDesc d;
+        d.width = 1; d.height = 1; d.layers = static_cast<uint16_t>(layers);
+        d.format = rhi::TextureDesc::RGBA8;
+        d.data = arr.data();
+        d.dataSize = static_cast<uint32_t>(arr.size() * 4);
+        rhi::TextureHandle atlasArr = device->createTexture(d);
+        pass.setTileset(8, atlasArr);
+
+        // Uniform chunk of tile id 1, 256 tiles across a 64px FB -> 4 tiles/pixel = the pure LOD band.
+        const int G = 256;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        TilemapChunk chunk{};
+        chunk.x = 0; chunk.y = 0; chunk.width = G; chunk.height = G;
+        chunk.tileWidth = 1; chunk.tileHeight = 1;
+        chunk.tiles = tiles.data(); chunk.tileCount = tiles.size();
+        chunk.textureId = 8; chunk.id = 500; chunk.dirty = true;
+
+        // (1) BEFORE any table: the built-in palette, exactly as today. B separates the two candidates
+        //     hard (grey B=200 vs orange B=0), so this cannot pass by accident.
+        const uint32_t before = renderCenter(chunk, G);
+        const uint32_t grey = lod::paletteColor(1);
+        INFO("derived-lod before=" << std::hex << before << " palette=" << grey);
+        for (int shift = 0; shift <= 16; shift += 8) {
+            CHECK(byteOf(before, shift) >= byteOf(grey, shift) - 20);
+            CHECK(byteOf(before, shift) <= byteOf(grey, shift) + 20);
+        }
+
+        // (2) Register the derived table AFTER the chunk was baked and cached, then re-render it
+        //     NOT dirty: nothing but an invalidation can repaint the cached LOD texture.
+        std::vector<uint32_t> derived = grove::atlas::averageLayers(arr.data(), 1, 1, layers);
+        REQUIRE(derived.size() == 2u);
+        REQUIRE(derived[0] == ORANGE);         // sanity: a solid layer averages to itself
+        pass.setTilesetLodColors(8, derived);  // table[i] = colour of tile id i+1 (layer convention)
+
+        chunk.dirty = false;
+        const uint32_t after = renderCenter(chunk, G);
+        INFO("derived-lod after=" << std::hex << after << " want=" << ORANGE);
+        for (int shift = 0; shift <= 16; shift += 8) {
+            CHECK(byteOf(after, shift) >= byteOf(ORANGE, shift) - 20);
+            CHECK(byteOf(after, shift) <= byteOf(ORANGE, shift) + 20);
+        }
+        device->destroy(atlasArr);
     }
 
     device->destroy(fb);

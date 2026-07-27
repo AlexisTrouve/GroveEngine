@@ -32,6 +32,46 @@ inline uint32_t paletteColor(uint16_t id) {
     return kColors[(id - 1) % kPaletteSize];
 }
 
+// Resolve a tile id to its LOD colour, honouring an optional caller-supplied TABLE.
+//
+// WHY a table: the built-in palette above wraps modulo 8, so a game with a real tileset sees its own
+// art zoomed in and unrelated colours zoomed out. A table (either the per-layer average of the bound
+// tileset, or a palette the game pushed explicitly) makes both bands agree. `palette == nullptr` =>
+// the historical 8 colours, byte-identical — that is the non-regression guarantee.
+//
+// Indexing convention: table[i] is the colour of tile id i+1 — the SAME id->layer mapping as the
+// atlas array (id 1 = layer 0), so a tileset's average table can be used verbatim.
+//
+// An id BEYOND the table is TRANSPARENT, deliberately not wrapped: that tile has no atlas layer
+// either, so a visible hole is the honest signal. Wrapping would invent a plausible wrong colour.
+inline uint32_t lodColor(uint16_t id, const uint32_t* palette, int paletteSize) {
+    if (id == 0) return 0x00000000u;                       // empty tile
+    if (palette == nullptr || paletteSize <= 0) return paletteColor(id);
+    const int idx = static_cast<int>(id) - 1;
+    if (idx >= paletteSize) return 0x00000000u;            // no such tile type -> hole, not a guess
+    return palette[idx];
+}
+
+// Decode a raw RGBA8 byte blob (as carried by render:tilemap:palette) into a LOD colour table.
+// 4 bytes per entry in R,G,B,A order -> the engine's 0xAABBGGRR literal, so the wire format matches
+// what an image/pixel buffer already holds and needs no swizzling game-side. A trailing partial
+// entry is ignored (a truncated colour has no meaningful value). Pure so the parse — the bug-prone
+// half of the topic handler — is unit-testable without a GPU or an IIO bus.
+inline std::vector<uint32_t> paletteFromBytes(const uint8_t* bytes, size_t n) {
+    std::vector<uint32_t> out;
+    if (bytes == nullptr) return out;
+    const size_t count = n / 4;
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        const uint8_t* p = bytes + i * 4;
+        out.push_back(static_cast<uint32_t>(p[0])              // R -> low byte
+                    | (static_cast<uint32_t>(p[1]) << 8)       // G
+                    | (static_cast<uint32_t>(p[2]) << 16)      // B
+                    | (static_cast<uint32_t>(p[3]) << 24));    // A -> high byte
+    }
+    return out;
+}
+
 // Average four RGBA8 texels component-wise (2x2 box filter).
 inline uint32_t avg4(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
     uint32_t out = 0;
@@ -51,15 +91,17 @@ inline int mipCount(int w, int h) {
 }
 
 // Build the contiguous mip chain (mip0 || mip1 || ... || 1x1) of the LOD color texture from tile
-// ids. mip0[t] = paletteColor(tiles[t]); each finer level is a 2x2 box-filter (odd dims clamp).
+// ids. mip0[t] = lodColor(tiles[t], ...); each finer level is a 2x2 box-filter (odd dims clamp).
 // `outMips` receives the level count. This is exactly what the pass uploads to bgfx.
-inline std::vector<uint32_t> buildLodMipChain(int w0, int h0, const uint16_t* tiles, int& outMips) {
+// `palette`/`paletteSize` are OPTIONAL (see lodColor): omitted => the historical built-in colours.
+inline std::vector<uint32_t> buildLodMipChain(int w0, int h0, const uint16_t* tiles, int& outMips,
+                                              const uint32_t* palette = nullptr, int paletteSize = 0) {
     outMips = mipCount(w0, h0);
 
     std::vector<uint32_t> buf;
     std::vector<uint32_t> prev(static_cast<size_t>(w0) * h0);
     for (size_t i = 0; i < prev.size(); ++i) {
-        prev[i] = paletteColor(tiles[i]);
+        prev[i] = lodColor(tiles[i], palette, paletteSize);
     }
     buf.insert(buf.end(), prev.begin(), prev.end());
 

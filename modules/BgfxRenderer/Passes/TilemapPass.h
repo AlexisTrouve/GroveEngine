@@ -58,6 +58,28 @@ public:
     }
 
     /**
+     * @brief Register the LOD colour table DERIVED from a tileset — the per-layer average colour
+     *        computed at load time (atlas::averageLayers). The zoom-out band then uses the tileset's
+     *        own colours instead of the built-in 8-colour palette, so both bands agree.
+     *        OWNING (plain CPU data, unlike the non-owning texture handles above).
+     *        Convention: colors[i] = colour of tile id i+1 (the atlas layer mapping).
+     */
+    void setTilesetLodColors(uint16_t textureId, std::vector<uint32_t> colors) {
+        m_lodDerived[textureId] = std::move(colors);
+        ++m_lodEpoch;   // cached LOD textures are now stale — see m_lodEpoch
+    }
+
+    /**
+     * @brief Register an EXPLICIT LOD palette pushed by the game (render:tilemap:palette). Overrides
+     *        the derived table for that tileset — for a game whose tile colours are pure data with no
+     *        art to average. textureId 0 addresses the procedural-atlas path. Same indexing as above.
+     */
+    void setLodPalette(uint16_t textureId, std::vector<uint32_t> colors) {
+        m_lodPalette[textureId] = std::move(colors);
+        ++m_lodEpoch;
+    }
+
+    /**
      * @brief Set the tiled fog texture (Slice fog): hidden tiles show this (wrap=Repeat, world-uv)
      *        instead of going black. NON-OWNING. Invalid handle -> hidden tiles render black.
      */
@@ -120,6 +142,29 @@ private:
     // textureId selects one, else the procedural m_defaultAtlas is bound.
     std::unordered_map<uint16_t, rhi::TextureHandle> m_tilesets;
 
+    // LOD colour tables per tileset id, indexed by tile id - 1 (the atlas layer convention). OWNING.
+    // Resolution order for a layer whose tileset is T: explicit palette[T] (game override) > derived[T]
+    // (the tileset's per-layer average) > lod::paletteColor (the built-in 8 colours). T = 0 (the
+    // procedural atlas) never gets a derived table, so it keeps the historical look unless a game
+    // explicitly paints it — that is where the non-regression guarantee comes from.
+    std::unordered_map<uint16_t, std::vector<uint32_t>> m_lodDerived;
+    std::unordered_map<uint16_t, std::vector<uint32_t>> m_lodPalette;
+
+    // Bumped on every table change; each cached LOD texture records the epoch it was baked at and is
+    // re-baked on mismatch. WHY: a chunk's LOD is baked once (on add/update) and cached by chunk id,
+    // so a table registered AFTER its chunks would never be seen — the feature would silently depend
+    // on publish order, which is exactly the kind of hidden ordering contract we refuse to ship.
+    uint32_t m_lodEpoch = 0;
+
+    // Resolve the LOD colour table for a tileset id. nullptr => fall back to lod::paletteColor.
+    const std::vector<uint32_t>* lodTableFor(uint16_t textureId) const {
+        auto p = m_lodPalette.find(textureId);
+        if (p != m_lodPalette.end() && !p->second.empty()) return &p->second;   // game override wins
+        auto d = m_lodDerived.find(textureId);
+        if (d != m_lodDerived.end() && !d->second.empty()) return &d->second;   // tileset average
+        return nullptr;                                                         // built-in palette
+    }
+
     ResourceCache* m_resourceCache = nullptr;
 
     // Atlas layout (kept for the future grid path); the array atlas does not use grid UVs.
@@ -136,6 +181,8 @@ private:
         rhi::TextureHandle fog;      // R8 mipped visibility texture (Slice fog; invalid = no fog) — per chunk
         uint16_t width = 0;
         uint16_t height = 0;
+        uint32_t lodEpoch = 0;       // m_lodEpoch this entry's LOD textures were baked at (0 = the
+                                     // no-table default, so a fresh chunk starts up-to-date)
         // Multi-layer overlays (Strategy A): one {index, lod} per layer beyond layer 0 (= handle/lod).
         // Sized to chunk.layerCount-1, (re)built with the chunk. Drawn alpha-blended on top of layer 0.
         std::vector<rhi::TextureHandle> extraIndex;

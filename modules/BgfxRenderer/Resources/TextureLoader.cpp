@@ -1,5 +1,6 @@
 #include "TextureLoader.h"
 #include "AtlasSlice.h"
+#include "AtlasAverage.h"
 #include "MipChain.h"
 #include "../RHI/RHIDevice.h"
 
@@ -176,6 +177,9 @@ TextureLoader::LoadResult TextureLoader::loadArrayFromMemory(rhi::IRHIDevice& de
     result.width  = static_cast<uint16_t>(tileW);
     result.height = static_cast<uint16_t>(tileH);
     result.layers = static_cast<uint16_t>(layers);
+    // Per-layer average colour, computed here because `arr` is still in hand (it is dropped on
+    // return). This is the tileset's own LOD colour table — see LoadResult::layerColors.
+    result.layerColors = atlas::averageLayers(arr.data(), tileW, tileH, layers);
     result.success = result.handle.isValid();
     if (result.success) {
         spdlog::info("✅ TextureLoader: atlas array {}x{} px image -> {} layers of {}x{}",

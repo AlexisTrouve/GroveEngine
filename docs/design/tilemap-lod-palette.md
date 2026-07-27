@@ -1,6 +1,10 @@
 # Tilemap — couleur LOD dérivée du tileset (+ override palette)
 
-> **Statut** : plan validé sur l'archi, **pas encore implémenté**. Écrit le 2026-07-27.
+> **Statut** : ✅ **IMPLÉMENTÉ** (S0→S4) le 2026-07-27. Ce document reste le "pourquoi" ; le "quoi"
+> vit dans `docs/design/tilemap-renderer.md` + la table des topics du DEVELOPER_GUIDE.
+> Verrouillé par `AtlasAverageUnit` (5 cas) + `LodColorUnit [palette]` (5 cas) + `TilemapLodGpu`
+> (readback pixel, dont le cas table-enregistrée-APRÈS-le-chunk — vérifié qu'il **mord** en
+> désactivant l'invalidation : le pixel restait `ffc8c8c8` au lieu de `ff0080ff`).
 > **Origine** : demande du projet consommateur DAOS (`DAOS/docs/groveengine_wishlist.md`, 2026-07-27).
 > **Contrainte transverse** : tout additif — le défaut historique (palette 8 couleurs) doit rester
 > byte-identique pour qui ne fait rien. Le moteur est partagé (Drifterra, mapview, DAOS).
@@ -55,9 +59,11 @@ Couleur LOD de la tuile `t` sur une couche dont le tileset est `T` :
 | 3 | `lod::paletteColor(t)` — les 8 couleurs actuelles | historique |
 
 - `t == 0` → transparent (inchangé).
-- `t` **hors bornes** de la table retenue → **transparent + log one-shot**. Pas de wrap silencieux :
-  au détail cette tuile n'existe pas non plus (l'atlas array n'a pas la couche), un trou visible est
-  le signalement honnête.
+- `t` **hors bornes** de la table retenue → **transparent**. Pas de wrap silencieux : au détail cette
+  tuile n'existe pas non plus (l'atlas array n'a pas la couche), un trou visible est le signalement
+  honnête. *(Le plan disait « + log one-shot » : **abandonné**. `LodColor.h` est pur et sans logger,
+  et détecter le cas ailleurs imposerait un scan complet des tuiles à chaque bake pour un diagnostic
+  que le trou visible donne déjà. Comportement verrouillé par `LodColorUnit [palette]`.)*
 
 `T = 0` (l'atlas procédural) n'a **jamais** de table dérivée → il tombe toujours en règle 3. Le
 cantonnement « ne rien changer au chemin procédural » n'est donc pas un cas spécial à coder : il sort
@@ -153,8 +159,15 @@ box-filter reste exact) · (iii) **sans** palette == inchangé.
 mais c'est un changement **visible**, et aucun cantonnement ne l'évite : `T = 0` protège le chemin
 procédural et les tests, pas eux.
 
-Vérification déterministe disponible, sans œil : `test_mapview_viewer --shot` avant/après → diff
-d'image sur la bande dézoom. À faire en S4.
+⚠️ **Correction de ce plan (constatée en S4)** : la vérification annoncée ici — un diff d'image
+`test_mapview_viewer --shot` avant/après — **ne prouve rien** et n'a pas été retenue. `--shot` rend
+une frame statique au fit view et **n'active pas le tiling** ('T' est un toggle interactif) : le
+chemin tilemap n'y est pas exercé du tout, le diff serait identique par construction. Le changement
+visuel de mapview est confiné à son mode 'T'.
+
+Ce qui prouve réellement le mécanisme : `TilemapLodGpu`, readback pixel avec oracle exact, y compris
+le cas de l'invalidation. Pour un contrôle à l'œil : `test_mapview_viewer --load <dir>` puis 'T' et
+dézoomer — l'eau lit bleu, l'herbe verte, etc., au lieu des couleurs arbitraires de la palette.
 
 Un opt-in explicite (`derivedLod: true` en config renderer) coûterait ~15 min en S1 — **écarté** :
 il pérenniserait l'incohérence par défaut et personne ne l'activerait.

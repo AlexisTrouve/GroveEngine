@@ -22,6 +22,11 @@ public:
         uint16_t width = 0;     // for an array load, this is the per-tile width
         uint16_t height = 0;    // ...and per-tile height
         uint16_t layers = 1;    // >1 for an array load (tiles sliced from the grid)
+        // Array loads only: one average RGBA8 colour per layer (atlas::averageLayers), i.e. what each
+        // tile type reads as when it is too small to see. Feeds TilemapPass::setTilesetLodColors so
+        // the zoom-out band shows the tileset's own colours instead of the built-in palette. Computed
+        // here because the decoded pixels are already in hand — no readback, no second decode.
+        std::vector<uint32_t> layerColors;
         std::string error;
     };
 

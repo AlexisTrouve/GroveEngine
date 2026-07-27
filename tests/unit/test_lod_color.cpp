@@ -80,6 +80,99 @@ TEST_CASE("LOD box-filter: empty tiles fade in alpha (transparent averages in)",
     REQUIRE(topAlpha <= 136);                 // ~half of 255
 }
 
+// ============================================================================
+// Game/tileset-supplied LOD colour table. The built-in palette wraps modulo 8, so a game with more
+// than 8 tile types (or with real art) sees unrelated colours zoomed out. A table fixes that. These
+// are the success criteria the consuming project (DAOS) asked for, turned into oracles.
+// ============================================================================
+
+TEST_CASE("LOD table: mip0 is the table's colour, texel by texel", "[lod][tilemap][unit][palette]") {
+    // 25 distinct ids — the case the built-in 8-colour palette cannot express (it would wrap 3x).
+    const int N = 25;
+    std::vector<uint32_t> table(N);
+    for (int i = 0; i < N; ++i)
+        table[i] = 0xFF000000u | static_cast<uint32_t>(i * 10 + 1);   // distinct R per entry
+
+    const int W = 5, H = 5;
+    std::vector<uint16_t> tiles(static_cast<size_t>(W) * H);
+    for (int i = 0; i < W * H; ++i) tiles[i] = static_cast<uint16_t>(i + 1);   // ids 1..25
+
+    int mips = 0;
+    std::vector<uint32_t> chain = buildLodMipChain(W, H, tiles.data(), mips, table.data(), N);
+
+    for (int i = 0; i < W * H; ++i) {
+        REQUIRE(chain[i] == table[i]);          // mip0[t] == table[id-1], exactly
+    }
+}
+
+TEST_CASE("LOD table: the coarsest mip is the average of the table colours", "[lod][tilemap][unit][palette]") {
+    // The box-filter cascade must stay exact on top of a supplied table (same property as the
+    // built-in palette): a 2-colour checkerboard averages to the midpoint at 1x1.
+    const uint32_t C1 = 0xFF204060u, C2 = 0xFF608040u;
+    std::vector<uint32_t> table = { C1, C2 };
+
+    const int W = 4, H = 4;
+    std::vector<uint16_t> tiles(static_cast<size_t>(W) * H);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x)
+            tiles[static_cast<size_t>(y) * W + x] = ((x + y) & 1) ? 1 : 2;
+
+    int mips = 0;
+    std::vector<uint32_t> chain = buildLodMipChain(W, H, tiles.data(), mips, table.data(), 2);
+
+    const uint32_t top = chain.back();
+    for (int shift = 0; shift < 32; shift += 8) {
+        const int expected = (byteOf(C1, shift) + byteOf(C2, shift)) / 2;
+        REQUIRE(byteOf(top, shift) >= expected - 1);
+        REQUIRE(byteOf(top, shift) <= expected + 1);
+    }
+}
+
+TEST_CASE("LOD table: absent table leaves the chain byte-identical (non-regression)", "[lod][tilemap][unit][palette]") {
+    // THE guarantee for every project already on the engine: publish nothing, change nothing.
+    const int W = 4, H = 4;
+    std::vector<uint16_t> tiles(static_cast<size_t>(W) * H);
+    for (int i = 0; i < W * H; ++i) tiles[i] = static_cast<uint16_t>((i % 8) + 1);
+
+    int mipsA = 0, mipsB = 0;
+    std::vector<uint32_t> withTable = buildLodMipChain(W, H, tiles.data(), mipsA,
+                                                       nullptr, 0);          // explicitly no table
+    std::vector<uint32_t> historic  = buildLodMipChain(W, H, tiles.data(), mipsB);  // legacy call
+
+    REQUIRE(mipsA == mipsB);
+    REQUIRE(withTable == historic);
+    for (int i = 0; i < W * H; ++i) {
+        REQUIRE(historic[i] == paletteColor(tiles[i]));   // still the built-in 8 colours
+    }
+}
+
+TEST_CASE("LOD table: an id beyond the table is transparent, never wrapped", "[lod][tilemap][unit][palette]") {
+    // A wrap would invent a plausible WRONG colour; that tile has no atlas layer either, so a hole is
+    // the honest signal. Locks the deliberate choice against a future "helpful" modulo.
+    std::vector<uint32_t> table = { 0xFF0000FFu, 0xFF00FF00u };   // ids 1 and 2 only
+
+    REQUIRE(lodColor(1, table.data(), 2) == 0xFF0000FFu);
+    REQUIRE(lodColor(2, table.data(), 2) == 0xFF00FF00u);
+    REQUIRE(lodColor(3, table.data(), 2) == 0x00000000u);   // out of range -> transparent
+    REQUIRE(lodColor(0, table.data(), 2) == 0x00000000u);   // empty tile -> transparent
+    REQUIRE(lodColor(3, nullptr, 0) == paletteColor(3));    // no table -> built-in palette
+}
+
+TEST_CASE("LOD table: an RGBA8 blob decodes to the engine's colour layout", "[lod][tilemap][unit][palette]") {
+    // Wire format = raw R,G,B,A bytes (what a pixel buffer already holds), so a game needs no
+    // swizzling. Decoding to 0xAABBGGRR is the bug-prone half of the topic handler.
+    const uint8_t blob[] = { 255, 128, 0, 255,    0, 128, 255, 64 };
+    std::vector<uint32_t> table = paletteFromBytes(blob, sizeof(blob));
+
+    REQUIRE(table.size() == 2u);
+    REQUIRE(table[0] == 0xFF0080FFu);   // R=255 G=128 B=0   A=255
+    REQUIRE(table[1] == 0x40FF8000u);   // R=0   G=128 B=255 A=64
+
+    // A trailing partial colour is dropped; a null/empty blob yields an empty table (-> built-in).
+    REQUIRE(paletteFromBytes(blob, 6).size() == 1u);
+    REQUIRE(paletteFromBytes(nullptr, 8).empty());
+}
+
 TEST_CASE("R8 fog mip: coarsest mip of a 0/255 visibility checkerboard = ~127", "[lod][tilemap][unit]") {
     // Scalar visibility -> box-filtering is meaningful (soft partial-reveal edge at zoom-out).
     const int W = 4, H = 4;

@@ -33,6 +33,15 @@ pixel = `length(fwidth(tileCoord))`:
 - Game-provided **palette `tileIndex → color`** (art-directable: terrain/faction tint). Engine
   bakes `LOD[texel] = palette[index]`, RGBA8 ~1.9 MB + **CPU box-filter mips**. GPU trilinear =
   automatic LOD; blends with the detail band → seamless.
+- ✅ **Shipped, and the colour table is resolved in three steps** (`TilemapPass::lodTableFor`):
+  an explicit palette the game pushed (`render:tilemap:palette`) > the table **derived from the
+  bound tileset** (each layer's alpha-weighted average, computed at load — `atlas::averageLayers`)
+  > the built-in 8 colours (`lod::paletteColor`). Deriving is the DEFAULT so both bands agree
+  without the game maintaining a parallel palette; a tileset's dezoomed colours are its own art.
+  `textureId 0` (procedural atlas) has no derived table → historical output, byte-identical.
+  Tables are baked into the LOD texture, which is cached per chunk id, so any table change bumps
+  `m_lodEpoch` and forces a re-bake — otherwise the feature would silently depend on publish order.
+  Details + rationale: `docs/design/tilemap-lod-palette.md`.
 - Detail (index→atlas) and LOD (color) are two genuinely-distinct representations (the index path
   can't be the mipped color path). But the TRANSITION — smoothstep crossfade vs a hard threshold
   switch — is a **tuning detail, not a dogma**; no production source confirms a band crossfade

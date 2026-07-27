@@ -1381,7 +1381,8 @@ Two modes:
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `render:tilemap:tileset` | `{textureId, path, tileW, tileH}` | **Bind a PNG tileset** to `textureId`: loads the image and slices its `tileW×tileH` grid into a texture2DArray (tile id `T` → layer `T-1`; id `0` = transparent). Load **once** before the chunks that reference this `textureId` |
+| `render:tilemap:tileset` | `{textureId, path, tileW, tileH}` | **Bind a PNG tileset** to `textureId`: loads the image and slices its `tileW×tileH` grid into a texture2DArray (tile id `T` → layer `T-1`; id `0` = transparent). Load **once** before the chunks that reference this `textureId`. Also sets the **zoom-out colours** for free: each layer's average colour becomes this tileset's LOD table, so dezoomed tiles show the tileset's own colours instead of the built-in 8-colour palette (order-independent — binding it after the chunks re-bakes them) |
+| `render:tilemap:palette` | `{textureId?, colors:<blob RGBA8>}` | **Override the zoom-out colour table** for a tileset — 4 bytes per entry (R,G,B,A), entry `i` = tile id `i+1`. For a game whose tile colours are pure data with no art to average; the tileset above is the normal path. `textureId` defaults to `0` (the procedural atlas). An id beyond the table renders **transparent** (never wrapped). Publish nothing → the built-in palette, unchanged |
 | `render:tilemap` | `{x, y, width, height, tileW, tileH, textureId, tileData}` | Ephemeral chunk (re-uploaded each frame) |
 | `render:tilemap:add` | `{id, x, y, width, height, tileW, tileH, textureId, tileData, fogData?, layers?}` | Retained chunk by `id` (≠0) — upload-once. `layers?` = **multi-layer** (see below) |
 | `render:tilemap:update` | full: `{id, tileData, fogData?}` · partial: `{id, x, y, w, h, tileData}` | Update a retained chunk (see *Update semantics*) |
