@@ -2838,6 +2838,13 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UINineSliceE2E IT_060_ui_nineslice_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_061: robustness — ONE malformed widget (a list authored with a string array instead of the
+    # documented array-of-objects) must be dropped with a diagnostic, NOT take the whole layout down.
+    add_executable(IT_061_ui_malformed_layout_e2e integration/IT_061_ui_malformed_layout_e2e.cpp)
+    target_link_libraries(IT_061_ui_malformed_layout_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIMalformedLayoutE2E IT_061_ui_malformed_layout_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)

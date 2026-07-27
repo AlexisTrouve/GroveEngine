@@ -1,0 +1,22 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0, "y": 0, "width": 400, "height": 300,
+  "style": { "bgColor": "0x101418FF" },
+  "children": [
+    {
+      "type": "list",
+      "id": "badList",
+      "x": 10, "y": 10, "width": 180, "height": 80,
+      "rowHeight": 24,
+      "items": ["Alpha", "Beta", "Gamma"]
+    },
+    {
+      "type": "button",
+      "id": "survivor",
+      "x": 200, "y": 10, "width": 160, "height": 48,
+      "text": "OK",
+      "frame": { "asset": "ui/survivor_frame", "srcW": 32, "srcH": 32, "inset": 8 }
+    }
+  ]
+}

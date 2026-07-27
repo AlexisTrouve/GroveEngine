@@ -674,8 +674,26 @@ std::unique_ptr<UIWidget> UITree::parseWidget(const IDataNode& node) {
         return nullptr;
     }
 
-    // Create widget via factory
-    auto widget = it->second(node);
+    // Create widget via factory.
+    //
+    // A factory that THROWS (a malformed property, a wrong JSON shape) must cost only ITS OWN widget.
+    // Without this guard the exception unwinds the whole RECURSIVE parse: one mistyped array in a
+    // corner of the file and the entire screen comes up blank, with nothing in the log to say which
+    // widget was at fault — you then hunt your last code change instead of the layout. Dropping the
+    // offender and naming it (type + id + what the parser said) is strictly more useful than losing
+    // its siblings. This is NOT a silent fallback: the widget really is gone, and loudly so.
+    std::unique_ptr<UIWidget> widget;
+    try {
+        widget = it->second(node);
+    } catch (const std::exception& e) {
+        spdlog::error("UITree: widget type '{}' (id '{}') failed to build and was DROPPED: {}",
+                      type, node.getString("id", "<no id>"), e.what());
+        return nullptr;
+    } catch (...) {
+        spdlog::error("UITree: widget type '{}' (id '{}') failed to build and was DROPPED "
+                      "(non-standard exception)", type, node.getString("id", "<no id>"));
+        return nullptr;
+    }
     if (!widget) {
         spdlog::warn("UITree: Factory failed for type '{}'", type);
         return nullptr;

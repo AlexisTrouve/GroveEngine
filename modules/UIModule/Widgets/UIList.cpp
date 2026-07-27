@@ -4,6 +4,7 @@
 #include <grove/IDataNode.h>
 #include <grove/JsonDataNode.h>   // const-json read of list payloads (zero-copy bus: const payload)
 #include <algorithm>
+#include <spdlog/spdlog.h>
 #include <string>
 
 namespace grove {
@@ -254,6 +255,17 @@ std::vector<ListItem> UIList::parseItems(const IDataNode& containerNode) {
     if (arrIt == j.end() || !arrIt->is_array()) return out;
     int i = 0;
     for (const auto& e : *arrIt) {
+        // An item MUST be an object. A bare string (`items: ["Alpha"]`) is the natural thing to write
+        // and the wrong thing: nlohmann's value() throws on a non-object, and that throw used to unwind
+        // the entire layout parse. Skip the element and say exactly which one and why — the author gets
+        // a usable message instead of a blank screen.
+        if (!e.is_object()) {
+            spdlog::warn("UIList: items[{}] is a {} , not an object — skipped. An item is "
+                         "{{\"label\": \"...\"}}; bare strings do not round-trip through the JSON tree.",
+                         i, e.type_name());
+            ++i;
+            continue;
+        }
         ListItem item;
         item.id            = e.value("id", std::to_string(i));
         item.label         = e.value("label", std::string{});
