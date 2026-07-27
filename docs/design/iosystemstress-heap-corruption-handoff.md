@@ -1,6 +1,7 @@
 # IOSystemStress — corruption de tas intermittente (chasse en cours)
 
-> **Statut** : **NON RÉSOLU**. Hypothèses éliminées par la mesure, suspect reformulé.
+> **Statut** : **NON RÉSOLU**, mais la fenêtre est désormais **datée précisément** (voir la SIGNATURE
+> en §1) : la terminaison des threads publishers de TEST 6, pas la publication.
 > Écrit le 2026-07-27. Reprendre à la §5.
 
 ## 1. Le symptôme
@@ -8,9 +9,30 @@
 `IOSystemStress` (ctest #68, `tests/integration/test_11_io_system.cpp`) sort par intermittence en
 **`0xC0000374` = `STATUS_HEAP_CORRUPTION`** sur Windows/MinGW.
 
-**Taux mesuré : ~4 %** (2 échecs sur ~55 exécutions, en série). C'est le chiffre qui compte pour la
-suite : **valider un correctif demandera ~75 exécutions propres** pour être crédible à 95 %. Un
-« ça passe 10 fois » ne prouvera rien.
+**Taux mesuré : 3,3 %** (5 échecs sur 150 exécutions en série, plus 2 sur ~55 auparavant). C'est le
+chiffre qui commande la suite : **valider un correctif demandera ~100 exécutions propres** pour être
+crédible. Un « ça passe 10 fois » ne prouvera rien.
+
+### ⭐ SIGNATURE — la donnée la plus utile de cette chasse
+
+Sur **5 échecs sur 5**, le processus meurt **au même endroit, à la centaine de messages près** :
+dernières lignes `Routing stats: 10600` puis `10700`, et **jamais** la ligne suivante
+(`All publishers done: 500 messages`).
+
+Vérifié sur une exécution réussie : TEST 6 démarre à **10200** routés et en route exactement **500**
+(5 threads × 100) jusqu'à **10700**, puis affiche `All publishers done`.
+
+⟹ **La fenêtre est la TERMINAISON des 5 threads publishers**, pas la publication en régime établi.
+Le crash tombe entre le dernier `publish()` et la fin du `join()` des publishers. Ce n'est pas une
+intuition : 5 occurrences sur 5, au même point, avec le compteur qui le date exactement.
+
+Deux candidats compatibles avec « propre sous Linux » :
+1. la **destruction des `thread_local`** à la sortie de thread — notoirement fragile sous MinGW
+   quand du TLS vit dans une bibliothèque chargée dynamiquement (le test en a un :
+   `test_11_io_system.cpp:64`, `static thread_local char buf[256]`) ;
+2. la fenêtre entre la fin des publishers et l'arrêt du fil consommateur / du fil de flush.
+
+**C'est ici qu'il faut instrumenter en premier** — et non plus dans le corps de TEST 6.
 
 ⚠️ Ce n'est **pas** l'artefact de parallélisme `ctest -j4` (celui de `StressTest`) : il échoue aussi
 en série. Cette confusion a été faite une fois, ne pas la refaire.
