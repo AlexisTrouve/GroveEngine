@@ -61,11 +61,9 @@ void UIButton::render(UIRenderer& renderer) {
     // whole box is one render:nineslice, TINTED by the state's bgColor (hover/pressed re-tint for free). We
     // still draw the text on top. The flat-look entries (border rect + bg) are collapsed to zero so they
     // don't double-draw. `frameSrcW/H > 0` is required (no source dims -> can't map UVs) — else fall through.
-    if (!frameAsset.empty() && frameSrcW > 0.0f && frameSrcH > 0.0f) {
+    if (frame.active()) {
         int frameLayer = renderer.nextLayer();
-        renderer.updateNineSlice(m_frameId, absX, absY, width, height, frameAsset, /*textureId=*/0,
-                                 frameSrcW, frameSrcH, frameL, frameR, frameT, frameB,
-                                 style.bgColor, frameLayer);
+        frame.emit(renderer, m_frameId, absX, absY, width, height, style.bgColor, frameLayer);
         // Collapse the flat-look entries so they never co-draw with the frame.
         renderer.updateRect(m_borderId, 0, 0, 0, 0, 0, renderer.nextLayer());
         renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());
@@ -79,16 +77,8 @@ void UIButton::render(UIRenderer& renderer) {
         renderChildren(renderer);
         return;
     }
-    // No 9-slice: keep the frame entry idle (collapsed) so a widget that toggles frameAsset off recovers.
-    renderer.updateNineSlice(m_frameId, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, renderer.nextLayer());
-
-    static int logCount = 0;
-    if (logCount < 10) {  // Log first 10 buttons to see all textured ones
-        spdlog::info("UIButton[{}]::render() id='{}', state={}, normalStyle.textureId={}, useTexture={}",
-            logCount, id, (int)state, normalStyle.textureId, normalStyle.useTexture);
-        spdlog::info("  current style: textureId={}, useTexture={}", style.textureId, style.useTexture);
-        logCount++;
-    }
+    // No 9-slice: keep the frame entry idle (collapsed) so a button that toggles its frame off recovers.
+    UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
 
     // Border frame first (drawn BEHIND), then the bg/texture INSET by borderWidth so the border reads as a
     // frame around the button. This is what makes hover/selection borders visible (borderWidth 0 -> no border,

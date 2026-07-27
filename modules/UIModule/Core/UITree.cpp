@@ -77,16 +77,7 @@ void UITree::registerDefaultWidgets() {
         // 9-slice FRAME (optional `frame` block): a composed border texture giving the window a continuous,
         // crisp border at any size (replaces the solid bg). `inset` sets all four margins; per-side overrides;
         // `asset` = streamed border art id, `srcW/srcH` its native px dims. Absent -> the solid-bg look.
-        if (auto* frame = mutableNode.getChildReadOnly("frame")) {
-            win->frameAsset = frame->getString("asset", "");
-            win->frameSrcW  = static_cast<float>(frame->getDouble("srcW", 0.0));
-            win->frameSrcH  = static_cast<float>(frame->getDouble("srcH", 0.0));
-            const double inset = frame->getDouble("inset", 0.0);
-            win->frameL = static_cast<float>(frame->getDouble("left",   inset));
-            win->frameR = static_cast<float>(frame->getDouble("right",  inset));
-            win->frameT = static_cast<float>(frame->getDouble("top",    inset));
-            win->frameB = static_cast<float>(frame->getDouble("bottom", inset));
-        }
+        if (auto* frame = mutableNode.getChildReadOnly("frame")) win->frame.parse(*frame);
         return win;
     });
 
@@ -304,16 +295,7 @@ void UITree::registerDefaultWidgets() {
         // 9-slice FRAME (optional `frame` block): a composed border texture giving a continuous, crisp border
         // at any size. `inset` sets all four margins; per-side left/right/top/bottom override it. `asset` is a
         // streamed border art id; `srcW/srcH` its native px dims. Absent -> the flat border-rect look, unchanged.
-        if (auto* frame = mutableNode.getChildReadOnly("frame")) {
-            button->frameAsset = frame->getString("asset", "");
-            button->frameSrcW  = static_cast<float>(frame->getDouble("srcW", 0.0));
-            button->frameSrcH  = static_cast<float>(frame->getDouble("srcH", 0.0));
-            const double inset = frame->getDouble("inset", 0.0);
-            button->frameL = static_cast<float>(frame->getDouble("left",   inset));
-            button->frameR = static_cast<float>(frame->getDouble("right",  inset));
-            button->frameT = static_cast<float>(frame->getDouble("top",    inset));
-            button->frameB = static_cast<float>(frame->getDouble("bottom", inset));
-        }
+        if (auto* frame = mutableNode.getChildReadOnly("frame")) button->frame.parse(*frame);
 
         // Auto-generate hover/pressed styles if not explicitly set
         button->generateDefaultStyles();

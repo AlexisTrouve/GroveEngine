@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <string>
 #include <cstdint>
 
@@ -53,13 +54,10 @@ public:
     float closeButtonSize = 18.0f;
     float padding = 6.0f;
 
-    // 9-slice (nine-patch) FRAME — a composed border texture drawn over the WHOLE window (border + fill) with a
-    // continuous, crisp border at any size. Non-empty `frameAsset` REPLACES the solid bg rect; the title bar,
-    // title, close button and resize grip still draw ON TOP. Tinted by `bgColor`. `frameSrcW/H` = the art's
-    // native px dims; `frameL/R/T/B` = margin thicknesses (px, source space). Empty -> unchanged solid look.
-    std::string frameAsset;
-    float frameSrcW = 0.0f, frameSrcH = 0.0f;
-    float frameL = 0.0f, frameR = 0.0f, frameT = 0.0f, frameB = 0.0f;
+    // 9-slice (nine-patch) FRAME — see UIFrame. Drawn over the WHOLE window (border + fill); an active frame
+    // REPLACES the solid bg rect, while the title bar, title, close button and resize grip still draw ON TOP.
+    // Emitted at its authored colours (white tint), NOT tinted by bgColor — see render(). Empty -> solid look.
+    UIFrame frame;
 
 private:
     // Extra retained entries beyond the base m_renderId (= the content background).
