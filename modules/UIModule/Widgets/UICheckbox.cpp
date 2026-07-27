@@ -35,10 +35,32 @@ void UICheckbox::render(UIRenderer& renderer) {
     int boxLayer = renderer.nextLayer();
     uint32_t currentBoxColor = isHovered ? 0x475569FF : boxColor;
 
-    if (useBoxTexture && boxTextureId > 0) {
-        renderer.updateSprite(m_renderId, boxX, boxY, boxSize, boxSize, boxTextureId, boxTintColor, boxLayer);
+    // 9-slice CHROME on the box: replaces the flat box (rect or sprite), tinted by the CURRENT box
+    // colour so the hover highlight re-tints the art with no extra logic. Lazy registration keeps a
+    // frameless checkbox at its original entry + layer count.
+    if (frame.active()) {
+        if (!m_frameRegistered) {
+            m_frameId = renderer.registerEntry();
+            m_frameRegistered = true;
+            // Re-set the destroy callback so it also drops the frame. Captured BY VALUE like every
+            // other widget here — a pointer to a member would dangle if the callback outlives us.
+            setDestroyCallback([&renderer, checkId = m_checkRenderId, textId = m_textRenderId,
+                                frameId = m_frameId](uint32_t id) {
+                renderer.unregisterEntry(id);
+                renderer.unregisterEntry(checkId);
+                renderer.unregisterEntry(textId);
+                renderer.unregisterEntry(frameId);
+            });
+        }
+        frame.emit(renderer, m_frameId, boxX, boxY, boxSize, boxSize, currentBoxColor, boxLayer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat box idle
     } else {
-        renderer.updateRect(m_renderId, boxX, boxY, boxSize, boxSize, currentBoxColor, boxLayer);
+        if (useBoxTexture && boxTextureId > 0) {
+            renderer.updateSprite(m_renderId, boxX, boxY, boxSize, boxSize, boxTextureId, boxTintColor, boxLayer);
+        } else {
+            renderer.updateRect(m_renderId, boxX, boxY, boxSize, boxSize, currentBoxColor, boxLayer);
+        }
+        if (m_frameRegistered) UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
 
     // Check mark if checked (retained mode)

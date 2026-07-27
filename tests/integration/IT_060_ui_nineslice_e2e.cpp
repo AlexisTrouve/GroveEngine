@@ -126,13 +126,36 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
     REQUIRE(rowf->h == 24.0);          // authored rowHeight
     REQUIRE(rowf->left == 4.0);
 
+    // --- The checkbox's frame dresses the BOX, not the whole widget row (the label sits beside it).
+    //     Only the box gets one: stretching the middle of a checkmark would be meaningless, so the
+    //     tick stays a sprite.
+    const NS* chk = find("ui/check_frame");
+    REQUIRE(chk != nullptr);
+    REQUIRE(chk->w == 24.0);           // boxSize, NOT the widget's 140 width
+    REQUIRE(chk->h == 24.0);           // square box
+    REQUIRE(chk->left == 4.0);
+
+    // --- The progress bar gets TWO frames: the track (full width) and the FILL, whose width tracks
+    //     `progress`. A nine-patch fill is what keeps a bar's end caps crisp at any fill level —
+    //     asserting 0.5 x 160 = 80 proves the fill frame really follows the value.
+    const NS* bar = find("ui/bar_frame");
+    REQUIRE(bar != nullptr);
+    REQUIRE(bar->w == 160.0);          // the whole track
+    REQUIRE(bar->left == 5.0);
+    const NS* fill = find("ui/bar_fill");
+    REQUIRE(fill != nullptr);
+    REQUIRE(fill->w == 80.0);          // progress 0.5 of 160
+    REQUIRE(fill->h == 18.0);          // full height (horizontal bar)
+    REQUIRE(fill->left == 3.0);
+
     // NON-REGRESSION, the whole point of "additif": EVERY published frame must belong to one of the
     // authored `frame` blocks. The root panel, the labels and every other widget carry none and must
     // publish nothing here. (Counted this way rather than by a magic total, so it survives the list
     // emitting one frame per visible row.)
     const std::vector<std::string> authored = {
         "ui/button_frame", "ui/window_frame", "ui/panel_frame",
-        "ui/scroll_frame", "ui/list_frame",   "ui/row_frame"
+        "ui/scroll_frame", "ui/list_frame",   "ui/row_frame",
+        "ui/check_frame",  "ui/bar_frame",    "ui/bar_fill"
     };
     for (const NS& f : frames) {
         INFO("unexpected frame asset: '" << f.asset << "'");

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
@@ -45,6 +46,11 @@ public:
     uint32_t boxColor = 0x34495eFF;
     uint32_t checkColor = 0x2ecc71FF;
     uint32_t textColor = 0xecf0f1FF;
+    // 9-slice FRAME — see UIFrame. Dresses the BOX only (the label sits beside it), tinted by the
+    // current box colour so the hover highlight re-tints the art for free. The TICK deliberately gets
+    // no frame: stretching the middle of a checkmark is meaningless, it stays a sprite.
+    UIFrame frame;
+
     float boxSize = 24.0f;
     float fontSize = 16.0f;
     float spacing = 8.0f;  // Space between box and text
@@ -64,6 +70,8 @@ public:
 
 private:
     // Retained mode render IDs (m_renderId from base class used for box background)
+    uint32_t m_frameId = 0;          // 9-slice box entry — registered ONLY if a frame is ever active
+    bool m_frameRegistered = false;
     uint32_t m_checkRenderId = 0;  // Checkmark element
     uint32_t m_textRenderId = 0;   // Label text element
 };

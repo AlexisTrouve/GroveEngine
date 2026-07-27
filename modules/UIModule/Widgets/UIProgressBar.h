@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
@@ -43,6 +44,12 @@ public:
     bool showText = false;   // Show percentage text
 
     // Style
+    // 9-slice FRAMES — see UIFrame. `frame` dresses the TRACK, `fillFrame` the FILL. A nine-patch fill
+    // is what keeps a bar's END CAPS crisp at any fill level, where a stretched sprite smears them;
+    // its width follows `progress` exactly like the flat fill rect does. Both optional and independent.
+    UIFrame frame;
+    UIFrame fillFrame;
+
     uint32_t bgColor = 0x34495eFF;
     uint32_t fillColor = 0x2ecc71FF;
     uint32_t textColor = 0xFFFFFFFF;
@@ -59,6 +66,10 @@ public:
 
 private:
     // Retained mode render IDs
+    uint32_t m_frameId = 0;          // 9-slice TRACK entry (lazy)
+    uint32_t m_fillFrameId = 0;      // 9-slice FILL entry (lazy)
+    bool m_frameRegistered = false;
+    bool m_fillFrameRegistered = false;
     uint32_t m_fillRenderId = 0;  // Separate ID for fill bar element
     uint32_t m_textRenderId = 0;  // Separate ID for text element
 };

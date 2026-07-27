@@ -419,6 +419,9 @@ void UITree::registerDefaultWidgets() {
             checkbox->spacing = static_cast<float>(style->getDouble("spacing", 8.0));
         }
 
+        // 9-slice FRAME (optional) — dresses the box.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) checkbox->frame.parse(*f);
+
         return checkbox;
     });
 
@@ -445,6 +448,10 @@ void UITree::registerDefaultWidgets() {
             }
             progressBar->fontSize = static_cast<float>(style->getDouble("fontSize", 14.0));
         }
+
+        // 9-slice FRAMES (optional) — `frame` = the track, `fillFrame` = the fill.
+        if (auto* f = mutableNode.getChildReadOnly("frame")) progressBar->frame.parse(*f);
+        if (auto* ff = mutableNode.getChildReadOnly("fillFrame")) progressBar->fillFrame.parse(*ff);
 
         return progressBar;
     });

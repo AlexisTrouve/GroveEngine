@@ -40,6 +40,21 @@
       "items": [{ "label": "Alpha" }, { "label": "Beta" }, { "label": "Gamma" }],
       "frame": { "asset": "ui/list_frame", "srcW": 32, "srcH": 32, "inset": 8 },
       "rowFrame": { "asset": "ui/row_frame", "srcW": 16, "srcH": 16, "inset": 4 }
+    },
+    {
+      "type": "checkbox",
+      "id": "framedCheck",
+      "x": 220, "y": 232, "width": 140, "height": 24,
+      "text": "Opt",
+      "frame": { "asset": "ui/check_frame", "srcW": 16, "srcH": 16, "inset": 4 }
+    },
+    {
+      "type": "progressbar",
+      "id": "framedBar",
+      "x": 220, "y": 262, "width": 160, "height": 18,
+      "progress": 0.5,
+      "frame": { "asset": "ui/bar_frame", "srcW": 16, "srcH": 16, "inset": 5 },
+      "fillFrame": { "asset": "ui/bar_fill", "srcW": 16, "srcH": 16, "inset": 3 }
     }
   ]
 }

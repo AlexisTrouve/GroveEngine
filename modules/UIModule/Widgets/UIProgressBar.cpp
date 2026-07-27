@@ -30,28 +30,39 @@ void UIProgressBar::render(UIRenderer& renderer) {
 
     // Retained mode: only publish if changed
     int bgLayer = renderer.nextLayer();
-    if (useBgTexture && bgTextureId > 0) {
-        renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
+    if (frame.active()) {
+        if (!m_frameRegistered) { m_frameId = renderer.registerEntry(); m_frameRegistered = true; }
+        frame.emit(renderer, m_frameId, absX, absY, width, height, bgTintColor, bgLayer);
+        renderer.updateRect(m_renderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat track idle
     } else {
-        renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+        if (useBgTexture && bgTextureId > 0) {
+            renderer.updateSprite(m_renderId, absX, absY, width, height, bgTextureId, bgTintColor, bgLayer);
+        } else {
+            renderer.updateRect(m_renderId, absX, absY, width, height, bgColor, bgLayer);
+        }
+        if (m_frameRegistered) UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
 
     // Render fill based on progress
     int fillLayer = renderer.nextLayer();
-    if (horizontal) {
-        float fillWidth = progress * width;
-        if (useFillTexture && fillTextureId > 0) {
-            renderer.updateSprite(m_fillRenderId, absX, absY, fillWidth, height, fillTextureId, fillTintColor, fillLayer);
-        } else {
-            renderer.updateRect(m_fillRenderId, absX, absY, fillWidth, height, fillColor, fillLayer);
-        }
+    // The filled rect, whichever way the bar runs: horizontal grows from the left, vertical from the
+    // bottom. Computed once so the flat and 9-slice looks below cannot drift apart.
+    const float fillW = horizontal ? progress * width  : width;
+    const float fillH = horizontal ? height            : progress * height;
+    const float fillX = absX;
+    const float fillY = horizontal ? absY : absY + height - fillH;
+
+    if (fillFrame.active()) {
+        if (!m_fillFrameRegistered) { m_fillFrameId = renderer.registerEntry(); m_fillFrameRegistered = true; }
+        fillFrame.emit(renderer, m_fillFrameId, fillX, fillY, fillW, fillH, fillColor, fillLayer);
+        renderer.updateRect(m_fillRenderId, 0, 0, 0, 0, 0, renderer.nextLayer());   // flat fill idle
     } else {
-        float fillHeight = progress * height;
         if (useFillTexture && fillTextureId > 0) {
-            renderer.updateSprite(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillTextureId, fillTintColor, fillLayer);
+            renderer.updateSprite(m_fillRenderId, fillX, fillY, fillW, fillH, fillTextureId, fillTintColor, fillLayer);
         } else {
-            renderer.updateRect(m_fillRenderId, absX, absY + height - fillHeight, width, fillHeight, fillColor, fillLayer);
+            renderer.updateRect(m_fillRenderId, fillX, fillY, fillW, fillH, fillColor, fillLayer);
         }
+        if (m_fillFrameRegistered) UIFrame::collapse(renderer, m_fillFrameId, renderer.nextLayer());
     }
 
     // Render percentage text if enabled
