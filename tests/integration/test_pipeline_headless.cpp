@@ -274,3 +274,62 @@ TEST_CASE("Pipeline - 10 consecutive frames", "[pipeline][integration]") {
         collector.clear();
     }
 }
+
+// ============================================================================
+// Lighting L1 — the composite pass.
+//
+// The composite is the step that multiplies the rendered scene by the light term. Its cost is a
+// full-screen draw plus two offscreen targets, so the ONE property that matters as much as the
+// effect itself is that it charges NOTHING when nobody lights anything: no ambient published means
+// no draw, no target, no view redirection — the frame goes straight to the backbuffer exactly as it
+// did before lighting existed.
+//
+// Drifterra, DAOS and Fractax share this engine and publish no ambient. This is their regression
+// test, not a nicety.
+// ============================================================================
+
+#include "../../modules/BgfxRenderer/Passes/CompositePass.h"
+
+TEST_CASE("Composite - no ambient means the pass emits NOTHING", "[pipeline][light]") {
+    MockRHIDevice device;
+    CompositePass pass;
+    rhi::RHICommandBuffer cmd;
+
+    pass.setup(device);
+    const int fbAfterSetup = device.framebufferCreateCount.load();
+
+    FramePacket packet;                 // ambientColor defaults to 0 = lighting inactive
+    REQUIRE(packet.ambientColor == 0u);
+
+    pass.execute(packet, device, cmd);
+
+    REQUIRE(cmd.size() == 0);           // not one command — the bypass is total
+    REQUIRE(device.framebufferCreateCount.load() == fbAfterSetup);   // and no target was made
+
+    pass.shutdown(device);
+}
+
+TEST_CASE("Composite - an ambient makes the pass draw a full-screen quad", "[pipeline][light]") {
+    MockRHIDevice device;
+    CompositePass pass;
+    rhi::RHICommandBuffer cmd;
+
+    pass.setup(device);
+
+    FramePacket packet;
+    packet.ambientColor = 0x404060FF;   // a dim blue night
+    pass.execute(packet, device, cmd);
+
+    // One full-screen draw, submitted. Asserting "more than zero commands" would pass on a pass that
+    // set state and drew nothing, so we require the draw and the submit specifically.
+    REQUIRE(cmd.size() > 0);
+    bool sawDraw = false, sawSubmit = false;
+    for (const auto& c : cmd.getCommands()) {
+        if (c.type == rhi::CommandType::DrawIndexed || c.type == rhi::CommandType::Draw) sawDraw = true;
+        if (c.type == rhi::CommandType::Submit) sawSubmit = true;
+    }
+    REQUIRE(sawDraw);
+    REQUIRE(sawSubmit);
+
+    pass.shutdown(device);
+}

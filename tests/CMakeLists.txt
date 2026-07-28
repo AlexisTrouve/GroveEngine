@@ -2235,6 +2235,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ../modules/BgfxRenderer/Scene/SceneCollector.cpp
         ../modules/BgfxRenderer/Frame/FrameAllocator.cpp
         ../modules/BgfxRenderer/RenderGraph/RenderGraph.cpp
+        ../modules/BgfxRenderer/Passes/CompositePass.cpp
         ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
     )
     target_include_directories(test_pipeline_headless PRIVATE
