@@ -46,13 +46,29 @@ public:
     virtual ShaderHandle createShader(const ShaderDesc& desc) = 0;
     virtual UniformHandle createUniform(const char* name, uint8_t numVec4s) = 0;
 
-    // Offscreen render target for test/readback (Slice ②). createFramebuffer makes an RGBA8 color
-    // target plus a CPU-readable copy; setViewFramebuffer redirects a view into it; readFramebuffer
-    // blits + reads the pixels back to `out` (RGBA8, w*h*4 bytes), blocking until the GPU result is
-    // ready. Real readback needs a GPU context (these power [gpu] tests); the mock stubs them.
-    virtual FramebufferHandle createFramebuffer(uint16_t width, uint16_t height) = 0;
+    // Offscreen render target. createFramebuffer makes a colour target in `format` plus a
+    // CPU-readable copy; setViewFramebuffer redirects a view into it; readFramebuffer blits + reads
+    // the pixels back to `out` (RGBA8, w*h*4 bytes), blocking until the GPU result is ready. Real
+    // readback needs a GPU context (these power [gpu] tests); the mock stubs them.
+    //
+    // `format` is DELIBERATELY REQUIRED, not defaulted: a default argument on a virtual is resolved
+    // from the STATIC type, so a derived class declaring a different one would silently change
+    // behaviour depending on how the device is referenced. With two implementations and a handful of
+    // call sites, spelling it out everywhere costs nothing and hides nothing.
+    virtual FramebufferHandle createFramebuffer(uint16_t width, uint16_t height, TargetFormat format) = 0;
     virtual void setViewFramebuffer(ViewId id, FramebufferHandle fb) = 0;
     virtual bool readFramebuffer(FramebufferHandle fb, void* out, uint32_t outSize) = 0;
+
+    // Explicit view SUBMISSION order (lighting L1). Without this, views are submitted in ascending
+    // id order — which is why the world (0) and the HUD (1) already compose correctly.
+    //
+    // POURQUOI it is needed: lighting inserts a composite step that must run BETWEEN the world and
+    // the HUD, and there is no integer between 0 and 1. The alternative was renumbering every view,
+    // but id 1 is hard-coded in SpritePass/TextPass/SectorPass and locked by HudViewUnit — so the
+    // ordering problem is solved where it belongs (submission order), not by renaming everything.
+    //
+    // `order` lists view ids in the order they must be submitted; `count` is its length.
+    virtual void setViewOrder(const ViewId* order, uint16_t count) = 0;
 
     // Resource destruction
     virtual void destroy(TextureHandle handle) = 0;

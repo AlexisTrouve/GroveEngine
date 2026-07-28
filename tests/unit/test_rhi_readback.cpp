@@ -60,7 +60,7 @@ TEST_CASE("RHI offscreen framebuffer readback returns the cleared color", "[gpu]
     }
 
     const uint16_t W = 32, H = 32;
-    rhi::FramebufferHandle fb = device->createFramebuffer(W, H);
+    rhi::FramebufferHandle fb = device->createFramebuffer(W, H, rhi::TargetFormat::RGBA8);
 
     // setViewClear takes 0xRRGGBBAA -> R=0x33, G=0x66, B=0xCC, A=0xFF.
     const uint32_t clearRGBA = 0x3366CCFFu;

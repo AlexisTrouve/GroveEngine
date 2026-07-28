@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
     // Capture: redirect the world + HUD views to an offscreen framebuffer, render, read back.
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(SW), static_cast<uint16_t>(SH));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(SW), static_cast<uint16_t>(SH), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb);
     dev->setViewFramebuffer(1, fb);
     renderFrame(); renderFrame();

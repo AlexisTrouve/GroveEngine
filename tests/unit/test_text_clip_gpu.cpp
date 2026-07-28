@@ -57,7 +57,7 @@ TEST_CASE("TextPass scissors text to a clip rect (GPU)", "[gpu][text][clip]") {
     pass.setup(*device);
 
     const uint16_t P = 64;
-    rhi::FramebufferHandle fb = device->createFramebuffer(P, P);
+    rhi::FramebufferHandle fb = device->createFramebuffer(P, P, rhi::TargetFormat::RGBA8);
 
     const float g = static_cast<float>(P);
     float view[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};

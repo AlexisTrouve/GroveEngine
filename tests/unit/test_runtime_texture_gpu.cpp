@@ -81,7 +81,7 @@ TEST_CASE("runtime texture: create + paint a sub-rect, render by asset id (GPU)"
 
     // 3. RENDER the canvas as a sprite filling the view, into a framebuffer, and read it back.
     rhi::IRHIDevice* dev = renderer->getDevice();
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
     auto drawCanvas = [&]{
         { auto s = std::make_unique<JsonDataNode>("d");
@@ -170,7 +170,7 @@ TEST_CASE("runtime texture: render:texture:upload writes RAW rgba pixels (GPU) â
 
     // 3. RENDER filling the view + read back.
     rhi::IRHIDevice* dev = renderer->getDevice();
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
     auto drawCanvas = [&]{
         { auto s = std::make_unique<JsonDataNode>("d");

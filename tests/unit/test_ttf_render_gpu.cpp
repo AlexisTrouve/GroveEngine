@@ -97,7 +97,7 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
     }
 
     const uint16_t W = 256, H = 64;
-    rhi::FramebufferHandle fb = device->createFramebuffer(W, H);
+    rhi::FramebufferHandle fb = device->createFramebuffer(W, H, rhi::TargetFormat::RGBA8);
     float view[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     float proj[16] = { 2.0f/W,0,0,0,  0,2.0f/H,0,0,  0,0,1,0,  -1.0f,-1.0f,0,1 };
 

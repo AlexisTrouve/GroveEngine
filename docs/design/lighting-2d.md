@@ -105,9 +105,15 @@ Testable headless avec un oracle exact ; le GPU ne prouve alors que le câblage.
 1. **Redimensionnement de fenêtre** — les cibles doivent être recréées. `createFramebuffer` ne sert
    aujourd'hui qu'à la relecture de pixels en test, à taille fixe. Le chemin resize est **neuf** et
    c'est le premier endroit où ça cassera.
-2. **Interaction avec les tests `[gpu]` existants** — ils utilisent déjà `setViewFramebuffer` sur la
-   vue 0 pour la relecture. Introduire une cible scène sur cette même vue peut entrer en conflit :
-   **à vérifier avant d'écrire L1**, pas après.
+2. ~~**Interaction avec les tests `[gpu]` existants**~~ — ✅ **vérifié avant d'écrire L1.**
+   Les tests GPU (`NineSliceGpu`, `RuntimeTextureGpu`, `RhiReadback`) pilotent le RHI **directement**
+   et font `setViewFramebuffer(0, fb)` **et** `setViewFramebuffer(1, fb)` vers leur propre cible de
+   relecture. **Aucun conflit aujourd'hui** : ils ne publient ni `render:ambient` ni `render:light`,
+   donc le contournement à coût nul (§3) fait que le module ne touche jamais `setViewFramebuffer`.
+   **Mais ça contraint le futur test GPU des lumières** : il ne pourra PAS utiliser l'astuce
+   « je redirige la vue 0 vers mon framebuffer », puisque la vue 0 sera la cible scène. Il devra lire
+   la cible du **composite**. À concevoir comme tel, sinon il mesurera la scène non éclairée et
+   passera au vert en ne prouvant rien.
 3. **Format du buffer de lumière** — voir §8, c'est le seul arbitrage que je ne tranche pas seul.
 
 ## 8. ✅ Arbitrage tranché : **RGBA16F** (Alexi, 2026-07-28)

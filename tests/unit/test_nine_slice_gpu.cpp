@@ -105,7 +105,7 @@ TEST_CASE("render:nineslice samples the right source regions per quad (GPU)", "[
 
     // 3. RENDER into a framebuffer + read back.
     rhi::IRHIDevice* dev = renderer->getDevice();
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
     for (int i = 0; i < 4; ++i) frame();   // flush the retained nineslice through the readback fb
 

@@ -156,6 +156,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:clear") {
             parseClear(*msg.data);
         }
+        else if (msg.topic == "render:ambient") {
+            parseAmbient(*msg.data);
+        }
         else if (msg.topic == "render:debug:line") {
             parseDebugLine(*msg.data);
         }
@@ -195,6 +198,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.deltaTime = m_deltaTime;
     packet.elapsedTime = m_elapsedTime;
     packet.clearColor = m_clearColor;
+    packet.ambientColor = m_ambientColor;   // global state, not cleared at the frame boundary
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1005,6 +1009,13 @@ void SceneCollector::parseCamera(const IDataNode& data) {
 
 void SceneCollector::parseClear(const IDataNode& data) {
     m_clearColor = static_cast<uint32_t>(data.getInt("color", 0x303030FF));
+}
+
+void SceneCollector::parseAmbient(const IDataNode& data) {
+    // Global ambient (lighting L1). Default 0 = UNSET: publishing `render:ambient` with no colour
+    // TURNS LIGHTING OFF again rather than silently picking a value — the topic is the on/off switch
+    // as much as it is the value, and a game dimming to black must be able to say so.
+    m_ambientColor = static_cast<uint32_t>(data.getInt("color", 0));
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {

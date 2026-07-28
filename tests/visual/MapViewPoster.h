@@ -68,7 +68,7 @@ inline PosterResult renderPoster(ViewerApp& app, BgfxRendererModule* renderer,
         return r;   // ok stays false
     }
 
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(tilePx), static_cast<uint16_t>(tilePx));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(tilePx), static_cast<uint16_t>(tilePx), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb);
     dev->setViewFramebuffer(1, fb);
     std::vector<uint8_t> tile(static_cast<size_t>(tilePx) * static_cast<size_t>(tilePx) * 4u);

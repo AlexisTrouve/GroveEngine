@@ -1857,3 +1857,51 @@ TEST_CASE("SceneCollector - retained HUD: a screen-space widget is camera-immune
     REQUIRE_THAT(p.hudView.positionX, WithinAbs(0.0f, 0.01f));
     REQUIRE_THAT(p.hudView.zoom, WithinAbs(1.0f, 0.01f));
 }
+
+// ============================================================================
+// Lighting L1 — the global ambient term (render:ambient).
+//
+// The ambient colour is GLOBAL FRAME STATE, like clearColor and the camera: published once, it
+// governs every subsequent frame until it changes. It is NOT an ephemeral primitive, so it must
+// survive collector.clear().
+//
+// `0` is the "unset" sentinel and it is load-bearing, not a default value: it is what tells the
+// renderer that lighting is INACTIVE, so it must skip the offscreen targets entirely and draw
+// straight to the backbuffer exactly as it does today. Every existing consumer (Drifterra, DAOS,
+// Fractax) publishes no ambient — the whole zero-cost bypass hangs off this being 0.
+// ============================================================================
+
+TEST_CASE("SceneCollector - ambient: absent means UNSET (lighting inactive)", "[scene_collector][light]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // THE non-regression assertion. A non-zero default here would silently switch every existing
+    // game onto the lit path — two full-screen targets nobody asked for.
+    REQUIRE(p.ambientColor == 0u);
+}
+
+TEST_CASE("SceneCollector - ambient: render:ambient sets it and it PERSISTS", "[scene_collector][light]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto amb = std::make_unique<JsonDataNode>("a");
+    amb->setInt("color", 0x404060FF);          // a dim blue night
+    fx.ioPublisher->publish("render:ambient", std::move(amb));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.ambientColor == 0x404060FFu);
+    }
+
+    // Frame boundary: ambient is global state, not an ephemeral primitive — it must survive, or a
+    // game would have to re-publish it every single frame to stay lit.
+    fx.collector.clear();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.ambientColor == 0x404060FFu);
+    }
+}

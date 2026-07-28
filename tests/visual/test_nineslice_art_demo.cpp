@@ -143,7 +143,7 @@ public:
 
     bool captureShot(const std::string& path) {
         rhi::IRHIDevice* dev = m_renderer->getDevice();
-        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(m_w), static_cast<uint16_t>(m_h));
+        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(m_w), static_cast<uint16_t>(m_h), rhi::TargetFormat::RGBA8);
         dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
         for (int i = 0; i < 6; ++i) frame(0.016f);
         std::vector<uint8_t> rgba(static_cast<size_t>(m_w) * m_h * 4, 0);

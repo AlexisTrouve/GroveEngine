@@ -224,6 +224,23 @@ struct FramePacket {
     // Clear color (default dark gray)
     uint32_t clearColor = 0x303030FF;
 
+    // Global ambient light term (lighting L1) — RGBA, set by `render:ambient`.
+    //
+    // QUOI  : the base illumination every lit surface receives before any light is added; the
+    //         composite computes `final = scene * (ambient + lightAccum)`.
+    //
+    // POURQUOI 0 = UNSET, and why that matters more than it looks: 0 is the signal that lighting is
+    //         INACTIVE, so the renderer skips the offscreen targets entirely and draws straight to
+    //         the backbuffer — byte-identical to a build with no lighting at all. Every current
+    //         consumer publishes no ambient, and none of them should pay two full-screen RGBA16F
+    //         targets for a feature they never asked for. A non-zero default here would switch them
+    //         all onto the lit path silently.
+    //
+    // COMMENT: this is GLOBAL FRAME STATE like clearColor and the camera, not an ephemeral
+    //          primitive: published once, it governs every later frame until it changes, and it
+    //          survives SceneCollector::clear().
+    uint32_t ambientColor = 0;
+
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;
 };

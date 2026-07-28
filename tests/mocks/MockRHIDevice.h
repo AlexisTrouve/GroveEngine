@@ -38,6 +38,8 @@ public:
     std::atomic<int> uniformDestroyCount{0};
     std::atomic<int> framebufferCreateCount{0};
     std::atomic<int> framebufferDestroyCount{0};
+    rhi::TargetFormat lastTargetFormat = rhi::TargetFormat::RGBA8;
+    std::vector<rhi::ViewId> lastViewOrder;
 
     std::atomic<int> updateBufferCount{0};
     std::atomic<int> updateTextureCount{0};
@@ -155,12 +157,18 @@ public:
 
     // Offscreen framebuffers (Slice ②). No GPU in the mock: createFramebuffer hands out ids,
     // readFramebuffer is a no-op returning false (real readback is exercised by [gpu] tests).
-    rhi::FramebufferHandle createFramebuffer(uint16_t /*w*/, uint16_t /*h*/) override {
+    rhi::FramebufferHandle createFramebuffer(uint16_t /*w*/, uint16_t /*h*/, rhi::TargetFormat format) override {
+        lastTargetFormat = format;   // observable: lighting must ask for RGBA16F, not RGBA8
         rhi::FramebufferHandle h;
         h.id = static_cast<uint16_t>(framebufferCreateCount.fetch_add(1));
         return h;
     }
     void setViewFramebuffer(rhi::ViewId /*id*/, rhi::FramebufferHandle /*fb*/) override {}
+
+    // Last explicit view submission order requested (empty = never set / reset to ascending ids).
+    void setViewOrder(const rhi::ViewId* order, uint16_t count) override {
+        lastViewOrder.assign(order, order + (order ? count : 0));
+    }
     bool readFramebuffer(rhi::FramebufferHandle /*fb*/, void* /*out*/, uint32_t /*outSize*/) override {
         return false;
     }

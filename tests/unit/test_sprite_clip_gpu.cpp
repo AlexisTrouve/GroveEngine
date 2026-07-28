@@ -59,7 +59,7 @@ TEST_CASE("SpritePass scissors a sprite to its reserved clip rect (GPU)", "[gpu]
     pass.setup(*device);
 
     const uint16_t P = 64;
-    rhi::FramebufferHandle fb = device->createFramebuffer(P, P);
+    rhi::FramebufferHandle fb = device->createFramebuffer(P, P, rhi::TargetFormat::RGBA8);
 
     // ortho mapping world [0,P] -> NDC, so a sprite at (0,0) scaled PxP fills the whole FB.
     const float g = static_cast<float>(P);

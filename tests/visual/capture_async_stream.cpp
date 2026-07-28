@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     };
     auto frame = [&]{ publishScene(); JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in); };
 
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
 
     std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0), rgb(static_cast<size_t>(W)*H*3);

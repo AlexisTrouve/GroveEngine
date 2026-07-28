@@ -405,10 +405,14 @@ public:
     // Offscreen framebuffers (test / readback)
     // ========================================
 
-    FramebufferHandle createFramebuffer(uint16_t width, uint16_t height) override {
-        // Color render target we draw into...
+    FramebufferHandle createFramebuffer(uint16_t width, uint16_t height, TargetFormat format) override {
+        // Colour render target we draw into. RGBA16F keeps values past 1.0 (overbright) — what the
+        // light accumulation buffer needs so bloom has something to extract later.
+        const bgfx::TextureFormat::Enum rtFormat =
+            (format == TargetFormat::RGBA16F) ? bgfx::TextureFormat::RGBA16F
+                                              : bgfx::TextureFormat::RGBA8;
         bgfx::TextureHandle rt = bgfx::createTexture2D(
-            width, height, false, 1, bgfx::TextureFormat::RGBA8,
+            width, height, false, 1, rtFormat,
             BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         // ...and a CPU-readable copy the GPU blits into and we read back.
         bgfx::TextureHandle readback = bgfx::createTexture2D(
@@ -426,6 +430,16 @@ public:
     void setViewFramebuffer(ViewId id, FramebufferHandle handle) override {
         if (handle.id >= m_framebuffers.size()) return;
         bgfx::setViewFrameBuffer(id, m_framebuffers[handle.id].fb);
+    }
+
+    void setViewOrder(const ViewId* order, uint16_t count) override {
+        // Overrides the default ascending-id submission order. Passing 0/nullptr restores it, which
+        // is what an unlit frame wants — see the zero-cost bypass in the lighting plan.
+        if (order == nullptr || count == 0) {
+            bgfx::setViewOrder(0, UINT16_MAX, nullptr);   // reset to ascending id order
+            return;
+        }
+        bgfx::setViewOrder(0, count, order);
     }
 
     bool readFramebuffer(FramebufferHandle handle, void* out, uint32_t outSize) override {

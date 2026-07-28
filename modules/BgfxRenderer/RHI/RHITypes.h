@@ -35,6 +35,20 @@ struct FramebufferHandle {
 
 using ViewId = uint16_t;
 
+// Colour format of an offscreen render target.
+//
+// RGBA8   : 8 bits/channel, values CLAMPED to [0,1]. Fine for readback tests and plain compositing.
+// RGBA16F : half-float, values may exceed 1.0 (overbright). Costs twice the bandwidth.
+//
+// The lighting accumulation buffer uses RGBA16F on purpose: bloom works by extracting what goes
+// PAST a luminance threshold, and a clamped buffer makes three stacked lamps and one lamp the same
+// white — there would be nothing left to extract. Chosen at L1 so the post-processing pass that
+// follows does not have to re-lay the plumbing.
+enum class TargetFormat : uint8_t {
+    RGBA8,
+    RGBA16F
+};
+
 // ============================================================================
 // Transient Instance Buffer - Frame-local allocation for multi-batch rendering
 // ============================================================================

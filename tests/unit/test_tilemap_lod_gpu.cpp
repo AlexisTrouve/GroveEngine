@@ -87,7 +87,7 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
     pass.setup(*device);
 
     const uint16_t P = 64;  // framebuffer size
-    rhi::FramebufferHandle fb = device->createFramebuffer(P, P);
+    rhi::FramebufferHandle fb = device->createFramebuffer(P, P, rhi::TargetFormat::RGBA8);
 
     // Render a chunk so its world rect [0,grid]x[0,grid] fills the whole FB -> tiles/pixel = grid/P.
     // Returns the center pixel as RGBA bytes packed 0xAABBGGRR-style via byteOf(shift).

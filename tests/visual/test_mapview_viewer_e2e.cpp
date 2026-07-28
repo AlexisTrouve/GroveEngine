@@ -213,7 +213,7 @@ int main(int argc, char** argv) {
     // Offscreen: redirect the world + HUD views so the render is captured headless.
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
-    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
     dev->setViewFramebuffer(0, fb);
     dev->setViewFramebuffer(1, fb);
 

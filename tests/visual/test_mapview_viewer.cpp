@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
         // sized to the requested output. The camera never moves -> deterministic.
         rhi::IRHIDevice* dev = renderer->getDevice();
         if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
-        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(outW), static_cast<uint16_t>(outH));
+        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(outW), static_cast<uint16_t>(outH), rhi::TargetFormat::RGBA8);
         dev->setViewFramebuffer(0, fb);
         dev->setViewFramebuffer(1, fb);
         // A few identical frames so any async texture upload (marker icons) lands before readback; the camera
@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
         // with no input. Offscreen so it's headless. (Input responsiveness is proven by test_mapview_viewer_e2e.)
         rhi::IRHIDevice* dev = renderer->getDevice();
         if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
-        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H));
+        rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
         dev->setViewFramebuffer(0, fb);
         dev->setViewFramebuffer(1, fb);
         for (int i = 0; i < 45; ++i) {
