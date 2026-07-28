@@ -20,7 +20,23 @@ namespace {
 // contract §5). thread_local = per-thread, so it needs no lock and never races across worker threads. NOTE:
 // this links publishes made from within a subscription HANDLER; a module that instead buffers in its handler
 // and publishes later from process() is not auto-correlated (the transport can't see that causal hop).
-thread_local std::string t_currentCauseId;
+// ⚠️ DELIBERATELY LEAKED, and it must stay that way. A thread_local with a NON-TRIVIAL destructor
+// corrupts the heap when a worker thread exits on this toolchain: the destructor runs during thread
+// teardown and trips STATUS_HEAP_CORRUPTION. Proven by intervention on a reduced repro — making this
+// object trivially destructible took it from 20/20 crashes to 0/20, with the project's own flags.
+// Every threaded module system publishes from worker threads, so the broken path was the normal one.
+//
+// The pointer holds; the string is allocated on first use and NEVER deleted. The leak is bounded by
+// the number of threads that ever publish (a pool, not a per-message thing) at a few hundred bytes
+// each — a trade taken knowingly against heap corruption. Keeping a `std::string&` accessor also
+// means no allocation per publish, so the zero-copy publish path is untouched.
+// Full account: docs/design/iosystemstress-heap-corruption-handoff.md
+thread_local std::string* t_currentCauseId = nullptr;
+
+std::string& currentCauseId() {
+    if (t_currentCauseId == nullptr) t_currentCauseId = new std::string();   // never deleted, on purpose
+    return *t_currentCauseId;
+}
 }
 
 IntraIO::IntraIO(const std::string& id, bool coreResident) : instanceId(id), coreResident_(coreResident) {
@@ -124,7 +140,7 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     // inside a handler) so the router stamps env.causedBy — the causal request->response link (§5).
     // NOTE: routeMessage() acquires managerMutex internally.
     //       We must NOT hold operationMutex here (see ABBA comment above).
-    IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport, t_currentCauseId);
+    IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport, currentCauseId());
 }
 
 void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
@@ -265,10 +281,10 @@ void IntraIO::pullAndDispatch() {
     for (const auto& entry : toDispatch) {
         // Mark the message being processed as the "cause" for anything the handler publishes (§5 causedBy).
         // Save/restore supports a handler that itself pumps another inbox (nested dispatch).
-        std::string prev = std::move(t_currentCauseId);
-        t_currentCauseId = entry.msgPtr->env.source + "#" + std::to_string(entry.msgPtr->env.seq);
+        std::string prev = std::move(currentCauseId());
+        currentCauseId() = entry.msgPtr->env.source + "#" + std::to_string(entry.msgPtr->env.seq);
         entry.handler(*entry.msgPtr);
-        t_currentCauseId = std::move(prev);
+        currentCauseId() = std::move(prev);
     }
 }
 

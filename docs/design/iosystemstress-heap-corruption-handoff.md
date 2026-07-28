@@ -1,8 +1,9 @@
 # IOSystemStress — corruption de tas intermittente (chasse en cours)
 
-> **Statut** : ⭐ **CAUSE LOCALISÉE ET PROUVÉE PAR INTERVENTION** (2026-07-28). Pas encore corrigée —
-> le correctif touche le chemin chaud de `publish()` et demande un arbitrage (§0).
-> Repro **déterministe** : 1 message publié depuis un thread créé ⇒ crash 20/20.
+> **Statut** : ✅ **CORRIGÉ le 2026-07-28.** Cause localisée par intervention, correctif shippé et
+> vérifié sur le symptôme d'origine : **IOSystemStress passe de 5/150 (3,3 %) à 0 échec sur 120**.
+> Si le taux était inchangé, observer 0/120 aurait ~1,8 % de chance — le lien est établi
+> empiriquement, pas seulement par mécanisme.
 
 ## 0. ⭐ LA CAUSE (2026-07-28)
 
@@ -33,13 +34,24 @@ un `thread_local std::string` **isolé** dans un programme de 10 lignes est prop
 fois le TLS neutralisé le programme va au bout, destruction statique comprise — qui libère beaucoup
 et ne trouve rien. Ce n'est pas une preuve absolue ; à confirmer avant de clore.
 
-### Le correctif reste à arbitrer
+### ✅ Le correctif (shippé)
 
-Mon expérience reconstruisait un `std::string` **à chaque publish** — inacceptable en l'état sur un
-chemin chaud. Option privilégiée : un `thread_local std::string*` alloué à la première utilisation et
-**jamais libéré** (fuite volontaire, bornée par le nombre de threads qui publient, quelques centaines
-d'octets). Aucun destructeur TLS, aucune allocation par publish, et l'API `const std::string&`
-actuelle est préservée. À trancher avec Alexi.
+`thread_local std::string*` alloué à la première utilisation et **jamais libéré**, derrière un
+accesseur `currentCauseId()` qui rend un `std::string&`. Aucun destructeur TLS, **aucune allocation
+par publish** (le chemin zéro-copie est intact), API inchangée. La fuite est volontaire et bornée par
+le nombre de threads qui publient — un pool, pas un par message — soit quelques centaines d'octets.
+
+Vérifications : repro **17/20 → 0/30** (flags projet) ; **IOSystemStress 5/150 → 0/120** ; suite 182/182.
+
+### ⚠️ Le gate est le repro, PAS le ctest
+
+`IIOThreadPublish` (`tests/regression/`) **passe aussi sur le moteur non corrigé** — mesuré. Le défaut
+ne se reproduit de façon déterministe que dans un binaire autonome bâti directement depuis les sources
+(la configuration de lien change la disposition et le démontage du TLS). Ce ctest garde donc autre
+chose, et le dit : que publier depuis des threads marche, et que la corrélation `causedBy` — la raison
+d'être de ce `thread_local` — fonctionne toujours. Un « correctif » qui supprimerait l'état par thread
+ferait taire le crash en cassant la corrélation en silence ; c'est ça qu'il attrape.
+Le vrai gate reste la recette du §6.
 
 ## 1. Le symptôme
 

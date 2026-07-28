@@ -1340,6 +1340,21 @@ target_link_libraries(test_iio_perf_gate PRIVATE
 )
 grove_add_test(IIOPerfGate test_iio_perf_gate ${CMAKE_CURRENT_BINARY_DIR})
 
+# Anti-regression: publishing from a WORKER THREAD must survive that thread's exit. This is
+# IOSystemStress's 0xC0000374 heap corruption, reduced to its deterministic core (a thread_local with
+# a non-trivial destructor in publish()). Every threaded module system publishes this way, so the
+# broken path was the normal one. See docs/design/iosystemstress-heap-corruption-handoff.md.
+add_executable(test_iio_thread_publish
+    regression/test_iio_thread_publish.cpp
+)
+target_link_libraries(test_iio_thread_publish PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+    Catch2::Catch2WithMain
+)
+grove_add_test(IIOThreadPublish test_iio_thread_publish ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.
