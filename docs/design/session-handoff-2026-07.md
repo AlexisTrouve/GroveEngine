@@ -48,7 +48,9 @@ temps à répétition.
 1. **Le gate de la corruption de tas est le repro autonome, pas le ctest.** `IIOThreadPublish` passe
    *aussi* sur le moteur non corrigé — c'est écrit dans son en-tête. Rendre le défaut reproductible
    dans une cible liée à `GroveEngine::impl` fermerait proprement la boucle.
-2. **`IIO` n'expose aucun `unsubscribe`.** ⚠️ La plus grosse des trois, et elle vient du terrain :
+2. ~~**`IIO` n'expose aucun `unsubscribe`.**~~ ✅ **LEVÉ le 2026-07-28** (`0548ee9`) — token +
+   `unsubscribe()` + `ScopedSubscription` RAII. Détail : `docs/design/iio-unsubscribe.md`.
+   *Énoncé d'origine, conservé pour le contexte* : ⚠️ La plus grosse des trois, et elle vient du terrain :
    tout objet à durée de vie bornée qui `subscribe` en capturant `this` sur un IIO plus longévif que
    lui laisse un handler orphelin sur un pointeur mort à sa destruction — le dispatch suivant est un
    UAF silencieux en release. Un consommateur **ne peut pas s'en protéger**, l'API pour retirer une
