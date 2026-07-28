@@ -40,6 +40,12 @@ int main(int argc, char** argv) {
     const int publishers = (argc > 1) ? std::atoi(argv[1]) : 5;
     const int perThread  = (argc > 2) ? std::atoi(argv[2]) : 100;
     const int delayUs    = (argc > 3) ? std::atoi(argv[3]) : 100;
+    // DIFFERENTIAL KNOBS (cut one layer at a time — the repo's method for localising a cause):
+    //   argv[4] consumerMode : 1 = a dedicated consumer THREAD drains concurrently (TEST 6's shape),
+    //                          0 = no consumer thread; the main thread drains AFTER joining publishers.
+    //   argv[5] subscribe    : 1 = subscribe (messages are routed + delivered), 0 = no subscriber at all.
+    const int consumerMode = (argc > 4) ? std::atoi(argv[4]) : 1;
+    const int subscribe    = (argc > 5) ? std::atoi(argv[5]) : 1;
 
     auto& mgr = IntraIOManager::getInstance();
     auto consumerIO = mgr.createInstance("consumer");
@@ -48,7 +54,7 @@ int main(int argc, char** argv) {
     std::atomic<int> published{0};
     std::atomic<bool> running{true};
 
-    consumerIO->subscribe("thread:.*", [&](const Message&) { received++; });
+    if (subscribe) consumerIO->subscribe("thread:.*", [&](const Message&) { received++; });
 
     // Each publisher gets its OWN stable instance, created up front — the supported pattern (N modules
     // each owning one instance for its lifetime).
@@ -56,6 +62,17 @@ int main(int argc, char** argv) {
     pubIOs.reserve(static_cast<size_t>(publishers));
     for (int t = 0; t < publishers; ++t) {
         pubIOs.push_back(mgr.createInstance("pub_" + std::to_string(t)));
+    }
+
+    // publishers == 0 : publish from the MAIN thread, spawning nothing. Isolates "publishing" from
+    // "publishing on a spawned thread" — the cut that says whether threading is involved at all.
+    if (publishers == 0) {
+        auto io = mgr.createInstance("pub_main");
+        for (int i = 0; i < perThread; ++i) {
+            auto data = std::make_unique<JsonDataNode>("data", nlohmann::json{{"thread", 0}, {"id", i}});
+            io->publish("thread:test", std::move(data));
+            published++;
+        }
     }
 
     std::vector<std::thread> pubThreads;
@@ -72,19 +89,30 @@ int main(int argc, char** argv) {
 
     // ONE consumer thread owns consumerIO for its whole life (draining one instance from several
     // threads would be the contract violation the tripwire already catches — not what we're hunting).
-    std::thread consumer([&] {
-        while (running || consumerIO->hasMessages() > 0) {
-            if (consumerIO->hasMessages() > 0) {
-                try { consumerIO->pullAndDispatch(); } catch (...) {}
+    std::thread consumer;
+    if (consumerMode) {
+        consumer = std::thread([&] {
+            while (running || consumerIO->hasMessages() > 0) {
+                if (consumerIO->hasMessages() > 0) {
+                    try { consumerIO->pullAndDispatch(); } catch (...) {}
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(delayUs > 0 ? delayUs * 5 : 50));
             }
-            std::this_thread::sleep_for(std::chrono::microseconds(delayUs > 0 ? delayUs * 5 : 50));
-        }
-    });
+        });
+    }
 
     for (auto& t : pubThreads) t.join();
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     running = false;
-    consumer.join();
+    if (consumer.joinable()) {
+        consumer.join();
+    } else {
+        // No consumer thread: drain from the MAIN thread, publishers already joined. Same work, but
+        // nothing runs concurrently with the drain except the manager's own batch-flush thread.
+        while (consumerIO->hasMessages() > 0) {
+            try { consumerIO->pullAndDispatch(); } catch (...) {}
+        }
+    }
 
     std::printf("published=%d received=%d\n", published.load(), received.load());
     return 0;

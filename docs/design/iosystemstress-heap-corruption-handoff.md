@@ -1,8 +1,45 @@
 # IOSystemStress — corruption de tas intermittente (chasse en cours)
 
-> **Statut** : **NON RÉSOLU**, mais la fenêtre est désormais **datée précisément** (voir la SIGNATURE
-> en §1) : la terminaison des threads publishers de TEST 6, pas la publication.
-> Écrit le 2026-07-27. Reprendre à la §5.
+> **Statut** : ⭐ **CAUSE LOCALISÉE ET PROUVÉE PAR INTERVENTION** (2026-07-28). Pas encore corrigée —
+> le correctif touche le chemin chaud de `publish()` et demande un arbitrage (§0).
+> Repro **déterministe** : 1 message publié depuis un thread créé ⇒ crash 20/20.
+
+## 0. ⭐ LA CAUSE (2026-07-28)
+
+**`thread_local std::string t_currentCauseId` (`src/IntraIO.cpp:23`).** Son destructeur, exécuté à la
+**sortie du thread**, corrompt le tas.
+
+**Prouvé par intervention, pas par raisonnement** : rendu trivialement destructible (buffer `char`
+fixe), le repro passe de **20/20 échecs à 0/20**. Retiré l'unique variable, disparu l'unique symptôme.
+
+**Le repro est déterministe** — plus rien à voir avec les 3,3 % du début :
+
+| configuration | échecs |
+|---|---|
+| publier **1 message depuis un thread créé** | **20/20** |
+| publier 1 message depuis le thread **principal** | **0/20** |
+| 0 message (thread créé qui ne fait rien) | 0/20 |
+| avec le TLS trivialement destructible | **0/20** |
+
+Pile gdb (structure fiable ; les noms de symboles système sont mal résolus, ne pas s'y fier) :
+`RtlExitUserThread` → `LdrShutdownThread` → **`tls_callback` (notre exe)** → `free` → `RtlFreeHeap`
+→ `0xC0000374`.
+
+### ⚠️ La question honnête qui reste
+
+Mon intervention supprime le **destructeur**. Un destructeur qui plante peut être la **cause** ou
+seulement le **détecteur** d'un tas déjà corrompu ailleurs. Deux éléments penchent pour la cause :
+un `thread_local std::string` **isolé** dans un programme de 10 lignes est propre (20/20), et une
+fois le TLS neutralisé le programme va au bout, destruction statique comprise — qui libère beaucoup
+et ne trouve rien. Ce n'est pas une preuve absolue ; à confirmer avant de clore.
+
+### Le correctif reste à arbitrer
+
+Mon expérience reconstruisait un `std::string` **à chaque publish** — inacceptable en l'état sur un
+chemin chaud. Option privilégiée : un `thread_local std::string*` alloué à la première utilisation et
+**jamais libéré** (fuite volontaire, bornée par le nombre de threads qui publient, quelques centaines
+d'octets). Aucun destructeur TLS, aucune allocation par publish, et l'API `const std::string&`
+actuelle est préservée. À trancher avec Alexi.
 
 ## 1. Le symptôme
 
