@@ -3207,6 +3207,22 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(RuntimeTextureGpu test_runtime_texture_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: the lighting composite reaches the pixels. Binds the COMPOSITE view, not view 0 —
+    # once lighting is on the module redirects view 0 into the scene target, so the usual readback
+    # trick would measure the UNLIT scene and pass while proving nothing.
+    add_executable(test_lighting_gpu unit/test_lighting_gpu.cpp)
+    target_include_directories(test_lighting_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_lighting_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(LightingGpu test_lighting_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU test: render:nineslice samples the right source region per quad (continuous-border proof). A border
     # texture with a red ring / blue core, drawn as a nineslice over the whole FB, must read red at the edges
     # and blue in the centre — the pixel readback the doctrine demands (headless can't see a UV-sampling bug).
