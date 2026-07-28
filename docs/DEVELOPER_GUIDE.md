@@ -265,6 +265,46 @@ sprite->setInt("layer", 10);               // Z-order (higher = front)
 io->publish("render:sprite", std::move(sprite));
 ```
 
+#### Sprite transforms — rotation & mirror
+
+A sprite carries three optional transforms. Omit them and the sprite renders exactly as before.
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `rotation` | radians | `0` | rotate around the sprite's **own centre** — i.e. `(cx, cy)` |
+| `flipX` | bool | `false` | mirror horizontally |
+| `flipY` | bool | `false` | mirror vertically |
+
+There is **no separate pivot**: the pivot IS `(cx, cy)`, the anchor the sprite already provides.
+
+Application order is **flip → rotate → scale → translate**. The mirror lives in texture space, so the
+image is mirrored inside its quad first, and the quad then turns — which is what you want when a
+mirrored limb also has to swing.
+
+```cpp
+// A paper-doll piece: an arm that swings, on a character facing left.
+auto arm = std::make_unique<JsonDataNode>("sprite");
+arm->setDouble("cx", charX + 6.0);       // cx,cy = CENTER, and also the rotation pivot
+arm->setDouble("cy", charY - 10.0);
+arm->setDouble("scaleX", 1.0);
+arm->setDouble("scaleY", 1.0);
+arm->setDouble("rotation", swingAngle);  // radians; pivots around (cx, cy)
+arm->setBool("flipX", facingLeft);       // mirror the piece, angle unaffected
+arm->setString("asset", "hero/arm");     // atlas-aware: the mirror stays inside the sub-rect
+arm->setInt("layer", 12);                // draw order between the body and the tool
+io->publish("render:sprite", std::move(arm));
+```
+
+**Two limits worth knowing before you build on this:**
+
+- A sprite with **`textureId: 0`** is a flat tinted quad — there is no image to mirror, so a flip on
+  it is a visual no-op. Textured sprites (including `asset` ids) mirror as expected.
+- Flips are honoured on **`render:sprite`** and **`render:sprite:add`**, **not** on
+  `render:sprite:update`. That path updates a retained sprite incrementally and does not rebuild its
+  UVs, so a repeated `flipX` across successive updates would flip back and forth. Set the flip when
+  you add the sprite, or re-publish it ephemerally each frame (what an animated paper-doll does
+  anyway). Design notes: `docs/design/sprite-transforms.md`.
+
 #### Bulk Sprite Submission (high throughput)
 
 `render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per
@@ -1272,7 +1312,6 @@ The field **name carries the anchor** — you never guess or read `SceneCollecto
 | Topic | Payload | Description |
 |-------|---------|-------------|
 | `render:sprite` | `{cx, cy, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?, asset?}` | Render single sprite (ephemeral). `cx,cy` = CENTER (legacy `x,y` rejected — see anchor convention above). `space:"screen"` → HUD overlay (see below) |
-| `render:sprite` (mirror) | `{..., flipX?, flipY?}` | **Optional horizontal/vertical mirror**, applied as a UV swap so it mirrors WITHIN an atlas sub-rect and composes with `rotation` (image mirrored inside its quad, then the quad turns). Absent -> UVs untouched. ⚠️ A `textureId: 0` sprite is a flat tinted quad: there is no image to mirror, so a flip on it is a visual no-op. Honoured on `render:sprite` and `render:sprite:add`; **not** on `:update`, which does not rebuild its UVs and would double-flip on a repeated key. |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
