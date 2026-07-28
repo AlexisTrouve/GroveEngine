@@ -31,12 +31,36 @@ namespace crash {
 // WARNING: runs in a crash context — do the minimum, catch nothing you can't afford to.
 using CrashCallback = std::function<void(const std::string& reason)>;
 
+// How much of the process the native minidump captures.
+//
+// QUOI  : Normal = threads (stacks + registers) + loaded modules. Full = the above PLUS the whole
+//         address space — so heap objects are readable in the dump.
+//
+// POURQUOI: a Normal dump answers "where did it fault"; it CANNOT answer "what did that pointer
+//         point to", because the heap is absent. Chasing a suspected use-after-free or a corrupted
+//         object means reading heap memory, and only Full carries it. (Real case: a consumer could
+//         locate the faulting frame but not the object behind a `shared_ptr` on the stack — the
+//         object lives on the heap, which the Normal dump had dropped.)
+//
+// COMMENT: Full is NOT the default and must not become one — it writes the process's entire
+//         committed memory (hundreds of MB for a game), which is unacceptable for a shipped title
+//         and slow to write on the way down. It is a deliberate, temporary diagnostic setting.
+enum class DumpDetail {
+    Normal,   // default — stacks/registers/modules only
+    Full      // + full memory: heap readable, dump is LARGE
+};
+
 class ICrashHandler {
 public:
     virtual ~ICrashHandler() = default;
 
     // Where the real backend writes the native minidump (".dmp"). Set before install().
     virtual void setDumpPath(const std::string& path) = 0;
+
+    // How much memory the minidump captures (default Normal). Set before install().
+    // Deliberately PURE: a backend that silently ignored this would hand back a Normal dump while
+    // the caller believed it had the heap — a diagnostic that lies is worse than none.
+    virtual void setDumpDetail(DumpDetail detail) = 0;
 
     // Install this as the process-wide unhandled-crash hook. On a crash it invokes onCrash(reason),
     // then writes the minidump, then lets the process terminate. Replaces any prior hook (restored

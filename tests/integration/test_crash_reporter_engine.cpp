@@ -148,4 +148,61 @@ TEST_CASE("real crash through the engine writes the CrashContext + minidump", "[
     REQUIRE(static_cast<long long>(df.tellg()) > 0);
 }
 
+namespace {
+
+// Run the doomed child once and return the size of the minidump it wrote (-1 if none).
+// `full` selects DumpDetail::Full inside the child via GROVE_CRASH_FULL.
+long long crashChildDumpSize(const std::string& base, bool full) {
+    const std::string dir   = exeDir();
+    const std::string dump  = base + ".dmp";
+    const std::string child = dir + "\\crash_child_engine.exe";
+
+    std::remove(dump.c_str());
+    _putenv_s("GROVE_CRASH_BASE", base.c_str());
+    _putenv_s("GROVE_CRASH_FULL", full ? "1" : "");   // "" REMOVES the variable on Windows
+
+    STARTUPINFOA si;        ZeroMemory(&si, sizeof(si)); si.cb = sizeof(si);
+    PROCESS_INFORMATION pi; ZeroMemory(&pi, sizeof(pi));
+    std::string cmd = "\"" + child + "\"";
+    if (!CreateProcessA(child.c_str(), cmd.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {
+        return -1;
+    }
+    WaitForSingleObject(pi.hProcess, 60000);   // a full-memory dump takes longer to write than a normal one
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    std::ifstream df(dump, std::ios::binary | std::ios::ate);
+    return df.good() ? static_cast<long long>(df.tellg()) : -1;
+}
+
+} // namespace
+
+TEST_CASE("DumpDetail::Full puts the HEAP in the minidump (Normal cannot)", "[crash][reporter][real]") {
+    // QUOI  : same child, same fault, two runs — the only difference is setCrashDumpDetail(Full).
+    //         The Full dump must be MUCH larger, because it carries the process's memory.
+    //
+    // POURQUOI: this is the whole point of the setting, and it is exactly the kind of flag that can
+    //         be plumbed through an interface, stored in a member, and then never actually reach
+    //         MiniDumpWriteDump — every layer looks right and the dump is silently still Normal. A
+    //         test on the API ("the setter stores it") would pass in that broken state. Only the
+    //         artifact's SIZE proves the flag reached the OS call. Verified red first: with the
+    //         plumbing in place but the flags still hardcoded to MiniDumpNormal, the two dumps came
+    //         out the same size and this failed.
+    //
+    // COMMENT: the threshold is a RATIO, not an absolute size — absolute bytes depend on the machine,
+    //          the CRT and the build. A full-memory dump of even a tiny engine process is orders of
+    //          magnitude past a stacks-only one, so 4x is far below the real margin yet immune to
+    //          a Normal dump that happens to be a bit fat.
+    const std::string dir = exeDir();
+
+    const long long normalSize = crashChildDumpSize(dir + "\\grove_dump_normal", /*full=*/false);
+    REQUIRE(normalSize > 0);
+
+    const long long fullSize = crashChildDumpSize(dir + "\\grove_dump_full", /*full=*/true);
+    REQUIRE(fullSize > 0);
+
+    INFO("normal=" << normalSize << " bytes, full=" << fullSize << " bytes");
+    REQUIRE(fullSize > normalSize * 4);
+}
+
 #endif // _WIN32

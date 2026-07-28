@@ -60,6 +60,7 @@ public:
     ~WindowsCrashHandler() override { uninstall(); }
 
     void setDumpPath(const std::string& p) override { dumpPath_ = p; }
+    void setDumpDetail(DumpDetail d) override { detail_ = d; }
 
     void install(CrashCallback onCrash) override {
         cb_ = std::move(onCrash);
@@ -103,13 +104,28 @@ private:
         mei.ExceptionPointers = ep;
         mei.ClientPointers     = FALSE;
 
+        // QUOI  : Normal = stacks/registers/modules. Full adds the process's whole address space, so
+        //         HEAP objects become readable in the dump.
+        // POURQUOI: a Normal dump locates the faulting frame but cannot say what a pointer POINTED TO —
+        //         the heap simply isn't in the file. Answering that is the only reason Full exists.
+        // COMMENT: the companions matter as much as MiniDumpWithFullMemory itself — FullMemoryInfo
+        //         carries the region map (so a debugger can tell heap from stack from image), HandleData
+        //         and ThreadInfo round out the process picture. Full is opt-in and stays that way: it
+        //         writes hundreds of MB for a real game, while the process is already dying.
+        const MINIDUMP_TYPE type =
+            (detail_ == DumpDetail::Full)
+                ? static_cast<MINIDUMP_TYPE>(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo |
+                                             MiniDumpWithHandleData | MiniDumpWithThreadInfo)
+                : MiniDumpNormal;
+
         MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
-                          MiniDumpNormal, ep ? &mei : nullptr, nullptr, nullptr);
+                          type, ep ? &mei : nullptr, nullptr, nullptr);
         CloseHandle(hFile);
     }
 
     CrashCallback                   cb_;
     std::string                     dumpPath_ = "crash.dmp";
+    DumpDetail                      detail_ = DumpDetail::Normal;
     LPTOP_LEVEL_EXCEPTION_FILTER    prev_ = nullptr;
     static WindowsCrashHandler*     s_instance;
 };
@@ -123,6 +139,9 @@ WindowsCrashHandler* WindowsCrashHandler::s_instance = nullptr;
 class NoopCrashHandler : public ICrashHandler {
 public:
     void setDumpPath(const std::string& p) override { dumpPath_ = p; }
+    // No dump is written at all on this platform, so the detail is recorded and unused — kept so the
+    // interface contract holds everywhere and the setting isn't silently dropped by a missing override.
+    void setDumpDetail(DumpDetail d) override { detail_ = d; }
     void install(CrashCallback onCrash) override {
         cb_ = std::move(onCrash);
         static auto lg = stillhammer::createDomainLogger("CrashHandler", "engine");
@@ -134,6 +153,7 @@ public:
 private:
     CrashCallback cb_;
     std::string   dumpPath_;
+    DumpDetail    detail_ = DumpDetail::Normal;
 };
 
 #endif // _WIN32

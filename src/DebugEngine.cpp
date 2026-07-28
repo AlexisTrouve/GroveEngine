@@ -1082,6 +1082,7 @@ void DebugEngine::installCrashReporter() {
 #if GROVE_CRASH_REPORTER && !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
     crashHandler_ = crash::makeCrashHandler();
     crashHandler_->setDumpPath(crashOutputBase_ + ".dmp");
+    crashHandler_->setDumpDetail(crashDumpDetail_);   // opt-in Full (heap in the dump); Normal by default
     const std::string jsonPath = crashOutputBase_ + ".json";
     // On a crash the handler calls back here (with `this` + the json path) to write the context.
     // The handler is a member → uninstalled when the engine dies, so `this` never dangles.

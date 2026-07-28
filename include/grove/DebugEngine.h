@@ -14,11 +14,10 @@
 #include "IDataNode.h"
 #include "ModuleLoader.h"
 #include "EngineClock.h"   // authoritative fixed-timestep clock (owned by value, advanced in step())
-#include "crash/CrashContext.h"   // crash-report payload built by snapshotCrashContext()
+#include "crash/CrashContext.h"    // crash-report payload built by snapshotCrashContext()
+#include "crash/ICrashHandler.h"   // DumpDetail (by value below); ICrashHandler stays unique_ptr'd, dtor in the .cpp
 
 namespace grove {
-
-namespace crash { class ICrashHandler; }   // fwd — the engine owns one (unique_ptr, dtor in the .cpp)
 
 
 /**
@@ -90,6 +89,7 @@ private:
     // to it, under crashOutputBase_ ("<base>.dmp" / "<base>.json").
     std::unique_ptr<crash::ICrashHandler> crashHandler_;
     std::string crashOutputBase_ = "logs/crash";
+    crash::DumpDetail crashDumpDetail_ = crash::DumpDetail::Normal;   // opt-in; Full is a diagnostic setting, never a default
 
     // Helper methods
     void logEngineStart();
@@ -171,6 +171,18 @@ public:
      * place crash artifacts under a per-run directory.
      */
     void setCrashOutputBase(const std::string& base) { crashOutputBase_ = base; }
+
+    /**
+     * @brief How much memory the crash minidump captures (default DumpDetail::Normal).
+     * @param detail Normal = stacks/registers/modules. Full = + the whole address space, so HEAP
+     *        objects are readable in the dump.
+     *
+     * Call BEFORE initialize() (which installs the handler). Reach for Full only when the question
+     * is "what did that pointer point to" — a Normal dump physically cannot answer it, the heap is
+     * not in the file. Leave it at Normal for anything shipped: Full writes the process's entire
+     * committed memory (hundreds of MB for a game) and is slow to write while the process is dying.
+     */
+    void setCrashDumpDetail(crash::DumpDetail detail) { crashDumpDetail_ = detail; }
 
     /**
      * @brief Snapshot the current engine state into a crash-report context (does NOT require a crash).

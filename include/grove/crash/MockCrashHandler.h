@@ -24,11 +24,13 @@ class MockCrashHandler : public ICrashHandler {
 public:
     // Observable state for assertions.
     std::string   dumpPath;
+    DumpDetail    dumpDetail = DumpDetail::Normal;   // mirrors the real backend's default
     bool          installed = false;
     int           simulateCount = 0;
     CrashCallback cb;
 
     void setDumpPath(const std::string& p) override { dumpPath = p; }
+    void setDumpDetail(DumpDetail d) override { dumpDetail = d; }
     void install(CrashCallback onCrash) override { cb = std::move(onCrash); installed = true; }
     void uninstall() override { installed = false; cb = nullptr; }
 

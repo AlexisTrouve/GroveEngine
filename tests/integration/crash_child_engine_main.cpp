@@ -21,6 +21,14 @@ int main() {
 
     grove::DebugEngine engine;
     engine.setCrashOutputBase(base);   // BEFORE initialize() — that's when the handler is installed
+
+    // Opt into a FULL-memory dump when the parent asks. Same child binary for both variants so the
+    // two dumps differ ONLY by this flag — that's what makes the parent's size comparison a proof
+    // about the flag and not about two different programs.
+    if (std::getenv("GROVE_CRASH_FULL")) {
+        engine.setCrashDumpDetail(grove::crash::DumpDetail::Full);
+    }
+
     engine.initialize();
 
     engine.step(0.016f);

@@ -19,10 +19,15 @@ TEST_CASE("MockCrashHandler routes install -> simulateCrash -> callback", "[cras
     grove::crash::MockCrashHandler h;
     std::string got;
 
+    // The dump detail defaults to Normal — Full is a deliberate diagnostic opt-in, never inherited.
+    REQUIRE(h.dumpDetail == grove::crash::DumpDetail::Normal);
+
     h.setDumpPath("ignored.dmp");
+    h.setDumpDetail(grove::crash::DumpDetail::Full);
     h.install([&](const std::string& reason) { got = reason; });
     REQUIRE(h.installed);
     REQUIRE(h.dumpPath == "ignored.dmp");
+    REQUIRE(h.dumpDetail == grove::crash::DumpDetail::Full);
 
     h.simulateCrash("EXCEPTION_ACCESS_VIOLATION");
     REQUIRE(h.simulateCount == 1);
