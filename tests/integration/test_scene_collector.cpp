@@ -528,6 +528,97 @@ TEST_CASE("SceneCollector - parse sprite all fields", "[scene_collector][integra
     REQUIRE_THAT(s.layer, WithinAbs(10.0f, 0.01f));
 }
 
+// ============================================================================
+// flipX / flipY on render:sprite — mirroring for paper-doll characters (a piece must face left or
+// right depending on the walk direction). Implemented as a UV SWAP: the image mirrors INSIDE its
+// quad, which is why it composes correctly with `rotation` (the picture is mirrored first, then the
+// box turns) and needs neither a new instance field nor a shader change.
+// ============================================================================
+
+TEST_CASE("SceneCollector: flipX mirrors the sprite's U range", "[collector][sprite][flip]") {
+    auto ioPublisher = IntraIOManager::getInstance().createInstance("flip_pub");
+    auto ioCollector = IntraIOManager::getInstance().createInstance("flip_col");
+    FrameAllocator allocator(1024 * 1024);
+    SceneCollector collector;
+    collector.setup(ioCollector.get());
+
+    auto sprite = std::make_unique<JsonDataNode>("sprite");
+    sprite->setDouble("cx", 50.0); sprite->setDouble("cy", 60.0);
+    sprite->setDouble("u0", 0.25); sprite->setDouble("u1", 0.75);   // an ATLAS sub-rect, not 0..1
+    sprite->setDouble("v0", 0.10); sprite->setDouble("v1", 0.90);
+    sprite->setBool("flipX", true);
+    sprite->setInt("textureId", 7);
+    ioPublisher->publish("render:sprite", std::move(sprite));
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.spriteCount == 1);
+    const auto& s = packet.sprites[0];
+    // U swapped WITHIN the sub-rect (a full-texture assumption would have written 1..0 and broken
+    // every atlas sprite), V untouched, and the centre must not move.
+    REQUIRE_THAT(s.u0, WithinAbs(0.75f, 0.001f));
+    REQUIRE_THAT(s.u1, WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(s.v0, WithinAbs(0.10f, 0.001f));
+    REQUIRE_THAT(s.v1, WithinAbs(0.90f, 0.001f));
+    REQUIRE_THAT(s.x, WithinAbs(50.0f, 0.01f));
+    REQUIRE_THAT(s.y, WithinAbs(60.0f, 0.01f));
+}
+
+TEST_CASE("SceneCollector: flipY mirrors V, and flips compose with rotation", "[collector][sprite][flip]") {
+    auto ioPublisher = IntraIOManager::getInstance().createInstance("flip2_pub");
+    auto ioCollector = IntraIOManager::getInstance().createInstance("flip2_col");
+    FrameAllocator allocator(1024 * 1024);
+    SceneCollector collector;
+    collector.setup(ioCollector.get());
+
+    auto sprite = std::make_unique<JsonDataNode>("sprite");
+    sprite->setDouble("cx", 10.0); sprite->setDouble("cy", 20.0);
+    sprite->setDouble("rotation", 1.5707963);   // the flip must not disturb the angle
+    sprite->setBool("flipX", true);
+    sprite->setBool("flipY", true);
+    sprite->setInt("textureId", 3);
+    ioPublisher->publish("render:sprite", std::move(sprite));
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.spriteCount == 1);
+    const auto& s = packet.sprites[0];
+    REQUIRE_THAT(s.u0, WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(s.u1, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(s.v0, WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(s.v1, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(s.rotation, WithinAbs(1.5707963f, 0.0001f));
+}
+
+TEST_CASE("SceneCollector: no flip field leaves UVs strictly unchanged", "[collector][sprite][flip]") {
+    // THE non-regression: every sprite Drifterra already publishes carries no flip, and must come out
+    // byte-identical. A default that mirrored (or normalised u0<u1) would silently break them all.
+    auto ioPublisher = IntraIOManager::getInstance().createInstance("flip3_pub");
+    auto ioCollector = IntraIOManager::getInstance().createInstance("flip3_col");
+    FrameAllocator allocator(1024 * 1024);
+    SceneCollector collector;
+    collector.setup(ioCollector.get());
+
+    auto sprite = std::make_unique<JsonDataNode>("sprite");
+    sprite->setDouble("cx", 1.0); sprite->setDouble("cy", 2.0);
+    sprite->setDouble("u0", 0.2); sprite->setDouble("u1", 0.8);
+    sprite->setDouble("v0", 0.3); sprite->setDouble("v1", 0.7);
+    sprite->setInt("textureId", 1);
+    ioPublisher->publish("render:sprite", std::move(sprite));
+
+    collector.collect(ioCollector.get(), 0.016f);
+    FramePacket packet = collector.finalize(allocator);
+
+    REQUIRE(packet.spriteCount == 1);
+    const auto& s = packet.sprites[0];
+    REQUIRE_THAT(s.u0, WithinAbs(0.2f, 0.001f));
+    REQUIRE_THAT(s.u1, WithinAbs(0.8f, 0.001f));
+    REQUIRE_THAT(s.v0, WithinAbs(0.3f, 0.001f));
+    REQUIRE_THAT(s.v1, WithinAbs(0.7f, 0.001f));
+}
+
 TEST_CASE("SceneCollector - parse multiple sprites", "[scene_collector][integration]") {
     auto& ioManager = IntraIOManager::getInstance();
     auto ioCollector = ioManager.createInstance(uniqueId("receiver"));

@@ -60,6 +60,21 @@ static bool isScreenSpace(const IDataNode& data) {
     return data.getString("space", "") == "screen";
 }
 
+// Mirror a sprite horizontally/vertically by SWAPPING its UV range.
+//
+// WHY a UV swap rather than a negative scale or a new instance field: it costs nothing at runtime
+// (no shader change, no extra per-instance data on a path that is deliberately lean), it mirrors
+// WITHIN an atlas sub-rect instead of assuming the sprite owns the whole texture, and it composes
+// with `rotation` in the order a paper-doll needs — the picture is mirrored inside its quad first,
+// then the quad turns. A negative scaleX would instead flip the rotation's apparent direction.
+//
+// ⚠️ A sprite with textureId 0 is a flat tinted quad: there is no image to mirror, so a flip on it
+// is visually a no-op. That is inherent, not an oversight.
+inline void applySpriteFlip(const IDataNode& data, SpriteInstance& sprite) {
+    if (data.getBool("flipX", false)) std::swap(sprite.u0, sprite.u1);
+    if (data.getBool("flipY", false)) std::swap(sprite.v0, sprite.v1);
+}
+
 void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
     // Subscribe to all render topics with callback handler
     io->subscribe("render:.*", [this](const Message& msg) {
@@ -579,6 +594,7 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     // i_data2
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
+    applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = 0.0f;
@@ -1061,6 +1077,7 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
+    applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = 0.0f;
