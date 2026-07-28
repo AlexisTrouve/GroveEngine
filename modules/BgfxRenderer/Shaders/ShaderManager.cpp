@@ -9,6 +9,8 @@
 #include "fs_sprite.bin.h"
 #include "vs_tilemap.bin.h"
 #include "fs_tilemap.bin.h"
+#include "vs_composite.bin.h"
+#include "fs_composite.bin.h"
 
 namespace grove {
 
@@ -113,6 +115,9 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     // Load GPU tilemap shader (index-texture path)
     loadTilemapShader(device, rendererName);
+
+    // Full-screen lighting composite (lighting L1).
+    loadCompositeShader(device, rendererName);
 }
 
 void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
@@ -191,6 +196,39 @@ void ShaderManager::loadTilemapShader(rhi::IRHIDevice& device, const std::string
     rhi::ShaderHandle tilemapProgram = device.createShader(shaderDesc);
     if (tilemapProgram.isValid()) {
         m_programs["tilemap"] = tilemapProgram;
+    }
+}
+
+void ShaderManager::loadCompositeShader(rhi::IRHIDevice& device, const std::string& rendererName) {
+    // Same per-renderer bytecode mapping as the sprite/tilemap shaders. Loaded UNCONDITIONALLY at
+    // startup even though most games never light anything: creating the program is a one-off cost of
+    // a few KB, whereas deferring it would mean building a GPU program in the middle of the first
+    // lit frame — a hitch exactly when the effect is meant to appear. The zero-cost guarantee is
+    // about per-FRAME work (no targets, no draw), not about a program that sits unused.
+    const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
+    const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_composite_glsl; vsSize = sizeof(vs_composite_glsl);
+        fsData = fs_composite_glsl; fsSize = sizeof(fs_composite_glsl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_composite_dx11; vsSize = sizeof(vs_composite_dx11);
+        fsData = fs_composite_dx11; fsSize = sizeof(fs_composite_dx11);
+    } else if (rendererName == "Metal") {
+        vsData = vs_composite_mtl; vsSize = sizeof(vs_composite_mtl);
+        fsData = fs_composite_mtl; fsSize = sizeof(fs_composite_mtl);
+    } else {
+        vsData = vs_composite_spv; vsSize = sizeof(vs_composite_spv);
+        fsData = fs_composite_spv; fsSize = sizeof(fs_composite_spv);
+    }
+
+    rhi::ShaderDesc shaderDesc;
+    shaderDesc.vsData = vsData; shaderDesc.vsSize = vsSize;
+    shaderDesc.fsData = fsData; shaderDesc.fsSize = fsSize;
+
+    rhi::ShaderHandle compositeProgram = device.createShader(shaderDesc);
+    if (compositeProgram.isValid()) {
+        m_programs["composite"] = compositeProgram;
     }
 }
 
