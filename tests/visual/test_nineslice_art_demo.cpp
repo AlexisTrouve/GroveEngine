@@ -19,6 +19,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <cmath>
+#include <cstdlib>
 
 #include "BgfxRendererModule.h"
 #include "UIModule.h"
@@ -29,6 +31,12 @@
 // Layout driven by --layout; defaults to the original frame-gallery demo. Declared here so the demo
 // class below can read it (main() only writes it, before anything is constructed).
 static std::string g_layout = "assets/ui/demo_nineslice_art.json";
+
+// --animate: drive widget SIZES at runtime through ui:set_position, so the nine-patch is judged while
+// the box changes rather than on a static screenshot. --phase picks a fixed point of the cycle so a
+// headless --shot can capture a CHOSEN size (two shots at two phases = the proof, reproducibly).
+static bool  g_animate = false;
+static float g_phase   = 0.0f;
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 
@@ -107,13 +115,31 @@ public:
         }
     }
 
+    // Resize two widgets every frame through the PUBLIC topic (ui:set_position with width/height) —
+    // the same path a game would use. This is what makes the nine-patch claim visible: the border art
+    // must stay crisp while the box breathes, and only the middle band may stretch.
+    void animateSizes(float t) {
+        auto setSize = [&](const char* id, float w, float h) {
+            auto d = std::make_unique<JsonDataNode>("d");
+            d->setString("id", id);
+            d->setDouble("width", w); d->setDouble("height", h);
+            m_gIO->publish("ui:set_position", std::move(d));
+        };
+        const float a = 0.5f * (1.0f + std::sin(t));            // 0..1
+        setSize("animPanel", 120.0f + 380.0f * a, 70.0f + 90.0f * a);
+        setSize("animWin",   240.0f + 300.0f * (1.0f - a), 110.0f + 60.0f * a);
+    }
+
     void frame(float dt) {
         while (m_gIO->hasMessages() > 0) m_gIO->pullAndDispatch();
+        if (g_animate) { m_animT += dt; animateSizes(g_phase > 0.0f ? g_phase : m_animT); }
         publishCamera();
         JsonDataNode input("input"); input.setDouble("deltaTime", dt);
         m_uiModule->process(input);
         m_renderer->process(input);
     }
+
+    float m_animT = 0.0f;
 
     bool captureShot(const std::string& path) {
         rhi::IRHIDevice* dev = m_renderer->getDevice();
@@ -167,6 +193,8 @@ int main(int argc, char** argv) {
         // --layout lets this runner drive ANY 9-slice layout (the full art showcase is just a JSON +
         // its PNGs), instead of cloning the whole SDL/bgfx/UI bring-up into a second executable.
         else if (a == "--layout" && i + 1 < argc) { g_layout = argv[++i]; }
+        else if (a == "--animate") { g_animate = true; }
+        else if (a == "--phase" && i + 1 < argc) { g_phase = static_cast<float>(atof(argv[++i])); g_animate = true; }
     }
     if (shot && shotPath.empty()) shotPath = "nineslice_art.png";
 

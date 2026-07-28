@@ -1,0 +1,276 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0,
+  "y": 0,
+  "width": 1280,
+  "height": 720,
+  "style": {
+    "bgColor": "0x0a0e14FF"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "t",
+      "x": 32,
+      "y": 16,
+      "width": 900,
+      "height": 28,
+      "text": "9-slice : la meme image a toutes les tailles - les coins restent nets, seul le milieu s'etire",
+      "fontSize": 18,
+      "style": {
+        "textColor": "0x8fd4ffFF"
+      }
+    },
+    {
+      "type": "panel",
+      "x": 32,
+      "y": 64,
+      "width": 60,
+      "height": 60,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "label",
+      "x": 104,
+      "y": 84,
+      "width": 120,
+      "height": 20,
+      "text": "60x60",
+      "fontSize": 14,
+      "style": {
+        "textColor": "0x9fb4ccFF"
+      }
+    },
+    {
+      "type": "panel",
+      "x": 32,
+      "y": 140,
+      "width": 120,
+      "height": 60,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "label",
+      "x": 164,
+      "y": 160,
+      "width": 120,
+      "height": 20,
+      "text": "120x60",
+      "fontSize": 14,
+      "style": {
+        "textColor": "0x9fb4ccFF"
+      }
+    },
+    {
+      "type": "panel",
+      "x": 32,
+      "y": 216,
+      "width": 240,
+      "height": 60,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "label",
+      "x": 284,
+      "y": 236,
+      "width": 120,
+      "height": 20,
+      "text": "240x60",
+      "fontSize": 14,
+      "style": {
+        "textColor": "0x9fb4ccFF"
+      }
+    },
+    {
+      "type": "panel",
+      "x": 32,
+      "y": 292,
+      "width": 480,
+      "height": 60,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "label",
+      "x": 524,
+      "y": 312,
+      "width": 120,
+      "height": 20,
+      "text": "480x60",
+      "fontSize": 14,
+      "style": {
+        "textColor": "0x9fb4ccFF"
+      }
+    },
+    {
+      "type": "panel",
+      "x": 560,
+      "y": 64,
+      "width": 60,
+      "height": 60,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "panel",
+      "x": 648,
+      "y": 64,
+      "width": 60,
+      "height": 120,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "panel",
+      "x": 736,
+      "y": 64,
+      "width": 60,
+      "height": 200,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "panel",
+      "x": 824,
+      "y": 64,
+      "width": 60,
+      "height": 280,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "button",
+      "id": "bS",
+      "x": 560,
+      "y": 380,
+      "width": 90,
+      "height": 34,
+      "text": "S",
+      "frame": {
+        "asset": "ui_button",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 26
+      },
+      "style": {
+        "bgColor": "0x2f7fb8FF",
+        "textColor": "0xffffffFF"
+      }
+    },
+    {
+      "type": "button",
+      "id": "bM",
+      "x": 560,
+      "y": 426,
+      "width": 220,
+      "height": 54,
+      "text": "Moyen",
+      "frame": {
+        "asset": "ui_button",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 26
+      },
+      "style": {
+        "bgColor": "0x2f7fb8FF",
+        "textColor": "0xffffffFF"
+      }
+    },
+    {
+      "type": "button",
+      "id": "bL",
+      "x": 560,
+      "y": 492,
+      "width": 460,
+      "height": 90,
+      "text": "Grand",
+      "frame": {
+        "asset": "ui_button",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 26
+      },
+      "style": {
+        "bgColor": "0x2f7fb8FF",
+        "textColor": "0xffffffFF"
+      }
+    },
+    {
+      "type": "label",
+      "x": 32,
+      "y": 392,
+      "width": 400,
+      "height": 20,
+      "text": "Anime en direct (ui:set_position) :",
+      "fontSize": 14,
+      "style": {
+        "textColor": "0x9fb4ccFF"
+      }
+    },
+    {
+      "type": "panel",
+      "id": "animPanel",
+      "x": 32,
+      "y": 418,
+      "width": 200,
+      "height": 120,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      }
+    },
+    {
+      "type": "window",
+      "id": "animWin",
+      "x": 32,
+      "y": 560,
+      "width": 300,
+      "height": 130,
+      "title": "Fenetre animee",
+      "frame": {
+        "asset": "ui_window",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 26
+      }
+    }
+  ]
+}
