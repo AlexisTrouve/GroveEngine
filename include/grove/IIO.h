@@ -97,6 +97,15 @@ struct IOHealth {
 using MessageHandler = std::function<void(const Message&)>;
 
 /**
+ * @brief Opaque token identifying ONE subscription on ONE IIO instance. 0 = none/invalid.
+ *
+ * Returned by subscribe(); hand it back to unsubscribe() to remove that subscription. Tokens are
+ * unique per instance and never reused, so a stale token can never silently remove a later
+ * subscription that happened to land in the same slot.
+ */
+using SubscriptionId = std::uint64_t;
+
+/**
  * @brief Pub/Sub communication interface with pull-based callback dispatch
  *
  * Pull-based pub/sub system with automatic message dispatch to registered handlers.
@@ -138,7 +147,7 @@ public:
      *       handleMouseInput(msg);
      *   });
      */
-    virtual void subscribe(
+    virtual SubscriptionId subscribe(
         const std::string& topicPattern,
         MessageHandler handler,
         const SubscriptionConfig& config = {}
@@ -155,11 +164,28 @@ public:
      *       processBatchedAnalytics(msg);
      *   }, {.batchInterval = 5000});
      */
-    virtual void subscribeLowFreq(
+    virtual SubscriptionId subscribeLowFreq(
         const std::string& topicPattern,
         MessageHandler handler,
         const SubscriptionConfig& config = {}
     ) = 0;
+
+    /**
+     * @brief Remove a subscription previously returned by subscribe()/subscribeLowFreq().
+     * @param id the token to remove (0 or an unknown/already-removed token is a no-op)
+     * @return true if a subscription was actually removed
+     *
+     * ⚠️ MANDATORY for any subscriber whose lifetime is SHORTER than the IIO instance it subscribes
+     * to. A handler that captures `this` keeps being dispatched after its owner dies — a silent
+     * use-after-free in a release build, because the transport has no way to know the object is
+     * gone. Prefer ScopedSubscription (below), which does this from a destructor so it cannot be
+     * forgotten.
+     *
+     * Safe to call from INSIDE a handler, including on its own subscription: dispatch runs from a
+     * snapshot taken under the lock, so removing a subscription mid-dispatch cannot invalidate the
+     * in-flight call.
+     */
+    virtual bool unsubscribe(SubscriptionId id) = 0;
 
     /**
      * @brief Get count of pending messages
@@ -192,6 +218,81 @@ public:
      * @return IO type enum value for identification
      */
     virtual IOType getType() const = 0;
+};
+
+/**
+ * @brief RAII owner of ONE subscription — removes it when destroyed.
+ *
+ * QUOI  : holds (IIO, SubscriptionId) and calls unsubscribe() from its destructor. Move-only, so the
+ *         removal happens exactly once.
+ *
+ * POURQUOI: the failure this exists to kill is silent and lethal — an object subscribes capturing
+ *         `this`, dies, and the transport keeps dispatching into freed memory. Relying on every
+ *         subscriber to remember an explicit unsubscribe() in every destructor and on every early
+ *         return is exactly the discipline that fails in practice. Holding the subscription as a
+ *         MEMBER makes the two lifetimes one thing: the handler cannot outlive its owner.
+ *
+ * COMMENT: subscribe() deliberately still returns a plain, ignorable token rather than this handle.
+ *         Had it returned an auto-removing handle, every existing call site that ignores the return
+ *         would have destroyed the temporary immediately and torn its own subscription down on the
+ *         spot — a silent, total breakage. So the token is the primitive and this is the opt-in.
+ *
+ * ⚠️ The handle must NOT outlive the IIO it points at (it would unsubscribe through a dead pointer).
+ *    That is the normal case — an IIO instance is owned by the IntraIOManager and outlives the
+ *    scene/widget objects that subscribe to it — but a handle held by something longer-lived than
+ *    the transport must be reset() before the transport goes.
+ *
+ * Usage:
+ *   struct Scene {
+ *       ScopedSubscription sub;
+ *       explicit Scene(IIO& io)
+ *         : sub(io, io.subscribe("game:state", [this](const Message& m){ onState(m); })) {}
+ *       // ~Scene() removes the subscription — nothing to remember.
+ *   };
+ */
+class ScopedSubscription {
+public:
+    ScopedSubscription() = default;
+    ScopedSubscription(IIO& io, SubscriptionId id) : io_(&io), id_(id) {}
+    ~ScopedSubscription() { reset(); }
+
+    // Move-only: copying would mean two owners racing to remove the same subscription.
+    ScopedSubscription(const ScopedSubscription&) = delete;
+    ScopedSubscription& operator=(const ScopedSubscription&) = delete;
+
+    ScopedSubscription(ScopedSubscription&& other) noexcept
+        : io_(other.io_), id_(other.id_) { other.io_ = nullptr; other.id_ = 0; }
+
+    ScopedSubscription& operator=(ScopedSubscription&& other) noexcept {
+        if (this != &other) {
+            reset();                       // drop what we already hold, then take theirs
+            io_ = other.io_;  id_ = other.id_;
+            other.io_ = nullptr; other.id_ = 0;
+        }
+        return *this;
+    }
+
+    /// Remove the held subscription now (idempotent — a second call does nothing).
+    void reset() {
+        if (io_ != nullptr && id_ != 0) io_->unsubscribe(id_);
+        io_ = nullptr;
+        id_ = 0;
+    }
+
+    /// Give up ownership WITHOUT unsubscribing (the caller takes over the token's lifetime).
+    SubscriptionId release() {
+        const SubscriptionId id = id_;
+        io_ = nullptr;
+        id_ = 0;
+        return id;
+    }
+
+    SubscriptionId id() const { return id_; }
+    explicit operator bool() const { return io_ != nullptr && id_ != 0; }
+
+private:
+    IIO* io_ = nullptr;
+    SubscriptionId id_ = 0;
 };
 
 } // namespace grove

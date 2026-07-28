@@ -451,6 +451,35 @@ void MyModule::setConfiguration(const grove::IDataNode& configNode,
 }
 ```
 
+#### Unsubscribing — ⚠️ mandatory for anything shorter-lived than the IIO
+
+A module subscribes for its whole life, so it never needs to unsubscribe. **Any other subscriber
+does.** A handler that captures `this` keeps being dispatched after its owner dies — the transport has
+no way to know the object is gone, so the next message on that topic dereferences freed memory. That
+is a silent use-after-free in a release build.
+
+`subscribe()` returns a `SubscriptionId`; ignore it when the subscriber outlives nothing, hand it to
+`unsubscribe(id)` otherwise. Better: hold it in a **`ScopedSubscription`**, which unsubscribes from its
+destructor so it cannot be forgotten:
+
+```cpp
+class HudScreen {
+    grove::ScopedSubscription m_sub;   // ties the subscription to THIS object's lifetime
+public:
+    explicit HudScreen(grove::IIO& io)
+        : m_sub(io, io.subscribe("game:health", [this](const grove::Message& m) {
+              setHealth(m.data->getDouble("hp", 0.0));
+          })) {}
+    // ~HudScreen() removes the subscription — nothing to remember, no early-return to miss.
+};
+```
+
+Unsubscribing from inside a handler is safe, including a handler removing its own subscription (a
+one-shot listener). Removing one of several subscriptions on the same pattern leaves the others alive.
+
+Full rationale — including why `subscribe()` does *not* return the RAII handle directly — in
+[docs/design/iio-unsubscribe.md](design/iio-unsubscribe.md).
+
 #### The message payload (`msg.data`)
 
 `msg.data` is a `std::shared_ptr<const grove::IDataNode>`: the bus delivers **one immutable payload
@@ -704,8 +733,9 @@ void MyModule::process(const grove::IDataNode& input) {
 | Method | Description |
 |--------|-------------|
 | `publish(topic, data)` | Publish message to topic |
-| `subscribe(pattern, handler, config)` | Subscribe with callback handler |
-| `subscribeLowFreq(pattern, handler, config)` | Subscribe with batching and callback |
+| `subscribe(pattern, handler, config)` | Subscribe with callback handler — returns a `SubscriptionId` |
+| `subscribeLowFreq(pattern, handler, config)` | Subscribe with batching and callback — returns a `SubscriptionId` |
+| `unsubscribe(id)` | Remove a subscription; `true` if one was removed |
 | `hasMessages()` | Count of pending messages |
 | `pullAndDispatch()` | Pull and auto-dispatch message to handler |
 | `getHealth()` | Get IO health metrics |

@@ -58,6 +58,38 @@ void iio_pubsub() {
     mgr.removeInstance("doc_sub");
 }
 
+// --- USER_GUIDE: "Unsubscribing" — the ScopedSubscription member -----------------------------------
+// Mirrors the HudScreen snippet. Compile-checked because it is the shape that PREVENTS a
+// use-after-free: if the handle's ctor signature or the subscribe() return type ever drifts, the doc
+// would quietly stop describing a working pattern — and this one is load-bearing for correctness,
+// not just for style.
+class DocHudScreen {
+    ScopedSubscription m_sub;   // ties the subscription to THIS object's lifetime
+public:
+    explicit DocHudScreen(IIO& io)
+        : m_sub(io, io.subscribe("game:health", [this](const Message& m) {
+              setHealth(m.data->getDouble("hp", 0.0));
+          })) {}
+    void setHealth(double hp) { (void)hp; }
+    // ~DocHudScreen() removes the subscription — nothing to remember.
+};
+
+void iio_scoped_subscription() {
+    auto& mgr = IntraIOManager::getInstance();
+    auto io = mgr.createInstance("doc_hud");
+    {
+        DocHudScreen screen(*io);
+        (void)screen;
+    }   // <- the subscription goes with the screen
+
+    // The explicit form, for a subscriber that manages its own lifetime.
+    const SubscriptionId id = io->subscribe("game:score", [](const Message&) {});
+    const bool removed = io->unsubscribe(id);
+    (void)removed;
+
+    mgr.removeInstance("doc_hud");
+}
+
 // --- DEVELOPER_GUIDE: a minimal IModule (the interface a game module implements) ------------------
 class DocModule : public IModule {
 public:
@@ -179,6 +211,7 @@ int main(int argc, char**) {
     // The snippets must COMPILE; they need not run (this stays a fast, side-effect-free compile gate).
     if (argc < 0) {   // always false
         doc::iio_pubsub();
+        doc::iio_scoped_subscription();
         doc::engine_hosting();
         doc::json_node();
         doc::fx_authoring();

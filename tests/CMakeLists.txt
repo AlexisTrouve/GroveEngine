@@ -1355,6 +1355,21 @@ target_link_libraries(test_iio_thread_publish PRIVATE
 )
 grove_add_test(IIOThreadPublish test_iio_thread_publish ${CMAKE_CURRENT_BINARY_DIR})
 
+# subscribe() used to be a ONE-WAY door: an object that subscribed capturing `this` on a longer-lived
+# IIO left an orphaned handler on freed memory when it died, and had no API to remove it. This locks
+# unsubscribe() + the ScopedSubscription RAII handle. Field-diagnosed (a game scene destroyed while
+# its subscriptions stayed live); see docs/design/iio-unsubscribe.md.
+add_executable(test_iio_unsubscribe
+    regression/test_iio_unsubscribe.cpp
+)
+target_link_libraries(test_iio_unsubscribe PRIVATE
+    GroveEngine::core
+    GroveEngine::impl
+    spdlog::spdlog
+    Catch2::Catch2WithMain
+)
+grove_add_test(IIOUnsubscribe test_iio_unsubscribe ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.

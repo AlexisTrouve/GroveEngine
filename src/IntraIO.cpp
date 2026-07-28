@@ -143,14 +143,16 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     IntraIOManager::getInstance().routeMessage(instanceId, topic, payload, seq, lamport, currentCauseId());
 }
 
-void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
+SubscriptionId IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
     // DEADLOCK PREVENTION — same ABBA risk as publish():
     // subscribe() → registerSubscription() needs managerMutex.
     // Build the subscription object under the lock, release, then register with manager.
+    SubscriptionId id = 0;
     {
         std::lock_guard<std::mutex> lock(operationMutex);
 
         Subscription sub;
+        sub.id = id = ++subscriptionSeq_;   // token returned to the caller (see unsubscribe)
         sub.originalPattern = topicPattern;
         sub.matcher = compileTopicPattern(topicPattern);
         sub.handler = handler;  // Store callback
@@ -164,14 +166,17 @@ void IntraIO::subscribe(const std::string& topicPattern, MessageHandler handler,
     // Register subscription with central manager for routing.
     // NOTE: registerSubscription() acquires managerMutex; operationMutex NOT held.
     IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, false);
+    return id;
 }
 
-void IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
+SubscriptionId IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config) {
     // DEADLOCK PREVENTION — same ABBA risk as publish()/subscribe().
+    SubscriptionId id = 0;
     {
         std::lock_guard<std::mutex> lock(operationMutex);
 
         Subscription sub;
+        sub.id = id = ++subscriptionSeq_;
         sub.originalPattern = topicPattern;
         sub.matcher = compileTopicPattern(topicPattern);
         sub.handler = handler;  // Store callback
@@ -185,6 +190,55 @@ void IntraIO::subscribeLowFreq(const std::string& topicPattern, MessageHandler h
     // Register subscription with central manager for routing.
     // NOTE: registerSubscription() acquires managerMutex; operationMutex NOT held.
     IntraIOManager::getInstance().registerSubscription(instanceId, topicPattern, true, config.batchInterval);
+    return id;
+}
+
+bool IntraIO::unsubscribe(SubscriptionId id) {
+    // QUOI  : drop the local subscription bearing `id`, and tear down the manager-side ROUTE only if
+    //         nothing on this instance still listens to that pattern.
+    //
+    // POURQUOI: the manager's routing entry is per (instance, pattern) — it records "this instance
+    //         listens to P", not how MANY handlers do. Unregistering it on every unsubscribe would
+    //         silence the surviving handlers on the same pattern: a worse bug than the leak this
+    //         method fixes, and a silent one. So the route outlives the individual subscription and
+    //         goes only with the last of them.
+    //
+    // COMMENT: same ABBA discipline as subscribe() — mutate local state under operationMutex, then
+    //         RELEASE it before calling into IntraIOManager (which takes managerMutex). Safe to call
+    //         from inside a handler: pullAndDispatch() copies the handlers it will run into a
+    //         snapshot under the lock, so erasing here cannot invalidate an in-flight dispatch.
+    if (id == 0) return false;
+
+    bool removed = false;
+    bool patternStillUsed = false;
+    std::string pattern;
+    {
+        std::lock_guard<std::mutex> lock(operationMutex);
+
+        auto take = [&](std::vector<Subscription>& subs) {
+            for (auto it = subs.begin(); it != subs.end(); ++it) {
+                if (it->id != id) continue;
+                pattern = it->originalPattern;
+                subs.erase(it);
+                return true;
+            }
+            return false;
+        };
+
+        removed = take(highFreqSubscriptions) || take(lowFreqSubscriptions);
+        if (!removed) return false;   // unknown / already removed — report honestly, change nothing
+
+        // Does anything on this instance still want that pattern? (Either queue: both ride the same
+        // manager-side route.)
+        for (const auto& s : highFreqSubscriptions) if (s.originalPattern == pattern) patternStillUsed = true;
+        for (const auto& s : lowFreqSubscriptions)  if (s.originalPattern == pattern) patternStillUsed = true;
+    }
+    // operationMutex released — safe to call into IntraIOManager now
+
+    if (!patternStillUsed) {
+        IntraIOManager::getInstance().unregisterSubscription(instanceId, pattern);
+    }
+    return true;
 }
 
 int IntraIO::hasMessages() const {

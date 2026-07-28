@@ -144,6 +144,7 @@ private:
 
     // Subscription management
     struct Subscription {
+        SubscriptionId id = 0;   // token handed to the caller; what unsubscribe() matches on
         TopicMatcher matcher;
         std::string originalPattern;
         MessageHandler handler;  // Callback for this subscription
@@ -164,6 +165,11 @@ private:
 
     std::vector<Subscription> highFreqSubscriptions;
     std::vector<Subscription> lowFreqSubscriptions;
+
+    // Monotonic per-instance subscription token source. NEVER reused (not an index into the vectors
+    // above): a stale token must be inert, not a way to remove whichever subscription later occupies
+    // the same slot. Guarded by operationMutex like every other counter on this instance.
+    SubscriptionId subscriptionSeq_ = 0;
 
     // Health monitoring
     mutable std::atomic<size_t> totalPublished{0};
@@ -203,8 +209,9 @@ public:
 
     // IIO implementation
     void publish(const std::string& topic, std::unique_ptr<IDataNode> message) override;
-    void subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
-    void subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
+    SubscriptionId subscribe(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
+    SubscriptionId subscribeLowFreq(const std::string& topicPattern, MessageHandler handler, const SubscriptionConfig& config = {}) override;
+    bool unsubscribe(SubscriptionId id) override;
     int hasMessages() const override;
     void pullAndDispatch() override;
     IOHealth getHealth() const override;
