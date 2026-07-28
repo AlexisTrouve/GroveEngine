@@ -46,6 +46,8 @@ public:
             JsonDataNode c("config");
             c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
             c.setInt("windowWidth", m_w); c.setInt("windowHeight", m_h); c.setBool("vsync", true);
+            // Real TrueType face (Apache 2.0, assets/fonts/). Missing path -> the built-in 8x8.
+            c.setString("fontPath", "assets/fonts/roboto-regular.ttf");
             m_renderer->setConfiguration(c, m_rIO, nullptr);
         }
         if (!m_renderer->getDevice()) { std::cerr << "no GPU device\n"; return false; }

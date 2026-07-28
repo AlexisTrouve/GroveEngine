@@ -28,6 +28,12 @@ using namespace grove;
 namespace {
 // A few common system faces; the first that loads wins.
 const char* kCandidates[] = {
+    // The face the ENGINE SHIPS (assets/fonts/, Apache 2.0) comes first, so this test covers the
+    // asset we actually distribute rather than whatever the machine happens to have installed.
+    // Both spellings: visual demos run from the project root, ctest runs from build/tests.
+    "assets/fonts/roboto-regular.ttf",
+    "../../assets/fonts/roboto-regular.ttf",
+
     "C:/Windows/Fonts/arial.ttf",
     "C:/Windows/Fonts/segoeui.ttf",
     "C:/Windows/Fonts/calibri.ttf",

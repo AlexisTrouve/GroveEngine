@@ -1,0 +1,17 @@
+Roboto (roboto-regular.ttf, roboto-bold.ttf)
+Copyright 2011 Google Inc. All Rights Reserved.
+Licensed under the Apache License, Version 2.0.
+    http://www.apache.org/licenses/LICENSE-2.0
+
+WHY THESE ARE HERE
+------------------
+GroveEngine ships no font of its own: BitmapFont's built-in 8x8 bitmap is a fallback, and a game is
+expected to supply its own face. These two are provided so the engine's demos and tests have a REAL
+face to render with out of the box, and so a game has a sane default to start from.
+
+Apache 2.0 permits redistribution, including in a commercial game, with attribution. A game shipping
+these must carry this notice. Swap in your own face by pointing `fontPath` (renderer config) or
+`render:font {path}` at it — nothing here is hardcoded.
+
+Source: the bgfx dependency's example runtime assets (deps/bgfx/bgfx/examples/runtime/font/), copied
+here so the engine does not depend on a third party's example folder staying put.

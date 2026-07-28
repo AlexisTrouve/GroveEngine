@@ -469,6 +469,9 @@ public:
                 static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
             config.setInt("windowWidth", 1024);
             config.setInt("windowHeight", 768);
+            // Real TrueType face (Apache 2.0, shipped in assets/fonts/). Falls back to the built-in
+            // 8x8 bitmap if the path is missing, so the demo still runs from any working dir.
+            config.setString("fontPath", "assets/fonts/roboto-regular.ttf");
             // config.setString("backend", "d3d11");  // LET BGFX CHOOSE LIKE test_button_with_png!
             config.setBool("vsync", true);
             // Load textures for sprite buttons (paths relative to project root)

@@ -296,6 +296,21 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     m_logger->info("Added SectorPass");
     m_renderGraph->setup(*m_device);
     m_logger->info("RenderGraph setup complete");
+
+    // REAL FONT (optional). TextPass::setup() just installed the built-in 8x8 bitmap fallback; if the
+    // host asked for a TrueType face, bake it over the top NOW — after setup, or initDefault would
+    // overwrite it. Absent `fontPath`, the 8x8 stays: no existing host changes behaviour.
+    // The engine ships assets/fonts/roboto-regular.ttf (Apache 2.0) as a sane starting point; a game
+    // points this at its own face instead. Same loader as the runtime `render:font` topic.
+    const std::string fontPath = config.getString("fontPath", "");
+    if (!fontPath.empty() && m_textPass) {
+        const float fontBakeSize = static_cast<float>(config.getDouble("fontSize", 32.0));
+        if (m_textPass->getFont().loadTTF(*m_device, fontPath, fontBakeSize)) {
+            m_logger->info("Font: baked '{}' at {}px", fontPath, fontBakeSize);
+        } else {
+            m_logger->warn("Font: '{}' not loaded — keeping the built-in 8x8 bitmap", fontPath);
+        }
+    }
     m_renderGraph->compile();
     m_logger->info("RenderGraph compiled");
 

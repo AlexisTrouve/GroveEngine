@@ -88,8 +88,12 @@ Par ordre probable d'impact (à **confirmer avec Alexi** — il n'a pas détaill
    accents survivent) via **stb_truetype, déjà vendoré avec bgfx** — zéro dépendance nouvelle.
    Topic **`render:font {path, size?}`**. Le 8×8 reste le défaut : ne rien publier ne change rien.
    ⚠️ `loadBMFont` était un **STUB** qui retombait sur `initDefault` — la « voie BMFont » n'existait pas.
-   **Aucune police n'est vendorée** : livrer une fonte est une décision de contenu/licence côté jeu,
-   même posture que les stems audio et l'art 9-slice. Verrouillé par `TtfFontUnit` (headless via
+   ✅ **Une police EST désormais livrée** (2026-07-28) : `assets/fonts/roboto-regular.ttf` +
+   `roboto-bold.ttf`, **Apache 2.0** (avec `LICENSE.txt` à côté), copiées depuis les assets d'exemple
+   de bgfx pour ne pas dépendre du dossier d'un tiers. Activation : **`fontPath`** dans la config du
+   renderer (+ `fontSize`, défaut 32) ou le topic `render:font` à l'exécution. **Défaut inchangé** :
+   sans `fontPath`, le 8×8 reste — aucun hôte existant ne change de comportement. Câblé dans les
+   démos UI. Un jeu pointe `fontPath` sur sa propre fonte ; rien n'est en dur. Verrouillé par `TtfFontUnit` (headless via
    MockRHIDevice) sur la propriété qui DÉFINIT le saut : des avances **proportionnelles** ('i' < 'M'),
    que le monospace ne peut pas satisfaire par construction. *Reste* : une variante grasse réelle
    (aujourd'hui le gras est toujours le double-tracé synthétique) et le choix d'une fonte à livrer.
