@@ -432,6 +432,9 @@ bool BitmapFont::loadTTF(rhi::IRHIDevice& device, const std::string& path, float
         rgba[i] = 0x00FFFFFFu | (static_cast<uint32_t>(coverage[i]) << 24);   // 0xAABBGGRR
     }
 
+    // NOTE: no mip chain here, deliberately. Mips were tried while chasing the spacing bug (wrong
+    // hypothesis) and A/B'd afterwards: at UI sizes they make glyphs measurably BLURRIER — trilinear
+    // drops to a coarser level and the 1px atlas padding starts to bleed. Bilinear on mip 0 is sharper.
     rhi::TextureDesc desc;
     desc.width = kAtlas; desc.height = kAtlas;
     desc.format = rhi::TextureDesc::RGBA8;

@@ -56,6 +56,9 @@ const char* kBoldCandidates[] = {
 };
 }
 
+// Leftmost lit column of the last renderText() call (anchor check below).
+static int g_leftmost = 0;
+
 TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu][text][ttf]") {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
@@ -124,11 +127,13 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
         REQUIRE(device->readFramebuffer(fb, px.data(), static_cast<uint32_t>(px.size())));
 
         int lit = 0, rightmost = -1;
+        g_leftmost = W;
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
                 if (px[(static_cast<size_t>(y) * W + x) * 4 + 0] > 100) {   // red channel
                     ++lit;
                     if (x > rightmost) rightmost = x;
+                    if (x < g_leftmost) g_leftmost = x;
                 }
             }
         }
@@ -163,6 +168,19 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
     INFO("uncapped=" << rightUncapped << " capped=" << rightCapped);
     REQUIRE(rightUncapped > rightCapped);       // the cap really shortened the drawn text
     REQUIRE(rightCapped <= 2 + 60 + 2);         // x origin + budget + AA slack
+
+    // 3b. ANCHOR. Text must START at the requested x, not straddle it.
+    //
+    //     SpriteInstance.x/y is a CENTRE (vs_sprite offsets by -0.5). TextPass used to write the
+    //     glyph's TOP-LEFT there, so every glyph sat half its own width too far left. With the old 8x8
+    //     MONOSPACE font that was one constant shift of the whole string and nobody noticed; with a
+    //     proportional face it varies per letter and reads as broken spacing ("Panel + widgets" ->
+    //     "Panel+w idgets"). This locks the fix where a monospace font structurally could not.
+    int litAnchor = 0;
+    renderText("M", 0.0f, litAnchor);
+    INFO("text x=2, leftmost lit column=" << g_leftmost);
+    REQUIRE(litAnchor > 0);
+    REQUIRE(g_leftmost >= 1);   // x=2 minus a little bearing/AA; the bug put it ~7px further left
 
     // 4. Bold renders through the SECOND atlas.
     //

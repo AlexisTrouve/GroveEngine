@@ -131,21 +131,28 @@ Secondaire :
   vraie preuve GPU. C'est LA leçon de ce chantier (sœur du bug blanc du mapview bake).
 - Défauts partout (align 0, bold false, `frame` absent) → aucune régression sur le code existant.
 
-## 7. ⚠️ Défaut ouvert : espacement du texte TTF
+## 7. ✅ Espacement du texte TTF — RÉSOLU le 2026-07-28
 
-Constaté sur la capture de `demo_ui_art.json` (2026-07-28) : **l'avance entre glyphes est irrégulière**.
-« Panel + widgets » rend « Panel+w idgets », « Bouclier » rend « Bouc lier » — l'espace se perd par
-endroits et réapparaît au milieu d'un mot. **Les chaînes source sont propres** (vérifié en relisant le
-JSON), c'est donc bien le rendu.
+Symptôme : « Panel + widgets » rendait « Panel+w idgets », « Bouclier » rendait « Bouc lier ».
 
-Écarté par A/B : **l'oversampling n'est pas en cause** (1×1 et 2×2 donnent exactement le même défaut).
+**Cause : `SpriteInstance.x/y` est un CENTRE** (`vs_sprite` décale de −0,5 ; `SceneCollector` convertit
+coin→centre partout ailleurs), et `TextPass` y écrivait le **coin haut-gauche** du glyphe. Chaque
+glyphe était donc décalé de la moitié de SA PROPRE largeur.
 
-Piste la plus probable : les métriques remontées par `stbtt_GetPackedQuad` dans `BitmapFont::loadTTF`
-— `advance` est pris comme le `xpos` post-appel, et `offsetX` comme `q.x0`. À vérifier glyphe par
-glyphe contre les métriques attendues de Roboto (l'avance de l'espace en premier : sa perte
-expliquerait « Panel+w »). Le prochain pas est une **mesure**, pas une retouche : dumper les avances
-de quelques glyphes connus et les comparer, comme pour la graisse où le discriminant supposé s'était
-révélé faux.
+**Pourquoi personne ne l'avait vu** : avec la police 8×8 **monospace**, tous les glyphes ont la même
+largeur — le décalage était constant sur toute la chaîne, donc invisible. Une police proportionnelle
+le fait varier par lettre. **Bug latent révélé par le passage à la TTF**, pas introduit par lui.
 
-Ça ne remet pas en cause le pipeline (art SVG → PNG → 9-slice → GPU, et la police EST proportionnelle,
-prouvée par `TtfRenderGpu`) — c'est un défaut de qualité typographique, visible, à corriger.
+### Deux hypothèses écartées avant, par la mesure — ne pas les reprendre
+
+1. ~~Les métriques de `stbtt_GetPackedQuad`~~ : un diagnostic comparant les avances stockées à
+   `stbtt_GetCodepointHMetrics` donne un **delta exactement nul** sur 12 glyphes. Les métriques
+   étaient justes depuis le début. *(C'était le suspect nommé dans la version précédente de cette
+   section — il était faux.)*
+2. ~~L'oversampling~~ : 1×1 et 2×2 donnent le **même** défaut.
+3. ~~L'absence de mipmaps~~ : ajoutés, le défaut persistait. Et une fois le vrai bug corrigé, l'A/B
+   montre qu'ils rendent le texte **plus flou** à taille UI (trilinéaire trop grossier + le padding
+   d'1px qui bave). **Retirés** — un changement sans preuve vaut moins que pas de changement.
+
+Verrouillé par `TtfRenderGpu` : le texte doit COMMENCER à son `x`, pas l'enjamber. Vérifié dans les
+deux sens (ancien ancrage → colonne allumée la plus à gauche = 0 au lieu de ≥ 1).

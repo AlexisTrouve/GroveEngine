@@ -192,13 +192,20 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
             // Create sprite instance for this glyph
             SpriteInstance inst;
 
-            // Position (top-left of glyph)
-            inst.x = cursorX + glyph.offsetX * scale;
-            inst.y = cursorY + glyph.offsetY * scale;
-
             // Scale to glyph size
             inst.scaleX = glyph.width * scale;
             inst.scaleY = glyph.height * scale;
+
+            // Position: SpriteInstance.x/y is the CENTRE (vs_sprite does (a_position - 0.5) * scale,
+            // and SceneCollector converts corner -> centre the same way). The glyph metrics give a
+            // TOP-LEFT, so half the glyph box must be added — per glyph, since glyph sizes differ.
+            //
+            // This was a latent bug the 8x8 font could not reveal: with a MONOSPACE face every glyph
+            // shares one size, so the missing half-width was a constant shift of the whole string —
+            // invisible. A proportional face makes it vary per letter, which is what showed up as
+            // "irregular spacing" ("Panel + widgets" rendering as "Panel+w idgets").
+            inst.x = cursorX + glyph.offsetX * scale + inst.scaleX * 0.5f;
+            inst.y = cursorY + glyph.offsetY * scale + inst.scaleY * 0.5f;
 
             // No rotation
             inst.rotation = 0.0f;
