@@ -130,3 +130,22 @@ Secondaire :
   invisible) invisible aux tests headless → le pixel readback (`NineSliceGpu`) + le `--shot` par l'œil sont la
   vraie preuve GPU. C'est LA leçon de ce chantier (sœur du bug blanc du mapview bake).
 - Défauts partout (align 0, bold false, `frame` absent) → aucune régression sur le code existant.
+
+## 7. ⚠️ Défaut ouvert : espacement du texte TTF
+
+Constaté sur la capture de `demo_ui_art.json` (2026-07-28) : **l'avance entre glyphes est irrégulière**.
+« Panel + widgets » rend « Panel+w idgets », « Bouclier » rend « Bouc lier » — l'espace se perd par
+endroits et réapparaît au milieu d'un mot. **Les chaînes source sont propres** (vérifié en relisant le
+JSON), c'est donc bien le rendu.
+
+Écarté par A/B : **l'oversampling n'est pas en cause** (1×1 et 2×2 donnent exactement le même défaut).
+
+Piste la plus probable : les métriques remontées par `stbtt_GetPackedQuad` dans `BitmapFont::loadTTF`
+— `advance` est pris comme le `xpos` post-appel, et `offsetX` comme `q.x0`. À vérifier glyphe par
+glyphe contre les métriques attendues de Roboto (l'avance de l'espace en premier : sa perte
+expliquerait « Panel+w »). Le prochain pas est une **mesure**, pas une retouche : dumper les avances
+de quelques glyphes connus et les comparer, comme pour la graisse où le discriminant supposé s'était
+révélé faux.
+
+Ça ne remet pas en cause le pipeline (art SVG → PNG → 9-slice → GPU, et la police EST proportionnelle,
+prouvée par `TtfRenderGpu`) — c'est un défaut de qualité typographique, visible, à corriger.

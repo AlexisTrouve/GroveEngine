@@ -1,0 +1,503 @@
+{
+  "type": "panel",
+  "id": "root",
+  "x": 0,
+  "y": 0,
+  "width": 1280,
+  "height": 720,
+  "style": {
+    "bgColor": "0x0a0e14FF"
+  },
+  "children": [
+    {
+      "type": "label",
+      "id": "title",
+      "x": 32,
+      "y": 20,
+      "width": 700,
+      "height": 30,
+      "text": "GroveEngine - UI art pass : 9-slice SVG + Roboto",
+      "fontSize": 22,
+      "style": {
+        "textColor": "0x8fd4ffFF"
+      },
+      "bold": true
+    },
+    {
+      "type": "panel",
+      "id": "leftPanel",
+      "x": 32,
+      "y": 64,
+      "width": 360,
+      "height": 300,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      },
+      "children": [
+        {
+          "type": "label",
+          "x": 24,
+          "y": 20,
+          "width": 300,
+          "height": 24,
+          "text": "Panel + widgets",
+          "fontSize": 16,
+          "style": {
+            "textColor": "0xc8dcf0FF"
+          }
+        },
+        {
+          "type": "checkbox",
+          "id": "cbA",
+          "x": 24,
+          "y": 56,
+          "width": 300,
+          "height": 28,
+          "text": "Bouclier deflecteur",
+          "checked": true,
+          "frame": {
+            "asset": "ui_checkbox",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 22
+          }
+        },
+        {
+          "type": "checkbox",
+          "id": "cbB",
+          "x": 24,
+          "y": 92,
+          "width": 300,
+          "height": 28,
+          "text": "Pilote automatique",
+          "frame": {
+            "asset": "ui_checkbox",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 22
+          }
+        },
+        {
+          "type": "label",
+          "x": 24,
+          "y": 136,
+          "width": 300,
+          "height": 20,
+          "text": "Integrite de coque",
+          "fontSize": 14,
+          "style": {
+            "textColor": "0x9fb4ccFF"
+          }
+        },
+        {
+          "type": "progressbar",
+          "id": "hull",
+          "x": 24,
+          "y": 158,
+          "width": 300,
+          "height": 22,
+          "progress": 0.72,
+          "frame": {
+            "asset": "ui_bar_track",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 22
+          },
+          "fillFrame": {
+            "asset": "ui_bar_fill",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 20
+          }
+        },
+        {
+          "type": "label",
+          "x": 24,
+          "y": 196,
+          "width": 300,
+          "height": 20,
+          "text": "Designation",
+          "fontSize": 14,
+          "style": {
+            "textColor": "0x9fb4ccFF"
+          }
+        },
+        {
+          "type": "textinput",
+          "id": "name",
+          "x": 24,
+          "y": 218,
+          "width": 300,
+          "height": 32,
+          "frame": {
+            "asset": "ui_field",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 20
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "id": "midPanel",
+      "x": 416,
+      "y": 64,
+      "width": 340,
+      "height": 300,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      },
+      "children": [
+        {
+          "type": "label",
+          "x": 24,
+          "y": 20,
+          "width": 280,
+          "height": 24,
+          "text": "Liste (rangees spritees)",
+          "fontSize": 16,
+          "style": {
+            "textColor": "0xc8dcf0FF"
+          }
+        },
+        {
+          "type": "list",
+          "id": "fleet",
+          "x": 20,
+          "y": 54,
+          "width": 300,
+          "height": 220,
+          "rowHeight": 34,
+          "items": [
+            {
+              "label": "Corvette Aurore"
+            },
+            {
+              "label": "Fregate Meridien"
+            },
+            {
+              "label": "Croiseur Boreal"
+            },
+            {
+              "label": "Ravitailleur Kestrel"
+            },
+            {
+              "label": "Sonde Vigie"
+            },
+            {
+              "label": "Chasseur Dard"
+            }
+          ],
+          "frame": {
+            "asset": "ui_panel",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 22
+          },
+          "rowFrame": {
+            "asset": "ui_row",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 6
+          }
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "id": "rightPanel",
+      "x": 780,
+      "y": 64,
+      "width": 300,
+      "height": 300,
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      },
+      "children": [
+        {
+          "type": "label",
+          "x": 24,
+          "y": 20,
+          "width": 250,
+          "height": 24,
+          "text": "Boutons (teinte par etat)",
+          "fontSize": 16,
+          "style": {
+            "textColor": "0xc8dcf0FF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "bGo",
+          "x": 24,
+          "y": 56,
+          "width": 250,
+          "height": 44,
+          "text": "Appareiller",
+          "frame": {
+            "asset": "ui_button",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 26
+          },
+          "style": {
+            "bgColor": "0x2f7fb8FF",
+            "textColor": "0xffffffFF"
+          },
+          "bold": true
+        },
+        {
+          "type": "button",
+          "id": "bScan",
+          "x": 24,
+          "y": 112,
+          "width": 250,
+          "height": 44,
+          "text": "Scanner le secteur",
+          "frame": {
+            "asset": "ui_button",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 26
+          },
+          "style": {
+            "bgColor": "0x3b8f6aFF",
+            "textColor": "0xffffffFF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "bAbort",
+          "x": 24,
+          "y": 168,
+          "width": 250,
+          "height": 44,
+          "text": "Interrompre",
+          "frame": {
+            "asset": "ui_button",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 26
+          },
+          "style": {
+            "bgColor": "0xb04a4aFF",
+            "textColor": "0xffffffFF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "bLong",
+          "x": 24,
+          "y": 224,
+          "width": 250,
+          "height": 44,
+          "text": "Un libelle beaucoup trop long pour cette boite",
+          "frame": {
+            "asset": "ui_button",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 26
+          },
+          "style": {
+            "bgColor": "0x555f6eFF",
+            "textColor": "0xffffffFF"
+          }
+        }
+      ]
+    },
+    {
+      "type": "tabs",
+      "id": "tabs",
+      "x": 32,
+      "y": 396,
+      "width": 420,
+      "height": 260,
+      "tabBarHeight": 32,
+      "tabs": [
+        {
+          "label": "Systemes"
+        },
+        {
+          "label": "Cargo"
+        }
+      ],
+      "frame": {
+        "asset": "ui_panel",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 24
+      },
+      "children": [
+        {
+          "type": "panel",
+          "x": 16,
+          "y": 48,
+          "width": 388,
+          "height": 196,
+          "style": {
+            "bgColor": "0x00000000"
+          },
+          "children": [
+            {
+              "type": "label",
+              "x": 16,
+              "y": 8,
+              "width": 340,
+              "height": 20,
+              "text": "Onglet 1 \u2014 fond de contenu sprite",
+              "fontSize": 14,
+              "style": {
+                "textColor": "0xc8dcf0FF"
+              }
+            },
+            {
+              "type": "progressbar",
+              "id": "pw",
+              "x": 16,
+              "y": 40,
+              "width": 340,
+              "height": 18,
+              "progress": 0.45,
+              "frame": {
+                "asset": "ui_bar_track",
+                "srcW": 128,
+                "srcH": 128,
+                "inset": 22
+              },
+              "fillFrame": {
+                "asset": "ui_bar_fill",
+                "srcW": 128,
+                "srcH": 128,
+                "inset": 20
+              }
+            }
+          ]
+        },
+        {
+          "type": "panel",
+          "x": 16,
+          "y": 48,
+          "width": 388,
+          "height": 196,
+          "style": {
+            "bgColor": "0x00000000"
+          },
+          "children": [
+            {
+              "type": "label",
+              "x": 16,
+              "y": 8,
+              "width": 340,
+              "height": 20,
+              "text": "Onglet 2",
+              "fontSize": 14,
+              "style": {
+                "textColor": "0xc8dcf0FF"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "window",
+      "id": "win",
+      "x": 500,
+      "y": 396,
+      "width": 420,
+      "height": 260,
+      "title": "Fenetre encadree",
+      "frame": {
+        "asset": "ui_window",
+        "srcW": 128,
+        "srcH": 128,
+        "inset": 26
+      },
+      "children": [
+        {
+          "type": "label",
+          "x": 24,
+          "y": 16,
+          "width": 360,
+          "height": 22,
+          "text": "Le chrome se place DANS le cadre.",
+          "fontSize": 15,
+          "style": {
+            "textColor": "0xc8dcf0FF"
+          }
+        },
+        {
+          "type": "button",
+          "id": "wOk",
+          "x": 24,
+          "y": 56,
+          "width": 150,
+          "height": 40,
+          "text": "Valider",
+          "frame": {
+            "asset": "ui_button",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 26
+          },
+          "style": {
+            "bgColor": "0x2f7fb8FF",
+            "textColor": "0xffffffFF"
+          },
+          "bold": true
+        },
+        {
+          "type": "scrollpanel",
+          "id": "sp",
+          "x": 190,
+          "y": 56,
+          "width": 190,
+          "height": 120,
+          "borderWidth": 2,
+          "frame": {
+            "asset": "ui_field",
+            "srcW": 128,
+            "srcH": 128,
+            "inset": 20
+          },
+          "children": [
+            {
+              "type": "label",
+              "x": 12,
+              "y": 8,
+              "width": 150,
+              "height": 18,
+              "text": "Scrollpanel",
+              "fontSize": 13,
+              "style": {
+                "textColor": "0x9fb4ccFF"
+              }
+            },
+            {
+              "type": "label",
+              "x": 12,
+              "y": 30,
+              "width": 150,
+              "height": 18,
+              "text": "4 rects -> 1 cadre",
+              "fontSize": 13,
+              "style": {
+                "textColor": "0x9fb4ccFF"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

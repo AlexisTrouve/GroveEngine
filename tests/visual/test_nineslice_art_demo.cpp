@@ -25,6 +25,10 @@
 #include "RHI/RHIDevice.h"
 #include "PngCapture.h"
 #include <grove/JsonDataNode.h>
+
+// Layout driven by --layout; defaults to the original frame-gallery demo. Declared here so the demo
+// class below can read it (main() only writes it, before anything is constructed).
+static std::string g_layout = "assets/ui/demo_nineslice_art.json";
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 
@@ -61,6 +65,14 @@ public:
         registerFrame("frame_glossy",    "assets/textures/ui/frame_glossy.png");
         registerFrame("frame_parchment", "assets/textures/ui/frame_parchment.png");
         registerFrame("frame_standard",  "assets/textures/ui/frame_standard.png");
+        // The SVG-derived widget art (tools/gen_ui_art.py). Registered unconditionally: an asset the
+        // active layout never references costs one registry entry and no VRAM until it is resolved.
+        for (const char* n : {"panel", "window", "button", "field", "row",
+                              "bar_track", "bar_fill", "checkbox"}) {
+            const std::string id   = std::string("ui_") + n;
+            const std::string path = "assets/textures/ui/" + id + ".png";
+            registerFrame(id.c_str(), path.c_str());
+        }
         { auto d = std::make_unique<JsonDataNode>("d"); d->setString("group", "frames");
           m_gIO->publish("asset:preload", std::move(d)); }
         for (int i = 0; i < 3; ++i) { publishCamera(); JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); m_renderer->process(in); }
@@ -69,7 +81,7 @@ public:
         m_uiModule = std::make_unique<UIModule>();
         {
             JsonDataNode c("config");
-            c.setString("layoutFile", "assets/ui/demo_nineslice_art.json");
+            c.setString("layoutFile", g_layout);
             c.setInt("windowWidth", m_w); c.setInt("windowHeight", m_h); c.setInt("baseLayer", 1000);
             m_uiModule->setConfiguration(c, m_uIO, nullptr);
         }
@@ -152,6 +164,9 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--shot") { shot = true; if (i + 1 < argc && argv[i+1][0] != '-') shotPath = argv[++i]; }
+        // --layout lets this runner drive ANY 9-slice layout (the full art showcase is just a JSON +
+        // its PNGs), instead of cloning the whole SDL/bgfx/UI bring-up into a second executable.
+        else if (a == "--layout" && i + 1 < argc) { g_layout = argv[++i]; }
     }
     if (shot && shotPath.empty()) shotPath = "nineslice_art.png";
 
