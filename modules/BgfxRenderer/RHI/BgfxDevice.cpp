@@ -432,6 +432,15 @@ public:
         bgfx::setViewFrameBuffer(id, m_framebuffers[handle.id].fb);
     }
 
+    TextureHandle getFramebufferTexture(FramebufferHandle handle) override {
+        TextureHandle out;   // invalid by default
+        if (handle.id >= m_framebuffers.size()) return out;
+        // The colour attachment we render into (NOT the readback copy, which is a CPU-side blit
+        // destination and holds nothing until readFramebuffer runs).
+        out.id = m_framebuffers[handle.id].rt.idx;
+        return out;
+    }
+
     void setViewOrder(const ViewId* order, uint16_t count) override {
         // Overrides the default ascending-id submission order. Passing 0/nullptr restores it, which
         // is what an unlit frame wants — see the zero-cost bypass in the lighting plan.

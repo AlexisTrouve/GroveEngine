@@ -20,6 +20,7 @@
 #include "Passes/ParticlePass.h"
 #include "Passes/DebugPass.h"
 #include "Passes/SectorPass.h"
+#include "Passes/CompositePass.h"
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
@@ -297,6 +298,18 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // Filled ring-sectors / pie wedges (render:sector) — same position+colour shader as debug.
     m_renderGraph->addPass(std::make_unique<SectorPass>(debugShader));
     m_logger->info("Added SectorPass");
+
+    // Lighting composite (L1). Registered unconditionally: it costs nothing per frame until a game
+    // publishes render:ambient (the pass returns immediately), and building it lazily would mean
+    // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
+    // module can hand it the offscreen textures each frame; the graph owns the pass.
+    {
+        auto compositePass = std::make_unique<CompositePass>(m_shaderManager->getProgram("composite"));
+        m_compositePass = compositePass.get();
+        m_renderGraph->addPass(std::move(compositePass));
+        m_logger->info("Added CompositePass");
+    }
+
     m_renderGraph->setup(*m_device);
     m_logger->info("RenderGraph setup complete");
 
@@ -605,6 +618,44 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                packet.hudView.viewportW, packet.hudView.viewportH);
         m_device->setViewTransform(1, packet.hudView.viewMatrix, packet.hudView.projMatrix);
 
+        // ---- Lighting (L1) --------------------------------------------------------------------
+        // ambientColor == 0 means NO game asked for lighting. Everything below is then skipped:
+        // no targets are built, view 0 keeps drawing to the backbuffer, no submission order is
+        // imposed, and CompositePass returns immediately. That is the whole zero-cost guarantee —
+        // Drifterra, DAOS and Fractax must keep paying exactly what they paid before.
+        const bool lightingActive = (packet.ambientColor != 0);
+        if (lightingActive) {
+            ensureLightingTargets(packet.mainView.viewportW, packet.mainView.viewportH);
+
+            // The world now renders into the scene target instead of the backbuffer, and the light
+            // accumulation gets its own view + target (cleared to BLACK: it is a sum, so it must
+            // start at "no light", not at the scene's clear colour).
+            m_device->setViewFramebuffer(0, m_sceneFB);
+            m_device->setViewFramebuffer(CompositePass::kLightView, m_lightFB);
+            m_device->setViewClear(CompositePass::kLightView, 0x000000FF, 1.0f);
+            m_device->setViewRect(CompositePass::kLightView, 0, 0, m_lightingWidth, m_lightingHeight);
+
+            // The composite draws to the BACKBUFFER (no framebuffer bound) over the full viewport.
+            m_device->setViewRect(CompositePass::kCompositeView, 0, 0, m_lightingWidth, m_lightingHeight);
+
+            // Submission order, the reason setViewOrder had to exist: world -> lights -> composite
+            // -> HUD. Ascending ids would put the HUD (1) before the composite (3) and the HUD would
+            // be overwritten by the composited frame.
+            const rhi::ViewId order[] = { 0, CompositePass::kLightView, CompositePass::kCompositeView, 1 };
+            m_device->setViewOrder(order, 4);
+
+            if (m_compositePass) {
+                m_compositePass->setTargets(m_device->getFramebufferTexture(m_sceneFB),
+                                            m_device->getFramebufferTexture(m_lightFB));
+            }
+        } else if (m_lightingWidth != 0) {
+            // Lighting was on and has just been turned off: give the targets back and restore the
+            // default ascending-id submission order, or view 0 would stay bound to a dead target.
+            m_device->setViewFramebuffer(0, rhi::FramebufferHandle{});
+            m_device->setViewOrder(nullptr, 0);
+            releaseLightingTargets();
+        }
+
         // Execute render graph with collected scene data
         m_renderGraph->execute(packet, *m_device);
 
@@ -617,8 +668,46 @@ void BgfxRendererModule::process(const IDataNode& input) {
 
     m_frameCount++;
 }
+void BgfxRendererModule::releaseLightingTargets() {
+    if (!m_device) return;
+    if (m_lightingWidth != 0) {
+        m_device->destroy(m_sceneFB);
+        m_device->destroy(m_lightFB);
+        m_sceneFB = rhi::FramebufferHandle{};
+        m_lightFB = rhi::FramebufferHandle{};
+        m_lightingWidth = 0;
+        m_lightingHeight = 0;
+    }
+}
+
+void BgfxRendererModule::ensureLightingTargets(uint16_t width, uint16_t height) {
+    if (width == 0 || height == 0) return;                       // degenerate viewport: nothing to build
+    if (m_lightingWidth == width && m_lightingHeight == height) return;   // already the right size
+
+    // A resize invalidates both targets: they are screen-sized by definition, and sampling a stale
+    // one would composite last size's picture. Rebuild rather than scale.
+    releaseLightingTargets();
+
+    // BOTH targets are RGBA16F. The light buffer needs it (additive lamps overshoot 1.0 and the
+    // bloom pass will feed on that overbright); the scene target matches so the composite reads two
+    // textures of one format and post-processing later inherits an HDR scene instead of an LDR one
+    // that already threw its highlights away.
+    m_sceneFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
+    m_lightFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
+    m_lightingWidth = width;
+    m_lightingHeight = height;
+
+    m_logger->info("Lighting targets built ({}x{}, RGBA16F)", width, height);
+}
+
 void BgfxRendererModule::shutdown() {
     m_logger->info("BgfxRenderer shutting down, {} frames rendered", m_frameCount);
+
+    // Lighting targets first: they are plain device resources, and the graph's shutdown destroys the
+    // pass that borrows their textures. Releasing them after would leave the pass holding handles to
+    // freed targets for the length of the teardown.
+    releaseLightingTargets();
+    m_compositePass = nullptr;   // the graph owns it and is about to destroy it
 
     if (m_renderGraph && m_device) {
         m_renderGraph->shutdown(*m_device);

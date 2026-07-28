@@ -172,6 +172,13 @@ public:
     bool readFramebuffer(rhi::FramebufferHandle /*fb*/, void* /*out*/, uint32_t /*outSize*/) override {
         return false;
     }
+    // No GPU: hand back a handle derived from the framebuffer id so distinct targets stay distinct
+    // (a test can tell the scene texture from the light one), without pretending anything is real.
+    rhi::TextureHandle getFramebufferTexture(rhi::FramebufferHandle fb) override {
+        rhi::TextureHandle t;
+        t.id = fb.id;
+        return t;
+    }
     void destroy(rhi::FramebufferHandle /*handle*/) override {
         framebufferDestroyCount++;
     }

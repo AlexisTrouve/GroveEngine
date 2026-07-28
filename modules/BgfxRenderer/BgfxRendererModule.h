@@ -3,6 +3,7 @@
 #include <grove/IModule.h>
 #include <grove/IDataNode.h>
 #include <grove/IIO.h>
+#include "RHI/RHITypes.h"   // FramebufferHandle held by value for the lighting targets
 #include <memory>
 #include <string>
 
@@ -81,6 +82,22 @@ private:
     // Core systems
     std::unique_ptr<rhi::IRHIDevice> m_device;
     std::unique_ptr<FrameAllocator> m_frameAllocator;
+
+    // ---- Lighting (L1) ------------------------------------------------------------------------
+    // Offscreen targets, created ONLY once a game publishes render:ambient and destroyed when the
+    // window size changes. A frame with no ambient never touches any of this: no target, no view
+    // redirection, no composite draw — the world goes straight to the backbuffer exactly as it did
+    // before lighting existed. See docs/design/lighting-2d.md §3.
+    class CompositePass* m_compositePass = nullptr;   // owned by the render graph, borrowed here
+    rhi::FramebufferHandle m_sceneFB;
+    rhi::FramebufferHandle m_lightFB;
+    uint16_t m_lightingWidth = 0;      // size the targets were built for (0 = none yet)
+    uint16_t m_lightingHeight = 0;
+
+    // Create/resize the offscreen targets to WxH. No-op when they already match.
+    void ensureLightingTargets(uint16_t width, uint16_t height);
+    // Release them (window resize, or shutdown).
+    void releaseLightingTargets();
     std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;

@@ -59,6 +59,13 @@ public:
     virtual void setViewFramebuffer(ViewId id, FramebufferHandle fb) = 0;
     virtual bool readFramebuffer(FramebufferHandle fb, void* out, uint32_t outSize) = 0;
 
+    // The colour texture a framebuffer renders into, so a later pass can SAMPLE what was drawn.
+    // Until lighting, a render target was only ever a readback destination — nothing ever read one
+    // back on the GPU — so the texture stayed private to the device. The composite has to sample
+    // both the scene and the light buffer, which is what makes this accessor necessary.
+    // Returns an invalid handle for an unknown framebuffer.
+    virtual TextureHandle getFramebufferTexture(FramebufferHandle fb) = 0;
+
     // Explicit view SUBMISSION order (lighting L1). Without this, views are submitted in ascending
     // id order — which is why the world (0) and the HUD (1) already compose correctly.
     //
