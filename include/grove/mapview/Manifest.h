@@ -48,6 +48,17 @@ struct Manifest {
     std::string            chunksDir{"chunks"}; // path (relative to the manifest) holding chunk blobs
     std::vector<Region>    regions;            // vector overlays — inline (low cardinality, no blob)
     std::vector<Marker>    markers;            // point overlays — inline
+
+    // PRODUCER METADATA — an opaque JSON blob the producer attaches to describe ITS world.
+    // WHY  : the manifest describes the CONTAINER (grid, chunking, field encodings) and nothing else —
+    //        deliberately, so the viewer can unpack any producer's data without knowing what it means.
+    //        But a consumer that wants to INTERPRET the data needs more: what one cell is worth in
+    //        kilometres, whether X wraps, what the elevation datum is, how to invert a normalised
+    //        field. None of that has a place in a container schema, and it is producer-specific by
+    //        nature — so it lives here, in a blob mapview never reads.
+    // HOW  : emitted under "producer" only when non-empty -> a producer that ignores it writes the
+    //        exact same manifest as before (byte-identical, no migration). Round-trips verbatim.
+    nlohmann::json         producer;           // free-form; mapview NEVER interprets it
 };
 
 // --- Encoding <-> string (the on-disk field-type names). -----------------------------------------
@@ -119,6 +130,8 @@ inline std::string emitManifest(const Manifest& m) {
         }
         j["markers"] = arr;
     }
+    // Producer blob — emitted only when present, so manifests without it are unchanged.
+    if (!m.producer.is_null() && !m.producer.empty()) j["producer"] = m.producer;
     return j.dump(2);
 }
 
@@ -151,6 +164,8 @@ inline Manifest parseManifest(const std::string& text) {
     }
 
     m.chunksDir = j.value("chunks", std::string{"chunks"});
+    // Producer blob : read back VERBATIM (never validated — its shape belongs to the producer).
+    if (j.contains("producer")) m.producer = j.at("producer");
 
     if (j.contains("regions")) {
         for (const auto& jr : j.at("regions")) {
