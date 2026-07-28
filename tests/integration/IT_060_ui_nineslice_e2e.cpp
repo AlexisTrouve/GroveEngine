@@ -50,7 +50,7 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
 
     // One record per render:nineslice:add — the authored asset id + target rect + one margin (proves the
     // insets ride through). space is expected "screen" (UI chrome is HUD).
-    struct NS { std::string asset; double x, y, w, h, left; std::string space; };
+    struct NS { std::string asset; double x, y, w, h, left; std::string space; int64_t color; };
     std::vector<NS> frames;
     game->subscribe("render:nineslice:add", [&](const Message& m){
         frames.push_back(NS{
@@ -58,7 +58,8 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
             m.data->getDouble("x", -1), m.data->getDouble("y", -1),
             m.data->getDouble("w", -1), m.data->getDouble("h", -1),
             m.data->getDouble("left", -1),
-            m.data->getString("space", "")
+            m.data->getString("space", ""),
+            static_cast<int64_t>(m.data->getInt("color", 0))
         });
     });
 
@@ -167,8 +168,33 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
 
     const NS* tab = find("ui/tabs_frame");
     REQUIRE(tab != nullptr);
-    REQUIRE(tab->w == 120.0);          // the content background (the tab strip stays flat for now)
+    REQUIRE(tab->w == 120.0);          // the content background, NOT the strip (see tabFrame below)
     REQUIRE(tab->left == 7.0);
+
+    // --- The PER-TAB frame. Authored once as `tabFrame`, emitted once per tab, and TINTED by the
+    //     existing activeTabColor / inactiveTabColor — the same trick as the list's rowFrame and a
+    //     button's state colour. That tint IS the active/inactive distinction: one asset, no second
+    //     art file to author and keep in sync, and a tab switch re-tints for free.
+    //
+    //     The two colour assertions are the point of this block. Emitting N framed tabs that all look
+    //     identical would satisfy a geometry-only test while losing the one thing a tab bar must show
+    //     — WHICH tab is active. Verified red first: before the feature, zero ui/tab_frame records.
+    //     NOTE the tab COUNT comes from the widget's page children, not from the `tabs` label array —
+    //     a tab with no page behind it is not drawn. The layout therefore authors two child panels.
+    std::vector<const NS*> tabFrames;
+    for (const auto& f : frames) if (f.asset == "ui/tab_frame") tabFrames.push_back(&f);
+    REQUIRE(tabFrames.size() == 2u);   // two pages -> two tabs -> two frames
+
+    REQUIRE(tabFrames[0]->w == 60.0);  // equal split of the 120px widget across 2 tabs
+    REQUIRE(tabFrames[0]->h == 30.0);  // default tabBarHeight
+    REQUIRE(tabFrames[0]->left == 3.0);
+    REQUIRE(tabFrames[0]->x == 20.0);  // first tab at the widget's x
+    REQUIRE(tabFrames[1]->x == 80.0);  // second tab one tab-width along
+
+    // Tab 0 is active by default -> the active tint; tab 1 carries the inactive one.
+    REQUIRE(tabFrames[0]->color == static_cast<int64_t>(0x3a6ea5FF));   // activeTabColor
+    REQUIRE(tabFrames[1]->color == static_cast<int64_t>(0x2c3540FF));   // inactiveTabColor
+    REQUIRE(tabFrames[0]->color != tabFrames[1]->color);                // the distinction survives
 
     const NS* drw = find("ui/drawer_frame");
     REQUIRE(drw != nullptr);
@@ -204,7 +230,8 @@ TEST_CASE("IT_060: a button, a window and a panel publish a 9-slice frame", "[in
         "ui/button_frame", "ui/window_frame", "ui/panel_frame",
         "ui/scroll_frame", "ui/list_frame",   "ui/row_frame",
         "ui/check_frame",  "ui/bar_frame",    "ui/bar_fill",
-        "ui/input_frame",  "ui/tabs_frame",   "ui/drawer_frame", "ui/modal_frame"
+        "ui/input_frame",  "ui/tabs_frame",   "ui/tab_frame",
+        "ui/drawer_frame", "ui/modal_frame"
     };
     for (const NS& f : frames) {
         INFO("unexpected frame asset: '" << f.asset << "'");

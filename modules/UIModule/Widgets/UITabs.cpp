@@ -106,14 +106,39 @@ void UITabs::render(UIRenderer& renderer) {
     }
     renderer.updateRect(m_tabBarBgId, absX, absY, width, tabBarHeight, inactiveTabColor, renderer.nextLayer());
 
+    // Per-tab 9-slice entries, allocated ONLY when a tabFrame is authored — a flat tab bar must not
+    // pay for entries it never draws (same rule as UIList::m_rowFrameIds). Allocated here rather than
+    // in the block above so the allocation follows the property; the destroy callback is then re-armed
+    // to include them, otherwise these entries would outlive the widget.
+    if (tabFrame.active() && m_tabFrameIds.size() < static_cast<size_t>(n)) {
+        while (m_tabFrameIds.size() < static_cast<size_t>(n)) m_tabFrameIds.push_back(renderer.registerEntry());
+        setDestroyCallback([&renderer, barBg = m_tabBarBgId, rects = m_tabRectIds,
+                            labels = m_tabLabelIds, tabFrames = m_tabFrameIds](uint32_t id) {
+            renderer.unregisterEntry(id);
+            renderer.unregisterEntry(barBg);
+            for (uint32_t r : rects) renderer.unregisterEntry(r);
+            for (uint32_t l : labels) renderer.unregisterEntry(l);
+            for (uint32_t f : tabFrames) renderer.unregisterEntry(f);
+        });
+    }
+
     // Tab buttons (equal width) + labels; the active tab is highlighted.
     const float tabW = (n > 0) ? width / static_cast<float>(n) : width;
     const int tabLayer = renderer.nextLayer();
     const int labelLayer = renderer.nextLayer();
+    const int frameCount = static_cast<int>(m_tabFrameIds.size());
     for (int i = 0; i < n; ++i) {
         const float tx = absX + i * tabW;
         const uint32_t col = (i == m_activeIndex) ? activeTabColor : inactiveTabColor;
-        renderer.updateRect(m_tabRectIds[i], tx, absY, tabW, tabBarHeight, col, tabLayer);
+        // Composed tab when authored, else the flat rect. The state colour becomes the frame's TINT,
+        // so active/inactive keeps reading correctly with art. Exactly UIList::emitRowBg's shape.
+        if (tabFrame.active() && i < frameCount) {
+            tabFrame.emit(renderer, m_tabFrameIds[i], tx, absY, tabW, tabBarHeight, col, tabLayer);
+            renderer.updateRect(m_tabRectIds[i], 0, 0, 0, 0, 0, tabLayer);      // flat tab idle
+        } else {
+            renderer.updateRect(m_tabRectIds[i], tx, absY, tabW, tabBarHeight, col, tabLayer);
+            if (i < frameCount) UIFrame::collapse(renderer, m_tabFrameIds[i], tabLayer);
+        }
         const std::string label = (i < static_cast<int>(tabLabels.size())) ? tabLabels[i] : std::to_string(i + 1);
         renderer.updateText(m_tabLabelIds[i], tx + padding, absY + (tabBarHeight - fontSize) * 0.5f,
                             label, fontSize, labelColor, labelLayer);
@@ -139,8 +164,10 @@ void UITabs::releaseRenderEntries(UIRenderer& renderer) {
     if (m_tabBarBgId != 0) { renderer.unregisterEntry(m_tabBarBgId); m_tabBarBgId = 0; }
     for (uint32_t r : m_tabRectIds) if (r != 0) renderer.unregisterEntry(r);
     for (uint32_t l : m_tabLabelIds) if (l != 0) renderer.unregisterEntry(l);
+    for (uint32_t f : m_tabFrameIds) if (f != 0) renderer.unregisterEntry(f);
     m_tabRectIds.clear();
     m_tabLabelIds.clear();
+    m_tabFrameIds.clear();
     m_entriesRegistered = false;
     m_lastRenderedActive = -1;
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId + recurses to children

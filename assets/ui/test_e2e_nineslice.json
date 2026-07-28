@@ -67,7 +67,12 @@
       "id": "framedTabs",
       "x": 20, "y": 150, "width": 120, "height": 40,
       "tabs": [{ "label": "A" }, { "label": "B" }],
-      "frame": { "asset": "ui/tabs_frame", "srcW": 16, "srcH": 16, "inset": 7 }
+      "frame": { "asset": "ui/tabs_frame", "srcW": 16, "srcH": 16, "inset": 7 },
+      "tabFrame": { "asset": "ui/tab_frame", "srcW": 16, "srcH": 16, "inset": 3 },
+      "children": [
+        { "type": "panel", "id": "tabPageA", "x": 0, "y": 0, "width": 120, "height": 10 },
+        { "type": "panel", "id": "tabPageB", "x": 0, "y": 0, "width": 120, "height": 10 }
+      ]
     },
     {
       "type": "drawer",

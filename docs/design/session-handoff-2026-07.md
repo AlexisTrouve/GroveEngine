@@ -48,10 +48,19 @@ temps à répétition.
 1. **Le gate de la corruption de tas est le repro autonome, pas le ctest.** `IIOThreadPublish` passe
    *aussi* sur le moteur non corrigé — c'est écrit dans son en-tête. Rendre le défaut reproductible
    dans une cible liée à `GroveEngine::impl` fermerait proprement la boucle.
-2. **`flipX` sur `render:sprite:update`** — délibérément non supporté (double-flip). À porter dans
+2. **`IIO` n'expose aucun `unsubscribe`.** ⚠️ La plus grosse des trois, et elle vient du terrain :
+   tout objet à durée de vie bornée qui `subscribe` en capturant `this` sur un IIO plus longévif que
+   lui laisse un handler orphelin sur un pointeur mort à sa destruction — le dispatch suivant est un
+   UAF silencieux en release. Un consommateur **ne peut pas s'en protéger**, l'API pour retirer une
+   souscription n'existe pas. Diagnostiqué par Drifterra (un UAF de scène, six rounds de chasse) ;
+   la machinerie existe déjà côté manager (`unregisterSubscription`, `topicTree.unregisterSubscriberAll`),
+   il manque le maillon `IIO`. Forme visée : un handle RAII rendu par `subscribe`, dont le destructeur
+   retire la souscription. Test rouge : « dispatch après destruction d'un abonné → doit être impossible ».
+3. **`flipX` sur `render:sprite:update`** — délibérément non supporté (double-flip). À porter dans
    `SpriteInstance` si un consommateur passe son paper-doll en mode retenu.
-3. **Onglet actif/inactif spritable** (`UITabs`) — même forme que `UIList::rowFrame`, mérite sa propre
-   tranche plutôt qu'un ajout discret.
+
+*Levé le 2026-07-28* : l'onglet actif/inactif spritable (`UITabs::tabFrame`) — voir
+`docs/design/ui-sprite-pass.md` § P5.
 
 ---
 

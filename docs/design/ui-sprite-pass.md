@@ -98,12 +98,32 @@ parse + un emit. **Le choix de la surface a demandé plus de réflexion que le c
 - `textinput` → le **champ**, et le cadre remplace AUSSI la bande de bordure (c'est ce qu'un
   nine-patch exprime nativement) ;
 - `tabs` → le **fond de contenu** seulement. L'onglet actif/inactif est la même forme que
-  `UIList::rowFrame` et mérite sa propre tranche plutôt que d'être glissé ici ;
+  `UIList::rowFrame` et mérite sa propre tranche plutôt que d'être glissé ici — **livré depuis, voir
+  P5** ;
 - `modal` → le **dialogue**, jamais le voile : étirer de l'art sur un fond assombri plein écran
   n'a aucun sens ;
 - `drawer` → le panneau coulissant.
 
-**État de la passe : P0 → P4 livrées.** 178/178.
+### P5 — l'onglet lui-même : `UITabs::tabFrame` ✅ FAIT
+
+La tranche que P4 avait explicitement renvoyée. Un seul `tabFrame` habille **chaque onglet** de la
+bande, et c'est la **teinte** qui porte l'état : `activeTabColor` / `inactiveTabColor` deviennent le
+tint du nine-patch, exactement comme `UIList::rowFrame` chevauche la couleur sélection/survol/zébrure
+et comme le cadre d'un bouton chevauche sa couleur d'état.
+
+**Un seul asset pour les deux états** — pas de second fichier d'art à créer puis à garder synchrone,
+et un changement d'onglet se contente de re-teinter. C'est le même arbitrage que partout ailleurs
+dans cette passe : l'art porte la forme, la couleur porte l'état.
+
+Le piège du câblage n'était pas le cadre mais le **compte** : le nombre d'onglets vient des **pages
+enfants**, pas du tableau `tabs` de libellés — un onglet sans page derrière n'est pas dessiné. Le
+premier layout de test, qui n'avait que des libellés, produisait zéro onglet.
+
+Vérifié en cassant : la teinte forcée à `inactiveTabColor` fait tomber `IT_060` sur exactement
+l'assertion de couleur (`0x2c3540ff` au lieu de `0x3a6ea5ff`). Une géométrie seule aurait été verte
+tout en perdant la seule chose qu'une barre d'onglets doit montrer — **lequel est actif**.
+
+**État de la passe : P0 → P5 livrées.** 190/190.
 
 **Chaque phase livre un E2E qui clique réellement** (précédent : `UINineSliceE2E`/IT_060) + une
 lecture de pixels GPU là où la continuité de bordure est l'enjeu. Sans ça le verdict reste

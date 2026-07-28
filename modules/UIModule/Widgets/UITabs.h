@@ -45,10 +45,15 @@ public:
     float fontSize = 14.0f;
     float padding = 6.0f;
 
-    // 9-slice FRAME — see UIFrame. Dresses the CONTENT background (below the tab strip). The strip
-    // and the per-tab rects stay flat for now: per-tab art is the same shape as UIList::rowFrame and
-    // deserves its own slice rather than being smuggled in here.
+    // 9-slice FRAMES — see UIFrame. `frame` dresses the CONTENT background (below the tab strip);
+    // `tabFrame` dresses EACH TAB in the strip.
+    //
+    // ONE tabFrame asset serves both states: it is emitted TINTED by activeTabColor /
+    // inactiveTabColor, exactly like UIList::rowFrame rides the selected/hovered/zebra colour and a
+    // button's frame rides its state colour. That keeps active/inactive working with art for free —
+    // no second asset to author and keep in sync, and a tab switch just re-tints.
     UIFrame frame;
+    UIFrame tabFrame;
     uint32_t m_frameId = 0;      // 9-slice entry — registered ONLY if a frame is ever active
     bool m_frameRegistered = false;
 
@@ -61,6 +66,7 @@ private:
     uint32_t m_tabBarBgId = 0;
     std::vector<uint32_t> m_tabRectIds;       // per-tab button rect
     std::vector<uint32_t> m_tabLabelIds;      // per-tab label
+    std::vector<uint32_t> m_tabFrameIds;      // per-tab 9-slice entries — allocated ONLY if tabFrame is set
 };
 
 } // namespace grove

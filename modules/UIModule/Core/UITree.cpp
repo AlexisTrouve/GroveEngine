@@ -112,8 +112,10 @@ void UITree::registerDefaultWidgets() {
             tabs->labelColor = hexColor(style, "labelColor", tabs->labelColor);
             tabs->fontSize = static_cast<float>(style->getDouble("fontSize", tabs->fontSize));
         }
-        // 9-slice FRAME (optional `frame` block) — see UIFrame.
+        // 9-slice FRAMES: `frame` dresses the content background, `tabFrame` dresses EACH TAB in the
+        // strip (tinted by activeTabColor/inactiveTabColor, so one asset covers both states).
         if (auto* f = mutableNode.getChildReadOnly("frame")) tabs->frame.parse(*f);
+        if (auto* tf = mutableNode.getChildReadOnly("tabFrame")) tabs->tabFrame.parse(*tf);
 
         return tabs;
     });
