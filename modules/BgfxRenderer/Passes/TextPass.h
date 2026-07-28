@@ -32,6 +32,12 @@ public:
     BitmapFont& getFont() { return m_font; }
     const BitmapFont& getFont() const { return m_font; }
 
+    // The optional BOLD face. Left invalid, a bold TextCommand falls back to the synthetic
+    // double-draw (unchanged). Loaded with a real face, bold text uses THAT face — proper weight,
+    // proper (wider) advances, instead of the same glyphs smeared 1px sideways.
+    BitmapFont& getFontBold() { return m_fontBold; }
+    const BitmapFont& getFontBold() const { return m_fontBold; }
+
 private:
     // Render one text set (build glyph instances, batch, submit) to a specific bgfx view.
     // Called for world text (view 0) and HUD text (view 1) so HUD labels stay screen-fixed.
@@ -45,6 +51,7 @@ private:
     rhi::UniformHandle m_textureSampler;
 
     BitmapFont m_font;
+    BitmapFont m_fontBold;   // optional real bold face; invalid = synthetic bold
 
     // Reusable buffer for glyph instances
     std::vector<SpriteInstance> m_glyphInstances;

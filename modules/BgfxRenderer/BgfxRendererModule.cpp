@@ -257,7 +257,10 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             const std::string path = msg.data->getString("path", "");
             if (path.empty()) { m_logger->warn("render:font ignored: no 'path'"); return; }
             const float size = static_cast<float>(msg.data->getDouble("size", 32.0));
-            if (!m_textPass->getFont().loadTTF(*m_device, path, size)) {
+            // `bold: true` targets the BOLD face; anything else the regular one.
+            const bool asBold = msg.data->getBool("bold", false);
+            BitmapFont& target = asBold ? m_textPass->getFontBold() : m_textPass->getFont();
+            if (!target.loadTTF(*m_device, path, size)) {
                 m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
             }
         });
@@ -309,6 +312,17 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             m_logger->info("Font: baked '{}' at {}px", fontPath, fontBakeSize);
         } else {
             m_logger->warn("Font: '{}' not loaded — keeping the built-in 8x8 bitmap", fontPath);
+        }
+        // Optional REAL BOLD face. Without it, bold text stays the synthetic double-draw — legible,
+        // but a smear rather than a weight. With it, bold gets its own glyphs AND its own (wider)
+        // advances, which is what actually distinguishes a real weight from a fattened regular.
+        const std::string fontPathBold = config.getString("fontPathBold", "");
+        if (!fontPathBold.empty()) {
+            if (m_textPass->getFontBold().loadTTF(*m_device, fontPathBold, fontBakeSize)) {
+                m_logger->info("Font (bold): baked '{}' at {}px", fontPathBold, fontBakeSize);
+            } else {
+                m_logger->warn("Font (bold): '{}' not loaded — bold stays synthetic", fontPathBold);
+            }
         }
     }
     m_renderGraph->compile();

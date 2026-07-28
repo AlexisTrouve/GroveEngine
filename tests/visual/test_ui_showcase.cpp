@@ -472,6 +472,7 @@ public:
             // Real TrueType face (Apache 2.0, shipped in assets/fonts/). Falls back to the built-in
             // 8x8 bitmap if the path is missing, so the demo still runs from any working dir.
             config.setString("fontPath", "assets/fonts/roboto-regular.ttf");
+            config.setString("fontPathBold", "assets/fonts/roboto-bold.ttf");
             // config.setString("backend", "d3d11");  // LET BGFX CHOOSE LIKE test_button_with_png!
             config.setBool("vsync", true);
             // Load textures for sprite buttons (paths relative to project root)

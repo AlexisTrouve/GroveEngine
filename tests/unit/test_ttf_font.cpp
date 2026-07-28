@@ -40,6 +40,13 @@ const char* kCandidates[] = {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 };
+
+// Matched regular/bold pairs, tried in order (regular, bold, regular, bold, ...).
+const char* kFacePairs[] = {
+    "assets/fonts/roboto-regular.ttf",          "assets/fonts/roboto-bold.ttf",
+    "../../assets/fonts/roboto-regular.ttf",    "../../assets/fonts/roboto-bold.ttf",
+    "C:/Windows/Fonts/arial.ttf",               "C:/Windows/Fonts/arialbd.ttf",
+};
 }
 
 TEST_CASE("TTF font: a real face bakes with PROPORTIONAL advances", "[text][unit][ttf]") {
@@ -76,6 +83,33 @@ TEST_CASE("TTF font: a real face bakes with PROPORTIONAL advances", "[text][unit
     // French accents (Latin-1) survive the bake — the engine advertises them, so they are not optional.
     REQUIRE(font.getGlyph(0x00E9).advance > 0.0f);   // é
     REQUIRE(font.getGlyph(0x00E7).advance > 0.0f);   // ç
+}
+
+TEST_CASE("TTF font: a real BOLD face has thicker strokes than the regular one", "[text][unit][ttf]") {
+    // The metric-level proof that bold is a DISTINCT FACE and not the regular one fattened at draw
+    // time. Advance would not show it — Roboto Bold's 'M' is barely wider than Regular's (measured on
+    // the GPU: identical extent) — but the glyph's INK is: a heavier weight draws thicker strokes, so
+    // the rasterised glyph box is wider at the same pixel height.
+    test::MockRHIDevice device;
+    BitmapFont regular, bold;
+
+    bool haveBoth = false;
+    for (size_t i = 0; i + 1 < sizeof(kFacePairs) / sizeof(kFacePairs[0]); i += 2) {
+        if (regular.loadTTF(device, kFacePairs[i], 32.0f) && bold.loadTTF(device, kFacePairs[i + 1], 32.0f)) {
+            haveBoth = true;
+            break;
+        }
+    }
+    if (!haveBoth) {
+        WARN("no regular+bold pair found — skipping");
+        return;
+    }
+
+    const GlyphInfo& r = regular.getGlyph('M');
+    const GlyphInfo& b = bold.getGlyph('M');
+    INFO("ink width regular=" << r.width << " bold=" << b.width);
+    REQUIRE(r.width > 0.0f);
+    REQUIRE(b.width > r.width);   // heavier strokes -> a wider rasterised glyph
 }
 
 TEST_CASE("TTF font: a failed load leaves the previous font intact", "[text][unit][ttf]") {

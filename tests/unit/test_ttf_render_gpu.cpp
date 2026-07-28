@@ -49,6 +49,11 @@ const char* kFontCandidates[] = {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 };
+const char* kBoldCandidates[] = {
+    "assets/fonts/roboto-bold.ttf",
+    "../../assets/fonts/roboto-bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+};
 }
 
 TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu][text][ttf]") {
@@ -94,7 +99,7 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
     float proj[16] = { 2.0f/W,0,0,0,  0,2.0f/H,0,0,  0,0,1,0,  -1.0f,-1.0f,0,1 };
 
     // Render one string and return {lit pixel count, rightmost lit column}.
-    auto renderText = [&](const char* s, float maxWidth, int& outLit) -> int {
+    auto renderText = [&](const char* s, float maxWidth, int& outLit, bool bold = false) -> int {
         device->setViewFramebuffer(0, fb);
         device->setViewRect(0, 0, 0, W, H);
         device->setViewClear(0, 0x000000FFu, 1.0f);
@@ -104,6 +109,7 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
         tc.x = 2.0f; tc.y = 16.0f;
         tc.text = s;
         tc.fontId = 0; tc.fontSize = 16; tc.color = 0xFF0000FFu; tc.layer = 0;
+        tc.bold = bold ? 1 : 0;
         tc.maxWidth = maxWidth;
 
         FramePacket frame;
@@ -157,6 +163,29 @@ TEST_CASE("A baked TTF renders to the framebuffer, proportionally (GPU)", "[gpu]
     INFO("uncapped=" << rightUncapped << " capped=" << rightCapped);
     REQUIRE(rightUncapped > rightCapped);       // the cap really shortened the drawn text
     REQUIRE(rightCapped <= 2 + 60 + 2);         // x origin + budget + AA slack
+
+    // 4. Bold renders through the SECOND atlas.
+    //
+    //    ⚠️ Measured first, asserted second. My initial discriminator was the horizontal EXTENT, on the
+    //    theory that a real weight is wider — it is not, meaningfully: Roboto Bold's 'M' advance matches
+    //    Regular's almost exactly (measured right=90 for both). What separates the two by a mile is INK:
+    //    418 lit pixels regular vs 617 bold, +48%. So the assertion is on ink, with a threshold far
+    //    below the observed gap. The exact metric-level proof that the two faces really are distinct
+    //    lives in TtfFontUnit (bold 'M' has visibly thicker strokes), where it can be exact.
+    bool haveBold = false;
+    for (const char* f : kBoldCandidates) {
+        if (pass.getFontBold().loadTTF(*device, f, 32.0f)) { haveBold = true; break; }
+    }
+    if (haveBold) {
+        int litReg = 0, litBold = 0;
+        const int rightReg  = renderText("MMMMMMMM", 0.0f, litReg, /*bold=*/false);
+        const int rightBold = renderText("MMMMMMMM", 0.0f, litBold, /*bold=*/true);
+        INFO("regular lit=" << litReg << " | bold lit=" << litBold);
+        REQUIRE(litReg > 0);
+        REQUIRE(litBold > litReg * 5 / 4);   // +25% floor; observed +48%
+    } else {
+        WARN("no bold face — skipping the real-bold check");
+    }
 
     device->destroy(fb);
     pass.shutdown(*device);

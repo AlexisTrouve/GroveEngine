@@ -68,6 +68,7 @@ void TextPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_instanceBuffer);
     device.destroy(m_textureSampler);
     m_font.shutdown(device);
+    m_fontBold.shutdown(device);
 }
 
 void TextPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
@@ -99,6 +100,10 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
     // batch together; a clip change flushes first so each draw gets its own bgfx scissor.
     float curClip[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
+    // Font currently accumulated. Regular and bold are DIFFERENT ATLASES, so a face change must break
+    // the batch exactly like a clip change does — one draw binds one texture.
+    const BitmapFont* curFont = &m_font;
+
     // Flush the accumulated glyphs as one scissored draw. Transient buffer so multiple flushes in a
     // frame (a clipped scroll list, or a >MAX-glyph run) don't clobber one shared dynamic buffer.
     auto flush = [&]() {
@@ -119,7 +124,7 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
             device.updateBuffer(m_instanceBuffer, m_glyphInstances.data(), n * sizeof(SpriteInstance));
             cmd.setInstanceBuffer(m_instanceBuffer, 0, n);
         }
-        cmd.setTexture(0, m_font.getTexture(), m_textureSampler);
+        cmd.setTexture(0, curFont->getTexture(), m_textureSampler);
         cmd.drawInstanced(6, n);
         cmd.submit(viewId, m_shader, 0);
         m_glyphInstances.clear();
@@ -141,8 +146,20 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
         }
         curClip[0] = clip[0]; curClip[1] = clip[1]; curClip[2] = clip[2]; curClip[3] = clip[3];
 
+        // Pick the face: a real bold atlas when one is loaded AND this command asks for bold, else the
+        // regular one. Same rule as the clip above — a face change flushes first, since the two atlases
+        // are different textures and one draw binds one texture.
+        const bool wantBold = (textCmd.bold != 0);
+        const bool realBold = wantBold && m_fontBold.isValid();
+        const BitmapFont* face = realBold ? &m_fontBold : &m_font;
+        if (!m_glyphInstances.empty() && face != curFont) {
+            flush();
+        }
+        curFont = face;
+        const BitmapFont& font = *face;
+
         // Calculate scale factor based on font size
-        float scale = static_cast<float>(textCmd.fontSize) / m_font.getBaseSize();
+        float scale = static_cast<float>(textCmd.fontSize) / font.getBaseSize();
 
         // Extract color components
         uint32_t color = textCmd.color;
@@ -154,12 +171,14 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
         // Horizontal alignment: measure each line's pixel width and shift its start so `x` means left edge
         // (factor 0), centre (0.5) or right edge (1). Measured per line so multi-line text aligns line by line.
         const float alignFactor = (textCmd.align == 1) ? 0.5f : (textCmd.align == 2) ? 1.0f : 0.0f;
-        // Synthetic bold: a second glyph copy shifted by ~1px in x thickens the single-weight bitmap font.
-        const float boldOffset = textCmd.bold ? (scale > 1.0f ? scale : 1.0f) : 0.0f;
+        // Synthetic bold: a second glyph copy shifted by ~1px in x thickens a single-weight font. Only
+        // used as a FALLBACK now — with a real bold face loaded it would double-draw an already-bold
+        // glyph and read as a smear.
+        const float boldOffset = (wantBold && !realBold) ? (scale > 1.0f ? scale : 1.0f) : 0.0f;
 
         // On-screen advance of one codepoint. Handed to the PURE fitter, so the truncation logic stays
         // font-agnostic and unit-testable headlessly (Text/TextFit.h + TextFitUnit).
-        auto advOf = [&](uint32_t c) { return m_font.getGlyph(c).advance * scale; };
+        auto advOf = [&](uint32_t c) { return font.getGlyph(c).advance * scale; };
         const float ellipsisW = 3.0f * advOf('.');
 
         float cursorX = 0.0f;
@@ -168,7 +187,7 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
         // Emit ONE glyph at the cursor and advance it. Factored out so the ellipsis dots take exactly
         // the same path as real text — same bold, colour, layer and batching, no second code path.
         auto emitGlyph = [&](uint32_t cp) {
-            const GlyphInfo& glyph = m_font.getGlyph(cp);
+            const GlyphInfo& glyph = font.getGlyph(cp);
 
             // Create sprite instance for this glyph
             SpriteInstance inst;
@@ -253,7 +272,7 @@ void TextPass::renderTextSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd
 
             if (*ptr == '\n') {                       // next line
                 ++ptr;
-                cursorY += m_font.getLineHeight() * scale;
+                cursorY += font.getLineHeight() * scale;
             }
         }
     }
