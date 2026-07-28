@@ -128,6 +128,27 @@ struct ParticleInstance {
 };
 
 // ============================================================================
+// Light Data (lighting L2)
+// ============================================================================
+
+// One radial light for this frame, in WORLD space.
+//
+// cx,cy is the CENTRE (the field name carries the anchor — render-anchor-convention.md). The colour
+// is already split into 0..1 channels because that is what the shader wants; `intensity` multiplies
+// it and is deliberately NOT clamped to 1, since the accumulation target is RGBA16F and the
+// overbright is what the bloom pass will feed on.
+//
+// There is no instance-buffer packing here on purpose: lights are TENS per frame, so one draw each
+// costs nothing, and instancing them would add a format to maintain for no measurable gain. Same
+// reasoning that ruled out a bulk IIO path.
+struct LightCommand {
+    float cx, cy;        // world CENTRE
+    float radius;        // attenuation reaches exactly 0 here (grove::light::attenuation)
+    float r, g, b;       // colour, 0..1
+    float intensity;     // scales the colour; >1 allowed
+};
+
+// ============================================================================
 // Debug Shape Data
 // ============================================================================
 
@@ -240,6 +261,11 @@ struct FramePacket {
     //          primitive: published once, it governs every later frame until it changes, and it
     //          survives SceneCollector::clear().
     uint32_t ambientColor = 0;
+
+    // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
+    // published none — no arena slice is claimed for a feature nobody used.
+    const LightCommand* lights = nullptr;
+    size_t lightCount = 0;
 
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;

@@ -1370,6 +1370,17 @@ target_link_libraries(test_iio_unsubscribe PRIVATE
 )
 grove_add_test(IIOUnsubscribe test_iio_unsubscribe ${CMAKE_CURRENT_BINARY_DIR})
 
+# Pure 2D light math (grove::light) — the falloff curve the fragment shader mirrors, plus the quad
+# bound it justifies. Header-only, no GPU: this is the oracle the [gpu] lighting test is right against.
+add_executable(test_light_math
+    unit/test_light_math.cpp
+)
+target_link_libraries(test_light_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(LightMathUnit test_light_math ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.

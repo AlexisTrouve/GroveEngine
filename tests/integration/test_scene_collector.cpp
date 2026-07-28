@@ -1905,3 +1905,68 @@ TEST_CASE("SceneCollector - ambient: render:ambient sets it and it PERSISTS", "[
         REQUIRE(p.ambientColor == 0x404060FFu);
     }
 }
+
+// ============================================================================
+// Lighting L2 — radial lights (render:light).
+//
+// Lights are EPHEMERAL, like render:sprite and render:particle: a game light almost always follows
+// something that moves, so re-publishing each frame is the normal case, not a cost. A retained mode
+// for static torches is an optimisation to MEASURE before writing, not to assume.
+//
+// Deliberately NO bulk path either: the IIO+JSON wall sits around 5k primitives/frame and a lit
+// scene has tens of lights. A submitLightBatch would optimise a problem that does not exist.
+// ============================================================================
+
+TEST_CASE("SceneCollector - light: render:light lands in the packet with cx,cy as CENTRE",
+          "[scene_collector][light]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto l = std::make_unique<JsonDataNode>("l");
+    l->setDouble("cx", 120.0);
+    l->setDouble("cy", 80.0);
+    l->setDouble("radius", 64.0);
+    l->setInt("color", 0xFF8000FF);      // orange
+    l->setDouble("intensity", 2.0);      // >1 on purpose: the RGBA16F target keeps the overbright
+    fx.ioPublisher->publish("render:light", std::move(l));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.lightCount == 1);
+    REQUIRE(p.lights != nullptr);
+    REQUIRE_THAT(p.lights[0].cx, WithinAbs(120.0f, 0.01f));
+    REQUIRE_THAT(p.lights[0].cy, WithinAbs(80.0f, 0.01f));
+    REQUIRE_THAT(p.lights[0].radius, WithinAbs(64.0f, 0.01f));
+    REQUIRE_THAT(p.lights[0].r, WithinAbs(1.0f, 0.01f));        // 0xFF
+    REQUIRE_THAT(p.lights[0].g, WithinAbs(0.502f, 0.01f));      // 0x80
+    REQUIRE_THAT(p.lights[0].b, WithinAbs(0.0f, 0.01f));        // 0x00
+    REQUIRE_THAT(p.lights[0].intensity, WithinAbs(2.0f, 0.01f));   // NOT clamped to 1
+}
+
+TEST_CASE("SceneCollector - light: ephemeral, so it does NOT survive the frame boundary",
+          "[scene_collector][light]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto l = std::make_unique<JsonDataNode>("l");
+    l->setDouble("cx", 10.0); l->setDouble("cy", 10.0); l->setDouble("radius", 5.0);
+    fx.ioPublisher->publish("render:light", std::move(l));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).lightCount == 1);
+
+    // A light left behind for a frame it was not published in would smear a moving lamp across the
+    // scene — the exact failure the ephemeral contract exists to prevent.
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).lightCount == 0);
+}
+
+TEST_CASE("SceneCollector - light: no light published means NO light array at all",
+          "[scene_collector][light]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.lightCount == 0);
+    REQUIRE(p.lights == nullptr);   // no arena slice claimed for a feature nobody used
+}

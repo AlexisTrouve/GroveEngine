@@ -159,6 +159,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:ambient") {
             parseAmbient(*msg.data);
         }
+        else if (msg.topic == "render:light") {
+            parseLight(*msg.data);
+        }
         else if (msg.topic == "render:debug:line") {
             parseDebugLine(*msg.data);
         }
@@ -374,6 +377,19 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.textCount = 0;
     }
 
+    // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
+    if (!m_lights.empty()) {
+        LightCommand* lights = allocator.allocateArray<LightCommand>(m_lights.size());
+        if (lights) {
+            std::memcpy(lights, m_lights.data(), m_lights.size() * sizeof(LightCommand));
+            packet.lights = lights;
+            packet.lightCount = m_lights.size();
+        }
+    } else {
+        packet.lights = nullptr;
+        packet.lightCount = 0;
+    }
+
     // Copy particles
     if (!m_particles.empty()) {
         ParticleInstance* particles = allocator.allocateArray<ParticleInstance>(m_particles.size());
@@ -542,6 +558,7 @@ void SceneCollector::clear() {
     m_tilemapTiles.clear();
     m_texts.clear();
     m_textStrings.clear();
+    m_lights.clear();
     m_particles.clear();
     m_debugLines.clear();
     m_debugRects.clear();
@@ -1009,6 +1026,27 @@ void SceneCollector::parseCamera(const IDataNode& data) {
 
 void SceneCollector::parseClear(const IDataNode& data) {
     m_clearColor = static_cast<uint32_t>(data.getInt("color", 0x303030FF));
+}
+
+void SceneCollector::parseLight(const IDataNode& data) {
+    LightCommand l;
+    // cx,cy = CENTRE. No legacy x,y accepted: this primitive is NEW, so it starts life on the right
+    // side of the anchor convention instead of earning an exception to it.
+    l.cx     = static_cast<float>(data.getDouble("cx", 0.0));
+    l.cy     = static_cast<float>(data.getDouble("cy", 0.0));
+    l.radius = static_cast<float>(data.getDouble("radius", 0.0));
+
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+    l.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    l.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    l.b = static_cast<float>((color >>  8) & 0xFF) / 255.0f;
+    // The colour's alpha byte is ignored: a light ADDS, it does not blend, so "how opaque" has no
+    // meaning here. Brightness is `intensity`, which is deliberately unclamped — the accumulation
+    // target is RGBA16F and overlapping lamps are supposed to overshoot 1.0.
+    l.intensity = static_cast<float>(data.getDouble("intensity", 1.0));
+
+    // A light with no extent lights nothing; dropping it here spares the pass a degenerate quad.
+    if (l.radius > 0.0f) m_lights.push_back(l);
 }
 
 void SceneCollector::parseAmbient(const IDataNode& data) {
