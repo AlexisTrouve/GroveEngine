@@ -2467,6 +2467,16 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_text_metrics PRIVATE Catch2::Catch2WithMain)
     grove_add_test(TextMetricsUnit test_text_metrics ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Shared editing model (grove::text::EditModel): buffer, cursor, selection, UTF-8 stepping and
+    # LINE navigation. PURE — UITextInput and UITextArea are thin views over it, so this oracle is
+    # what stops the two from diverging (the exact failure mode that produced this chantier's bugs).
+    add_executable(test_text_edit unit/test_text_edit.cpp)
+    target_include_directories(test_text_edit PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_edit PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextEditUnit test_text_edit ${CMAKE_CURRENT_BINARY_DIR})
+
     # Real TrueType baking (BitmapFont::loadTTF): headless via MockRHIDevice, skips without a system font.
     add_executable(test_ttf_font unit/test_ttf_font.cpp ../modules/BgfxRenderer/Text/BitmapFont.cpp)
     target_include_directories(test_ttf_font PRIVATE
