@@ -2,3 +2,4 @@
 # DEUX FOIS (une en LFS, une inlinée). Les sources durables sont le programme de capture
 # (tests/visual/capture_lighting.cpp) et les PNG ci-contre ; la page se régénère depuis eux.
 *.html
+_imgs.json

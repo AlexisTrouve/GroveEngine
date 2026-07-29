@@ -95,10 +95,13 @@ int main(int argc, char** argv) {
         s->setInt("color", static_cast<int>(col)); s->setInt("layer", layer);
         gIO->publish("render:sprite", std::move(s));
     };
-    auto light = [&](double cx, double cy, double radius, uint32_t col, double intensity) {
+    // dirDeg/spreadDeg default to omni, so the earlier plates are unchanged by L3.
+    auto light = [&](double cx, double cy, double radius, uint32_t col, double intensity,
+                     double dirDeg = 0.0, double spreadDeg = 360.0) {
         auto l = std::make_unique<JsonDataNode>("d");
         l->setDouble("cx", cx); l->setDouble("cy", cy); l->setDouble("radius", radius);
         l->setInt("color", static_cast<int>(col)); l->setDouble("intensity", intensity);
+        l->setDouble("dirDeg", dirDeg); l->setDouble("spreadDeg", spreadDeg);
         gIO->publish("render:light", std::move(l));
     };
     auto ambient = [&](uint32_t col) {
@@ -167,8 +170,8 @@ int main(int argc, char** argv) {
         std::printf("wrote %s\n", path.c_str());
     };
 
-    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; };
-    Ctx ctx{ &light, &ambient };
+    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn; };
+    Ctx ctx{ &light, &ambient, &sprite };
 
     // 1. No lighting at all — the zero-cost path every current game is on.
     shoot("01_unlit.png", false, nullptr, nullptr);
@@ -201,6 +204,27 @@ int main(int argc, char** argv) {
         Ctx* k = static_cast<Ctx*>(c);
         (*k->ambFn)(0x1a1e2aFFu);
         (*k->lightFn)(240.0, 150.0, 170.0, 0xFFE0A0FFu, 4.0);
+    }, &ctx);
+
+    // 6. A CONE light (L3). Same lamp as plate 03, plus dirDeg/spreadDeg: the disc becomes a beam
+    //    with a soft rim. A hard angular cut would read as a cardboard pie slice.
+    shoot("06_cone.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x22283aFFu);
+        // Pointing right-and-down (30 deg), 55 deg wide.
+        (*k->lightFn)(150.0, 90.0, 240.0, 0xFFE0B0FFu, 2.2, 30.0, 55.0);
+    }, &ctx);
+
+    // 7. THE use case: a thruster. The hull is a plain sprite, the flame is an ADDITIVE-looking
+    //    bright quad, and the light is a cone pointing BACKWARD along the exhaust — the emitter and
+    //    the lamp take the same dirDeg, which is exactly why the cone convention was borrowed from
+    //    grove::fx::Emitter.
+    shoot("07_thruster.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x1c2230FFu);
+        (*k->spriteFn)(300.0, 135.0, 54.0, 22.0, 0xc8d0dcFFu, 12);   // hull
+        (*k->spriteFn)(268.0, 135.0, 16.0, 12.0, 0xFFD9A0FFu, 13);   // nozzle glow
+        (*k->lightFn)(262.0, 135.0, 200.0, 0xFFB060FFu, 3.0, 180.0, 42.0);  // exhaust cone, pointing -x
     }, &ctx);
 
     renderer->shutdown();

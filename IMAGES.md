@@ -104,6 +104,27 @@ perdu. La cible **half-float** conserve l'information au-delà de 1 — et c'est
 utiliser pour : le **HDR / plage dynamique**, la préparation du bloom, « une décision de format prise
 pour une feature pas encore écrite », le coût d'une décision par défaut qu'on ne peut plus défaire.
 
+#### `blog/06_cone.png`
+**Lampe conique — un faisceau, pas un disque (2026-07-29).** *(Un cône de lumière chaude descend en
+diagonale depuis le haut-gauche, éclairant une bande du sol dallé et une caisse ; le reste de la
+scène reste dans la nuit bleutée, et le bord du faisceau se fond au lieu de trancher.)* Deux champs
+optionnels — `dirDeg` + `spreadDeg` — transforment le disque en faisceau. Le bord **fond** : une
+coupe angulaire nette se lirait comme une part de tarte en carton, exactement comme un falloff
+linéaire se lit comme un disque à bord dur. Le masque est un **produit scalaire** contre l'axe, donc
+ni `atan2` ni trigonométrie par pixel. À utiliser pour : les **projecteurs**, « la même raison
+revient à deux endroits » (rupture de dérivée), le choix d'une formulation qui rend un cas
+particulier gratuit (l'omni n'est même pas une branche).
+
+#### `blog/07_thruster.png`
+**Propulseur — l'émetteur et la lampe partagent les mêmes nombres (2026-07-29).** *(Une coque grise
+allongée vue de profil, une tuyère claire à sa gauche, et un cône orange qui s'ouvre vers la gauche
+en éclairant le sol et une caisse sur son passage.)* Le cas d'usage qui a **décidé la convention** :
+les degrés viennent de `grove::fx::Emitter` et non des radians `a0`/`a1` de `render:sector`, si bien
+qu'une flamme de propulseur et la lumière qu'elle projette prennent **les mêmes `dirDeg`/`spreadDeg`**.
+Le jeu écrit le cône une fois au lieu de convertir entre deux conventions. À utiliser pour : les
+**effets de propulsion**, « une convention se choisit sur l'usage, pas sur l'élégance », la
+cohérence entre deux sous-systèmes d'un même moteur.
+
 ---
 
 <!--
