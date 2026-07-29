@@ -1,6 +1,14 @@
 # Plan A — les milieux (absorption **et** diffusion)
 
-> **Statut** : 📋 plan, rien d'implémenté.
+> **Statut** : ✅ **A1 + A2 + A3 LIVRÉS le 2026-07-29.** Mesure de l'absorption : sonde à
+> L0=140 / L1=74 / L2=33 (rapports 0,53 puis 0,24 contre 0,5 et 0,25 prédits ; un absorbeur linéaire
+> donnerait 8). Mesure de la diffusion, sur fond **noir** : sans brouillard **0**, brouillard
+> absorbant seul **0**, brouillard diffusant **255**. Verrouillé par `TransmittanceUnit [fog]` +
+> `SceneCollectorTest [fog]` + `LightingGpu [fog]`/`[scatter]`. Suite complète 194/194.
+>
+> **Les trois plans sont clos.** Murs, filtres et milieux écrivent dans **une seule carte**, par
+> **une seule passe**, avec **un seul blend** — ce que le socle annonçait, vérifié trois fois sur
+> trois.
 > **⚠️ RÉÉCRIT le 2026-07-29.** La version précédente ne couvrait que l'**absorption** et posait la
 > diffusion hors périmètre. Le besoin réel — **des nébuleuses** — la rend obligatoire : une nébuleuse
 > se *voit*. L'absorption seule aurait donné un vide qui s'assombrit sans raison visible, c'est-à-dire
@@ -102,8 +110,32 @@ des couchers de soleil, et une nébuleuse teintée.
 | Tranche | Contenu | Preuve |
 |---|---|---|
 | **A1** | `render:fog` → carte de densité ; **absorption** seule | headless : oracle sur `exp(−α·d)` à trois distances. `[gpu]` : à **densité doublée**, la lumière restante est le **CARRÉ** de la précédente |
-| **A2** | **diffusion** : la cible additive + le terme au composite | `[gpu]` : une lampe dans un milieu éclaire **là où il n'y a aucune scène** — le test doit avoir un fond NOIR, sinon il ne prouve rien |
-| **A3** | mode retenu + absorption colorée | headless + `[gpu]` sur la divergence des canaux |
+| **A2** ✅ | **diffusion** : le terme additif au composite | ✅ livré. Sur fond noir : 0 / 0 / **255** |
+| **A3** ✅ | mode retenu + absorption colorée | ✅ livré. La couleur était déjà dans A1 ; A3 se réduit au mode retenu |
+
+### Ce que ce découpage annonçait et qui s'est révélé plus simple
+
+A2 prévoyait « **la cible additive** + le terme au composite ». **La cible n'a pas été nécessaire.**
+
+Le coefficient de diffusion tient dans le canal **alpha de la carte d'occultation**, qui ne servait à
+rien. Le blend étant multiplicatif, l'alpha accumule `Π(1 − scatter_i)` : des milieux superposés se
+composent comme des couvertures indépendantes, commutativement, et le composite récupère le total par
+`1 − alpha`. Les murs et les vitraux y écrivent 1 (ils ne diffusent pas) et l'effacement blanc laisse
+1 — **zéro diffusion sans une seule branche**, et le contournement à coût nul intact.
+
+Ni cible supplémentaire, ni passe supplémentaire : une lecture de texture de plus dans un composite
+qui en faisait déjà deux.
+
+### Et ce qui s'est révélé déjà fait
+
+A3 devait apporter « l'absorption colorée ». Elle était **déjà dans A1** : une fois
+`fogPerUnit(density, canal)` écrit, la couleur ne coûtait rien de plus. A3 se réduit au mode retenu.
+
+**Différence avec les filtres, et c'est une simplification** : la conversion d'un milieu **ne contient
+aucune géométrie** (α est par-unité par définition), donc redimensionner un volume ne peut pas changer
+en douce ce qu'il absorbe — le piège de F3 n'existe pas ici. Le registre stocke quand même les nombres
+de l'auteur, parce qu'un update partiel qui ne nomme que `color` doit re-dériver depuis la densité
+qu'il n'a pas redite.
 
 ### Pourquoi A1 teste un carré et pas « c'est plus sombre »
 

@@ -2634,3 +2634,103 @@ TEST_CASE("SceneCollector - fog: ephemeral, degenerate dropped, absent means NO 
     fx.collector.clear();
     REQUIRE(fx.collector.finalize(allocator).fogCount == 0);   // ephemeral
 }
+
+// ============================================================================
+// Lighting A3 — RETAINED media (render:fog:add / :update / :remove).
+//
+// A nebula does not move, so it belongs in retained mode for the same reason walls and stained glass
+// do. One difference from the filters, and it is a simplification rather than a trap: fog's
+// conversion has NO geometry in it (alpha is per-unit by definition), so resizing a volume cannot
+// silently change what it absorbs. The record still stores the author's numbers, because a partial
+// update that names only `color` still has to re-derive from the density it did not restate.
+// ============================================================================
+
+TEST_CASE("SceneCollector - fog retained: add PERSISTS, remove deletes",
+          "[scene_collector][light][fog][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 4);
+    a->setDouble("x", 12.0); a->setDouble("y", 24.0);
+    a->setDouble("w", 80.0); a->setDouble("h", 40.0);
+    a->setDouble("density", 0.15);
+    a->setDouble("scatter", 0.4);
+    fx.ioPublisher->publish("render:fog:add", std::move(a));
+    fx.pump();
+
+    for (int frame = 0; frame < 3; ++frame) {
+        fx.collector.clear();
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.fogCount == 1);
+        REQUIRE_THAT(p.fogs[0].x, WithinAbs(12.0f, 0.01f));
+        REQUIRE_THAT(p.fogs[0].scatter, WithinAbs(0.4f, 0.01f));
+    }
+
+    fx.collector.clear();
+    auto rm = std::make_unique<JsonDataNode>("f");
+    rm->setInt("renderId", 4);
+    fx.ioPublisher->publish("render:fog:remove", std::move(rm));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).fogCount == 0);
+}
+
+TEST_CASE("SceneCollector - fog retained: a partial update RE-DERIVES from what it did not restate",
+          "[scene_collector][light][fog][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 5);
+    a->setDouble("x", 0.0); a->setDouble("y", 0.0);
+    a->setDouble("w", 60.0); a->setDouble("h", 60.0);
+    a->setDouble("density", 0.1);
+    a->setInt("color", static_cast<int>(0xFF8080FFu));   // red-transmitting medium
+    fx.ioPublisher->publish("render:fog:add", std::move(a));
+    fx.pump();
+
+    FramePacket p0 = fx.collector.finalize(allocator);
+    REQUIRE(p0.fogCount == 1);
+    const float r0 = p0.fogs[0].r, g0 = p0.fogs[0].g;
+    REQUIRE(r0 > g0);          // the tint is in effect
+    fx.collector.clear();
+
+    // Thicken it, saying nothing about the colour. The colour must survive AND scale with the new
+    // density — storing only the converted value would freeze the old absorption in place.
+    auto u = std::make_unique<JsonDataNode>("f");
+    u->setInt("renderId", 5);
+    u->setDouble("density", 0.2);
+    fx.ioPublisher->publish("render:fog:update", std::move(u));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.fogCount == 1);
+    REQUIRE_THAT(p.fogs[0].w, WithinAbs(60.0f, 0.01f));   // extent kept
+    REQUIRE(p.fogs[0].r > p.fogs[0].g);                    // still red-transmitting
+
+    // Doubling the density squares what survives, per channel. That is the assertion that proves a
+    // re-derivation happened rather than a stale value being carried forward.
+    REQUIRE_THAT(p.fogs[0].r, Catch::Matchers::WithinRel(r0 * r0, 1e-3f));
+    REQUIRE_THAT(p.fogs[0].g, Catch::Matchers::WithinRel(g0 * g0, 1e-3f));
+}
+
+TEST_CASE("SceneCollector - fog retained and ephemeral COEXIST",
+          "[scene_collector][light][fog][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 6);
+    a->setDouble("w", 20.0); a->setDouble("h", 20.0); a->setDouble("density", 0.1);
+    fx.ioPublisher->publish("render:fog:add", std::move(a));
+    fx.pump();
+    fx.collector.clear();
+
+    auto e = std::make_unique<JsonDataNode>("f");
+    e->setDouble("x", 400.0); e->setDouble("w", 20.0); e->setDouble("h", 20.0); e->setDouble("density", 0.3);
+    fx.ioPublisher->publish("render:fog", std::move(e));
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).fogCount == 2);
+}

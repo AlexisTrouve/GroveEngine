@@ -499,6 +499,49 @@ light but not sight.
 ⚠️ **A filter is not an occluder.** It tints without being opaque. A window that must both tint *and*
 darken simply declares a dark tint — the model does not need both notions.
 
+##### Fog and nebulae — media that absorb along the way, and glow
+
+| Topic | Payload | Notes |
+|-------|---------|-------|
+| `render:fog` | `{x, y, w, h, density, color?, scatter?}` | absorbing volume, **ephemeral** |
+| `render:fog:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, density?, color?, scatter?}` | **retained** — for a nebula, which does not move |
+
+**`density` is the Beer-Lambert coefficient α, NOT an opacity.** It has no upper bound, and doubling
+the distance travelled through the volume doubles its effect *in the exponent* — so what survives is
+squared. This is the opposite convention to a filter's `color`, deliberately: a pane has a fixed
+thickness and can state a result, a cloud cannot. Start an order of magnitude lower than instinct
+suggests — combined with the `(1−d/r)²` falloff, absorption bites fast. `0.01`–`0.05` is a usable
+haze over a few hundred world units.
+
+**`color` (default white) makes the absorption selective**: `α_channel = density / colour_channel`, so
+a channel at half brightness extinguishes twice as fast. That is what gives sunsets — blue dies before
+red — and tinted nebulae. White is exactly neutral.
+
+**`scatter` (default 0) is what makes the medium VISIBLE.** Without it a medium only *darkens*, which
+in the void looks like a bug rather than an atmosphere. With it, the light crossing the volume is
+re-emitted towards the viewer:
+
+```
+final = scene × (ambient + light) + light × scatter
+```
+
+⚠️ **That term is ADDED, never multiplied by the scene** — and it is the reason a beam is visible in
+empty space at all. In the void `scene` is black, so `scene × light` is zero; a multiplicative
+scattering term would only ever put a halo on solid surfaces and leave the void dark, which is the
+exact opposite of a nebula.
+
+Absorption and scattering are separate on purpose: a medium may absorb a great deal while scattering
+little (black smoke) or the reverse (bright haze). Folding them into one number would delete half the
+expressible matter.
+
+⚠️ **Nothing attenuates the ambient.** The ambient term has no path — it is global by construction —
+so a very foggy but strongly ambient scene will not look foggy. Consistent with the model, and
+thoroughly confusing if you have not read this line.
+
+⚠️ **Overbright is easy to reach.** The scattered term is additive and unclamped (RGBA16F), so a dense
+medium under an intense lamp saturates. That is intended — it is what a bloom pass will feed on — but
+it means `scatter` near 1 with `intensity` above 2 will flatten to white.
+
 Filters and walls write into the same map, **multiplicatively**, so overlapping matter composes and
 the order it was published in does not matter. Two panes stacked give the product of their tints,
 either way round.
@@ -1723,6 +1766,8 @@ Two modes:
 | `render:occluder:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?}` | **Retained** occluder — the right form for static level geometry. `:update` merges, so a moving wall need not restate its extent. |
 | `render:filter` | `{x, y, w, h, color, opacity?}` | Rectangle that **tints** the light crossing it instead of blocking it, **ephemeral**. `x,y` = top-left CORNER. `color` = the tint after ONE perpendicular crossing of `min(w,h)`; its alpha byte is ignored (`opacity`, default 1, is the knob). Overlapping filters compose by product, in any order. A non-positive extent is dropped. |
 | `render:filter:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, color?, opacity?}` | **Retained** filter — for static stained glass. `:update` merges, and **re-derives the tint** if the pane is resized. |
+| `render:fog` | `{x, y, w, h, density, color?, scatter?}` | Absorbing (and optionally scattering) volume, **ephemeral**. `x,y` = top-left CORNER. `density` is the Beer-Lambert **α**, unbounded and per-unit — NOT an opacity. `color` (white = neutral) makes absorption selective. `scatter` (0..1, default 0) re-emits crossing light **additively**, which is what makes a beam visible in the void. |
+| `render:fog:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, density?, color?, scatter?}` | **Retained** medium — for a nebula. `:update` merges and re-derives. |
 
 See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
 `include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").

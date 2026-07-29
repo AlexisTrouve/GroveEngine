@@ -119,7 +119,21 @@ private:
     // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
     std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders
-    std::vector<FogCommand> m_fogs;         // ephemeral (retained media are A3)
+    std::vector<FogCommand> m_fogs;         // ephemeral
+
+    // RETAINED media, by renderId (A3). Stores the AUTHOR's numbers, not the converted ones, so that
+    // a partial update naming only `color` can still re-derive from the density it did not restate.
+    // (Unlike a filter, the conversion has no geometry in it — resizing a volume cannot change what
+    // it absorbs per unit — so this is about partial merges only.)
+    struct RetainedFog {
+        float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+        float density = 0.0f;
+        float tintR = 1.0f, tintG = 1.0f, tintB = 1.0f;
+        float scatter = 0.0f;
+    };
+    std::unordered_map<uint32_t, RetainedFog> m_retainedFogs;
+    static FogCommand buildFog(const RetainedFog& src);
+    static void readFogFields(const IDataNode& data, RetainedFog& out);
 
     // RETAINED filters, by renderId (F3). Same rationale as the retained occluders beside them: a
     // stained-glass window does not move.
@@ -163,6 +177,9 @@ private:
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);
     void parseFog(const IDataNode& data);
+    void parseFogAdd(const IDataNode& data);
+    void parseFogUpdate(const IDataNode& data);
+    void parseFogRemove(const IDataNode& data);
     void parseFilterAdd(const IDataNode& data);
     void parseFilterUpdate(const IDataNode& data);
     void parseFilterRemove(const IDataNode& data);

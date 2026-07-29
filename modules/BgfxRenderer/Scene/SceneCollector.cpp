@@ -187,6 +187,15 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:fog") {
             parseFog(*msg.data);
         }
+        else if (msg.topic == "render:fog:add") {
+            parseFogAdd(*msg.data);
+        }
+        else if (msg.topic == "render:fog:update") {
+            parseFogUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:fog:remove") {
+            parseFogRemove(*msg.data);
+        }
         else if (msg.topic == "render:occluder:remove") {
             parseOccluderRemove(*msg.data);
         }
@@ -456,17 +465,26 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
-    // Copy fog volumes (A1). Ephemeral only for now; same no-array-when-unused rule as the rest.
-    if (!m_fogs.empty()) {
-        FogCommand* fg = allocator.allocateArray<FogCommand>(m_fogs.size());
-        if (fg) {
-            std::memcpy(fg, m_fogs.data(), m_fogs.size() * sizeof(FogCommand));
-            packet.fogs = fg;
-            packet.fogCount = m_fogs.size();
+    // Copy fog volumes: RETAINED (a nebula, which does not move) then EPHEMERAL. Same
+    // no-array-when-unused rule as the rest; retained ones are derived here from the author's
+    // numbers so a partial update naming only one field stays coherent.
+    {
+        const size_t totalFogs = m_retainedFogs.size() + m_fogs.size();
+        if (totalFogs > 0) {
+            FogCommand* fg = allocator.allocateArray<FogCommand>(totalFogs);
+            if (fg) {
+                size_t idx = 0;
+                for (const auto& kv : m_retainedFogs) fg[idx++] = buildFog(kv.second);
+                if (!m_fogs.empty()) {
+                    std::memcpy(&fg[idx], m_fogs.data(), m_fogs.size() * sizeof(FogCommand));
+                }
+                packet.fogs = fg;
+                packet.fogCount = totalFogs;
+            }
+        } else {
+            packet.fogs = nullptr;
+            packet.fogCount = 0;
         }
-    } else {
-        packet.fogs = nullptr;
-        packet.fogCount = 0;
     }
 
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
@@ -1248,35 +1266,80 @@ void SceneCollector::parseFilter(const IDataNode& data) {
     m_filters.push_back(buildFilter(src));
 }
 
-void SceneCollector::parseFog(const IDataNode& data) {
+// Author's numbers -> the per-unit transmittance the packet carries. ONE implementation, shared by
+// the ephemeral and retained paths.
+FogCommand SceneCollector::buildFog(const RetainedFog& src) {
     FogCommand f;
-    // x,y = top-left CORNER, like every rect.
-    f.x = static_cast<float>(data.getDouble("x", 0.0));
-    f.y = static_cast<float>(data.getDouble("y", 0.0));
-    f.w = static_cast<float>(data.getDouble("w", 0.0));
-    f.h = static_cast<float>(data.getDouble("h", 0.0));
-    if (f.w <= 0.0f || f.h <= 0.0f) return;
+    f.x = src.x; f.y = src.y; f.w = src.w; f.h = src.h;
 
-    // `density` is the Beer-Lambert ALPHA, not an opacity in 0..1: it has no upper bound, and
-    // doubling the distance travelled doubles its effect in the exponent. Naming this field
-    // "opacity" would guarantee someone sets it to 1 believing they had saturated it.
-    const float density = static_cast<float>(data.getDouble("density", 0.0));
-    if (density <= 0.0f) return;   // a medium that absorbs nothing is vacuum: nothing to draw
+    // `density` is the Beer-Lambert ALPHA, and `color` makes the absorption SELECTIVE (a channel with
+    // a lower colour extinguishes faster) — sunsets and tinted nebulae. White is neutral.
+    f.r = grove::light::fogPerUnit(src.density, src.tintR);
+    f.g = grove::light::fogPerUnit(src.density, src.tintG);
+    f.b = grove::light::fogPerUnit(src.density, src.tintB);
+    f.scatter = src.scatter;
+    return f;
+}
 
-    // `color` makes the absorption SELECTIVE (a channel with a lower colour extinguishes faster) -
-    // sunsets and tinted nebulae. White is neutral, so a fog published without one is plain grey
-    // absorption.
-    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
-    f.r = grove::light::fogPerUnit(density, static_cast<float>((color >> 24) & 0xFF) / 255.0f);
-    f.g = grove::light::fogPerUnit(density, static_cast<float>((color >> 16) & 0xFF) / 255.0f);
-    f.b = grove::light::fogPerUnit(density, static_cast<float>((color >>  8) & 0xFF) / 255.0f);
+// Each field DEFAULTS TO ITS CURRENT VALUE, which is what makes a partial update partial.
+void SceneCollector::readFogFields(const IDataNode& data, RetainedFog& out) {
+    out.x = static_cast<float>(data.getDouble("x", static_cast<double>(out.x)));
+    out.y = static_cast<float>(data.getDouble("y", static_cast<double>(out.y)));
+    out.w = static_cast<float>(data.getDouble("w", static_cast<double>(out.w)));
+    out.h = static_cast<float>(data.getDouble("h", static_cast<double>(out.h)));
 
-    // `scatter` (A2, default 0) is what makes the medium VISIBLE rather than merely darkening. It is
-    // clamped to 0..1 because it is a fraction of the arriving light re-emitted towards the viewer,
-    // not a coefficient like `density` — the two are deliberately different kinds of number.
-    f.scatter = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("scatter", 0.0))));
+    // ⚠️ NOT called "opacity" on purpose: it is the Beer-Lambert alpha, it has no upper bound, and
+    // doubling the distance travelled doubles its effect in the exponent. The name "opacity" would
+    // guarantee someone sets it to 1 believing they had saturated it.
+    out.density = static_cast<float>(data.getDouble("density", static_cast<double>(out.density)));
 
-    m_fogs.push_back(f);
+    if (data.hasProperty("color")) {
+        const uint32_t c = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+        out.tintR = static_cast<float>((c >> 24) & 0xFF) / 255.0f;
+        out.tintG = static_cast<float>((c >> 16) & 0xFF) / 255.0f;
+        out.tintB = static_cast<float>((c >>  8) & 0xFF) / 255.0f;
+    }
+
+    // `scatter` (A2) is what makes the medium VISIBLE rather than merely darkening. Clamped to 0..1
+    // because it is a FRACTION of the arriving light re-emitted towards the viewer, not a coefficient
+    // like `density` — the two are deliberately different kinds of number.
+    out.scatter = std::min(1.0f, std::max(0.0f,
+        static_cast<float>(data.getDouble("scatter", static_cast<double>(out.scatter)))));
+}
+
+void SceneCollector::parseFog(const IDataNode& data) {
+    RetainedFog src;   // fresh: an ephemeral message states everything
+    readFogFields(data, src);
+    // No extent, or no density: either way there is nothing to absorb, and nothing worth a quad.
+    if (src.w <= 0.0f || src.h <= 0.0f || src.density <= 0.0f) return;
+    m_fogs.push_back(buildFog(src));
+}
+
+void SceneCollector::parseFogAdd(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;   // 0 = "no id": every unidentified volume would share one slot
+    RetainedFog src;
+    readFogFields(data, src);
+    if (src.w <= 0.0f || src.h <= 0.0f || src.density <= 0.0f) return;
+    m_retainedFogs[renderId] = src;
+}
+
+void SceneCollector::parseFogUpdate(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    auto it = m_retainedFogs.find(renderId);
+    if (it == m_retainedFogs.end()) return;   // updating something absent is a no-op, not an add
+
+    RetainedFog merged = it->second;
+    readFogFields(data, merged);
+    if (merged.w <= 0.0f || merged.h <= 0.0f || merged.density <= 0.0f) return;
+    it->second = merged;
+}
+
+void SceneCollector::parseFogRemove(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    m_retainedFogs.erase(renderId);
 }
 
 void SceneCollector::parseFilterAdd(const IDataNode& data) {
