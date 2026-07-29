@@ -3,6 +3,7 @@
 #include "../Core/UIWidget.h"
 #include "UIFrame.h"
 #include <grove/text/TextMetrics.h>
+#include <grove/text/TextEdit.h>
 #include <cstdint>
 #include <string>
 
@@ -99,12 +100,12 @@ public:
     // opération. L'ancre est le bord FIXE (celui posé au début du geste), le curseur le bord
     // mobile — c'est ce qui permet d'étendre dans les deux sens.
     // ------------------------------------------------------------------
-    bool hasSelection() const { return selectionAnchor != cursorPosition; }
-    int selectionStart() const { return selectionAnchor < cursorPosition ? selectionAnchor : cursorPosition; }
-    int selectionEnd()   const { return selectionAnchor < cursorPosition ? cursorPosition : selectionAnchor; }
+    bool hasSelection() const { return edit.hasSelection(); }
+    int selectionStart() const { return edit.selectionStart(); }
+    int selectionEnd()   const { return edit.selectionEnd(); }
 
     /** @brief Annule la sélection en laissant le curseur où il est. */
-    void clearSelection() { selectionAnchor = cursorPosition; }
+    void clearSelection() { edit.clearSelection(); }
 
     /** @brief Sélectionne tout le contenu (Ctrl+A). */
     void selectAll();
@@ -182,10 +183,25 @@ public:
      */
     float getCursorPixelOffset() const;
 
-    // Text input properties
-    std::string text;
+    // ------------------------------------------------------------------
+    // LE MODÈLE D'ÉDITION — source de vérité du contenu, du curseur et de la sélection.
+    //
+    // Le widget est une VUE : il dessine, écoute la souris et le clavier, applique ses politiques de
+    // présentation (filtre de saisie, mode mot de passe), et délègue TOUTE l'édition au modèle. C'est
+    // ce qui lui permet de partager mot pour mot sa logique avec UITextArea au lieu d'en tenir une
+    // seconde copie, condamnée à diverger.
+    //
+    // Les méthodes historiques (insertText, deleteCharBefore, moveCursor…) restent, en simples
+    // relais : l'API publique du widget ne bouge pas, donc rien de ce qui l'utilise n'a à changer.
+    // ------------------------------------------------------------------
+    text::EditModel edit;
+
+    /** @brief Contenu du champ. */
+    const std::string& text() const { return edit.text(); }
+    /** @brief Remplace le contenu (chargement JSON, binding, setState) ; curseur en fin. */
+    void setText(const std::string& value) { edit.setText(value); }
+
     std::string placeholder = "Enter text...";
-    int maxLength = 256;
     TextInputFilter filter = TextInputFilter::None;
     bool passwordMode = false;
     bool enabled = true;
@@ -200,8 +216,8 @@ public:
     // Current state
     TextInputState state = TextInputState::Normal;
     bool isFocused = false;
-    int cursorPosition = 0;        // Index in text string (OCTETS, toujours sur une frontière UTF-8)
-    int selectionAnchor = 0;       // Bord FIXE de la sélection ; == cursorPosition => pas de sélection
+    // Position du curseur : lecture seule ici, la vérité est dans `edit`.
+    int cursorPosition() const { return edit.cursor(); }
     bool draggingSelection = false;  // un appui a démarré un glisser-sélectionner dans ce champ
     float scrollOffset = 0.0f;     // Horizontal scroll for long text
 

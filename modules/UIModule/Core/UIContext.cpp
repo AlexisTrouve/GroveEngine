@@ -4,6 +4,7 @@
 #include "../Widgets/UISlider.h"
 #include "../Widgets/UICheckbox.h"
 #include "../Widgets/UITextInput.h"
+#include "../Widgets/UITextArea.h"
 #include "../Widgets/UIRadial.h"
 #include "../Widgets/UIWindow.h"
 #include "../Widgets/UITabs.h"
@@ -74,6 +75,14 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
     else if (type == "textinput") {
         UITextInput* textInput = static_cast<UITextInput*>(widget);
         if (textInput->containsPoint(x, y)) {
+            return widget;
+        }
+    }
+    else if (type == "textarea") {
+        // Absorbe le clic sur toute sa boîte : un clic dans la zone de texte ne doit jamais fuir vers
+        // ce qui se trouve derrière (§3.1 du handoff UI).
+        UITextArea* area = static_cast<UITextArea*>(widget);
+        if (area->containsPoint(x, y)) {
             return widget;
         }
     }
@@ -210,6 +219,14 @@ UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool
     else if (type == "textinput") {
         UITextInput* textInput = static_cast<UITextInput*>(target);
         handled = textInput->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
+
+        if (handled) {
+            return target;  // Return for focus handling in UIModule
+        }
+    }
+    else if (type == "textarea") {
+        UITextArea* area = static_cast<UITextArea*>(target);
+        handled = area->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
 
         if (handled) {
             return target;  // Return for focus handling in UIModule

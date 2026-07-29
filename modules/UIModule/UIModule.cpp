@@ -12,6 +12,7 @@
 #include "Widgets/UISlider.h"
 #include "Widgets/UICheckbox.h"
 #include "Widgets/UITextInput.h"
+#include "Widgets/UITextArea.h"
 #include "Widgets/UIScrollPanel.h"
 #include "Widgets/UILabel.h"
 #include "Widgets/UIRadial.h"
@@ -62,6 +63,10 @@ int sdlScancodeToEditKey(int scancode) {
         case 79: return 39;   // SDL_SCANCODE_RIGHT      -> flèche droite
         case 74: return 36;   // SDL_SCANCODE_HOME      -> Home
         case 77: return 35;   // SDL_SCANCODE_END       -> End
+        // Haut/Bas n'avaient aucun sens tant que la saisie etait monoligne ; le textarea les utilise
+        // pour changer de ligne en conservant la colonne.
+        case 82: return 38;   // SDL_SCANCODE_UP        -> fleche haut
+        case 81: return 40;   // SDL_SCANCODE_DOWN      -> fleche bas
         default: return 0;    // pas une touche d'édition
     }
 }
@@ -820,6 +825,28 @@ void UIModule::updateUI(float deltaTime) {
 
                 m_logger->info("TextInput '{}' gained focus", textInput->id);
             }
+            else if (widgetType == "textarea" && m_context->mousePressed) {
+                // Jumelle de la branche textinput : un clic prend le focus clavier. Les deux widgets
+                // partagent l'espace de focus, donc cliquer de l'un a l'autre transfere correctement.
+                UITextArea* area = static_cast<UITextArea*>(clickedWidget);
+
+                if (!m_context->focusedWidgetId.empty() && m_context->focusedWidgetId != area->id) {
+                    if (UIWidget* prev = m_root->findById(m_context->focusedWidgetId)) {
+                        if (prev->getType() == "textinput") static_cast<UITextInput*>(prev)->loseFocus();
+                        else if (prev->getType() == "textarea") static_cast<UITextArea*>(prev)->loseFocus();
+                    }
+                    auto lost = std::make_unique<JsonDataNode>("focus_lost");
+                    lost->setString("widgetId", m_context->focusedWidgetId);
+                    m_io->publish("ui:focus_lost", std::move(lost));
+                }
+
+                area->gainFocus();
+                m_context->setFocus(area->id);
+
+                auto gained = std::make_unique<JsonDataNode>("focus_gained");
+                gained->setString("widgetId", area->id);
+                m_io->publish("ui:focus_gained", std::move(gained));
+            }
             else if (widgetType == "button") {
                 // Publish action event if button has onClick
                 UIButton* btn = static_cast<UIButton*>(clickedWidget);
@@ -971,14 +998,22 @@ void UIModule::updateUI(float deltaTime) {
 
         if (!pasted.empty() && !m_context->focusedWidgetId.empty()) {
             if (UIWidget* w = m_root->findById(m_context->focusedWidgetId)) {
+                bool pastedOk = false;
+                std::string widgetId, newText;
                 if (w->getType() == "textinput") {
                     UITextInput* ti = static_cast<UITextInput*>(w);
-                    if (ti->insertFilteredText(pasted)) {
-                        auto ev = std::make_unique<JsonDataNode>("text_changed");
-                        ev->setString("widgetId", ti->id);
-                        ev->setString("text", ti->text);
-                        m_io->publish("ui:text_changed", std::move(ev));
-                    }
+                    pastedOk = ti->insertFilteredText(pasted);
+                    widgetId = ti->id; newText = ti->text();
+                } else if (w->getType() == "textarea") {
+                    UITextArea* ta = static_cast<UITextArea*>(w);
+                    pastedOk = ta->insertFilteredText(pasted);
+                    widgetId = ta->id; newText = ta->text();
+                }
+                if (pastedOk) {
+                    auto ev = std::make_unique<JsonDataNode>("text_changed");
+                    ev->setString("widgetId", widgetId);
+                    ev->setString("text", newText);
+                    m_io->publish("ui:text_changed", std::move(ev));
                 }
             }
         }
@@ -987,7 +1022,74 @@ void UIModule::updateUI(float deltaTime) {
     // Handle keyboard input for focused widget
     if (m_context->keyPressed && !m_context->focusedWidgetId.empty()) {
         if (UIWidget* focusedWidget = m_root->findById(m_context->focusedWidgetId)) {
-            if (focusedWidget->getType() == "textinput") {
+            // ---------------- ZONE DE TEXTE MULTILIGNE ----------------
+            // Meme routage que le champ monoligne ; deux differences de SEMANTIQUE :
+            //   - Entree insere un saut de ligne, donc la SOUMISSION passe a Ctrl+Entree ;
+            //   - le presse-papiers reutilise exactement le meme protocole (le service est generique).
+            if (focusedWidget->getType() == "textarea") {
+                UITextArea* area = static_cast<UITextArea*>(focusedWidget);
+
+                bool consumed = false;
+                if (m_context->keyCtrl) {
+                    const char shortcut = m_context->keyChar;
+                    if (shortcut == 'c' || shortcut == 'x') {
+                        const std::string sel = area->edit.selectedText();
+                        if (!sel.empty()) {
+                            auto d = std::make_unique<JsonDataNode>("clip");
+                            d->setString("text", sel);
+                            m_io->publish("input:clipboard:set", std::move(d));
+                            if (shortcut == 'x' && area->edit.deleteSelection()) {
+                                auto ev = std::make_unique<JsonDataNode>("text_changed");
+                                ev->setString("widgetId", area->id);
+                                ev->setString("text", area->text());
+                                m_io->publish("ui:text_changed", std::move(ev));
+                            }
+                        }
+                        consumed = true;
+                    } else if (shortcut == 'v') {
+                        m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
+                        consumed = true;
+                    }
+                }
+
+                // Ctrl+Entree = SOUMETTRE. Entree seule insere un saut de ligne (traite dans le widget).
+                if (!consumed && m_context->keyCtrl &&
+                    (m_context->keyCode == 13 || m_context->keyCode == 10)) {
+                    auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
+                    submitEvent->setString("widgetId", area->id);
+                    submitEvent->setString("text", area->text());
+                    m_io->publish("ui:text_submit", std::move(submitEvent));
+
+                    if (!area->onSubmit.empty()) {
+                        auto actionEvent = std::make_unique<JsonDataNode>("action");
+                        actionEvent->setString("action", area->onSubmit);
+                        actionEvent->setString("widgetId", area->id);
+                        actionEvent->setString("text", area->text());
+                        m_io->publish("ui:action", std::move(actionEvent));
+                    }
+                    consumed = true;
+                }
+
+                bool handled = false;
+                if (!consumed) {
+                    if (!m_context->keyText.empty()) {
+                        handled = area->insertFilteredText(m_context->keyText);
+                    } else {
+                        const uint32_t character =
+                            static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
+                        handled = area->onKeyInput(m_context->keyCode, character,
+                                                   m_context->keyCtrl, m_context->keyShift);
+                    }
+                }
+
+                if (handled) {
+                    auto ev = std::make_unique<JsonDataNode>("text_changed");
+                    ev->setString("widgetId", area->id);
+                    ev->setString("text", area->text());
+                    m_io->publish("ui:text_changed", std::move(ev));
+                }
+            }
+            else if (focusedWidget->getType() == "textinput") {
                 UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
 
                 // PRESSE-PAPIERS — traité ICI et non dans le widget, parce que c'est le module qui
@@ -1013,7 +1115,7 @@ void UIModule::updateUI(float deltaTime) {
                             if (shortcut == 'x' && textInput->deleteSelection()) {
                                 auto ev = std::make_unique<JsonDataNode>("text_changed");
                                 ev->setString("widgetId", textInput->id);
-                                ev->setString("text", textInput->text);
+                                ev->setString("text", textInput->text());
                                 m_io->publish("ui:text_changed", std::move(ev));
                             }
                         }
@@ -1050,14 +1152,14 @@ void UIModule::updateUI(float deltaTime) {
                     // Publish text_changed event
                     auto textChangedEvent = std::make_unique<JsonDataNode>("text_changed");
                     textChangedEvent->setString("widgetId", textInput->id);
-                    textChangedEvent->setString("text", textInput->text);
+                    textChangedEvent->setString("text", textInput->text());
                     m_io->publish("ui:text_changed", std::move(textChangedEvent));
 
                     // Check if Enter was pressed (submit)
                     if (m_context->keyCode == 13 || m_context->keyCode == 10) {
                         auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
                         submitEvent->setString("widgetId", textInput->id);
-                        submitEvent->setString("text", textInput->text);
+                        submitEvent->setString("text", textInput->text());
                         m_io->publish("ui:text_submit", std::move(submitEvent));
 
                         // Publish onSubmit action if specified
@@ -1065,11 +1167,11 @@ void UIModule::updateUI(float deltaTime) {
                             auto actionEvent = std::make_unique<JsonDataNode>("action");
                             actionEvent->setString("action", textInput->onSubmit);
                             actionEvent->setString("widgetId", textInput->id);
-                            actionEvent->setString("text", textInput->text);
+                            actionEvent->setString("text", textInput->text());
                             m_io->publish("ui:action", std::move(actionEvent));
                         }
 
-                        m_logger->info("TextInput '{}' submitted: '{}'", textInput->id, textInput->text);
+                        m_logger->info("TextInput '{}' submitted: '{}'", textInput->id, textInput->text());
                     }
                 }
             }

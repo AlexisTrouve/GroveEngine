@@ -179,9 +179,11 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 
 | 2026-07-29 | **T2** | ✅ Presse-papiers. `input:clipboard:set` (copier/couper) + `input:clipboard:get` → `input:clipboard:text` (coller, UNE frame de latence assumée). Implémenté des DEUX côtés : UIModule (raccourcis, insertion) et InputModule (le vrai `SDL_SetClipboardText`/`GetClipboardText`). `IT_064` (8 cas) vu ROUGE avant ; aller-retour sur le VRAI presse-papiers système verrouillé par `InputModuleStatic [clipboard]` |
 
-**T0 + T1 + T2 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
+| 2026-07-29 | **T3** | ✅ **Multiligne.** (a) `grove::text::EditModel` extrait, pur — `TextEditUnit` 21 cas / 107 assertions, vérifié adversarialement. (b) `UITextInput` MIGRÉ dessus : les 63 tests de saisie existants restent verts, donc le modèle est éprouvé AVANT que la seconde vue s'y appuie. (c) `UITextArea` — widget séparé, pool d'entrées borné par la HAUTEUR (pas par le nombre de lignes), Entrée insère / **Ctrl+Entrée soumet**, Début/Fin sur la LIGNE, Haut/Bas conservent la colonne. `IT_065` (9 cas), mordant vérifié |
+
+**T0 + T1 + T2 + T3 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
 inclus). Régression : 65/65 verts (UI + Radial + InputUI + Text + Render + Scene + Selection, tests
-GPU inclus) ; **suite COMPLÈTE 198/198** sur un build propre. Reste T3 (multiligne) — sur ordre.
+GPU inclus) ; **suite COMPLÈTE 200/200** sur un build propre. **Le chantier est terminé.**
 
 ### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
 
@@ -241,3 +243,22 @@ cmake -B build -G Ninja   -DFETCHCONTENT_SOURCE_DIR_BGFX=<repo>/build/_deps/bgfx
 ```
 
 On garde la configuration rapide (aucun téléchargement) sans partager le moindre artefact.
+
+### Arbitrages du §4, tranchés
+
+1. **Widget séparé** (`UITextArea`) au-dessus d'un `EditModel` partagé — retenu. Ce qui a rendu le
+   découpage gratuit plutôt que duplicant, c'est l'ORDRE : extraire le modèle, y **migrer d'abord le
+   champ monoligne** (les 63 tests existants valident le modèle), et seulement ensuite construire la
+   seconde vue. L'inverse aurait bâti le textarea sur du code jamais éprouvé.
+2. **Ctrl+Entrée soumet** dans la zone de texte ; Entrée y insère un saut de ligne. Le champ
+   monoligne ne bouge pas — verrouillé par un garde-fou explicite dans `IT_065`, parce qu'une
+   régression là casserait tous les formulaires existants.
+
+### Hors périmètre, assumé et documenté (pas des oublis)
+
+- **Pas de retour à la ligne automatique** dans `UITextArea` : une ligne est un run entre deux `
+`.
+  Le wrap est une question de largeur, donc de police, donc de re-mesure par ligne à chaque
+  redimensionnement — un chantier à part entière.
+- **Pas de défilement horizontal** : une ligne plus large que la boîte est coupée par le clip.
+- Le filtre de saisie et le mode mot de passe restent des politiques de VUE, hors du modèle.

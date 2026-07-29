@@ -29,8 +29,9 @@ void UITextInput::update(UIContext& ctx, float deltaTime) {
     if (draggingSelection) {
         if (ctx.mouseDown) {
             const int idx = indexAtScreenX(ctx.mouseX);
-            if (idx != cursorPosition) {
-                setCursorPosition(idx);   // l'ancre ne bouge pas : la sélection s'étend
+            if (idx != cursorPosition()) {
+                edit.setCursor(idx, /*extend=*/true);   // l'ancre ne bouge pas : la sélection s'étend
+                updateScrollOffset();
                 cursorBlinkTimer = 0.0f;
                 cursorVisible = true;
             }
@@ -137,7 +138,7 @@ void UITextInput::render(UIRenderer& renderer) {
     float textY = absY + height * 0.5f;
 
     // Render text or placeholder
-    bool showPlaceholder = text.empty() && !placeholder.empty() && !isFocused;
+    bool showPlaceholder = text().empty() && !placeholder.empty() && !isFocused;
 
     if (showPlaceholder) {
         // Show placeholder, hide text and cursor.
@@ -214,29 +215,13 @@ int UITextInput::indexAtScreenX(float screenX) const {
     return std::clamp(approx, 0, static_cast<int>(shown.size()));
 }
 
-void UITextInput::selectAll() {
-    selectionAnchor = 0;
-    setCursorPosition(static_cast<int>(text.length()));
-}
+void UITextInput::selectAll() { edit.selectAll(); }
 
-std::string UITextInput::selectedText() const {
-    if (!hasSelection()) return "";
-    const int from = selectionStart();
-    return text.substr(static_cast<size_t>(from), static_cast<size_t>(selectionEnd() - from));
-}
+std::string UITextInput::selectedText() const { return edit.selectedText(); }
 
 bool UITextInput::deleteSelection() {
-    // Point de passage UNIQUE de toute suppression d'intervalle (frappe sur sélection, Backspace,
-    // Suppr, Couper). Les bornes viennent de selectionStart/End, donc l'ordre dans lequel
-    // l'utilisateur a sélectionné n'a pas d'importance, et le curseur atterrit toujours au début de
-    // l'intervalle supprimé — la convention partout ailleurs.
-    if (!hasSelection()) return false;
-
-    const int from = selectionStart();
-    const int to = selectionEnd();
-    text.erase(static_cast<size_t>(from), static_cast<size_t>(to - from));
-    cursorPosition = from;
-    selectionAnchor = from;
+    // Relais vers le modèle ; seul le défilement reste une affaire de vue.
+    if (!edit.deleteSelection()) return false;
     updateScrollOffset();
     return true;
 }
@@ -276,10 +261,10 @@ bool UITextInput::onMouseButton(int button, bool pressed, float x, float y) {
                 // donc pas couper un accent en deux.
                 const std::string shown = getDisplayText();
                 const text::WordRange w =
-                    text::wordBoundsAt(shown, static_cast<size_t>(cursorPosition));
+                    text::wordBoundsAt(shown, static_cast<size_t>(cursorPosition()));
                 if (!w.empty()) {
-                    selectionAnchor = static_cast<int>(w.start);
-                    setCursorPosition(static_cast<int>(w.end));
+                    edit.selectWordAt(cursorPosition());
+                    updateScrollOffset();
                 }
                 draggingSelection = false;  // un double-clic ne s'étend pas au glisser
             } else {
@@ -287,7 +272,7 @@ bool UITextInput::onMouseButton(int button, bool pressed, float x, float y) {
                 // update() déplacera le curseur, donc l'intervalle balayé devient la sélection. Un
                 // clic net (appui + relâchement sans bouger) laisse ancre == curseur, c'est-à-dire
                 // AUCUNE sélection — pas de cas particulier à écrire pour ça.
-                selectionAnchor = cursorPosition;
+                edit.clearSelection();   // un clic net ne sélectionne rien : l'ancre suit le curseur
                 draggingSelection = true;
             }
 
@@ -307,41 +292,21 @@ bool UITextInput::onKeyInput(int keyCode, uint32_t character, bool ctrl, bool sh
     cursorBlinkTimer = 0.0f;
     cursorVisible = true;
 
-    // QUOI : déplacement du curseur, avec ou sans extension de sélection.
-    // POURQUOI : c'est LA règle qui distingue une flèche nue d'une flèche avec Maj, et elle est la
-    //   même pour les quatre touches de navigation — la factoriser évite qu'elles divergent.
-    // COMMENT : avec Maj, on bouge le curseur en laissant l'ancre où elle est (la sélection
-    //   s'étend). Sans Maj sur une sélection existante, la première pression se contente de la
-    //   REPLIER sur le bord correspondant, sans déplacer d'un caractère de plus — convention
-    //   universelle : la flèche « sort » de la sélection, elle ne saute pas par-dessus.
-    auto navigate = [&](int direction, bool absolute, int absoluteTarget) {
-        if (!shift && hasSelection()) {
-            // Repli sur le bord visé. Pour Début/Fin (absolute), la destination prime.
-            const int collapsed = absolute ? absoluteTarget
-                                           : (direction < 0 ? selectionStart() : selectionEnd());
-            cursorPosition = collapsed;
-            clearSelection();
-            setCursorPosition(collapsed);
-            return;
-        }
-        if (absolute) {
-            setCursorPosition(absoluteTarget);
-        } else {
-            moveCursor(direction);
-        }
-        if (!shift) clearSelection();  // une flèche nue annule toujours la sélection
-    };
+    // La règle « flèche nue vs flèche avec Maj » vit maintenant DANS le modèle
+    // (EditModel::moveCursor / setCursor avec `extend`) : avec Maj le curseur bouge et l'ancre reste,
+    // sans Maj sur une sélection existante la première pression se contente de la REPLIER sur le bord
+    // visé. La factoriser là-bas est ce qui garantit que le futur textarea se comportera pareil.
+    // Ici ne reste que le défilement horizontal, qui est une affaire de vue.
 
     // Handle special keys
     // Key codes (SDL-like): Backspace=8, Delete=127, Enter=13, Left=37, Right=39, Home=36, End=35
 
-    if (keyCode == 8) {  // Backspace
-        // Sur une sélection, Backspace efface l'INTERVALLE, pas un caractère de plus.
-        if (!deleteSelection()) deleteCharBefore();
+    if (keyCode == 8) {  // Backspace — sur une sélection, efface l'INTERVALLE (géré par le modèle)
+        deleteCharBefore();
         return true;
     }
     else if (keyCode == 127) {  // Delete
-        if (!deleteSelection()) deleteCharAfter();
+        deleteCharAfter();
         return true;
     }
     else if (keyCode == 13 || keyCode == 10) {  // Enter/Return
@@ -349,19 +314,23 @@ bool UITextInput::onKeyInput(int keyCode, uint32_t character, bool ctrl, bool sh
         return true;
     }
     else if (keyCode == 37) {  // Left arrow
-        navigate(-1, false, 0);
+        edit.moveCursor(-1, shift);
+        updateScrollOffset();
         return true;
     }
     else if (keyCode == 39) {  // Right arrow
-        navigate(1, false, 0);
+        edit.moveCursor(1, shift);
+        updateScrollOffset();
         return true;
     }
-    else if (keyCode == 36) {  // Home
-        navigate(-1, true, 0);
+    else if (keyCode == 36) {  // Home — champ MONOLIGNE : début de ligne == début du texte
+        edit.moveToTextStart(shift);
+        updateScrollOffset();
         return true;
     }
     else if (keyCode == 35) {  // End
-        navigate(1, true, static_cast<int>(text.length()));
+        edit.moveToTextEnd(shift);
+        updateScrollOffset();
         return true;
     }
     else if (ctrl && character == 'a') {
@@ -400,115 +369,52 @@ void UITextInput::loseFocus() {
 }
 
 void UITextInput::insertText(const std::string& str) {
-    // Taper avec une sélection la REMPLACE — le comportement attendu partout. On supprime AVANT de
-    // vérifier maxLength, sinon remplacer une sélection dans un champ déjà plein serait refusé alors
-    // que l'opération réduit ou n'augmente pas la longueur.
-    deleteSelection();
-
-    if (text.length() + str.length() > static_cast<size_t>(maxLength)) {
-        return;  // Would exceed max length
-    }
-
-    text.insert(cursorPosition, str);
-    cursorPosition += static_cast<int>(str.length());
-    clearSelection();  // après une insertion, plus rien n'est sélectionné
+    edit.insert(str);
     updateScrollOffset();
 }
 
 bool UITextInput::insertFilteredText(const std::string& str) {
-    // QUOI : insère une chaîne entière (commit IME / coller / UTF-8 multi-octets).
-    // POURQUOI : le chemin input:keyboard:text peut porter plusieurs caractères ; l'ancien
-    //   code n'en prenait qu'un (cf. #5/C2). insertText() gère déjà maxLength + curseur +
-    //   scroll, on le réutilise.
-    // COMMENT : filtre None → on insère tout d'un bloc ; filtre restrictif → on ne garde
-    //   que les caractères imprimables qui passent (ASCII ; le filtrage par codepoint
-    //   Unicode reste un follow-up). NB : on n'insère QUE si tout (ou le sous-ensemble
-    //   gardé) tient sous maxLength — insertText est tout-ou-rien pour le lot.
+    // QUOI : insère une chaîne entière (commit IME / coller / UTF-8 multi-octets) en respectant le
+    //   FILTRE du champ.
+    // POURQUOI le filtre reste ici et non dans le modèle : « ce champ n'accepte que des chiffres »
+    //   est une politique de présentation, propre à ce widget ; le modèle, lui, édite du texte. Un
+    //   textarea ou une console de debug n'en veulent pas.
+    // COMMENT : filtre None → on passe tout d'un bloc au modèle ; filtre restrictif → on ne garde que
+    //   les caractères imprimables qui passent (ASCII ; le filtrage par codepoint Unicode reste un
+    //   follow-up). Le modèle décide ensuite du remplacement de sélection et de maxLength.
     if (str.empty()) return false;
 
-    // QUOI : « quelque chose a-t-il changé ? » se décide en comparant le TEXTE, pas sa longueur.
-    // POURQUOI : la version d'origine comparait `text.length()` — un proxy qui marchait tant que le
-    //   seul cas était « insérer dans un champ », où la longueur augmente forcément. Depuis que la
-    //   frappe REMPLACE une sélection, remplacer « abc » par « ZZZ » laisse la longueur identique :
-    //   la fonction rendait false, donc l'appelant n'émettait pas ui:text_changed et le jeu ne voyait
-    //   JAMAIS le collage. Le champ était correct, l'événement manquait — le pire des deux mondes.
-    const std::string before = text;
-
+    std::string toInsert;
     if (filter == TextInputFilter::None) {
-        insertText(str);
-        return text != before;
-    }
-
-    std::string kept;
-    for (char c : str) {
-        uint32_t ch = static_cast<unsigned char>(c);
-        if (ch >= 32 && passesFilter(ch)) {
-            kept += c;
+        toInsert = str;
+    } else {
+        for (char c : str) {
+            const uint32_t ch = static_cast<unsigned char>(c);
+            if (ch >= 32 && passesFilter(ch)) toInsert += c;
         }
+        if (toInsert.empty()) return false;
     }
-    if (kept.empty()) return false;
 
-    insertText(kept);
-    return text != before;  // même raison que ci-dessus : comparer le texte, pas sa longueur
+    const bool changed = edit.insert(toInsert);
+    updateScrollOffset();
+    return changed;
 }
 
 void UITextInput::deleteCharBefore() {
-    // QUOI : Backspace — retire le CARACTÈRE avant le curseur.
-    // POURQUOI : l'ancienne version faisait `text.erase(cursorPosition - 1, 1)`, soit UN OCTET. Sur
-    //   "é" (0xC3 0xA9, deux octets) elle laissait une demi-séquence UTF-8 invalide dans le champ —
-    //   un bug de tous les jours en français, et publié tel quel au jeu via ui:text_changed.
-    // COMMENT : prevIndex recule jusqu'à la frontière de codepoint précédente (en enjambant les
-    //   octets de continuation), et on efface tout l'intervalle. En ASCII c'est exactement un octet,
-    //   donc le comportement existant est inchangé.
-    if (cursorPosition > 0) {
-        const size_t cur = static_cast<size_t>(cursorPosition);
-        const size_t prev = text::Metrics::prevIndex(text, cur);
-        text.erase(prev, cur - prev);
-        cursorPosition = static_cast<int>(prev);
-        // L'ancre DOIT suivre : déplacer le curseur en la laissant derrière fabriquerait une
-        // sélection fantôme que rien n'a demandée, et la flèche suivante se contenterait de la
-        // replier au lieu de bouger. (Attrapé par le garde-fou ASCII d'IT_062 : "A" + Gauche + "Z"
-        // rendait "AZ" au lieu de "ZA".) Toute mutation du texte doit rétablir l'invariant.
-        clearSelection();
-        updateScrollOffset();
-    }
+    if (edit.deleteBefore()) updateScrollOffset();
 }
 
 void UITextInput::deleteCharAfter() {
-    // Pendant de deleteCharBefore pour la touche Suppr : même défaut d'un octet, même correctif.
-    // Le curseur ne bouge pas — c'est le caractère À DROITE qui disparaît.
-    if (cursorPosition < static_cast<int>(text.length())) {
-        const size_t cur = static_cast<size_t>(cursorPosition);
-        const size_t next = text::Metrics::nextIndex(text, cur);
-        text.erase(cur, next - cur);
-        clearSelection();  // même invariant que deleteCharBefore : pas d'ancre orpheline
-        updateScrollOffset();
-    }
+    if (edit.deleteAfter()) updateScrollOffset();
 }
 
 void UITextInput::moveCursor(int offset) {
-    // QUOI : déplace le curseur de `offset` CARACTÈRES (pas d'octets).
-    // POURQUOI : `cursorPosition + offset` sautait d'un octet, donc une flèche pouvait déposer le
-    //   curseur ENTRE les deux octets d'un accent ; la frappe suivante s'insérait au milieu du
-    //   codepoint et corrompait la chaîne (prouvé par IT_062 : "aé" + Left + "X" → "a<C3>X<A9>").
-    // COMMENT : on applique |offset| pas atomiques ; chaque pas enjambe un codepoint entier. Les pas
-    //   saturent aux extrémités, donc une valeur d'offset excessive est inoffensive.
-    size_t pos = static_cast<size_t>(std::clamp(cursorPosition, 0, static_cast<int>(text.length())));
-    for (int i = 0; i < offset; ++i)  pos = text::Metrics::nextIndex(text, pos);
-    for (int i = 0; i > offset; --i)  pos = text::Metrics::prevIndex(text, pos);
-    setCursorPosition(static_cast<int>(pos));
+    edit.moveCursor(offset);
+    updateScrollOffset();
 }
 
 void UITextInput::setCursorPosition(int pos) {
-    // Entonnoir unique de toute position de curseur : on borne, PUIS on recolle sur une frontière de
-    // codepoint. Un appelant qui calcule une position en octets (clic, restauration d'état) ne peut
-    // donc pas laisser le curseur au milieu d'un caractère — l'invariant est tenu ici, une fois.
-    const int clamped = std::clamp(pos, 0, static_cast<int>(text.length()));
-    size_t snapped = static_cast<size_t>(clamped);
-    if (snapped < text.size() && isUtf8Continuation(text[snapped])) {
-        snapped = text::Metrics::prevIndex(text, snapped);
-    }
-    cursorPosition = static_cast<int>(snapped);
+    edit.setCursor(pos);
     updateScrollOffset();
 }
 
@@ -538,7 +444,7 @@ float UITextInput::getCursorPixelOffset() const {
     //   d'un champ de mot de passe suivrait le texte clair.
     //   Table absente/vide (pas de renderer, tests headless) => repli monospace strictement identique
     //   à l'ancien comportement.
-    return measureTextTo(getDisplayText(), cursorPosition);
+    return measureTextTo(getDisplayText(), cursorPosition());
 }
 
 const TextInputStyle& UITextInput::getCurrentStyle() const {
@@ -576,11 +482,11 @@ bool UITextInput::passesFilter(uint32_t ch) const {
 }
 
 std::string UITextInput::getDisplayText() const {
-    if (passwordMode && !text.empty()) {
+    if (passwordMode && !text().empty()) {
         // Mask all characters
-        return std::string(text.length(), '*');
+        return std::string(text().length(), '*');
     }
-    return text;
+    return text();
 }
 
 void UITextInput::updateScrollOffset() {

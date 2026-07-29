@@ -44,6 +44,8 @@ constexpr int kScanA         = 4;   // SDL_SCANCODE_A
 constexpr int kScanC         = 6;   // SDL_SCANCODE_C
 constexpr int kScanV         = 25;  // SDL_SCANCODE_V
 constexpr int kScanX         = 27;  // SDL_SCANCODE_X
+constexpr int kScanUp        = 82;  // SDL_SCANCODE_UP
+constexpr int kScanDown      = 81;  // SDL_SCANCODE_DOWN
 
 // "é" = U+00E9 = 0xC3 0xA9 en UTF-8. Deux octets, UN caractère. Écrit en octets explicites pour ne
 // dépendre ni de l'encodage du fichier source ni des options du compilateur.
@@ -53,6 +55,12 @@ inline const std::string kEAigu = "\xC3\xA9";
 constexpr double kFieldX = 100.0, kFieldY = 100.0;
 constexpr double kFieldCenterX = 250.0, kFieldCenterY = 120.0;
 constexpr double kTextOriginX = 108.0;  // kFieldX + PADDING(8)
+
+// Variante multiligne : meme harnais, autre fixture. La zone de texte est en (100,100), 300x120,
+// fontSize 16 / lineHeight 20 -> le texte commence a (108, 108) et chaque ligne fait 20px.
+constexpr double kAreaX = 100.0, kAreaY = 100.0;
+constexpr double kAreaTextOriginX = 108.0, kAreaTextOriginY = 108.0;
+constexpr double kAreaLineHeight = 20.0;
 
 struct TextInputHarness {
     std::shared_ptr<IntraIO> inputPub;
@@ -64,7 +72,9 @@ struct TextInputHarness {
     std::string lastText;
     int textChanges = 0;
 
-    explicit TextInputHarness(const std::string& suffix) {
+    // `layout` permet de monter une autre fixture (la zone de texte multiligne) avec le meme harnais.
+    explicit TextInputHarness(const std::string& suffix,
+                              const std::string& layout = "../../assets/ui/test_e2e_textinput.json") {
         auto& mgr = IntraIOManager::getInstance();
         inputPub = mgr.createInstance("input_publisher_" + suffix);
         uiIO     = mgr.createInstance("ui_module_" + suffix);
@@ -80,7 +90,7 @@ struct TextInputHarness {
         JsonDataNode cfg("config");
         cfg.setInt("windowWidth", 800);
         cfg.setInt("windowHeight", 600);
-        cfg.setString("layoutFile", "../../assets/ui/test_e2e_textinput.json");
+        cfg.setString("layoutFile", layout);
         cfg.setInt("baseLayer", 1000);
         REQUIRE_NOTHROW(module->setConfiguration(cfg, uiIO.get(), nullptr));
 

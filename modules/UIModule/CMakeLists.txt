@@ -30,6 +30,7 @@ add_library(UIModule SHARED
     Widgets/UICheckbox.cpp
     Widgets/UIProgressBar.cpp
     Widgets/UITextInput.cpp
+    Widgets/UITextArea.cpp
     Widgets/UIScrollPanel.cpp
     Widgets/UIRadial.cpp
     Widgets/UIWindow.cpp
@@ -105,6 +106,7 @@ add_library(UIModule_static STATIC
     Widgets/UICheckbox.cpp
     Widgets/UIProgressBar.cpp
     Widgets/UITextInput.cpp
+    Widgets/UITextArea.cpp
     Widgets/UIScrollPanel.cpp
     Widgets/UIRadial.cpp
     Widgets/UIWindow.cpp

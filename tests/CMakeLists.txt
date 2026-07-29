@@ -2972,6 +2972,16 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITextInputClipboardE2E IT_064_ui_textinput_clipboard_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_065: MULTILINE text area (T3). A separate widget over the shared grove::text::EditModel,
+    # NOT a `multiline: true` flag — a boolean would have branched every method (render, click,
+    # navigation, scrolling). The test targets where the SEMANTICS differ from the single-line field
+    # (Enter inserts / Ctrl+Enter submits, Home/End act on the LINE, Up/Down keep the column), since
+    # everything else is already proven on the shared model by TextEditUnit.
+    add_executable(IT_065_ui_textarea_e2e integration/IT_065_ui_textarea_e2e.cpp)
+    target_link_libraries(IT_065_ui_textarea_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextAreaE2E IT_065_ui_textarea_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)
