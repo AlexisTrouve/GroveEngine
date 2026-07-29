@@ -30,8 +30,16 @@ BgfxRenderer/
 │   └── RenderGraph.h/.cpp      # Gestion des passes
 ├── Passes/
 │   ├── ClearPass.h/.cpp        # Clear framebuffer
+│   ├── TilemapPass.h/.cpp      # Chunks de tuiles + LOD
 │   ├── SpritePass.h/.cpp       # Sprites + batching
-│   └── DebugPass.h/.cpp        # Debug lines/shapes
+│   ├── TextPass.h/.cpp         # Glyphes (bitmap 8x8 ou TTF)
+│   ├── ParticlePass.h/.cpp     # Particules additives
+│   ├── SectorPass.h/.cpp       # Secteurs angulaires (jauges, menus radiaux)
+│   ├── DebugPass.h/.cpp        # Debug lines/shapes
+│   ├── OcclusionPass.h/.cpp    # Matiere rectangulaire -> carte de transmittance
+│   ├── NebulaPass.h/.cpp       # Milieux radiaux -> la meme carte
+│   ├── LightPass.h/.cpp        # Lampes, accumulees additivement
+│   └── CompositePass.h/.cpp    # scene x (ambiant + lumiere) + diffuse
 ├── Scene/
 │   └── SceneCollector.h/.cpp   # Collecte depuis IIO
 └── Resources/
@@ -176,6 +184,65 @@ rect->setBool("filled", false);
 io->publish("render:debug:rect", std::move(rect));
 ```
 
+### Éclairage 2D
+
+Le monde part dans une cible hors-écran, les lampes s'accumulent dans une seconde, et un quad plein
+écran compose. **Rien n'est éclairé tant que `render:ambient` n'a pas été publié** : sans lui, aucune
+cible n'est créée et la sortie est identique à l'octet près à un build sans éclairage.
+
+```cpp
+// 1. L'ambiant ALLUME le système. Un ambiant blanc ne change rien à la scène
+//    et laisse les lampes seulement l'éclaircir — pas besoin d'un jeu sombre.
+auto amb = std::make_unique<JsonDataNode>("a");
+amb->setInt("color", 0x202838FF);            // nuit bleue
+io->publish("render:ambient", std::move(amb));
+
+// 2. Une lampe. ÉPHÉMÈRE : à republier chaque frame. cx,cy = CENTRE.
+auto l = std::make_unique<JsonDataNode>("l");
+l->setDouble("cx", 320.0); l->setDouble("cy", 180.0);
+l->setDouble("radius", 140.0);               // unités MONDE
+l->setInt("color", 0xFFC070FF);
+l->setDouble("intensity", 1.6);              // peut dépasser 1 (cible RGBA16F)
+// l->setDouble("dirDeg", 30.0); l->setDouble("spreadDeg", 55.0);  // -> cône
+io->publish("render:light", std::move(l));
+
+// 3. Un mur. RETENU, parce qu'un mur ne bouge pas — l'inverse du conseil sur les lampes.
+auto o = std::make_unique<JsonDataNode>("o");
+o->setInt("renderId", 1);
+o->setDouble("x", 400.0); o->setDouble("y", 0.0);   // x,y = COIN haut-gauche
+o->setDouble("w", 24.0);  o->setDouble("h", 360.0);
+io->publish("render:occluder:add", std::move(o));
+```
+
+**Une seule carte, un seul blend.** Murs, vitraux et milieux écrivent tous une *transmittance par
+unité de longueur* dans la même carte d'occultation, que le shader de lampe parcourt. Le blend étant
+multiplicatif, des matières superposées se composent **dans n'importe quel ordre** — aucun tri de
+profondeur nulle part.
+
+| Matière | Ce qu'elle écrit | Effet |
+|---|---|---|
+| **Mur** (`render:occluder`) | `0` | ombre portée : un zéro annule le produit, tout ce qui suit s'éteint |
+| **Vitrail** (`render:filter`) | une **couleur** | la lumière passe, teintée |
+| **Brouillard** (`render:fog`) | `exp(−α)` | absorbe d'autant plus qu'on traverse loin |
+| **Nébuleuse** (`render:nebula`) | idem, mais **densité radiale** | un nuage, sans bord géométrique |
+
+⚠️ **Pièges qui coûtent du temps**
+
+- **`density` n'est pas une opacité** : c'est le coefficient α de Beer-Lambert, sans borne haute et
+  *par unité de longueur*. Partir de **`0.02`**, pas de `0.9` — sur un rayon de 150, `0.9` donne
+  `exp(−135)`, un disque noir.
+- **Une matière plus fine que ~3 pixels ÉCRAN peut être enjambée** par la marche : un mur très mince
+  lâche quand on **dézoome**, pas quand la lampe grossit. Rien n'oblige le rect occulteur à coïncider
+  avec le sprite qui le dessine.
+- **Rien n'atténue l'ambiant** (il n'a pas de trajet) : une scène très brumeuse mais fortement
+  ambiante ne paraîtra pas brumeuse.
+- **Les occulteurs bloquent la LUMIÈRE, pas la VUE.** La visibilité est un système de gameplay.
+- **Empiler des `render:fog` ne fait pas un nuage** — ça donne des contours rectangulaires
+  concentriques. Empiler des `render:nebula`, si.
+
+Conception : [`docs/design/lighting-2d.md`](../../docs/design/lighting-2d.md) (point d'entrée).
+Guide consommateur détaillé : [DEVELOPER_GUIDE](../../docs/DEVELOPER_GUIDE.md).
+
 ### Topics complets
 
 | Topic | Description |
@@ -195,6 +262,12 @@ io->publish("render:debug:rect", std::move(rect));
 | `render:clear` | Clear color |
 | `render:debug:line` | Ligne de debug |
 | `render:debug:rect` | Rectangle de debug |
+| `render:ambient` | `{color}` — **allume l'éclairage**. Absent ou 0 = système entièrement contourné, sortie identique à un build sans éclairage |
+| `render:light` | `{cx,cy,radius,color,intensity?,dirDeg?,spreadDeg?}` — lampe **éphémère**, `cx,cy` = CENTRE, `radius` en unités monde. `dirDeg`/`spreadDeg` (défaut 360 = omni) la transforment en cône |
+| `render:occluder` | `{x,y,w,h}` — mur opaque **éphémère**, `x,y` = COIN. `+ :add`/`:update`/`:remove` **retenus** (la bonne forme pour du décor) |
+| `render:filter` | `{x,y,w,h,color,opacity?}` — vitrail **éphémère**, `x,y` = COIN. `color` = la teinte après UNE traversée perpendiculaire de l'axe mince. `+ :add`/`:update`/`:remove` |
+| `render:fog` | `{x,y,w,h,density,color?,scatter?}` — milieu rectangulaire **éphémère**, `x,y` = COIN. `density` = α de Beer-Lambert (**pas** une opacité). `scatter` rend le milieu **visible**. `+ :add`/`:update`/`:remove` |
+| `render:nebula` | `{cx,cy,radius,density,color?,scatter?}` — milieu **radial**, `cx,cy` = CENTRE. Densité maximale au cœur, nulle au bord : le quad de découpe est invisible. En superposer plusieurs pour un nuage |
 
 ## Intégration
 
@@ -256,14 +329,16 @@ int main() {
 
 ## TODO
 
-- [ ] Chargement textures (stb_image)
-- [ ] Compilation shaders (shaderc ou pré-compilés)
-- [ ] TilemapPass
-- [ ] TextPass + fonts (stb_truetype)
-- [ ] ParticlePass
-- [ ] Resize handling (window:resize)
-- [ ] Multi-view support
-- [ ] Render targets / post-process
+*(Tout ce que cette liste réclamait autrefois — textures, shaders, tilemap, texte, particules,
+cibles de rendu, multi-vues — est livré. Une TODO qui ment coûte plus cher qu'une TODO absente.)*
+
+- [ ] **Mesurer le budget de lampes.** Chaque lampe est un quad coûtant jusqu'à 64 accès texture par
+      pixel couvert ; le chiffre « des dizaines » qui circulait est antérieur à la marche
+      d'occultation et n'a pas été revérifié depuis.
+- [ ] **Post-traitement** (bloom en premier) — la cible RGBA16F conserve déjà le sur-brillant pour ça
+- [ ] **Variantes Metal des shaders** : `fs_light`/`fs_nebula` n'ont pas de bloc Metal réel
+      (placeholder), faute de backend Metal sur la chaîne de build
+- [ ] `flipX`/`flipY` sur `render:sprite:update` (délibérément non supporté : double-flip)
 
 ## Dépendances
 

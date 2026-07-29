@@ -1,8 +1,28 @@
 # Lumières 2D — plan d'implémentation
 
-> **Statut** : 📋 plan, rien d'implémenté.
+> **Statut** : ✅ **TOUT LIVRÉ** au 2026-07-29 — lampes (L1→L3), socle de transmittance (C1→C2),
+> murs (W), filtres (F), milieux et nébuleuses (A1→A4). Suite complète 194/194.
 > **Suite annoncée** : le post-traitement (bloom, fondus, colorimétrie) — il consommera la même
 > plomberie de cibles de rendu. Les choix ci-dessous en tiennent compte.
+
+---
+
+## 0. Par où entrer
+
+Ce document explique **l'architecture** — pourquoi un buffer d'accumulation, pourquoi l'ordre des
+vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
+
+| Vous cherchez… | Allez voir |
+|---|---|
+| **à utiliser l'éclairage** dans un jeu | [DEVELOPER_GUIDE](../DEVELOPER_GUIDE.md) § Lighting — topics, pièges, valeurs de départ |
+| un **survol rapide** côté module | [README de BgfxRenderer](../../modules/BgfxRenderer/README.md) § Éclairage 2D |
+| **pourquoi murs, filtres et brouillard sont un seul mécanisme** | [socle de transmittance](lighting-transmittance-core.md) ← la pièce centrale |
+| le détail d'une matière | [murs](lighting-walls.md) · [filtres](lighting-filters.md) · [milieux et nébuleuses](lighting-attenuators.md) |
+| **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
+
+**Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un
+vitrail, un banc de brume et une nébuleuse écrivent tous dans **une seule carte**, avec **un seul
+blend multiplicatif** — donc ils se composent dans n'importe quel ordre, sans le moindre tri.
 
 ## 1. L'approche retenue : buffer d'accumulation + composite
 
@@ -109,13 +129,28 @@ Les trois se ramenent a une seule question — *combien de lumiere, et de quelle
 point A au point B* — donc ils partagent **un socle** decide une fois pour toutes :
 
 - 📐 **[Socle : table de transmittance polaire](lighting-transmittance-core.md)** ← lire en premier
-- [Plan W — les murs](lighting-walls.md) : transmittance nulle — ✅ **LIVRE**
-- [Plan F — les filtres](lighting-filters.md) : transmittance coloree
-- [Plan A — les milieux](lighting-attenuators.md) : Beer-Lambert **+ diffusion** (nebuleuses)
+- [Plan W — les murs](lighting-walls.md) : transmittance nulle — ✅ **LIVRÉ**
+- [Plan F — les filtres](lighting-filters.md) : transmittance colorée — ✅ **LIVRÉ**
+- [Plan A — les milieux](lighting-attenuators.md) : Beer-Lambert **+ diffusion**, et les nébuleuses
+  à densité radiale (A4) — ✅ **LIVRÉ**
 
-⚠️ **Le budget de ce document est perime par avance** : le §4 annonce « des dizaines de lampes ». La
-reference du shadow map 1D mesure le decrochage vers **20 lampes**, sans transmittance. A remesurer,
-et a corriger dans la doc consommateur — pas a laisser annoncer un chiffre qui n'a plus cours.
+### ⚠️ Le budget de lampes n'est PAS mesuré — et le chiffre du §4 est à ignorer
+
+Le §4 annonce « des dizaines de lampes ». Ce chiffre est **antérieur à la marche d'occultation** et
+n'a jamais été revérifié depuis. Il n'est pas *à peu près* juste : il décrit un autre moteur.
+
+Ce qu'on sait, en revanche, et qui est plus utile qu'un nombre inventé :
+
+- une lampe coûte surtout du **fill rate**, pas un draw — elle ne paie que les pixels qu'elle couvre ;
+- depuis C2, chaque pixel couvert paie **jusqu'à 64 accès texture** pour parcourir la carte
+  d'occultation, contre un seul avant. Le facteur est donc **par pixel**, pas par lampe ;
+- **une petite lampe est très largement moins chère qu'une grande** : le coût suit la surface, et le
+  nombre d'échantillons de la marche suit la distance parcourue à l'écran.
+
+Conséquence pratique : dix petites lampes coûtent moins que deux qui remplissent l'écran. Le seul
+correctif honnête est **un banc** qui monte le nombre de lampes ombrées jusqu'au décrochage, comme
+celui des sprites (`tests/visual/benchmark_render_savage.cpp`). **Tant qu'il n'existe pas, ne
+promettre aucun chiffre au consommateur** — c'est ce que fait la doc actuelle, délibérément.
 
 ## 6bis. À faire plus tard — particules-lumières et le chemin bulk
 

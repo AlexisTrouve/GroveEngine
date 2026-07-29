@@ -499,7 +499,16 @@ light but not sight.
 ⚠️ **A filter is not an occluder.** It tints without being opaque. A window that must both tint *and*
 darken simply declares a dark tint — the model does not need both notions.
 
-##### Fog and nebulae — media that absorb along the way, and glow
+Filters and walls write into the same map, **multiplicatively**, so overlapping matter composes and
+the order it was published in does not matter. Two panes stacked give the product of their tints,
+either way round.
+
+⚠️ **Precision on very thick panes.** The map is RGBA8, and the stored per-unit value crowds towards
+1 as a pane thickens — past roughly 100 units the 8-bit quantum starts to shift the resulting tint
+by a visible fraction. It is uniform across the pane (so it bands nothing), but a very large tinted
+volume is better expressed as fog than as one enormous filter.
+
+##### Fog — a medium that absorbs along the way, and glows
 
 | Topic | Payload | Notes |
 |-------|---------|-------|
@@ -565,15 +574,6 @@ first instinct here is one to two orders of magnitude too high.
 medium under an intense lamp saturates. That is intended — it is what a bloom pass will feed on — but
 it means `scatter` near 1 with `intensity` above 2 will flatten to white.
 
-Filters and walls write into the same map, **multiplicatively**, so overlapping matter composes and
-the order it was published in does not matter. Two panes stacked give the product of their tints,
-either way round.
-
-⚠️ **Precision on very thick panes.** The map is RGBA8, and the stored per-unit value crowds towards
-1 as a pane thickens — past roughly 100 units the 8-bit quantum starts to shift the resulting tint
-by a visible fraction. It is uniform across the pane (so it bands nothing), but a very large tinted
-volume is better expressed as fog than as one enormous filter.
-
 ##### Asking "is this point lit?" from gameplay
 
 The same curve is available as plain C++ (`include/grove/light/Light.h`, header-only, no renderer
@@ -591,16 +591,37 @@ const bool inTheLight = (r + g + b) > 0.15f;
 ##### What it costs
 
 A light is **one draw**, and its real cost is fill rate — the pixels it covers, blended additively.
-Many *small* lights are therefore cheaper than one huge one. The engine is designed around **tens of
-lights per frame**; at that scale the per-draw cost is noise. Hundreds have not been measured, and
-the limit you would hit first is the IIO message path (~5k primitives/frame), not the GPU — the same
-wall the bulk sprite path exists to break. If you need a light *per particle*, measure before
-building: see `docs/design/lighting-2d.md` §6bis.
+Many *small* lights are therefore cheaper than one huge one, and that gap widened considerably once
+shadows landed: every covered pixel now marches the occlusion map, up to **64 texture samples**, and
+the sample count follows how far the pixel sits from the lamp *on screen*. Ten small lamps are
+comfortably cheaper than two that fill the viewport.
+
+⚠️ **No lamp budget has been measured since the occlusion march landed.** An earlier version of this
+page promised "tens of lights per frame"; that figure predates shadows entirely and is not a rough
+guide — it describes a different renderer. It has been removed rather than adjusted, because a number
+nobody measured is worse than no number. If your scene is lamp-heavy, profile it; a proper bench (as
+exists for sprites) is named debt in `docs/design/lighting-2d.md`.
+
+The other limit is unchanged and unrelated to the GPU: publishing lights over IIO costs one message
+each (~5k primitives/frame across all topics), the same wall the bulk sprite path exists to break. If
+you need a light *per particle*, measure before building — see `docs/design/lighting-2d.md` §6bis.
 
 ##### Not there yet
 
-**No shadows** (nothing occludes light) and **no cone/spot lights** — a thruster is really a cone, and
-a radial light at the nozzle is an approximation. Design + slices: `docs/design/lighting-2d.md`.
+Shadows and cone lights *are* here — this section used to say otherwise and was simply out of date.
+What is genuinely missing:
+
+- **No soft shadows.** Edges are hard (and antialiased); there is no penumbra, because there is no
+  light *area* in the model. The antialiasing is edge quality, not physics — don't confuse the two.
+- **No post-processing yet.** Bloom is the announced next step and the reason the targets are
+  RGBA16F: the overbright is already being kept for it.
+- **No textured or animated density.** A medium is a uniform rect or a radial disc; you cannot hand
+  it a noise texture. Overlapping several volumes is the intended way to get an irregular cloud.
+- **Occluders block LIGHT, not SIGHT.** Hiding what is behind a wall is a visibility system and
+  belongs in game code.
+- **No measured lamp budget** — see *What it costs* above.
+
+Design + slices: `docs/design/lighting-2d.md` (entry point; it links the per-matter plans).
 
 #### Bulk Sprite Submission (high throughput)
 
