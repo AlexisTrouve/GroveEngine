@@ -1,0 +1,22 @@
+{
+  "id": "root",
+  "type": "panel",
+  "x": 0,
+  "y": 0,
+  "width": 800,
+  "height": 600,
+  "layout": { "type": "absolute" },
+  "children": [
+    {
+      "type": "textarea",
+      "id": "ta_notes",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 120,
+      "placeholder": "notes...",
+      "onSubmit": "test:submit",
+      "style": { "fontSize": 16, "lineHeight": 20 }
+    }
+  ]
+}

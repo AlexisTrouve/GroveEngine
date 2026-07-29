@@ -12,6 +12,7 @@
 #include "Widgets/UISlider.h"
 #include "Widgets/UICheckbox.h"
 #include "Widgets/UITextInput.h"
+#include "Widgets/UITextArea.h"
 #include "Widgets/UIScrollPanel.h"
 #include "Widgets/UILabel.h"
 #include "Widgets/UIRadial.h"
@@ -27,6 +28,7 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include <grove/text/TextMetricsWire.h>  // decode render:font:metrics (avances de la police reelle)
 #include <nlohmann/json.hpp>
 
 // Forward declarations for hit testing functions in UIContext.cpp
@@ -61,6 +63,10 @@ int sdlScancodeToEditKey(int scancode) {
         case 79: return 39;   // SDL_SCANCODE_RIGHT      -> flèche droite
         case 74: return 36;   // SDL_SCANCODE_HOME      -> Home
         case 77: return 35;   // SDL_SCANCODE_END       -> End
+        // Haut/Bas n'avaient aucun sens tant que la saisie etait monoligne ; le textarea les utilise
+        // pour changer de ligne en conservant la colonne.
+        case 82: return 38;   // SDL_SCANCODE_UP        -> fleche haut
+        case 81: return 40;   // SDL_SCANCODE_DOWN      -> fleche bas
         default: return 0;    // pas une touche d'édition
     }
 }
@@ -167,13 +173,81 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 // input:keyboard:text (ci-dessus) — on NE lève PAS keyPressed pour eux,
                 // sinon le scancode brut écraserait keyChar (déjà posé par :text) avec
                 // un no-op et le caractère serait perdu.
-                int editKey = sdlScancodeToEditKey(msg.data->getInt("scancode", 0));
-                if (editKey != 0) {
+                // Les modificateurs voyagent DÉJÀ dans ce payload (InputConverter.cpp) ; on les
+                // relaie enfin. Maj distingue « déplacer le curseur » de « étendre la sélection »,
+                // Ctrl porte les raccourcis d'édition.
+                const bool shift = msg.data->getBool("shift", false);
+                const bool ctrl  = msg.data->getBool("ctrl", false);
+                const int scancode = msg.data->getInt("scancode", 0);
+
+                int editKey = sdlScancodeToEditKey(scancode);
+
+                // QUOI : avec Ctrl enfoncé, une LETTRE devient elle aussi un événement d'édition.
+                // POURQUOI : SDL n'émet pas de SDL_TEXTINPUT pour une touche modifiée par Ctrl — un
+                //   Ctrl+A n'arrivait donc par AUCUN des deux chemins (ni :text, ni :key, puisque 'A'
+                //   n'est pas une touche d'édition). Les raccourcis étaient structurellement
+                //   inatteignables, indépendamment du `bool ctrl = false` du site d'appel.
+                // COMMENT : SDL_SCANCODE_A..Z sont contigus (4..29) — on les ramène en minuscules,
+                //   dialecte attendu par onKeyInput. Sans Ctrl, on ne touche à rien : les caractères
+                //   imprimables continuent d'arriver par input:keyboard:text (sinon le scancode brut
+                //   écraserait keyChar et le caractère serait perdu — cf. FIX #5-suite).
+                int shortcutChar = 0;
+                if (ctrl && scancode >= 4 && scancode <= 29) {
+                    shortcutChar = 'a' + (scancode - 4);
+                }
+
+                if (editKey != 0 || shortcutChar != 0) {
                     m_context->keyPressed = true;
-                    m_context->keyCode = editKey;
-                    m_context->keyChar = 0;
+                    m_context->keyCode = editKey;  // 0 pour un raccourci pur (Ctrl+lettre)
+                    m_context->keyChar = static_cast<char>(shortcutChar);
+                    m_context->keyShift = shift;
+                    m_context->keyCtrl = ctrl;
+                    m_context->keyAlt = msg.data->getBool("alt", false);
                 }
             }
+        });
+
+        // QUOI : réception de la table d'avances de la police, poussée par le renderer.
+        // POURQUOI : tout ce qui touche au curseur d'un champ de saisie (position, surlignage de
+        //   sélection, clic -> index) est un calcul de largeur de texte. L'UIModule ne connaît pas la
+        //   police ; le renderer la POUSSE plutôt que de répondre à des requêtes, parce que placer un
+        //   curseur doit se faire dans la frame même du clic — un aller-retour serait asynchrone.
+        // COMMENT : décodage de la chaîne dense (IIO ne transporte que le JSON propre du nœud). Une
+        //   charge utile illisible rend une table vide, donc on retombe sur le repli monospace :
+        //   dégradé mais cohérent, jamais un curseur placé au hasard.
+        m_io->subscribe("render:font:metrics", [this](const Message& msg) {
+            if (!msg.data || !m_context) return;
+            text::MetricsWire wire;
+            wire.baseSize = static_cast<float>(msg.data->getDouble("baseSize", 8.0));
+            wire.lineHeight = static_cast<float>(msg.data->getDouble("lineHeight", 8.0));
+            wire.firstCodepoint = static_cast<uint32_t>(msg.data->getInt("firstCodepoint", 32));
+            wire.advances = msg.data->getString("advances", "");
+
+            text::Metrics decoded = text::decodeDense(wire);
+            if (decoded.empty()) {
+                m_logger->warn("render:font:metrics illisible — on garde la mesure monospace");
+                return;
+            }
+            m_context->fontMetrics = std::move(decoded);
+            ++m_context->fontMetricsEpoch;   // invalide les mises en page dependantes de la police
+            m_logger->info("Metriques de police recues: base={}px, {} glyphes",
+                           m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
+        });
+
+        // QUOI : réponse du service presse-papiers à une demande de collage.
+        // POURQUOI : l'UIModule est délibérément SDL-free, or le presse-papiers EST une ressource
+        //   SDL. Il ne peut donc pas le lire lui-même : il demande (`input:clipboard:get`) et le
+        //   propriétaire de SDL — InputModule — répond ici. Conséquence assumée : le collage a UNE
+        //   FRAME DE LATENCE. C'est le prix du découplage, invisible à l'œil humain, et préférable à
+        //   faire rentrer SDL dans l'UIModule pour économiser 16 ms.
+        // COMMENT : on met le texte de côté ; `updateUI` l'insère dans le champ focalisé au prochain
+        //   passage. On ne l'insère pas ici : ce handler s'exécute pendant le drain IIO, hors de la
+        //   phase de mise à jour, et muter l'arbre de widgets à ce moment-là violerait le même
+        //   invariant que les autres handlers (cf. handleWindowInteraction).
+        m_io->subscribe("input:clipboard:text", [this](const Message& msg) {
+            if (!msg.data) return;
+            m_pendingPaste = msg.data->getString("text", "");
+            m_hasPendingPaste = true;
         });
 
         m_io->subscribe("ui:load", [this](const Message& msg) {
@@ -752,6 +826,28 @@ void UIModule::updateUI(float deltaTime) {
 
                 m_logger->info("TextInput '{}' gained focus", textInput->id);
             }
+            else if (widgetType == "textarea" && m_context->mousePressed) {
+                // Jumelle de la branche textinput : un clic prend le focus clavier. Les deux widgets
+                // partagent l'espace de focus, donc cliquer de l'un a l'autre transfere correctement.
+                UITextArea* area = static_cast<UITextArea*>(clickedWidget);
+
+                if (!m_context->focusedWidgetId.empty() && m_context->focusedWidgetId != area->id) {
+                    if (UIWidget* prev = m_root->findById(m_context->focusedWidgetId)) {
+                        if (prev->getType() == "textinput") static_cast<UITextInput*>(prev)->loseFocus();
+                        else if (prev->getType() == "textarea") static_cast<UITextArea*>(prev)->loseFocus();
+                    }
+                    auto lost = std::make_unique<JsonDataNode>("focus_lost");
+                    lost->setString("widgetId", m_context->focusedWidgetId);
+                    m_io->publish("ui:focus_lost", std::move(lost));
+                }
+
+                area->gainFocus();
+                m_context->setFocus(area->id);
+
+                auto gained = std::make_unique<JsonDataNode>("focus_gained");
+                gained->setString("widgetId", area->id);
+                m_io->publish("ui:focus_gained", std::move(gained));
+            }
             else if (widgetType == "button") {
                 // Publish action event if button has onClick
                 UIButton* btn = static_cast<UIButton*>(clickedWidget);
@@ -891,14 +987,153 @@ void UIModule::updateUI(float deltaTime) {
         }
     }
 
+    // COLLAGE EN ATTENTE — la réponse du presse-papiers est arrivée pendant le drain IIO ; on
+    // l'applique ici, dans la phase de mise à jour, au champ focalisé. Passe par le même chemin
+    // d'insertion que la frappe (`insertFilteredText`), donc il hérite gratuitement du remplacement
+    // de la sélection, du filtre du champ et de la limite de longueur : coller ne peut pas introduire
+    // ce que taper interdirait.
+    if (m_hasPendingPaste) {
+        const std::string pasted = m_pendingPaste;
+        m_hasPendingPaste = false;
+        m_pendingPaste.clear();
+
+        if (!pasted.empty() && !m_context->focusedWidgetId.empty()) {
+            if (UIWidget* w = m_root->findById(m_context->focusedWidgetId)) {
+                bool pastedOk = false;
+                std::string widgetId, newText;
+                if (w->getType() == "textinput") {
+                    UITextInput* ti = static_cast<UITextInput*>(w);
+                    pastedOk = ti->insertFilteredText(pasted);
+                    widgetId = ti->id; newText = ti->text();
+                } else if (w->getType() == "textarea") {
+                    UITextArea* ta = static_cast<UITextArea*>(w);
+                    pastedOk = ta->insertFilteredText(pasted);
+                    widgetId = ta->id; newText = ta->text();
+                }
+                if (pastedOk) {
+                    auto ev = std::make_unique<JsonDataNode>("text_changed");
+                    ev->setString("widgetId", widgetId);
+                    ev->setString("text", newText);
+                    m_io->publish("ui:text_changed", std::move(ev));
+                }
+            }
+        }
+    }
+
     // Handle keyboard input for focused widget
     if (m_context->keyPressed && !m_context->focusedWidgetId.empty()) {
         if (UIWidget* focusedWidget = m_root->findById(m_context->focusedWidgetId)) {
-            if (focusedWidget->getType() == "textinput") {
-                UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
+            // ---------------- ZONE DE TEXTE MULTILIGNE ----------------
+            // Meme routage que le champ monoligne ; deux differences de SEMANTIQUE :
+            //   - Entree insere un saut de ligne, donc la SOUMISSION passe a Ctrl+Entree ;
+            //   - le presse-papiers reutilise exactement le meme protocole (le service est generique).
+            if (focusedWidget->getType() == "textarea") {
+                UITextArea* area = static_cast<UITextArea*>(focusedWidget);
+
+                bool consumed = false;
+                if (m_context->keyCtrl) {
+                    const char shortcut = m_context->keyChar;
+                    if (shortcut == 'c' || shortcut == 'x') {
+                        const std::string sel = area->edit.selectedText();
+                        if (!sel.empty()) {
+                            auto d = std::make_unique<JsonDataNode>("clip");
+                            d->setString("text", sel);
+                            m_io->publish("input:clipboard:set", std::move(d));
+                            if (shortcut == 'x' && area->edit.deleteSelection()) {
+                                auto ev = std::make_unique<JsonDataNode>("text_changed");
+                                ev->setString("widgetId", area->id);
+                                ev->setString("text", area->text());
+                                m_io->publish("ui:text_changed", std::move(ev));
+                            }
+                        }
+                        consumed = true;
+                    } else if (shortcut == 'v') {
+                        m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
+                        consumed = true;
+                    }
+                }
+
+                // Ctrl+Entree = SOUMETTRE. Entree seule insere un saut de ligne (traite dans le widget).
+                if (!consumed && m_context->keyCtrl &&
+                    (m_context->keyCode == 13 || m_context->keyCode == 10)) {
+                    auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
+                    submitEvent->setString("widgetId", area->id);
+                    submitEvent->setString("text", area->text());
+                    m_io->publish("ui:text_submit", std::move(submitEvent));
+
+                    if (!area->onSubmit.empty()) {
+                        auto actionEvent = std::make_unique<JsonDataNode>("action");
+                        actionEvent->setString("action", area->onSubmit);
+                        actionEvent->setString("widgetId", area->id);
+                        actionEvent->setString("text", area->text());
+                        m_io->publish("ui:action", std::move(actionEvent));
+                    }
+                    consumed = true;
+                }
 
                 bool handled = false;
-                if (!m_context->keyText.empty()) {
+                if (!consumed) {
+                    if (!m_context->keyText.empty()) {
+                        handled = area->insertFilteredText(m_context->keyText);
+                    } else {
+                        const uint32_t character =
+                            static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
+                        handled = area->onKeyInput(m_context->keyCode, character,
+                                                   m_context->keyCtrl, m_context->keyShift);
+                    }
+                }
+
+                if (handled) {
+                    auto ev = std::make_unique<JsonDataNode>("text_changed");
+                    ev->setString("widgetId", area->id);
+                    ev->setString("text", area->text());
+                    m_io->publish("ui:text_changed", std::move(ev));
+                }
+            }
+            else if (focusedWidget->getType() == "textinput") {
+                UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
+
+                // PRESSE-PAPIERS — traité ICI et non dans le widget, parce que c'est le module qui
+                // possède l'IIO ; le widget reste ignorant du transport (même partage des rôles que
+                // pour le drag de fenêtre, cf. §3.2 du handoff UI).
+                //
+                // NB : un raccourci consommé ne fait PAS sortir de updateUI — la passe de mise à jour
+                // des widgets (m_root->update(), interaction fenêtre…) doit se dérouler normalement.
+                // Un `return` ici gèlerait toute l'UI pendant la frame du Ctrl+C.
+                bool shortcutConsumed = false;
+                if (m_context->keyCtrl) {
+                    const char shortcut = m_context->keyChar;
+                    if (shortcut == 'c' || shortcut == 'x') {
+                        // Rien de sélectionné = rien à copier. Sans ce garde, un Ctrl+C par réflexe
+                        // écraserait le presse-papiers système avec du vide, détruisant ce que
+                        // l'utilisateur y avait mis depuis une autre application.
+                        const std::string sel = textInput->selectedText();
+                        if (!sel.empty()) {
+                            auto d = std::make_unique<JsonDataNode>("clip");
+                            d->setString("text", sel);
+                            m_io->publish("input:clipboard:set", std::move(d));
+
+                            if (shortcut == 'x' && textInput->deleteSelection()) {
+                                auto ev = std::make_unique<JsonDataNode>("text_changed");
+                                ev->setString("widgetId", textInput->id);
+                                ev->setString("text", textInput->text());
+                                m_io->publish("ui:text_changed", std::move(ev));
+                            }
+                        }
+                        shortcutConsumed = true;  // pas de frappe derrière un raccourci
+                    }
+                    else if (shortcut == 'v') {
+                        // On DEMANDE le presse-papiers ; l'insertion se fera à la réception.
+                        m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
+                        shortcutConsumed = true;
+                    }
+                }
+
+                bool handled = false;
+                if (shortcutConsumed) {
+                    // Raccourci déjà traité au-dessus : on ne le fait PAS redescendre dans le champ,
+                    // sinon un Ctrl+C ajouterait un 'c' au texte.
+                } else if (!m_context->keyText.empty()) {
                     // FIX #5/C2 : chemin saisie texte (commit IME / coller / UTF-8) — on
                     // insère la chaîne ENTIÈRE, pas un seul caractère.
                     handled = textInput->insertFilteredText(m_context->keyText);
@@ -908,22 +1143,24 @@ void UIModule::updateUI(float deltaTime) {
                     // et se sign-extendrait en un code-point énorme. On passe par `unsigned char` d'abord
                     // pour garder la valeur 0..255 correcte (bugprone-signed-char-misuse).
                     uint32_t character = static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
-                    bool ctrl = false;  // TODO: Add ctrl modifier to UIContext
-                    handled = textInput->onKeyInput(m_context->keyCode, character, ctrl);
+                    // Les modificateurs viennent enfin du contexte (levée du `bool ctrl = false`) :
+                    // Ctrl porte les raccourcis, Maj distingue déplacer de sélectionner.
+                    handled = textInput->onKeyInput(m_context->keyCode, character,
+                                                    m_context->keyCtrl, m_context->keyShift);
                 }
 
                 if (handled) {
                     // Publish text_changed event
                     auto textChangedEvent = std::make_unique<JsonDataNode>("text_changed");
                     textChangedEvent->setString("widgetId", textInput->id);
-                    textChangedEvent->setString("text", textInput->text);
+                    textChangedEvent->setString("text", textInput->text());
                     m_io->publish("ui:text_changed", std::move(textChangedEvent));
 
                     // Check if Enter was pressed (submit)
                     if (m_context->keyCode == 13 || m_context->keyCode == 10) {
                         auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
                         submitEvent->setString("widgetId", textInput->id);
-                        submitEvent->setString("text", textInput->text);
+                        submitEvent->setString("text", textInput->text());
                         m_io->publish("ui:text_submit", std::move(submitEvent));
 
                         // Publish onSubmit action if specified
@@ -931,11 +1168,11 @@ void UIModule::updateUI(float deltaTime) {
                             auto actionEvent = std::make_unique<JsonDataNode>("action");
                             actionEvent->setString("action", textInput->onSubmit);
                             actionEvent->setString("widgetId", textInput->id);
-                            actionEvent->setString("text", textInput->text);
+                            actionEvent->setString("text", textInput->text());
                             m_io->publish("ui:action", std::move(actionEvent));
                         }
 
-                        m_logger->info("TextInput '{}' submitted: '{}'", textInput->id, textInput->text);
+                        m_logger->info("TextInput '{}' submitted: '{}'", textInput->id, textInput->text());
                     }
                 }
             }

@@ -27,12 +27,55 @@
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
+#include <grove/text/TextMetricsWire.h>  // push the font's advances to whoever must MEASURE text
 #include <nlohmann/json.hpp>     // parse the declarative asset manifest
 #include <fstream>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace grove {
+
+namespace {
+
+// QUOI : publie la table d'avances de la police courante sur `render:font:metrics`.
+//
+// POURQUOI : le renderer POSSÈDE la police, mais ce n'est pas lui qui a besoin de mesurer. Un champ
+//   de saisie doit savoir où poser son curseur, quel morceau de texte surligner, et sur quel caractère
+//   un clic est tombé — le tout dans la frame même du clic. L'UIModule est délibérément découplé du
+//   renderer, donc il ne peut pas interroger la police ; et un aller-retour par topic serait
+//   asynchrone sur un chemin qui doit être synchrone. On POUSSE donc la table, une fois par
+//   changement de police : un seul sens, pas de requête, et le consommateur mesure localement.
+//
+// COMMENT : plage dense ASCII + Latin-1 (32..255) — ce que loadTTF cuit, et ce qui couvre les accents
+//   français. L'encodage passe par grove::text::MetricsWire (chaîne compacte) parce qu'IIO ne
+//   transporte que le JSON propre du nœud, pas les enfants assemblés par setChild().
+//
+//   Publiée AUSSI pour la police 8x8 intégrée : ses avances valent toutes 8, donc le consommateur
+//   obtient exactement son repli monospace historique. Mesurer devient ainsi un invariant ("l'UI
+//   mesure ce que le renderer dessine") plutôt qu'un cas particulier réservé aux hôtes avec TTF.
+void publishFontMetrics(IIO* io, const BitmapFont& font) {
+    if (!io) return;
+
+    constexpr uint32_t kFirst = 32;   // espace
+    constexpr uint32_t kLast  = 255;  // fin de Latin-1
+
+    text::Metrics m;
+    m.baseSize = font.getBaseSize();
+    m.lineHeight = font.getLineHeight();
+    for (uint32_t cp = kFirst; cp <= kLast; ++cp) {
+        m.advances[cp] = font.getGlyph(cp).advance;
+    }
+
+    const text::MetricsWire wire = text::encodeDense(m, kFirst, kLast);
+    auto payload = std::make_unique<JsonDataNode>("fontMetrics");
+    payload->setDouble("baseSize", wire.baseSize);
+    payload->setDouble("lineHeight", wire.lineHeight);
+    payload->setInt("firstCodepoint", static_cast<int>(wire.firstCodepoint));
+    payload->setString("advances", wire.advances);
+    io->publish("render:font:metrics", std::move(payload));
+}
+
+}  // namespace
 
 BgfxRendererModule::BgfxRendererModule() = default;
 BgfxRendererModule::~BgfxRendererModule() = default;
@@ -225,6 +268,60 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         // render:screenshot {path} ; on relaie au device (qui demande la capture a
         // bgfx, ecrite au prochain frame()). Ce handler tourne pendant collect()
         // (avant le frame() de process()) -> la capture sort sur la frame courante.
+        // ------------------------------------------------------------------
+        // Runtime topic: l'APPARENCE du brouillard — `render:tilemap:fog:style {path?, scale?, offsetX?, offsetY?}`
+        //
+        // QUOI : change la texture de brouillard, sa taille MONDE, et son décalage d'échantillonnage,
+        //   en cours de partie.
+        //
+        // POURQUOI : tout cela n'était réglable qu'au BOOT (`fogTexture`/`fogScale` dans la config),
+        //   et l'échelle ne l'était pas du tout (constante `64.0` dans le shader). Un jeu ne pouvait
+        //   donc ni changer de brouillard selon le biome ou la scène, ni le faire dériver. Les
+        //   polices avaient déjà reçu ce traitement (`render:font`) ; le brouillard le méritait pour
+        //   la même raison : un asset chargé une fois pour toutes n'est pas un asset, c'est une
+        //   constante.
+        //
+        // COMMENT : chaque champ est OPTIONNEL et ne s'applique que s'il est fourni — publier
+        //   `{offsetX, offsetY}` chaque frame fait dériver le nuage sans retoucher la texture ni
+        //   l'échelle. ⚠️ Seul le NUAGE bouge : le masque de révélation (`render:tilemap:fog`) n'est
+        //   pas touché, donc une dérive ne peut pas re-cacher ce que le joueur a exploré.
+        //   Un chargement raté conserve la texture courante (échec franc + log, jamais de brouillard
+        //   noir surprise).
+        m_io->subscribe("render:tilemap:fog:style", [this](const Message& msg) {
+            if (!msg.data || !m_tilemapPass || !m_device) return;
+            const IDataNode& d = *msg.data;
+
+            const std::string path = d.getString("path", "");
+            if (!path.empty()) {
+                // Même chemin que le boot : loadFromFile (PAS loadTextureWithId) — la texture de
+                // brouillard est liée directement par setFogTexture et ne doit pas consommer un
+                // textureId de sprite, sous peine de décaler texture1/texture2.
+                TextureLoader::LoadResult fog = TextureLoader::loadFromFile(*m_device, path);
+                if (fog.success) {
+                    m_tilemapPass->setFogTexture(fog.handle);
+                    m_logger->info("render:tilemap:fog:style — texture '{}' ({}x{})", path, fog.width, fog.height);
+                } else {
+                    m_logger->warn("render:tilemap:fog:style — '{}' non chargee ({}), on garde l'actuelle",
+                                   path, fog.error);
+                }
+            }
+
+            const double scale = d.getDouble("scale", 0.0);
+            if (scale > 0.0) m_tilemapPass->setFogScale(static_cast<float>(scale));
+
+            // `edge` accepte 0 (= remettre un bord droit), on relit donc la valeur courante comme
+            // défaut plutôt que de traiter 0 comme « absent ».
+            const double edge = d.getDouble("edge", static_cast<double>(m_tilemapPass->fogEdge()));
+            m_tilemapPass->setFogEdge(static_cast<float>(edge));
+
+            // Le décalage n'a pas de sentinelle « absent » utilisable (0 est une valeur légitime), on
+            // relit donc la valeur courante comme défaut : publier l'un sans l'autre est sans effet
+            // de bord.
+            const double offX = d.getDouble("offsetX", static_cast<double>(m_tilemapPass->fogOffsetX()));
+            const double offY = d.getDouble("offsetY", static_cast<double>(m_tilemapPass->fogOffsetY()));
+            m_tilemapPass->setFogOffset(static_cast<float>(offX), static_cast<float>(offY));
+        });
+
         // SceneCollector ignore ce topic (pas une primitive) ; on le traite ici, ou
         // vit le device -- comme render:tilemap:anim.
         // Runtime topic: an EXPLICIT zoom-out colour table pushed by the game, overriding the one
@@ -266,7 +363,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             BitmapFont& target = asBold ? m_textPass->getFontBold() : m_textPass->getFont();
             if (!target.loadTTF(*m_device, path, size)) {
                 m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
+                return;
             }
+            // La police a changé : rediffuser ses avances, sinon tout consommateur qui MESURE du texte
+            // (curseur d'un champ de saisie, surlignage de sélection) continuerait de mesurer avec
+            // l'ancienne — le curseur dériverait du texte réellement dessiné. On ne pousse que la
+            // face REGULAR : le gras est une seconde table, à traiter le jour où l'UI en aura besoin.
+            if (!asBold) publishFontMetrics(m_io, m_textPass->getFont());
         });
 
         m_io->subscribe("render:screenshot", [this](const Message& msg) {
@@ -370,6 +473,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             }
         }
     }
+
+    // Diffuser les avances de la police REGULAR, quelle qu'elle soit (TTF fraîchement cuite ou 8x8
+    // intégrée). C'est ce qui permet à l'UI de placer un curseur là où le glyphe est réellement
+    // dessiné. Avec la 8x8, toutes les avances valent 8 : le consommateur retrouve exactement son
+    // repli monospace, donc aucun hôte existant ne change de comportement.
+    if (m_textPass) publishFontMetrics(m_io, m_textPass->getFont());
+
     m_renderGraph->compile();
     m_logger->info("RenderGraph compiled");
 
@@ -590,6 +700,23 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             m_logger->info("Loaded fog texture: {} ({}x{})", fogTexturePath, fog.width, fog.height);
         } else {
             m_logger->warn("Failed to load fog texture: {} ({})", fogTexturePath, fog.error);
+        }
+    }
+
+    // Échelle MONDE du brouillard : combien d'unités monde couvre une tuile de la texture. Elle était
+    // écrite en dur dans le shader (`/64.0`), donc « mettre un asset plus grand » ne voulait rien dire.
+    // Le défaut vaut cette constante historique → un hôte qui ne configure rien rend à l'identique.
+    if (m_tilemapPass) {
+        const double fogScale = config.getDouble("fogScale", 0.0);
+        if (fogScale > 0.0) {
+            m_tilemapPass->setFogScale(static_cast<float>(fogScale));
+            m_logger->info("Fog scale: {} world units per fog tile", fogScale);
+        }
+        // Ondulation du bord, en tuiles. 0 (défaut) = bord droit = rendu historique.
+        const double fogEdge = config.getDouble("fogEdge", 0.0);
+        if (fogEdge > 0.0) {
+            m_tilemapPass->setFogEdge(static_cast<float>(fogEdge));
+            m_logger->info("Fog edge: {} tiles of wobble", fogEdge);
         }
     }
 

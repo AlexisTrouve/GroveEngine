@@ -1,0 +1,308 @@
+# Saisie de texte — sélection, presse-papiers, multiligne
+
+> **Statut :** plan (2026-07-29). Branche worktree `worktree-ui-textinput`.
+> **Périmètre :** faire de `UITextInput` un champ de saisie *correct* — au sens où un utilisateur
+> qui a déjà tapé dans un champ de texte ailleurs ne remarque rien d'anormal.
+> **Débloque :** renommer un vaisseau, chat, console de debug in-game, tout formulaire.
+
+---
+
+## 1. Constat — l'état réel du widget (mesuré, pas supposé)
+
+`UITextInput` a été écrit pour la police **8×8 monospace** et n'a jamais été repris depuis. Le passage
+à une vraie TTF proportionnelle (chantier 9-slice, 2026-07-28) l'a laissé derrière. Quatre défauts,
+tous vérifiés dans le code :
+
+| # | Défaut | Preuve | Conséquence |
+|---|---|---|---|
+| **D1** | **Le curseur est positionné en monospace** — `getCursorPixelOffset()` retourne `cursorPosition * CHAR_WIDTH` avec `CHAR_WIDTH = 8.0f` en dur | `UITextInput.cpp:301-304`, `UITextInput.h:173` | Avec Roboto (proportionnel), le curseur dérive de plus en plus à droite du vrai point d'insertion. Même famille de bug latent que l'ancrage-centre des glyphes : **le monospace le masquait** |
+| **D2** | **Le curseur est indexé en OCTETS, pas en codepoints** — `text.erase(cursorPosition - 1, 1)` retire **un octet** | `UITextInput.cpp:269, 277, 231` | Backspace sur « é » (2 octets UTF-8) coupe le codepoint en deux → texte corrompu. **En français, c'est un bug de tous les jours.** Ironique : `insertFilteredText` a été écrit *exprès* pour l'UTF-8 multi-octets en entrée, mais la suppression le recasse |
+| **D3** | **Le clic ne place pas le curseur** | `UITextInput.cpp:138` — `// TODO: Calculate click position and set cursor there` | On ne peut éditer qu'en bout de chaîne, aux flèches |
+| **D4** | **Les modificateurs sont jetés** — `bool ctrl = false; // TODO: Add ctrl modifier to UIContext` | `UIModule.cpp:911` | Ctrl+A/C/V sont **indétectables**, donc les branches `ctrl && keyCode=='c'` de `onKeyInput` (`UITextInput.cpp:185-196`) sont du code mort |
+
+Et trois absences assumées, annoncées dans l'en-tête du header (`UITextInput.h:49,54`) :
+sélection (« future »), copier/coller (« future »), multiligne (jamais évoqué).
+
+**Bonne nouvelle sur D4 :** `InputModule` publie **déjà** `shift`/`ctrl`/`alt` dans
+`input:keyboard:key` (`Core/InputConverter.cpp:38-41`, alimentés par `KMOD_*` dans
+`Backends/SDLBackend.cpp:33-35`). C'est l'UIModule qui les laisse tomber au sol. **Aucune modification
+d'InputModule n'est nécessaire** pour les modificateurs — le câble existe, il n'est pas branché.
+
+---
+
+## 2. Le vrai problème d'architecture : mesurer le texte
+
+Tout le reste en découle. Placer un curseur, dessiner un surlignage de sélection, convertir un clic en
+index, faire défiler horizontalement : **ce sont tous des questions de largeur de glyphe**. Or
+l'UIModule ne connaît pas la police — elle vit dans BgfxRenderer (`Text/BitmapFont.h`, atlas TTF cuit
+par `loadTTF`), et l'UIModule est délibérément découplé du renderer (il ne fait que publier des
+topics).
+
+### Options
+
+| | Approche | Verdict |
+|---|---|---|
+| **A** | **Aller-retour par topic** : l'UIModule demande `render:text:measure`, le renderer répond | ❌ Asynchrone sur un chemin qui doit être synchrone (placer un curseur *dans* la frame du clic). Latence + machine à états pour rien |
+| **B** | **Le renderer POUSSE sa table de métriques** au chargement de police ; l'UIModule la met en cache et mesure localement | ✅ **Retenu.** Un seul sens, pas de requête. La mesure redevient une fonction pure, testable headless |
+| **C** | L'UIModule recuit sa propre copie de la TTF (stb_truetype) | ❌ Duplique le travail et **peut diverger** de ce qui est réellement dessiné. Le pire des mondes : deux vérités |
+| **D** | Rester approximatif, exposer `charWidth` en propriété JSON | ❌ C'est le statu quo habillé. Un champ de saisie dont le curseur ment n'est pas un champ de saisie |
+
+### Ce que B implique
+
+Un cœur **pur, header-only** — `include/grove/text/TextMetrics.h`, `grove::text` — exactement le
+patron déjà éprouvé par `grove::anim`, `grove::light`, `grove::fx`, et **surtout** par
+`TextFit.h` du même sous-système, dont la leçon centrale était : *« l'avance des glyphes est un
+callable, donc ce fichier ne sait rien de la police ni du GPU — c'est ce qui le rend testable
+headless »*. On reprend exactement ce contrat, avec une table de données au lieu d'un callable.
+
+```
+grove::text::Metrics          // table codepoint → avance (à la taille de base) + hauteur de ligne
+  measure(str, fontSize)      // largeur d'une chaîne
+  xAtIndex(str, byteIdx, ...) // position pixel d'un index → curseur, ancre de sélection
+  indexAtX(str, x, ...)       // pixel → index (frontière de codepoint la plus proche) → clic
+  prevIndex/nextIndex(str, i) // pas de curseur UTF-8-safe → répare D2
+```
+
+Table **absente** ⇒ repli sur l'avance monospace historique (`CHAR_WIDTH`) : le comportement actuel
+reste **strictement inchangé** tant que personne ne charge de police. C'est le patron « défaut à coût
+zéro » déjà utilisé pour `render:ambient` et `maxWidth` — un consommateur existant ne voit rien bouger.
+
+**Transport :** le renderer publie `render:font:metrics {baseSize, lineHeight, advances}` quand une
+police est chargée (au boot via `fontPath`, et sur `render:font` à chaud). L'UIModule s'y abonne et
+alimente son `Metrics`. La table est petite (ASCII + Latin-1 ≈ 224 entrées) et ne circule qu'au
+changement de police, pas par frame.
+
+**Bénéfice au-delà de ce chantier :** un jeu qui veut mesurer son propre texte de HUD (centrer un
+libellé, dimensionner une bulle) obtient la même API sans passer par le renderer.
+
+---
+
+## 3. Découpage en tranches
+
+Chaque tranche : **test rouge d'abord → implémentation → vert → commit**. Aucune tranche N+1 avant que
+N soit verte.
+
+### T0 — Le socle : mesurer et se déplacer correctement *(prérequis de tout le reste)*
+
+Sans ça, un surlignage de sélection est peint au mauvais endroit et un clic tombe sur le mauvais
+caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fausse.
+
+- **T0a — `grove::text::Metrics`** (`include/grove/text/TextMetrics.h`, pur, header-only).
+  *Rouge :* `TextMetricsUnit` avec une table **volontairement proportionnelle** (fake : `i`=4, `M`=20)
+  — un oracle qu'une implémentation monospace ne peut pas satisfaire. Cas : mesure, aller-retour
+  `xAtIndex`/`indexAtX`, frontières UTF-8 (« é », « — »), chaîne vide, x hors bornes.
+- **T0b — UTF-8 (D2).** Backspace/Suppr/flèches passent par `prevIndex`/`nextIndex`.
+  *Rouge :* E2E — taper « é » puis Backspace ⇒ le champ est **vide**, pas un demi-octet.
+- **T0c — Transport (D1).** `render:font:metrics` publié par BgfxRenderer, consommé par UIModule,
+  injecté dans les widgets ; repli monospace si absent.
+  *Rouge :* E2E — après une table proportionnelle injectée, la position du curseur pour un index donné
+  **diffère** de `index × 8`.
+- **T0d — Clic → curseur (D3).** *Rouge :* E2E — clic à x donné ⇒ index attendu ; clic au-delà de la
+  fin ⇒ fin de chaîne.
+
+### T1 — Sélection
+
+- Modèle : `selectionAnchor` + `cursorPosition`, sélection = `[min, max)`. Ancre == curseur ⇒ pas de
+  sélection (aucun état supplémentaire à synchroniser).
+- **Modificateurs (D4)** : `shift`/`ctrl` propagés dans `UIContext` depuis `input:keyboard:key`
+  (le payload les porte déjà) — supprime le `TODO` de `UIModule.cpp:911`.
+- Shift+flèches / Shift+Début/Fin étendent ; une flèche seule **replie** la sélection (sur le bord
+  correspondant, pas sur la position du curseur — c'est la convention partout).
+- Glisser-souris sélectionne ; **double-clic** sélectionne le mot ; Ctrl+A tout.
+- Taper ou effacer **avec** une sélection la **remplace**.
+- Rendu : un rectangle de surlignage derrière le texte — `selectionColor` **existe déjà** dans
+  `TextInputStyle` (`UITextInput.h:38`) et n'est utilisé nulle part.
+- *Preuve :* E2E pour le modèle + **un test `[gpu]` au pixel** pour le surlignage. Le rendu ne se lit
+  pas dans le code — c'est la leçon n°1 du chantier 9-slice (`ui-nineslice-handoff.md` §7).
+
+### T2 — Presse-papiers
+
+- **Rien n'existe** : `grep -ri clipboard` sur tout le dépôt ⇒ 0 occurrence. Il faut créer le chemin.
+- L'UIModule est SDL-free ⇒ il passe par IIO. `InputModule` possède SDL, donc le presse-papiers :
+  - UIModule → `input:clipboard:set {text}` (copier/couper) et `input:clipboard:get` (demande)
+  - InputModule → `input:clipboard:text {text}` en réponse (`SDL_GetClipboardText`)
+- **Le collage a une frame de latence** (requête → réponse). Invisible à l'œil humain ; c'est le prix
+  du découplage SDL et il est documenté ici plutôt que contourné par un raccourci.
+- *Rouge :* E2E avec un faux répondeur presse-papiers dans le test (le test publie la réponse) ⇒
+  Ctrl+V insère au curseur, Ctrl+X copie **et** supprime la sélection.
+
+### T3 — Multiligne *(le gros morceau)*
+
+- **Extraire d'abord le modèle d'édition pur** : `grove::text::EditModel` (tampon + curseur +
+  sélection + opérations insérer/supprimer/déplacer/sélectionner). `UITextInput` et le multiligne
+  deviennent deux **vues minces** au-dessus du même modèle testé unitairement.
+  *Pourquoi :* l'alternative — un `multiline: true` greffé sur `UITextInput` — transforme le widget en
+  monstre où chaque méthode se ramifie sur un booléen. La modularité prime (doctrine §III.1).
+- Puis la vue : Entrée insère `\n`, flèches haut/bas, défilement vertical (réutilise le clip existant),
+  une entrée de rendu par ligne visible (pool recyclé, comme la liste virtualisée), retour à la ligne
+  automatique optionnel.
+
+---
+
+## 4. Arbitrages à trancher
+
+1. **Multiligne : widget séparé ou mode ?** Je recommande **`UITextArea` séparé** au-dessus d'un
+   `EditModel` partagé (T3). Un mode booléen serait plus court à écrire *aujourd'hui* et plus coûteux
+   à tenir *ensuite*.
+2. **Sémantique d'Entrée en multiligne.** Entrée insère un saut de ligne ⇒ la soumission passe à
+   **Ctrl+Entrée**. Le `onSubmit` du monoligne ne bouge pas.
+3. **Où s'arrête ce chantier ?** T0+T1+T2 = « champ de saisie correct » et se tient tout seul.
+   T3 est un second bloc, plus gros que les trois premiers réunis. **Livrable par défaut : T0→T2**,
+   T3 sur ordre.
+
+---
+
+## 5. Risques
+
+- **Ordre d'arrivée des métriques.** La table arrive après le chargement de la police ; une frame
+  d'UI peut la précéder. Repli monospace ⇒ dégradation, jamais de plantage. Un test doit verrouiller
+  que le repli produit **exactement** l'ancien comportement.
+- **Le rendu ne se prouve pas headless.** Les E2E de l'UIModule sont sans pixels : ils prouvent la
+  logique (index, modèle de sélection), pas l'image. D'où le test `[gpu]` sur le surlignage.
+- **Régression sur les écrans existants.** Le champ est utilisé dans les démos/écrans JSON ; toute
+  tranche finit par la régression UI complète (`ctest -R "UI|Radial|InputUI"`) avant commit.
+- **Périmètre du presse-papiers.** Uniquement du texte brut. Pas d'images, pas de formats riches.
+
+---
+
+## 6. Journal de statut
+
+| Date | Tranche | État |
+|---|---|---|
+| 2026-07-29 | Plan | Rédigé. Constat vérifié dans le code (D1-D4), architecture de mesure tranchée (option B) |
+| 2026-07-29 | **T0a** | ✅ `grove::text::Metrics` + `Utf8.h` remonté dans `include/grove/text/`. `TextMetricsUnit` 17 cas / 233 assertions. **Vérifié adversarialement** : rebranché sur l'implémentation monospace + pas-en-octets, 8 cas passent au rouge |
+| 2026-07-29 | **T0b** | ✅ D2 levé. Backspace/Suppr/flèches passent par `prevIndex`/`nextIndex` ; `setCursorPosition` devient l'entonnoir qui recolle toute position sur une frontière de codepoint. `IT_062`, vu ROUGE avant correctif (5 cas sur 6) |
+| 2026-07-29 | **T0c** | ✅ D1 levé. `render:font:metrics` publié par BgfxRenderer (au boot ET sur `render:font`), consommé par UIModule → `UIContext::fontMetrics` → widget. Encodage dense partagé (`TextMetricsWire.h`) car IIO ne transporte que le JSON propre du nœud. Publié aussi pour la 8x8 (avances toutes à 8 = repli historique exact) |
+| 2026-07-29 | **T0d** | ✅ D3 levé. Le clic place le curseur (`indexAtX`), y compris sur du texte accentué (balayage de tout le champ : aucune position de clic ne corrompt la chaîne) |
+
+| 2026-07-29 | **T1** | ✅ **Sélection COMPLÈTE** — tout le périmètre annoncé au §3. D4 levé (shift/ctrl/alt propagés dans `UIContext`). Maj+flèches/Début/Fin, Ctrl+A, glisser-souris, **double-clic → mot** (`grove::text::wordBoundsAt`, pur + partagé), remplacement à la frappe, Backspace/Suppr sur intervalle, surlignage rendu. `IT_063` (15 cas) vu ROUGE avant ; `TextMetricsUnit` 24 cas / 311 assertions, **vérifié adversarialement** (classification ASCII-only ⇒ « café » devient « caf ») ; **`SelectionHighlightGpu`** au pixel, lui aussi vérifié adversarialement (passes inversées ⇒ `redInBand=0`, texte illisible) |
+
+| 2026-07-29 | **T2** | ✅ Presse-papiers. `input:clipboard:set` (copier/couper) + `input:clipboard:get` → `input:clipboard:text` (coller, UNE frame de latence assumée). Implémenté des DEUX côtés : UIModule (raccourcis, insertion) et InputModule (le vrai `SDL_SetClipboardText`/`GetClipboardText`). `IT_064` (8 cas) vu ROUGE avant ; aller-retour sur le VRAI presse-papiers système verrouillé par `InputModuleStatic [clipboard]` |
+
+| 2026-07-29 | **T3** | ✅ **Multiligne.** (a) `grove::text::EditModel` extrait, pur — `TextEditUnit` 21 cas / 107 assertions, vérifié adversarialement. (b) `UITextInput` MIGRÉ dessus : les 63 tests de saisie existants restent verts, donc le modèle est éprouvé AVANT que la seconde vue s'y appuie. (c) `UITextArea` — widget séparé, pool d'entrées borné par la HAUTEUR (pas par le nombre de lignes), Entrée insère / **Ctrl+Entrée soumet**, Début/Fin sur la LIGNE, Haut/Bas conservent la colonne. `IT_065` (9 cas), mordant vérifié |
+
+| 2026-07-29 | **T4** | ✅ **Retour à la ligne automatique.** `grove::text::wrapText` (pur, `TextWrapUnit` 16 cas) + bascule COMPLÈTE du widget sur les lignes VISUELLES (rendu, clic, Haut/Bas, Début/Fin, surlignage, défilement) + cache de mise en page à signature exacte. `IT_066` (9 cas), mordant vérifié. Activé PAR DÉFAUT ; `"wrap": false` rend le découpage strictement logique |
+
+**T0 + T1 + T2 + T3 + T4 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
+inclus). Régression : 65/65 verts (UI + Radial + InputUI + Text + Render + Scene + Selection, tests
+GPU inclus) ; **suite COMPLÈTE 202/202** sur un build propre. **Le chantier est terminé.**
+
+### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
+
+Le test qui vérifie ce que le renderer reçoit RÉELLEMENT (et pas seulement le modèle de sélection) a
+révélé que **le renderer retained FIGE la couche d'une entrée à sa première publication**
+(`// Keep original layer (don't update it)`, `UIRenderer.cpp`). Or `UITextInput` publiait ses entrées
+cachées avec un `0` littéral en couche, et la toute première frame passe par la branche
+« placeholder » (champ vide, non focalisé) — donc le texte, **le curseur** et le surlignage étaient
+enregistrés à la couche 0 *définitivement*, sous le fond du champ (~1001).
+
+1. **Mon surlignage** aurait été invisible dès la première frame.
+2. **Le curseur de saisie n'a jamais été visible** dans aucun champ GroveEngine. Personne ne l'avait
+   vu parce que le texte, lui, s'en sortait par accident : il part dans `TextPass`, une passe qui
+   s'exécute après `SpritePass` quelles que soient les couches. Le curseur, un rect, n'a pas cette
+   chance.
+
+**Correctif** : les six couches du widget sont réservées d'un bloc, dans un ordre fixe, en tête de
+`render()` — la profondeur ne dépend donc plus de la branche prise à la première frame. Toute entrée
+cachée est publiée à taille nulle **sur sa couche définitive**.
+
+**Leçon générale** : dans ce renderer, « cacher une entrée en publiant des zéros » doit conserver la
+couche. Tout widget qui publie `layer 0` pour cacher quelque chose porte le même bug latent.
+
+### Piège rencontré — à ne pas repayer
+
+Le premier passage de T0d a échoué avec un résultat qui correspondait *exactement* au calcul du repli
+monospace, alors que la table de métriques était bien arrivée (prouvé par le log du module). Cause
+réelle : **`cmake --build build --target IT_062...` ne reconstruit pas `libUIModule.dll`**, que le
+test charge à l'exécution via `ModuleLoader` — le test tournait donc contre l'ancienne DLL. Localisé
+en trois mesures (métriques reçues ? clic reçu ? curseur posé ?) plutôt qu'en devinant. **Toute
+tranche suivante doit reconstruire la CIBLE MODULE, pas seulement la cible de test.**
+
+### Deux défauts trouvés en construisant T2
+
+1. **`insertFilteredText` détectait le changement par la LONGUEUR** (`text.length() != before`). Ce
+   proxy tenait tant que le seul cas était « insérer », où la longueur augmente forcément. Depuis que
+   la frappe REMPLACE une sélection, remplacer « abc » par « ZZZ » laisse la longueur identique : la
+   fonction rendait `false`, donc l'appelant n'émettait pas `ui:text_changed` et **le jeu ne voyait
+   jamais le collage**. Le champ était correct, l'événement manquait — le pire des deux mondes.
+   Corrigé en comparant le texte.
+2. **`InputModule` ne drainait jamais sa boîte de réception IIO.** Il ne faisait que PUBLIER (il
+   traduit des événements SDL) et n'écoutait rien ; aucune souscription n'aurait donc jamais été
+   dispatchée. Rendre un service (le presse-papiers) l'oblige à consommer — boucle de drain ajoutée
+   dans `process()`, comme l'UIModule.
+
+### ⚠️ Piège d'environnement — build du worktree
+
+Configurer le build du worktree avec `FETCHCONTENT_BASE_DIR` pointant sur le `build/_deps` du dépôt
+principal fait **partager les artefacts compilés** entre les deux builds : ils se réécrivent
+mutuellement `libspdlog.a` / `libCatch2.a` et produisent des échecs de lien absurdes
+(`undefined reference to fmt::v9::format_error::~format_error`) sans aucun rapport avec le code.
+
+**À faire à la place** — réutiliser les SOURCES téléchargées, jamais le répertoire de build :
+
+```
+cmake -B build -G Ninja   -DFETCHCONTENT_SOURCE_DIR_BGFX=<repo>/build/_deps/bgfx-src   -DFETCHCONTENT_SOURCE_DIR_CATCH2=<repo>/build/_deps/catch2-src   -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=<repo>/build/_deps/nlohmann_json-src   -DFETCHCONTENT_SOURCE_DIR_SPDLOG=<repo>/build/_deps/spdlog-src   -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON -DGROVE_BUILD_INPUT_MODULE=ON
+```
+
+On garde la configuration rapide (aucun téléchargement) sans partager le moindre artefact.
+
+### Arbitrages du §4, tranchés
+
+1. **Widget séparé** (`UITextArea`) au-dessus d'un `EditModel` partagé — retenu. Ce qui a rendu le
+   découpage gratuit plutôt que duplicant, c'est l'ORDRE : extraire le modèle, y **migrer d'abord le
+   champ monoligne** (les 63 tests existants valident le modèle), et seulement ensuite construire la
+   seconde vue. L'inverse aurait bâti le textarea sur du code jamais éprouvé.
+2. **Ctrl+Entrée soumet** dans la zone de texte ; Entrée y insère un saut de ligne. Le champ
+   monoligne ne bouge pas — verrouillé par un garde-fou explicite dans `IT_065`, parce qu'une
+   régression là casserait tous les formulaires existants.
+
+### Hors périmètre, assumé et documenté (pas des oublis)
+
+- ~~Pas de retour à la ligne automatique~~ → ✅ **LEVÉE (T4, voir ci-dessous).**
+- **Pas de défilement horizontal** : avec le repli actif (le défaut) il n'a plus lieu d'être ; avec
+  `wrap: false`, une ligne plus large que la boîte est coupée par le clip.
+- Le filtre de saisie et le mode mot de passe restent des politiques de VUE, hors du modèle.
+
+---
+
+## 7. T4 — Retour à la ligne automatique
+
+### La distinction qui porte tout
+
+Une ligne **logique** est ce que séparent deux `
+`. Une ligne **visuelle** est ce qu'on voit sur une
+rangée. Sans repli les deux coïncident ; avec, une ligne logique trop large en produit plusieurs.
+
+**Tout ce qui traduit entre (rangée, colonne) et pixels doit basculer sur les lignes visuelles** — le
+rendu, le clic, les flèches Haut/Bas, Début/Fin, le surlignage, le défilement. Se tromper de notion à
+un seul de ces endroits produit un décalage que rien ne rattrape, et **qu'aucun test du modèle
+n'attraperait** : le texte y est intact, c'est son découpage à l'écran qui ment. D'où un test E2E qui
+regarde ce que le renderer REÇOIT (`render:text:*`), et non ce que le modèle contient.
+
+Exemple concret verrouillé par `IT_066` : avec une ligne logique unique repliée sur deux rangées, une
+flèche Haut doit remonter d'UNE RANGÉE. Si la navigation suivait les lignes logiques, elle sauterait
+au début du texte — c'est exactement ce que produit la version adversariale (`"Xaaaa…"` au lieu de
+`"aaaaX…"`).
+
+### Découpage
+
+- **Cœur pur** : `include/grove/text/TextWrap.h`. L'avance des glyphes est un CALLABLE — même contrat
+  que `TextFit.h` et `TextMetrics.h` — donc le découpage se teste exhaustivement avec une métrique
+  factice, sans police ni GPU. `maxWidth <= 0` signifie « aucun repli », ce qui donne `wrap: false`
+  sans chemin de code particulier.
+- **Règle de coupe** : à la dernière espace qui tienne ; un mot plus large que la boîte est coupé au
+  caractère (sinon il déborderait indéfiniment) ; **au moins un codepoint par rangée**, ce qui rend
+  l'algorithme total même pour une largeur absurde. Les bornes tombent toujours sur des frontières de
+  codepoint : une coupe ne peut pas casser un accent en deux.
+- **Cache de mise en page à signature EXACTE** — révision du texte (compteur O(1) ajouté à
+  `EditModel`), largeur, taille de police, époque des métriques. Pas d'heuristique : une mise en page
+  périmée est un bug purement visuel, exactement le risque documenté de tout cache de layout
+  (`ui-framework.md` §8). Un changement de police à chaud (`render:font`) incrémente
+  `UIContext::fontMetricsEpoch` et refait donc tous les replis.
+
+### Un défaut trouvé par les tests du cœur pur
+
+Une suite de plusieurs espaces laissait des espaces traînantes en fin de rangée (« `aa   ` » au lieu
+de « `aa` ») : chaque espace écrasait l'opportunité de coupe, qui finissait après la DERNIÈRE au lieu
+de la première. Corrigé en consommant la suite d'espaces d'un bloc. C'est le genre de défaut qu'on ne
+voit pas à l'œil (les espaces sont invisibles) mais qui décale le texte justifié.

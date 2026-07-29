@@ -252,6 +252,39 @@ void UIButton::render(UIRenderer& renderer) {
 - Destroy callback must unregister all entries
 - Style changes (hover, pressed) trigger color updates, but not position/size updates
 
+### ⚠️ A multi-entry widget MUST also override `releaseRenderEntries()`
+
+The destroy callback covers **destruction**. It does not cover **hiding** — and hiding is the common
+case (`ui:set_visible false`, a window self-closing, a `if:` binding turning false). A hidden widget
+simply stops calling `render()`; because the mode is retained, every entry it published **stays on
+screen**. That is a ghost.
+
+`UIWidget::releaseRenderEntries()` is the hook. The base drops the primary `m_renderId`, resets the
+dirty/registered flags so a re-show re-publishes, and recurses into children. A widget owning **any
+other** entry must override, drop its extras, then delegate:
+
+```cpp
+void UISlider::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_fillRenderId != 0)   { renderer.unregisterEntry(m_fillRenderId);   m_fillRenderId = 0; }
+    if (m_handleRenderId != 0) { renderer.unregisterEntry(m_handleRenderId); m_handleRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // primary id + flags + children
+}
+```
+
+**The trap — a lazily-registered entry needs its flag reset too.** A 9-slice chrome entry is created
+on demand under an `m_frameRegistered` guard. Release the id but leave the flag `true` and the widget
+believes its frame still exists: the chrome **never comes back** after one hide/show cycle. That is
+worse than the ghost — it is silent. Always pair them:
+
+```cpp
+if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
+m_frameRegistered = false;   // NOT optional
+```
+
+`IT_067` (`UIGhostEntriesE2E`) enforces both halves for every widget type: it counts the `:add`
+published on reveal against the `:remove` published on hide and demands equality, over two cycles.
+A new widget that forgets its override goes red there without anyone having to remember this page.
+
 ## Performance Characteristics
 
 ### Static UI

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <grove/text/TextMetrics.h>  // mesure du texte (curseur, sélection, clic -> index)
+
 #include <string>
 #include <cstdint>
 
@@ -25,6 +27,17 @@ public:
     bool keyPressed = false;
     int keyCode = 0;
     char keyChar = 0;
+
+    // QUOI : modificateurs de la touche de cette frame.
+    // POURQUOI : UIModule portait `bool ctrl = false; // TODO: Add ctrl modifier to UIContext`, ce qui
+    //   rendait Ctrl+A/C/V INDÉTECTABLES — les branches correspondantes de UITextInput::onKeyInput
+    //   étaient du code mort. Maj est ce qui distingue « déplacer le curseur » de « étendre la
+    //   sélection ». InputModule les publie DEPUIS TOUJOURS dans input:keyboard:key
+    //   (InputConverter.cpp:38-41, alimentés par KMOD_* côté SDL) : le câble existait, il n'était
+    //   simplement pas branché ici.
+    bool keyShift = false;
+    bool keyCtrl = false;
+    bool keyAlt = false;
     // Texte saisi cette frame (commit IME / coller / codepoint UTF-8 multi-octets).
     // Distinct de keyChar (1 octet) : un input:keyboard:text peut porter PLUSIEURS
     // caractères ; on insère la chaîne entière (cf. #5/C2). Vide si la frame n'a pas
@@ -43,6 +56,20 @@ public:
     float screenWidth = 1280.0f;
     float screenHeight = 720.0f;
 
+    // QUOI : les avances de glyphes de la police RÉELLEMENT utilisée par le renderer.
+    // POURQUOI : placer un curseur, surligner une sélection ou convertir un clic en index sont tous
+    //   des calculs de largeur de texte. L'UIModule ne connaît pas la police (il est découplé du
+    //   renderer) : celui-ci lui POUSSE sa table sur `render:font:metrics` à chaque chargement.
+    //   Sans ça, le champ de saisie mesure en monospace 8px et son curseur dérive du texte dessiné.
+    // COMMENT : table VIDE par défaut = repli monospace historique, donc un hôte sans renderer (les
+    //   tests E2E headless) ou une frame antérieure à l'arrivée de la table se comportent comme avant.
+    text::Metrics fontMetrics;
+
+    // Incrémentée à chaque réception d'une nouvelle table. Permet à une vue qui met en cache une
+    // mise en page dépendante de la police de savoir, en O(1), qu'elle doit la refaire — un
+    // changement de police à chaud (render:font) invaliderait sinon silencieusement tous les replis.
+    uint32_t fontMetricsEpoch = 0;
+
     /**
      * @brief Reset per-frame state
      * Call at the start of each frame before processing input
@@ -53,6 +80,9 @@ public:
         keyPressed = false;
         keyCode = 0;
         keyChar = 0;
+        keyShift = false;
+        keyCtrl = false;
+        keyAlt = false;
         keyText.clear();
         mouseWheelDelta = 0.0f;
         // Note: hoveredWidgetId is NOT cleared here - it persists

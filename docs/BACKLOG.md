@@ -48,8 +48,8 @@ camera items are above. The genuine engine gaps it surfaces:
   Sequential so the wedges layer right). The wheel draws a dark bg DISC + per-item wedges (hover-tinted)
   + labels; configurable `gap` (angular) + `margin` (radial) between slices; any N (2..8+, oracle-locked
   to tile the circle); `ui:radial:set_items {id,count}` reconfigures N at runtime. Reusable for cooldown
-  rings / gauges / radars. **Remaining (deferred):** other multi-entry widgets' ghost-rect override (the
-  general fix exists; only the radial is converted).
+  rings / gauges / radars. *(The ghost-rect override this once deferred is tracked in its own entry
+  below — nine widgets now carry it.)*
 - **Gamepad input — premature, parked.** `InputModule` feeds SDL keyboard/mouse → `input:*`; no
   gamepad. A controller path (→ controller-native, Steam Deck) is wanted *eventually* but **not a
   near-term need** — the radial's `setSelectedIndex` is the ready seam, but revisit only once a
@@ -58,9 +58,33 @@ camera items are above. The genuine engine gaps it surfaces:
 - **Retained-mode hide ghost rects — ✅ FIXED** (2026-06-21). `UIWidget::releaseRenderEntries()`: on
   hide (`ui:set_visible false` or a self-close), the widget publishes `render:*:remove` for ALL its
   entries and resets so a re-show re-registers + re-publishes. Base drops the primary id + recurses to
-  children; multi-entry widgets (radial = bg + N items) override to drop their extras. *Remaining: only
-  the RADIAL overrides so far — other multi-entry widgets (UIButton text, slider, etc.) still ghost
-  their EXTRA entries on hide; give them the same override when a slice toggles them.*
+  children; multi-entry widgets (radial = bg + N items) override to drop their extras.
+
+  **✅ COMPLETE across every widget** (2026-07-29). The five that still leaked — `UITextInput` (6
+  extra entries), `UIProgressBar` (4), `UICheckbox` (3), `UISlider` (2), `UIDrawer` (1 lazy frame),
+  16 ghosts in all — now override too. Fourteen widgets carry it; the rest own no extra entry, so
+  the base suffices.
+
+  ⚠️ **This entry long claimed "only the RADIAL overrides so far". That was stale from 2026-06-21
+  and measurably false by 2026-07-29** — nine widgets already overrode, completely. The line sent a
+  session chasing work that had mostly shipped. **Re-measure a backlog line before planning off it:
+  it is a dated hypothesis, not a state.**
+
+  **The trap when adding an override**: a lazily-registered 9-slice entry has a companion
+  `m_frameRegistered` flag. Release the id WITHOUT resetting the flag and the chrome never comes
+  back after a hide/show — a silent disappearance, worse than the ghost it replaced. `UIPanel` and
+  `UIScrollPanel` were the correct pattern; all five new overrides follow it.
+
+  **Locked by `IT_067` (`UIGhostEntriesE2E`) — and it locks the CLASS of bug, not those five.** Per
+  widget it counts the `render:*:add` published on reveal against the `render:*:remove` published on
+  hide, and demands equality. A future multi-entry widget that forgets its override goes red on its
+  own. Two details that make it work, both learned the hard way:
+  - every widget in the fixture starts **invisible**, which is what makes the `:add` ATTRIBUTABLE —
+    reveal one and the frame's only adds are its own;
+  - it does **two** hide/show cycles and compares the counts, which is the only thing that catches
+    the lazy-flag trap above. Measuring by hiding then re-showing would NOT work: a leaking widget
+    keeps its ids and republishes `:update`, not `:add` — the count balances and the test goes green
+    mid-leak.
 
 ## Rendering
 - **Tilemap high-perf — ✅ SHIPPED A → B** (2026-06-18/19). GPU index-texture (R16UI + texelFetch,

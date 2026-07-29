@@ -11,7 +11,16 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `input:mouse:move` | `{x, y}` | Mouse position |
 | `input:mouse:button` | `{button, pressed, x, y}` | Mouse click |
 | `input:mouse:wheel` | `{delta}` | Mouse wheel |
-| `input:keyboard` | `{keyCode, pressed, char}` | Keyboard event |
+| `input:keyboard:text` | `{text}` | **Typed characters** (IME commit / paste / multi-byte UTF-8). The whole string is inserted, not just the first byte |
+| `input:keyboard:key` | `{scancode, pressed, shift, ctrl, alt}` | **Edit keys** (Backspace, Delete, Enter, arrows, Home/End) + Ctrl+letter shortcuts. Raw SDL scancode; UIModule translates it. The modifiers drive selection (Shift) and shortcuts (Ctrl) |
+| `input:keyboard` | `{keyCode, pressed, char}` | ⚠️ LEGACY single-topic path, kept for the visual showcases. The real InputModule publishes the two topics above |
+| `input:clipboard:text` | `{text}` | Clipboard contents, in **reply** to a `input:clipboard:get` the UI sent. Paste therefore costs ONE FRAME — the price of keeping UIModule SDL-free |
+
+### From BgfxRenderer
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `render:font:metrics` | `{baseSize, lineHeight, firstCodepoint, advances}` | **Glyph advance table of the font actually in use**, pushed on every font load (boot + `render:font`). The UI needs it to place a caret, size a selection highlight and turn a click into a character index — all synchronously, within the frame of the click. Without it, text widgets fall back to the historic 8px monospace assumption and the caret drifts under a proportional face. `advances` is a dense space-separated list from `firstCodepoint` (see `grove::text::MetricsWire`) |
 
 ### UI Control Commands
 
@@ -44,8 +53,10 @@ Complete reference of all IIO topics consumed and published by UIModule.
 |-------|---------|-------------|
 | `ui:click` | `{widgetId, x, y}` | Widget clicked |
 | `ui:action` | `{widgetId, action}` | Button action triggered |
-| `ui:value_changed` | `{widgetId, value}` | Slider/checkbox/input changed |
-| `ui:text_submitted` | `{widgetId, text}` | Text input submitted (Enter) |
+| `ui:value_changed` | `{widgetId, value}` | Slider/checkbox changed |
+| `ui:text_changed` | `{widgetId, text}` | A `textinput`/`textarea` changed (typing, delete, paste, cut) |
+| `ui:text_submit` | `{widgetId, text}` | Text submitted — **Enter** in a `textinput`, **Ctrl+Enter** in a `textarea` (Enter there inserts a line break). A widget with `onSubmit` also publishes `ui:action` |
+| `ui:focus_gained` / `ui:focus_lost` | `{widgetId}` | Keyboard focus moved between text widgets |
 | `ui:hover` | `{widgetId, enter}` | Mouse entered/left widget |
 | `ui:scroll` | `{widgetId, scrollX, scrollY}` | Scroll panel scrolled |
 | `ui:window:closed` | `{id}` | An in-app window was closed (its close button clicked). The window hides itself + purges its retained entries; the game reacts (free state, etc.) |
@@ -54,6 +65,19 @@ Complete reference of all IIO topics consumed and published by UIModule.
 | `ui:list:selected` | `{id, groupId, index, itemId}` | A `list` ITEM row was clicked. `groupId` = its group (`""` for a flat/ungrouped list); `index` = its position WITHIN the group (flat: global); `itemId` = the item's stable `id` (survives a reorder, unlike the index). The list highlights the row on its own |
 | `ui:list:group:toggled` | `{id, groupId, collapsed}` | A grouped `list`'s header was clicked → the group folded/unfolded. `collapsed` = the NEW state. The list re-projects its rows on its own |
 | `ui:capture` | `{mouse, keyboard}` | **Input-capture / anti-click-through** (published on change). `mouse=true` while the pointer is over an interactive widget (the UI absorbs it there) OR a UI drag is in progress (a press that grabbed the UI, until release). `keyboard=true` while a widget has focus (a text input eating keystrokes). **The game MUST latch this and skip world input** (camera pan/zoom, world clicks, shortcuts) while the matching capture is true — otherwise a click/drag on the UI also acts on the world behind it. (The `WantCaptureMouse` pattern.) |
+
+### Clipboard requests (to whoever owns the system clipboard)
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `input:clipboard:set` | `{text}` | **Copy/cut** — write this to the system clipboard. Published only when there IS a selection, so a reflex Ctrl+C never wipes what the user copied from another application |
+| `input:clipboard:get` | `{}` | **Paste request.** The service answers on `input:clipboard:text`; the UI inserts it on the next frame |
+
+> **Why a request/reply rather than a direct call:** UIModule is deliberately SDL-free, and the
+> clipboard IS an SDL resource. `InputModule` owns SDL, so it provides the service — and being a
+> generic bus service, a debug console or a chat box gets it for free, not just text widgets.
+> A game that hosts UIModule WITHOUT InputModule must answer `input:clipboard:get` itself, otherwise
+> paste silently does nothing (copy still works — it is fire-and-forget).
 
 > **Declarative events (templating engine).** Beyond the fixed events above, any widget can declare its own
 > outbound event in the layout JSON: `"on":{"click":{"event":"<topic>","args":{"k":"{{path}}"}}}` → on click

@@ -2,6 +2,8 @@
 
 #include "../Core/UIWidget.h"
 #include "UIFrame.h"
+#include <grove/text/TextMetrics.h>
+#include <grove/text/TextEdit.h>
 #include <cstdint>
 #include <string>
 
@@ -67,6 +69,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "textinput"; }
+    // Libère les SIX entrées supplémentaires (la base ne lâche que le fond + les enfants) : sans ça,
+    // cacher un champ laisse son texte, son curseur et son surlignage affichés. Verrouillé par IT_067.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     /**
      * @brief Check if a point is inside this text input
@@ -84,9 +89,47 @@ public:
      * @param keyCode Key code
      * @param character Unicode character (if printable)
      * @param ctrl Ctrl key modifier
+     * @param shift Shift modifier — étend la sélection au lieu de déplacer le curseur
      * @return true if event was consumed
      */
-    bool onKeyInput(int keyCode, uint32_t character, bool ctrl);
+    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false);
+
+    // ------------------------------------------------------------------
+    // Sélection.
+    //
+    // MODÈLE : un unique `selectionAnchor` face à `cursorPosition`. La sélection est l'intervalle
+    // [min, max) ; ancre == curseur signifie AUCUNE sélection. Un seul état à tenir cohérent, au
+    // lieu d'un couple début/fin + un booléen « active » qu'il faudrait synchroniser à chaque
+    // opération. L'ancre est le bord FIXE (celui posé au début du geste), le curseur le bord
+    // mobile — c'est ce qui permet d'étendre dans les deux sens.
+    // ------------------------------------------------------------------
+    bool hasSelection() const { return edit.hasSelection(); }
+    int selectionStart() const { return edit.selectionStart(); }
+    int selectionEnd()   const { return edit.selectionEnd(); }
+
+    /** @brief Annule la sélection en laissant le curseur où il est. */
+    void clearSelection() { edit.clearSelection(); }
+
+    /** @brief Sélectionne tout le contenu (Ctrl+A). */
+    void selectAll();
+
+    /**
+     * @brief Texte actuellement sélectionné ("" s'il n'y a pas de sélection).
+     *
+     * Rend le texte RÉEL, jamais la version masquée du mode mot de passe : copier des astérisques
+     * n'aurait aucun sens. (Un champ qui doit interdire la copie de son contenu doit le refuser
+     * explicitement — c'est une décision de sécurité, pas un effet de bord du masquage.)
+     */
+    std::string selectedText() const;
+
+    /**
+     * @brief Efface la sélection s'il y en a une. Retourne true si quelque chose a été supprimé.
+     *
+     * Point de passage unique de toute suppression d'intervalle : frappe, Backspace, Suppr et
+     * Couper y convergent, pour qu'ils ne puissent pas diverger sur les cas limites (sélection
+     * vide, bornes inversées, curseur laissé hors du texte).
+     */
+    bool deleteSelection();
 
     /**
      * @brief Gain focus (start receiving keyboard input)
@@ -143,10 +186,25 @@ public:
      */
     float getCursorPixelOffset() const;
 
-    // Text input properties
-    std::string text;
+    // ------------------------------------------------------------------
+    // LE MODÈLE D'ÉDITION — source de vérité du contenu, du curseur et de la sélection.
+    //
+    // Le widget est une VUE : il dessine, écoute la souris et le clavier, applique ses politiques de
+    // présentation (filtre de saisie, mode mot de passe), et délègue TOUTE l'édition au modèle. C'est
+    // ce qui lui permet de partager mot pour mot sa logique avec UITextArea au lieu d'en tenir une
+    // seconde copie, condamnée à diverger.
+    //
+    // Les méthodes historiques (insertText, deleteCharBefore, moveCursor…) restent, en simples
+    // relais : l'API publique du widget ne bouge pas, donc rien de ce qui l'utilise n'a à changer.
+    // ------------------------------------------------------------------
+    text::EditModel edit;
+
+    /** @brief Contenu du champ. */
+    const std::string& text() const { return edit.text(); }
+    /** @brief Remplace le contenu (chargement JSON, binding, setState) ; curseur en fin. */
+    void setText(const std::string& value) { edit.setText(value); }
+
     std::string placeholder = "Enter text...";
-    int maxLength = 256;
     TextInputFilter filter = TextInputFilter::None;
     bool passwordMode = false;
     bool enabled = true;
@@ -161,18 +219,38 @@ public:
     // Current state
     TextInputState state = TextInputState::Normal;
     bool isFocused = false;
-    int cursorPosition = 0;        // Index in text string
+    // Position du curseur : lecture seule ici, la vérité est dans `edit`.
+    int cursorPosition() const { return edit.cursor(); }
+    bool draggingSelection = false;  // un appui a démarré un glisser-sélectionner dans ce champ
     float scrollOffset = 0.0f;     // Horizontal scroll for long text
+
+    // DOUBLE-CLIC — sélection du mot.
+    // Le widget mesure lui-même l'intervalle entre deux appuis (il reçoit deltaTime à chaque frame)
+    // plutôt que d'attendre un événement « double-clic » du backend : InputModule publie des appuis
+    // bruts, et faire remonter la notion de double-clic jusqu'à SDL obligerait chaque backend à
+    // s'accorder sur le même seuil. La décision reste donc côté UI, où elle est testable.
+    static constexpr float DOUBLE_CLICK_SECONDS = 0.4f;
+    static constexpr float DOUBLE_CLICK_SLOP_PX = 4.0f;  // au-delà, c'est un nouveau clic ailleurs
+    float timeSinceLastClick = 1.0e9f;  // grand = « aucun clic récent »
+    float lastClickX = 0.0f;
 
     // Cursor blink animation
     float cursorBlinkTimer = 0.0f;
     bool cursorVisible = true;
     static constexpr float CURSOR_BLINK_INTERVAL = 0.5f;
 
-    // Text measurement (approximate)
-    static constexpr float CHAR_WIDTH = 8.0f;  // Average character width
+    // Text measurement.
+    // CHAR_WIDTH est le REPLI monospace historique, utilisé uniquement tant qu'aucune table d'avances
+    // n'est arrivée (hôte sans renderer, tests headless, frames d'avant le chargement de police).
+    // Dès que le renderer pousse `render:font:metrics`, la mesure passe par les avances RÉELLES —
+    // sans quoi, sous une police proportionnelle, le curseur dérive du texte dessiné.
+    static constexpr float CHAR_WIDTH = 8.0f;  // Average character width (fallback only)
     static constexpr float CURSOR_WIDTH = 2.0f;
     static constexpr float PADDING = 8.0f;
+
+    // Métriques de la police courante, prêtées par UIContext à chaque update(). Non-possédant :
+    // le contexte survit au widget. nullptr / table vide => repli CHAR_WIDTH.
+    const text::Metrics* metrics = nullptr;
 
     // 9-slice FRAME — see UIFrame. Dresses the FIELD box; replaces both the flat bg and the border
     // rect (the border is what a nine-patch expresses natively). Tinted by the state bgColor, so the
@@ -207,6 +285,19 @@ private:
     uint32_t m_textRenderId = 0;         // Text content element
     uint32_t m_placeholderRenderId = 0;  // Placeholder text element
     uint32_t m_cursorRenderId = 0;       // Cursor element
+    uint32_t m_selectionRenderId = 0;    // Surlignage de sélection (DERRIÈRE le texte)
+
+    /** @brief Index de caractère sous une abscisse ÉCRAN (clic, glisser). */
+    int indexAtScreenX(float screenX) const;
+
+    /**
+     * @brief Largeur du préfixe de `shown` jusqu'à l'octet `index`, à la taille affichée.
+     *
+     * Unique endroit qui convertit un index en pixels : le curseur ET les deux bords du surlignage
+     * en dépendent, donc les faire passer par la même fonction est ce qui garantit qu'un surlignage
+     * ne peut pas se décaler du curseur qui l'a produit.
+     */
+    float measureTextTo(const std::string& shown, int index) const;
 };
 
 } // namespace grove

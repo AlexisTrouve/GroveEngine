@@ -174,3 +174,80 @@ Each layer = its own index + LOD; fog shared. Retained only; no shader change. L
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is
 already 1 draw) and blocked by our single-threaded bgfx config.
+
+
+---
+
+## Brouillard : échelle et dérive réglables (2026-07-29)
+
+Le brouillard mélangeait déjà les tuiles cachées avec une **texture échantillonnée en espace monde**
+(wrap `Repeat`) plutôt qu'avec du noir — donc un nuage continu, plus grand qu'une tuile et sans
+couture. Mais l'échelle était **écrite en dur dans le shader** :
+
+```glsl
+vec3 fogColor = texture2D(s_fognoise, worldPos / 64.0).rgb;   // avant
+```
+
+Conséquence : un jeu pouvait changer l'IMAGE, pas la taille à laquelle elle se répète. « Utiliser un
+asset de brouillard plus grand » était donc littéralement inexprimable — et le brouillard était figé
+au boot, sans moyen d'en changer par biome ou de le faire vivre.
+
+**Trois réglages ouverts**, portés par un uniform `u_fogParams {worldScale, offsetX, offsetY}` :
+
+| Réglage | Config (boot) | Topic (à chaud) | Effet |
+|---|---|---|---|
+| Texture | `fogTexture` | `render:tilemap:fog:style {path}` | l'asset de brouillard |
+| Échelle | `fogScale` | `… {scale}` | unités monde couvertes par une tuile de l'asset |
+| Décalage | — | `… {offsetX, offsetY}` | déplace l'échantillonnage (rampé par l'hôte = dérive) |
+
+Chaque champ du topic est **optionnel** : publier `{offsetX, offsetY}` chaque frame fait dériver le
+nuage sans retoucher la texture ni l'échelle.
+
+⚠️ **Seul le nuage bouge.** Le masque de révélation (`render:tilemap:fog`) n'est pas touché par ces
+réglages — un brouillard qui dérive ne doit jamais re-cacher ce que le joueur a exploré.
+
+**Non-régression :** les défauts (`scale = 64`, décalage nul) reproduisent l'ancien rendu **au pixel
+près**, donc aucun hôte existant ne bouge.
+
+**Preuve :** `TilemapLodGpu`, au pixel. Une texture de brouillard de 2 texels (rouge/vert) et une
+tuile centrale en `worldX = 4` ; les valeurs sont choisies pour tomber au CENTRE d'un texel, donc ni
+le filtrage ni l'arrondi ne brouillent le verdict. Vérifié adversarialement : en neutralisant les
+deux réglages, les trois rendus donnent le **pixel identique** (`ff005fa0`) et 6 assertions passent
+au rouge — c'est exactement le comportement d'avant.
+
+### Bord ondulé — et pourquoi PAS un masque sous-tuile
+
+Le masque n'a qu'un texel par tuile : interpolé linéairement, son dégradé s'étale sur exactement une
+tuile et le bord reste **visiblement aligné sur la grille**.
+
+Le réflexe est de réclamer au jeu un masque sous-tuile (4×4 échantillons par tuile). **C'est une
+erreur** : la visibilité est CONNUE par tuile — DAOS révèle en minant, une cellule à la fois — donc
+un masque 4× plus fin ne porterait **aucune information de plus**. Il ne ferait que lisser plus
+finement la même donnée, au prix d'un buffer 16× plus gros à produire et à transmettre, côté jeu.
+
+Ce qui produit vraiment un bord organique, c'est de **perturber la LECTURE du masque avec du bruit** :
+
+```glsl
+if (u_fogParams.w > 0.0) {
+    float n = texture2D(s_fognoise, fogUv * 4.0).r;   // le nuage lui-même, 4x plus fin
+    maskUv += (n - 0.5) * 2.0 * u_fogParams.w / grid;
+}
+```
+
+Le bord ondule et cesse de suivre la grille, **à information constante** — zéro donnée en plus, zéro
+travail côté jeu. La source de bruit est la texture de brouillard elle-même : le nuage dessine donc
+son PROPRE bord, les deux restent cohérents, et un changement d'art se propage tout seul.
+
+`fogEdge` (config) / `{edge}` (topic), en **tuiles**. 0 = bord droit = rendu historique au pixel près.
+⚠️ Suppose une vraie texture de brouillard : avec la 1×1 par défaut le bruit est constant, donc le
+bord se **décale** uniformément au lieu d'onduler.
+
+**Preuve :** masque coupé verticalement, 2 tuiles à gauche de la colonne échantillonnée. Sans
+ondulation cette colonne est uniforme (bord = droite parfaite) ; avec, elle traverse caché ET visible.
+On mesure la FORME du bord, pas une couleur. Vérifié adversarialement (le réglage neutralisé → 0).
+
+> **Piège payé en écrivant ce test** — le premier bruit était un damier 4×4 répété 8 fois sur le
+> chunk. À cette fréquence le GPU **descend dans les mips et rend la moyenne du damier, exactement
+> 0.5** : perturbation rigoureusement nulle, test rouge sans que le code soit en cause. Localisé en
+> deux mesures (la branche s'exécute-t-elle ? le bruit varie-t-il ?) et non en tâtonnant sur les
+> valeurs. **Un bruit de test doit être BASSE FRÉQUENCE.**

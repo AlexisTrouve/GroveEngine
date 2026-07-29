@@ -1,0 +1,83 @@
+{
+  "_comment": "Fixture IT_067 — equilibre add/remove des entrees retained. CHAQUE widget part INVISIBLE : c'est ce qui rend les :add ATTRIBUABLES (seul le widget qu'on revele en publie). Les frames 9-slice sont la exprès — ce sont des entrees PARESSEUSES, le cas qu'une surcharge oublie le plus facilement.",
+  "id": "root",
+  "type": "panel",
+  "x": 0, "y": 0, "width": 800, "height": 600,
+  "layout": { "type": "absolute" },
+  "style": { "bgColor": "0x101418FF" },
+  "children": [
+    {
+      "type": "textinput",
+      "id": "w_textinput",
+      "visible": false,
+      "x": 20, "y": 20, "width": 240, "height": 32,
+      "placeholder": "ghost?",
+      "frame": { "asset": "ui/input_frame", "srcW": 16, "srcH": 16, "inset": 5 },
+      "style": { "fontSize": 16 }
+    },
+    {
+      "type": "progressbar",
+      "id": "w_progressbar",
+      "visible": false,
+      "x": 20, "y": 70, "width": 240, "height": 20,
+      "progress": 0.5,
+      "showText": true,
+      "frame":     { "asset": "ui/bar_frame", "srcW": 16, "srcH": 16, "inset": 5 },
+      "fillFrame": { "asset": "ui/bar_fill",  "srcW": 16, "srcH": 16, "inset": 3 }
+    },
+    {
+      "type": "checkbox",
+      "id": "w_checkbox",
+      "visible": false,
+      "x": 20, "y": 110, "width": 200, "height": 24,
+      "text": "Option",
+      "checked": true,
+      "frame": { "asset": "ui/check_frame", "srcW": 16, "srcH": 16, "inset": 4 }
+    },
+    {
+      "type": "slider",
+      "id": "w_slider",
+      "visible": false,
+      "x": 20, "y": 150, "width": 200, "height": 20,
+      "minValue": 0, "maxValue": 100, "value": 40
+    },
+    {
+      "type": "drawer",
+      "id": "w_drawer",
+      "visible": false,
+      "x": 400, "y": 20, "width": 160, "height": 120,
+      "edge": "left", "open": true, "openExtent": 160,
+      "frame": { "asset": "ui/drawer_frame", "srcW": 16, "srcH": 16, "inset": 9 },
+      "children": [
+        { "type": "button", "id": "w_drawer_btn", "x": 10, "y": 10, "width": 100, "height": 28, "text": "In" }
+      ]
+    },
+
+    {
+      "_comment": "TEMOINS — surcharges deja correctes. Si l'un d'eux tombe rouge, c'est le TEST qui est faux, pas le widget.",
+      "type": "button",
+      "id": "ok_button",
+      "visible": false,
+      "x": 400, "y": 200, "width": 160, "height": 40,
+      "text": "Temoin",
+      "borderWidth": 2,
+      "frame": { "asset": "ui/button_frame", "srcW": 32, "srcH": 32, "inset": 8 }
+    },
+    {
+      "type": "panel",
+      "id": "ok_panel",
+      "visible": false,
+      "x": 400, "y": 260, "width": 160, "height": 60,
+      "style": { "bgColor": "0x203040FF" },
+      "frame": { "asset": "ui/panel_frame", "srcW": 24, "srcH": 24, "inset": 6 }
+    },
+    {
+      "type": "window",
+      "id": "ok_window",
+      "visible": false,
+      "x": 400, "y": 340, "width": 220, "height": 140,
+      "title": "Temoin",
+      "frame": { "asset": "ui/window_frame", "srcW": 48, "srcH": 48, "left": 12, "right": 12, "top": 12, "bottom": 12 }
+    }
+  ]
+}

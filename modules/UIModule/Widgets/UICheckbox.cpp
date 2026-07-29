@@ -136,4 +136,15 @@ void UICheckbox::toggle() {
     // Value changed event will be published by UIModule
 }
 
+// Rendre la coche, le libellé et le chrome 9-slice, que la base ignore (elle ne connaît que la boîte
+// + les enfants). `m_frameRegistered` repasse à false AVEC l'id, sinon le cadre paresseux se croirait
+// encore enregistré et ne reviendrait plus après un cycle cacher/montrer. Verrouillé par IT_067.
+void UICheckbox::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_frameId != 0)       { renderer.unregisterEntry(m_frameId);       m_frameId = 0; }
+    m_frameRegistered = false;
+    if (m_checkRenderId != 0) { renderer.unregisterEntry(m_checkRenderId); m_checkRenderId = 0; }
+    if (m_textRenderId != 0)  { renderer.unregisterEntry(m_textRenderId);  m_textRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // boîte (m_renderId) + drapeaux + enfants
+}
+
 } // namespace grove

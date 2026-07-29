@@ -94,3 +94,62 @@ TEST_CASE("InputModule (static host): feedEvent -> input:* topics", "[input][sta
     mgr.removeInstance("b1_input");
     mgr.removeInstance("b1_observer");
 }
+
+// ============================================================================
+// Presse-papiers — le service SDL qu'InputModule expose sur IIO.
+//
+// POURQUOI ce test : l'UIModule est SDL-free et ne peut pas lire le presse-papiers ; il envoie
+// `input:clipboard:set` / `input:clipboard:get` et attend `input:clipboard:text`. IT_064 prouve le
+// côté UI contre un service factice — celui-ci prouve l'AUTRE bout : que le vrai module répond bien
+// à ce protocole en touchant le vrai presse-papiers système.
+//
+// Contrairement au reste de ce fichier, il faut ici SDL pour de vrai (le presse-papiers dépend du
+// sous-système vidéo). On s'abstient proprement s'il n'est pas disponible, comme les tests [gpu].
+// ============================================================================
+
+TEST_CASE("InputModule: aller-retour presse-papiers via IIO", "[input][static][clipboard]") {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("pas de video SDL — test ignore"); return; }
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto inputIO  = mgr.createInstance("clip_input");
+    auto peer     = mgr.createInstance("clip_peer");
+
+    InputModule input;
+    JsonDataNode cfg("config");
+    input.setConfiguration(cfg, inputIO.get(), nullptr);
+
+    std::string received;
+    int replies = 0;
+    peer->subscribe("input:clipboard:text", [&](const Message& m) {
+        received = m.data->getString("text", "");
+        ++replies;
+    });
+
+    auto pump = [&] {
+        JsonDataNode in("input");
+        input.process(in);
+        while (peer->hasMessages() > 0) peer->pullAndDispatch();
+    };
+
+    // Le texte porte un accent : le presse-papiers doit etre transparent a l'UTF-8, sinon copier un
+    // nom de vaisseau francais le corromprait au passage.
+    const std::string payload = "vaisseau \xC3\xA9toile";
+
+    {
+        auto d = std::make_unique<JsonDataNode>("d");
+        d->setString("text", payload);
+        peer->publish("input:clipboard:set", std::move(d));
+    }
+    pump();
+
+    peer->publish("input:clipboard:get", std::make_unique<JsonDataNode>("d"));
+    pump();
+    pump();  // la reponse repart par l'IIO : une passe de plus pour la recevoir
+
+    INFO("recu='" << received << "' apres avoir ecrit '" << payload << "'");
+    REQUIRE(replies >= 1);        // le module a REPONDU a la demande
+    REQUIRE(received == payload); // ...avec exactement ce qu'on avait ecrit, accent compris
+
+    input.shutdown();
+    SDL_Quit();
+}

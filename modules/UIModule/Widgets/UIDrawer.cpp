@@ -76,4 +76,14 @@ void UIDrawer::render(UIRenderer& renderer) {
     renderer.popClip();
 }
 
+// Rendre le chrome 9-slice paresseux, que la base ignore. Compte doublement ici : render() appelle
+// lui-même cette purge dès que le tiroir est complètement refermé, donc sans cette surcharge un
+// tiroir encadré laissait son cadre affiché hors écran à chaque fermeture. `m_frameRegistered`
+// repasse à false avec l'id, sinon le cadre ne reviendrait pas à la réouverture. Verrouillé par IT_067.
+void UIDrawer::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
+    m_frameRegistered = false;
+    UIWidget::releaseRenderEntries(renderer);   // fond (m_renderId) + drapeaux + enfants
+}
+
 } // namespace grove

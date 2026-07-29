@@ -1,0 +1,152 @@
+# Audit qualité — performance & dette structurelle (29 juillet 2026)
+
+> Portée : moteur complet (`src/`, `modules/`), lu à `9ba4404`. Chaque constat de perf est **mesuré**
+> ou dit explicitement qu'il ne l'est pas. Aucun correctif appliqué — c'est un état des lieux.
+
+**Méthode.** Les affirmations non mesurées ne comptent pas. Le constat P1 a été prouvé par une sonde
+jetable (compilée, exécutée, puis supprimée) ; les tailles sont comptées par un script à suivi de
+profondeur d'accolades. **Ma première passe de mesure était fausse** — une heuristique appariait mal
+le début et la fin des fonctions et m'a donné un classement bidon (`BgfxDevice` « 740 lignes » était
+un corps de CLASSE, `setConfiguration` « 536 » sortait de nulle part). Les chiffres ci-dessous sont
+ceux de la seconde passe, vérifiés un par un.
+
+---
+
+## P1 — 🔴 Une poussée `ui:data` reconstruit INTÉGRALEMENT tous les répéteurs
+
+**Le constat le plus grave, et il est mesuré.** Sur `test_e2e_repeater.json`, une poussée `ui:data`
+portant des **données strictement identiques** à la précédente :
+
+| Éléments | `:remove` | `:add` | `:update` | Durée |
+|---|---|---|---|---|
+| 5 | 30 | 30 | 0 | **2,5 ms** |
+| 30 | 180 | 180 | 0 | **15,8 ms** |
+
+Linéaire en N — donc c'est bien la reconstruction par élément, pas un coût fixe. **≈ 0,5 ms par
+ligne de répéteur, par poussée.**
+
+À 30 lignes, une seule poussée consomme **15,8 ms sur un budget de 16,6 ms** à 60 fps. Un HUD qui
+rafraîchit ses données chaque frame — le cas d'usage normal d'un HUD — ne tient pas la frame à lui
+tout seul.
+
+**Cause** (`UIModule::expandRepeaters`, `UIModule.cpp:620`) : aucune garde. À chaque appel, pour
+chaque hôte répéteur :
+
+```cpp
+for (auto& c : host->children) c->releaseRenderEntries(*m_renderer);   // purge TOUT
+host->children.clear();                                                 // detruit TOUT
+for (size_t i = 0; i < arr->size(); ++i) {
+    uibind::json tj = uibind::json::parse(host->repeatTemplateJson);     // re-PARSE par element
+    auto inst = m_tree->parseWidget(tnode);                              // re-CONSTRUIT par element
+```
+
+Le `json::parse` du gabarit est refait **par élément** alors que le gabarit ne change jamais, et les
+360 messages retained retombent sur le chemin IIO+JSON déjà documenté comme le mur de débit du
+moteur.
+
+**Ce qui rend le constat solide plutôt que théorique** : le mécanisme *virtualisé* voisin
+(`updateTemplateLists`, même fichier) porte DÉJÀ la garde qui manque ici —
+`if (!list->windowDirty(m_dataVersion)) continue;`. Deux mécanismes de répéteur coexistent donc, un
+gardé et un non. Le correctif n'est pas à inventer, il est à côté.
+
+**Pistes, par coût croissant** — (a) garde par version de données : ne rien faire si `m_dataVersion`
+n'a pas bougé depuis la dernière expansion de CET hôte ; (b) parser le gabarit **une fois** par hôte
+et le réutiliser ; (c) diffusion par diff (réutiliser les instances existantes, n'ajuster que le
+delta de taille) plutôt que détruire/reconstruire ; (d) faire converger les deux mécanismes.
+La (a) seule supprime le cas pathologique — pousser des données inchangées.
+
+---
+
+## P2 — 🟠 Chaque binding est résolu TROIS fois, deux résultats jetés
+
+`resolveWidgetBindings` (`UIModule.cpp:584`) :
+
+```cpp
+w->applyBoundProp(b.first,
+                  uibind::interpolate(*scope, b.second),    // 1 resolution + 1 allocation string
+                  uibind::resolveNumber(*scope, b.second),  // 2e resolution du MEME chemin
+                  uibind::resolveBool(*scope, b.second));   // 3e resolution du MEME chemin
+```
+
+Le widget en choisit **une** dans `applyBoundProp` et jette les deux autres. Chaque binding paie donc
+trois parcours de chemin JSON et une allocation de chaîne inconditionnelle.
+
+Non mesuré isolément — mais il s'exécute sur exactement le même chemin que P1, dont il multiplie le
+coût. À traiter *après* P1 : si P1 est gardé, P2 devient marginal. C'est l'ordre qui compte, pas la
+somme des deux.
+
+*Note d'honnêteté* : la signature à trois formes est ce qui rend `applyBoundProp` simple côté widget.
+Corriger P2 veut dire soit une évaluation paresseuse, soit un type de valeur variant — ce n'est pas
+gratuit en lisibilité. À ne faire que si la mesure le réclame après P1.
+
+---
+
+## P3 — 🟠 Cinq fonctions au-delà de 350 lignes
+
+| Lignes | Fonction |
+|---|---|
+| 621 | `UITree::registerDefaultWidgets` (`UITree.cpp:35`) |
+| 620 | `BgfxRendererModule::setConfiguration` (`BgfxRendererModule.cpp:111`) |
+| 517 | `UIModule::updateUI` (`UIModule.cpp:727`) |
+| 419 | `UIModule::setConfiguration` (`UIModule.cpp:78`) |
+| 368 | `SceneCollector::finalize` (`SceneCollector.cpp:213`) |
+
+La plus coûteuse en pratique est la première : `registerDefaultWidgets` contient **seize fabriques de
+widgets en lambdas inline**. Conséquence concrète — ajouter un widget oblige à éditer une fonction de
+621 lignes dans un fichier central, alors que tout le reste du widget vit dans son propre fichier.
+C'est un point de contention garanti dès que deux sessions touchent l'UI en parallèle, et c'est
+exactement ce qui s'est produit aujourd'hui sur `BgfxRendererModule.cpp` et `tests/CMakeLists.txt`.
+
+Piste peu risquée et incrémentale : donner à chaque widget une fabrique statique dans SON fichier
+(`UIButton::fromNode`), `registerDefaultWidgets` n'étant plus qu'une table de seize lignes. Se fait
+un widget à la fois, sans big-bang.
+
+---
+
+## P4 — 🟡 Dispatch par chaîne de 31 comparaisons, l'usage le plus fréquent en dernier
+
+`SceneCollector::processMessage` compare `msg.topic` à 31 littéraux dans un `else if` linéaire
+(`SceneCollector.cpp:91` à 193). **`render:rect` est la 31ᵉ et dernière branche** — or c'est ce que
+publie l'UI pour chaque fond de panneau, de bouton, de bordure, de case à cocher, de piste de slider.
+
+**Le coût réel est faible et je ne le vends pas plus cher** : comparer deux `std::string` de longueurs
+différentes s'arrête sur la longueur, donc l'essentiel des 31 comparaisons est quasi gratuit. C'est
+d'abord un problème de **lisibilité et d'ordre** : la structure suggère une priorité que le profil
+d'usage contredit. Un `switch` sur un hash de topic, ou simplement remonter les branches chaudes,
+règle les deux.
+
+---
+
+## P5 — 🟡 Quatorze surcharges `releaseRenderEntries` recopiées
+
+Le patron « libérer mes ids extras, remettre mes drapeaux paresseux, déléguer à la base » est
+maintenant écrit à la main dans quatorze widgets. `IT_067` empêche l'oubli d'être silencieux, ce qui
+était l'urgence — mais la répétition demeure.
+
+**Dette assumée, pas oubliée** : l'alternative (la base tient la liste des ids, plus aucune surcharge)
+a été examinée le 29 juillet et écartée — elle touche quatorze surcharges qui fonctionnent, pour un
+refactor que rien ne réclame. À rouvrir seulement si un troisième cas de la même famille apparaît.
+
+---
+
+## Ce que l'audit N'A PAS trouvé (et c'est une information)
+
+- **`UIRenderer::updateRect` / `updateText`** : la détection de changement précède toute allocation,
+  et rien n'est publié si rien ne bouge. Le cœur du rendu retained est propre.
+- **Les entrées retained** sont dans une `unordered_map` — pas de coût de recherche caché.
+- **Les listes virtualisées** ont déjà leur garde d'inactivité (`windowDirty`) et un commentaire
+  `PERF idle-gate` qui l'explique. Quelqu'un y a pensé ; c'est P1 qui est resté à l'écart.
+- **Le chemin IIO** : le zéro-copie (payload partagé immuable) est en place, comme documenté.
+
+Autrement dit, le moteur n'a pas un problème de perf diffus. Il a **un point chaud précis** (P1) sur
+un chemin que le reste du code avait déjà appris à protéger ailleurs.
+
+---
+
+## Ordre recommandé
+
+1. **P1** — mesuré, borné, gros gain, correctif déjà présent à côté. Le seul qui coûte des frames.
+2. **P3** sur `registerDefaultWidgets` — incrémental, un widget à la fois, réduit les collisions.
+3. **P4** — cosmétique mais gratuit.
+4. **P2** — à re-mesurer *après* P1, pas avant.
+5. **P5** — ne rien faire pour l'instant.

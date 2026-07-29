@@ -2447,17 +2447,50 @@ if(GROVE_BUILD_BGFX_RENDERER)
     grove_add_test(AtlasAverageUnit test_atlas_average ${CMAKE_CURRENT_BINARY_DIR})
 
     # Text truncation with an ellipsis (grove::text::fitLine): pure, font-agnostic, no GPU.
+    # NB: ../include is needed since Text/Utf8.h became a redirect to <grove/text/Utf8.h> (shared
+    # with the UI's text measurement — one UTF-8 decoder for the whole engine, not two).
     add_executable(test_text_fit unit/test_text_fit.cpp)
     target_include_directories(test_text_fit PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_text_fit PRIVATE Catch2::Catch2WithMain)
     grove_add_test(TextFitUnit test_text_fit ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Text measurement (grove::text::Metrics): cursor placement, click-to-index, UTF-8 stepping.
+    # PURE — the advance table is injected data, so no font/atlas/GPU/window is involved. The fake
+    # table is deliberately PROPORTIONAL, which a monospace implementation cannot satisfy.
+    add_executable(test_text_metrics unit/test_text_metrics.cpp)
+    target_include_directories(test_text_metrics PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_metrics PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextMetricsUnit test_text_metrics ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Shared editing model (grove::text::EditModel): buffer, cursor, selection, UTF-8 stepping and
+    # LINE navigation. PURE — UITextInput and UITextArea are thin views over it, so this oracle is
+    # what stops the two from diverging (the exact failure mode that produced this chantier's bugs).
+    add_executable(test_text_edit unit/test_text_edit.cpp)
+    target_include_directories(test_text_edit PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_edit PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextEditUnit test_text_edit ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Word wrap (grove::text::wrapText): text -> VISUAL lines. Pure, the advance is a callable, so it
+    # is exercised with a fake metric — no font, no GPU, no window.
+    add_executable(test_text_wrap unit/test_text_wrap.cpp)
+    target_include_directories(test_text_wrap PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_wrap PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextWrapUnit test_text_wrap ${CMAKE_CURRENT_BINARY_DIR})
 
     # Real TrueType baking (BitmapFont::loadTTF): headless via MockRHIDevice, skips without a system font.
     add_executable(test_ttf_font unit/test_ttf_font.cpp ../modules/BgfxRenderer/Text/BitmapFont.cpp)
     target_include_directories(test_ttf_font PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb)
     target_link_libraries(test_ttf_font PRIVATE Catch2::Catch2WithMain spdlog::spdlog)
@@ -2920,6 +2953,62 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIMalformedLayoutE2E IT_061_ui_malformed_layout_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_062: editing ACCENTED text (T0b). UITextInput counts its cursor in BYTES, so Backspace on
+    # "é" (2 UTF-8 bytes) removed one and left an invalid half-sequence — an everyday bug in French.
+    # Driven through the very topics the real InputModule publishes; the cursor is proven indirectly
+    # (insert after moving) since it is never published.
+    add_executable(IT_062_ui_textinput_utf8_e2e integration/IT_062_ui_textinput_utf8_e2e.cpp)
+    target_link_libraries(IT_062_ui_textinput_utf8_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputUtf8E2E IT_062_ui_textinput_utf8_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_063: text SELECTION (T1). The widget header advertised "Text selection (future)" and nothing
+    # existed; worse, UIModule dropped the keyboard modifiers (`bool ctrl = false; // TODO`), making
+    # Ctrl+A/C/V undetectable. Selection is never published, so it is proven by its observable effect:
+    # typing over a selection replaces it, so the resulting text reveals what was selected.
+    add_executable(IT_063_ui_textinput_selection_e2e integration/IT_063_ui_textinput_selection_e2e.cpp)
+    target_link_libraries(IT_063_ui_textinput_selection_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputSelectionE2E IT_063_ui_textinput_selection_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_064: CLIPBOARD (T2). Nothing existed — `grep -ri clipboard` over the whole repo found zero.
+    # UIModule is deliberately SDL-free but the clipboard IS an SDL resource, so it goes over IIO:
+    # input:clipboard:set (copy/cut) and input:clipboard:get -> input:clipboard:text (paste, one frame
+    # of latency). The test plays the clipboard service, proving the protocol without a system
+    # clipboard — hence without a window or a graphical session.
+    add_executable(IT_064_ui_textinput_clipboard_e2e integration/IT_064_ui_textinput_clipboard_e2e.cpp)
+    target_link_libraries(IT_064_ui_textinput_clipboard_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputClipboardE2E IT_064_ui_textinput_clipboard_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_065: MULTILINE text area (T3). A separate widget over the shared grove::text::EditModel,
+    # NOT a `multiline: true` flag — a boolean would have branched every method (render, click,
+    # navigation, scrolling). The test targets where the SEMANTICS differ from the single-line field
+    # (Enter inserts / Ctrl+Enter submits, Home/End act on the LINE, Up/Down keep the column), since
+    # everything else is already proven on the shared model by TextEditUnit.
+    add_executable(IT_065_ui_textarea_e2e integration/IT_065_ui_textarea_e2e.cpp)
+    target_link_libraries(IT_065_ui_textarea_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextAreaE2E IT_065_ui_textarea_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_066: WORD WRAP in the text area. Looks at what the RENDERER receives, because a wrong layout
+    # is invisible in the model — the text is intact, it is its on-screen breaking that lies. Locks the
+    # visual-vs-logical line distinction: Up moves ONE ROW (not one logical line, which may span five),
+    # Home goes to the row's left edge, a click targets the row under the pointer.
+    add_executable(IT_066_ui_textarea_wrap_e2e integration/IT_066_ui_textarea_wrap_e2e.cpp)
+    target_link_libraries(IT_066_ui_textarea_wrap_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextAreaWrapE2E IT_066_ui_textarea_wrap_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_067: hiding a widget must release ALL its retained entries — else it leaves ghost rects/text
+    # on screen (the renderer is RETAINED: an entry lives until its :remove). Counts :add on reveal vs
+    # :remove on hide, per widget type. Locks the CLASS of bug, not five instances: a future
+    # multi-entry widget that forgets its releaseRenderEntries() override goes red here on its own.
+    add_executable(IT_067_ui_ghost_entries_e2e integration/IT_067_ui_ghost_entries_e2e.cpp)
+    target_link_libraries(IT_067_ui_ghost_entries_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIGhostEntriesE2E IT_067_ui_ghost_entries_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)
@@ -3278,6 +3367,23 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TextClipGpu test_text_clip_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: the selection highlight is actually VISIBLE and the text stays readable on top (T1).
+    # Born from a real bug: the highlight — and the caret with it — were published at layer 0 and sat
+    # BEHIND the field background. That kind of defect cannot be read in the code (the 9-slice lesson),
+    # and "do you SEE the highlight, can you still READ the text" is only settled at the pixel.
+    add_executable(test_selection_highlight_gpu unit/test_selection_highlight_gpu.cpp)
+    target_include_directories(test_selection_highlight_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_selection_highlight_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(SelectionHighlightGpu test_selection_highlight_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU test: a baked TrueType face really reaches the framebuffer, with PROPORTIONAL spans, and
     # maxWidth truncation holds end to end. Both properties fail by construction on the 8x8 monospace.
     add_executable(test_ttf_render_gpu unit/test_ttf_render_gpu.cpp)
@@ -3318,7 +3424,8 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     # working_dir regardless of PATH.
     find_file(GROVE_SDL2_DLL NAMES SDL2.dll PATHS ENV PATH)
     if(GROVE_SDL2_DLL)
-        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu test_sprite_clip_gpu test_text_clip_gpu)
+        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu test_sprite_clip_gpu test_text_clip_gpu
+                         test_selection_highlight_gpu)
             add_custom_command(TARGET ${gpu_test} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:${gpu_test}>")
