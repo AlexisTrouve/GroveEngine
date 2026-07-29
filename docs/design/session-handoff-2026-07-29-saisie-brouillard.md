@@ -1,8 +1,9 @@
 # Handoff — session du 29 juillet 2026 : saisie de texte & brouillard réglable
 
-> **État à la sortie** : `master` = **`cec09bd`**, arbre propre, suite **203/203**, **tout poussé**
-> (gitea + github, mêmes SHAs). Aucun force push, aucune branche en suspens.
-> Point de départ : `0ee6bc0`. **12 commits** à moi.
+> **État à la sortie** : `master` = **`b871b5a`** (le commit de ce document), arbre propre, suite
+> **203/203**, **tout poussé** (gitea + github, mêmes SHAs). Aucun force push, aucune branche en
+> suspens. Point de départ : `0ee6bc0`. **13 commits** à moi — le dernier étant ce handoff, écrit
+> avant d'être commité : c'est pourquoi il a d'abord annoncé `cec09bd`, son prédécesseur.
 >
 > ⚠️ Session **parallèle** : le travail lumière (murs, filtres colorés) avançait sur `master` en même
 > temps — voir son propre [handoff du 29](session-handoff-2026-07-29.md). J'ai rebasé **deux fois**
