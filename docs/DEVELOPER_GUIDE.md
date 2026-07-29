@@ -445,6 +445,56 @@ the same mechanism — see `docs/design/lighting-transmittance-core.md`.
 ⚠️ **Occluders only block LIGHT, not sight.** A wall does not hide what is behind it from the
 player; that is a visibility system and it lives in game code, not in the renderer.
 
+##### Filters — stained glass that tints the light it lets through
+
+A wall writes transmittance 0. A **filter** writes a *colour*, and that is the entire difference:
+light passes, but it is not the same light on the other side.
+
+| Topic | Payload | Notes |
+|-------|---------|-------|
+| `render:filter` | `{x, y, w, h, color, opacity?}` | tinting rect, **ephemeral** (re-publish each frame) |
+| `render:filter:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, color?, opacity?}` | **retained** — for static stained glass |
+
+**`x, y` is the top-left CORNER**, like every rect. `color` is `0xRRGGBBAA`; its alpha byte is
+**ignored** — "how much of this tint applies" is `opacity` (default 1), and reading it from two
+places would make one of them silently lose.
+
+**`color` is the tint after ONE perpendicular crossing of the pane's thin axis**, i.e. of
+`min(w, h)`. A ray entering at an angle travels further inside the glass and comes out darker, which
+is what you want. So a red window is simply `color: 0xFF3333FF` — you never compute a per-unit
+coefficient by hand, even though that is what the engine stores internally.
+
+```cpp
+// A tall, thin, red pane: 4 units thick, so light crossing it head-on comes out at (1.0, 0.2, 0.2).
+auto f = std::make_unique<JsonDataNode>("f");
+f->setInt("renderId", 42);
+f->setDouble("x", 320.0); f->setDouble("y", 0.0);
+f->setDouble("w", 4.0);   f->setDouble("h", 240.0);
+f->setInt("color", static_cast<int>(0xFF3333FFu));
+io->publish("render:filter:add", std::move(f));
+```
+
+**`opacity` is your guard rail.** The model is multiplicative, so it bites harder than instinct
+suggests: three panes at 0.3 leave 2.7 % of the light. `opacity` blends the stated tint back towards
+vacuum, and 0 is a *true* no-op — a filter dialled to nothing leaves the scene exactly as bright as
+no filter at all.
+
+⚠️ **A filter tints the LIGHT, not the VIEW.** Looking *through* stained glass will not colour what
+you see behind it; only light that crosses the pane is affected. Same boundary as walls blocking
+light but not sight.
+
+⚠️ **A filter is not an occluder.** It tints without being opaque. A window that must both tint *and*
+darken simply declares a dark tint — the model does not need both notions.
+
+Filters and walls write into the same map, **multiplicatively**, so overlapping matter composes and
+the order it was published in does not matter. Two panes stacked give the product of their tints,
+either way round.
+
+⚠️ **Precision on very thick panes.** The map is RGBA8, and the stored per-unit value crowds towards
+1 as a pane thickens — past roughly 100 units the 8-bit quantum starts to shift the resulting tint
+by a visible fraction. It is uniform across the pane (so it bands nothing), but a very large tinted
+volume is better expressed as fog than as one enormous filter.
+
 ##### Asking "is this point lit?" from gameplay
 
 The same curve is available as plain C++ (`include/grove/light/Light.h`, header-only, no renderer
@@ -1658,6 +1708,8 @@ Two modes:
 
 | `render:occluder` | `{x, y, w, h}` | Opaque rectangle light does not pass through, **ephemeral**. `x,y` = top-left CORNER (a rect's anchor), unlike a light's `cx,cy`. A non-positive extent is dropped. |
 | `render:occluder:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?}` | **Retained** occluder — the right form for static level geometry. `:update` merges, so a moving wall need not restate its extent. |
+| `render:filter` | `{x, y, w, h, color, opacity?}` | Rectangle that **tints** the light crossing it instead of blocking it, **ephemeral**. `x,y` = top-left CORNER. `color` = the tint after ONE perpendicular crossing of `min(w,h)`; its alpha byte is ignored (`opacity`, default 1, is the knob). Overlapping filters compose by product, in any order. A non-positive extent is dropped. |
+| `render:filter:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, color?, opacity?}` | **Retained** filter — for static stained glass. `:update` merges, and **re-derives the tint** if the pane is resized. |
 
 See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
 `include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").
