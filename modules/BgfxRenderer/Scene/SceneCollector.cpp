@@ -175,6 +175,15 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:filter") {
             parseFilter(*msg.data);
         }
+        else if (msg.topic == "render:filter:add") {
+            parseFilterAdd(*msg.data);
+        }
+        else if (msg.topic == "render:filter:update") {
+            parseFilterUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:filter:remove") {
+            parseFilterRemove(*msg.data);
+        }
         else if (msg.topic == "render:occluder:remove") {
             parseOccluderRemove(*msg.data);
         }
@@ -416,18 +425,32 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
-    // Copy filters (F1). Same shape as the occluders above, and for the same reason: no array at all
-    // when nobody published one, so a game without stained glass claims no arena slice.
-    if (!m_filters.empty()) {
-        FilterCommand* flt = allocator.allocateArray<FilterCommand>(m_filters.size());
-        if (flt) {
-            std::memcpy(flt, m_filters.data(), m_filters.size() * sizeof(FilterCommand));
-            packet.filters = flt;
-            packet.filterCount = m_filters.size();
+    // Copy filters: RETAINED (static stained glass) then EPHEMERAL. Same shape as the occluders
+    // above, and for the same reason: no array at all when nobody published one, so a game without
+    // stained glass claims no arena slice.
+    //
+    // The retained ones are CONVERTED here rather than at merge time, because the conversion depends
+    // on the pane's thickness and an update may have changed it. Deriving from the stored author
+    // values every frame is what keeps a resized window honest — the cost is three pow() per pane,
+    // against a whole level's worth of messages saved by being retained at all.
+    {
+        const size_t totalFilters = m_retainedFilters.size() + m_filters.size();
+        if (totalFilters > 0) {
+            FilterCommand* flt = allocator.allocateArray<FilterCommand>(totalFilters);
+            if (flt) {
+                size_t idx = 0;
+                for (const auto& kv : m_retainedFilters) flt[idx++] = buildFilter(kv.second);
+                if (!m_filters.empty()) {
+                    std::memcpy(&flt[idx], m_filters.data(),
+                                m_filters.size() * sizeof(FilterCommand));
+                }
+                packet.filters = flt;
+                packet.filterCount = totalFilters;
+            }
+        } else {
+            packet.filters = nullptr;
+            packet.filterCount = 0;
         }
-    } else {
-        packet.filters = nullptr;
-        packet.filterCount = 0;
     }
 
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
@@ -1148,43 +1171,101 @@ void SceneCollector::parseOccluder(const IDataNode& data) {
     if (o.w > 0.0f && o.h > 0.0f) m_occluders.push_back(o);
 }
 
-void SceneCollector::parseFilter(const IDataNode& data) {
+// Author's tint -> the per-unit transmittance the packet carries. ONE implementation, shared by the
+// ephemeral and retained paths so the two can never disagree on what a colour means.
+FilterCommand SceneCollector::buildFilter(const RetainedFilter& src) {
     FilterCommand f;
-    // x,y = top-left CORNER, like every rect. Same rule as the occluder beside it.
-    f.x = static_cast<float>(data.getDouble("x", 0.0));
-    f.y = static_cast<float>(data.getDouble("y", 0.0));
-    f.w = static_cast<float>(data.getDouble("w", 0.0));
-    f.h = static_cast<float>(data.getDouble("h", 0.0));
-
-    // A degenerate rect filters nothing -- AND its thin axis is 0, which is exactly the thickness
-    // the conversion below cannot invert. Dropping it here is what keeps that division safe.
-    if (f.w <= 0.0f || f.h <= 0.0f) return;
-
-    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
-    float tint[3] = {
-        static_cast<float>((color >> 24) & 0xFF) / 255.0f,
-        static_cast<float>((color >> 16) & 0xFF) / 255.0f,
-        static_cast<float>((color >>  8) & 0xFF) / 255.0f,
-    };
-    // The colour's alpha byte is ignored on purpose: "how much of this tint applies" is `opacity`,
-    // a separate knob, and reading it from two places would make one of them silently lose.
+    f.x = src.x; f.y = src.y; f.w = src.w; f.h = src.h;
 
     // `opacity` is the author's guard rail against a multiplicative model's brutality (three panes
     // at 0.3 leave 2.7% of the light). It blends the stated tint back towards vacuum, so 0 is a TRUE
     // no-op -- a filter dialled to nothing must leave the scene exactly as bright as no filter.
-    const float opacity = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("opacity", 1.0))));
-    for (float& c : tint) c = 1.0f - opacity * (1.0f - c);
+    const float o = src.opacity;
+    const float tint[3] = {
+        1.0f - o * (1.0f - src.tintR),
+        1.0f - o * (1.0f - src.tintG),
+        1.0f - o * (1.0f - src.tintB),
+    };
 
     // THE conversion. `color` is the tint after ONE perpendicular crossing; the map stores per-unit
     // transmittance because it is shared with fog, where a longer traversal must absorb more. The
     // reference thickness is the pane's THIN axis: a window is crossed through its narrow side, and
     // a ray entering at an angle travels further inside it and comes out darker -- which is right.
-    const float thickness = (f.w < f.h) ? f.w : f.h;
+    const float thickness = (src.w < src.h) ? src.w : src.h;
     f.r = grove::light::perUnitForTint(tint[0], thickness);
     f.g = grove::light::perUnitForTint(tint[1], thickness);
     f.b = grove::light::perUnitForTint(tint[2], thickness);
+    return f;
+}
 
-    m_filters.push_back(f);
+// Reads x/y/w/h/color/opacity into a RetainedFilter, each field DEFAULTING TO ITS CURRENT VALUE.
+// That default is what makes a partial update partial: a sliding pane must be able to move without
+// restating its extent, and an update that reset the omitted fields would DELETE the window while
+// looking like a move.
+void SceneCollector::readFilterFields(const IDataNode& data, RetainedFilter& out) {
+    out.x = static_cast<float>(data.getDouble("x", static_cast<double>(out.x)));
+    out.y = static_cast<float>(data.getDouble("y", static_cast<double>(out.y)));
+    out.w = static_cast<float>(data.getDouble("w", static_cast<double>(out.w)));
+    out.h = static_cast<float>(data.getDouble("h", static_cast<double>(out.h)));
+
+    // The colour's alpha byte is ignored on purpose: "how much of this tint applies" is `opacity`,
+    // a separate knob, and reading it from two places would make one of them silently lose.
+    if (data.hasProperty("color")) {
+        const uint32_t c = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+        out.tintR = static_cast<float>((c >> 24) & 0xFF) / 255.0f;
+        out.tintG = static_cast<float>((c >> 16) & 0xFF) / 255.0f;
+        out.tintB = static_cast<float>((c >>  8) & 0xFF) / 255.0f;
+    }
+    out.opacity = std::min(1.0f, std::max(0.0f,
+        static_cast<float>(data.getDouble("opacity", static_cast<double>(out.opacity)))));
+}
+
+void SceneCollector::parseFilter(const IDataNode& data) {
+    RetainedFilter src;   // fresh: an ephemeral message states everything, so the defaults are vacuum
+    readFilterFields(data, src);
+
+    // A degenerate rect filters nothing -- AND its thin axis is 0, which is exactly the thickness
+    // the conversion cannot invert. Dropping it here is what keeps that division safe.
+    if (src.w <= 0.0f || src.h <= 0.0f) return;
+
+    m_filters.push_back(buildFilter(src));
+}
+
+void SceneCollector::parseFilterAdd(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    // 0 is the "no id" value: accepting it would give every unidentified pane the SAME slot, each
+    // add silently replacing the last. Same guard as every other retained primitive.
+    if (renderId == 0) return;
+
+    RetainedFilter src;
+    readFilterFields(data, src);
+    if (src.w <= 0.0f || src.h <= 0.0f) return;
+
+    m_retainedFilters[renderId] = src;
+}
+
+void SceneCollector::parseFilterUpdate(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    auto it = m_retainedFilters.find(renderId);
+    if (it == m_retainedFilters.end()) return;   // updating something absent is a no-op, not an add
+
+    // Merge onto the AUTHOR's values, then let finalize re-derive. Storing only the converted
+    // per-unit figure would make a resize silently wrong: the pane would keep a value computed for
+    // its old thickness, and widening a window would darken it by a power.
+    RetainedFilter merged = it->second;
+    readFilterFields(data, merged);
+    if (merged.w <= 0.0f || merged.h <= 0.0f) return;   // a resize to nothing is refused, not stored
+    it->second = merged;
+}
+
+void SceneCollector::parseFilterRemove(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    // A destroyed window must stop tinting -- the mirror of the orphaned-sprite hazard the FX layer
+    // had to solve at hot-reload.
+    m_retainedFilters.erase(renderId);
 }
 
 void SceneCollector::parseLight(const IDataNode& data) {

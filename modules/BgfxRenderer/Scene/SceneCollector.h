@@ -118,7 +118,26 @@ private:
     // a wall does not move, so re-publishing the level every frame would charge a cost proportional
     // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
-    std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders (retained mode is F3)
+    std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders
+
+    // RETAINED filters, by renderId (F3). Same rationale as the retained occluders beside them: a
+    // stained-glass window does not move.
+    //
+    // ⚠️ It stores the AUTHOR's tint, not the per-unit value the packet carries — because the
+    // conversion depends on the pane's THICKNESS. An update that resizes the pane must therefore
+    // re-derive it; keeping only the converted value would let a window widened at runtime hold a
+    // per-unit figure computed for its old thickness, and its tint would drift silently.
+    struct RetainedFilter {
+        float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+        float tintR = 1.0f, tintG = 1.0f, tintB = 1.0f;   // as authored, BEFORE opacity and conversion
+        float opacity = 1.0f;
+    };
+    std::unordered_map<uint32_t, RetainedFilter> m_retainedFilters;
+    // Both shared by the ephemeral and retained paths so the two can never diverge on what a tint
+    // means, nor on which fields a message may omit.
+    static FilterCommand buildFilter(const RetainedFilter& src);
+    static void readFilterFields(const IDataNode& data, RetainedFilter& out);
+
     std::vector<LightCommand> m_lights;   // ephemeral: cleared at the frame boundary
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
@@ -142,6 +161,9 @@ private:
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);
+    void parseFilterAdd(const IDataNode& data);
+    void parseFilterUpdate(const IDataNode& data);
+    void parseFilterRemove(const IDataNode& data);
     void parseOccluderAdd(const IDataNode& data);
     void parseOccluderUpdate(const IDataNode& data);
     void parseOccluderRemove(const IDataNode& data);

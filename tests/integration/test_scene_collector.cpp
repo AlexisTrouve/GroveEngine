@@ -2376,3 +2376,153 @@ TEST_CASE("SceneCollector - filter: ephemeral, degenerate dropped, absent means 
     fx.collector.clear();
     REQUIRE(fx.collector.finalize(allocator).filterCount == 0);
 }
+
+// ============================================================================
+// Lighting F3 — RETAINED filters (render:filter:add / :update / :remove).
+//
+// Same reasoning as the retained occluders: a stained-glass window does not move, so re-publishing
+// it every frame would charge a cost proportional to the size of the level for a constant.
+//
+// One trap is specific to filters, and it does not exist for walls: the packet carries the CONVERTED
+// per-unit transmittance, and that conversion depends on the pane's thickness. An update that
+// changes w or h therefore has to RE-derive it — otherwise a window resized at runtime keeps a
+// per-unit value computed for its old thickness, and its tint drifts with no message to blame.
+// ============================================================================
+
+TEST_CASE("SceneCollector - filter retained: add PERSISTS across frames",
+          "[scene_collector][light][filter][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 7);
+    a->setDouble("x", 10.0); a->setDouble("y", 20.0);
+    a->setDouble("w", 60.0); a->setDouble("h", 10.0);
+    a->setInt("color", static_cast<int>(0x33FF33FFu));   // green glass
+    fx.ioPublisher->publish("render:filter:add", std::move(a));
+    fx.pump();
+
+    for (int frame = 0; frame < 3; ++frame) {
+        fx.collector.clear();
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.filterCount == 1);
+        REQUIRE_THAT(p.filters[0].x, WithinAbs(10.0f, 0.01f));
+        // Still green, three frames after the single message that said so.
+        REQUIRE(p.filters[0].g > p.filters[0].r + 0.05f);
+    }
+}
+
+TEST_CASE("SceneCollector - filter retained: resizing RE-DERIVES the tint",
+          "[scene_collector][light][filter][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A thin pane, tinted to 0.2 in green across its 4-unit thin axis.
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 9);
+    a->setDouble("x", 0.0); a->setDouble("y", 0.0);
+    a->setDouble("w", 4.0); a->setDouble("h", 100.0);
+    a->setInt("color", static_cast<int>(0xFF33FFFFu));   // magenta: green is the eaten channel
+    fx.ioPublisher->publish("render:filter:add", std::move(a));
+    fx.pump();
+
+    using grove::light::transmitThrough;
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.filterCount == 1);
+        REQUIRE_THAT(transmitThrough(p.filters[0].g, 4.0f), Catch::Matchers::WithinRel(0.2f, 2e-2f));
+    }
+    fx.collector.clear();
+
+    // Now make it four times thicker, saying nothing about its colour.
+    auto u = std::make_unique<JsonDataNode>("f");
+    u->setInt("renderId", 9);
+    u->setDouble("w", 16.0);
+    fx.ioPublisher->publish("render:filter:update", std::move(u));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.filterCount == 1);
+    REQUIRE_THAT(p.filters[0].w, WithinAbs(16.0f, 0.01f));
+
+    // The stated tint has NOT changed, so crossing the (new) thin axis must still yield it. A stored
+    // per-unit value carried over unchanged would instead darken by a power of four — the window
+    // would go nearly black on being widened, and nothing would say why.
+    REQUIRE_THAT(transmitThrough(p.filters[0].g, 16.0f), Catch::Matchers::WithinRel(0.2f, 2e-2f));
+}
+
+TEST_CASE("SceneCollector - filter retained: update PRESERVES unspecified fields, remove deletes",
+          "[scene_collector][light][filter][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 3);
+    a->setDouble("x", 100.0); a->setDouble("y", 200.0);
+    a->setDouble("w", 50.0);  a->setDouble("h", 60.0);
+    a->setInt("color", static_cast<int>(0xFF3333FFu));
+    fx.ioPublisher->publish("render:filter:add", std::move(a));
+    fx.pump();
+    fx.collector.clear();
+
+    // A sliding pane must be able to move without restating its extent or its colour — an update
+    // that reset the omitted fields would DELETE the window while looking like a move.
+    auto u = std::make_unique<JsonDataNode>("f");
+    u->setInt("renderId", 3);
+    u->setDouble("x", 150.0);
+    fx.ioPublisher->publish("render:filter:update", std::move(u));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.filterCount == 1);
+    REQUIRE_THAT(p.filters[0].x, WithinAbs(150.0f, 0.01f));   // moved
+    REQUIRE_THAT(p.filters[0].y, WithinAbs(200.0f, 0.01f));   // kept
+    REQUIRE_THAT(p.filters[0].w, WithinAbs(50.0f, 0.01f));    // kept
+    // Still red glass. Asserted on the TRANSMITTED tint, not on the raw per-unit values: those
+    // crowd towards 1 as a pane thickens (0.2 over 50 units is 0.9683 per unit), so a fixed margin
+    // between channels would be a statement about the pane's size rather than about its colour.
+    REQUIRE_THAT(grove::light::transmitThrough(p.filters[0].r, 50.0f), Catch::Matchers::WithinRel(1.0f, 1e-3f));
+    REQUIRE_THAT(grove::light::transmitThrough(p.filters[0].g, 50.0f), Catch::Matchers::WithinRel(0.2f, 2e-2f));
+    fx.collector.clear();
+
+    // Updating something absent is a no-op, not an add.
+    auto ghost = std::make_unique<JsonDataNode>("f");
+    ghost->setInt("renderId", 999);
+    ghost->setDouble("x", 5.0);
+    fx.ioPublisher->publish("render:filter:update", std::move(ghost));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 1);
+    fx.collector.clear();
+
+    // A destroyed window must stop tinting — the mirror of the orphaned-sprite hazard.
+    auto rm = std::make_unique<JsonDataNode>("f");
+    rm->setInt("renderId", 3);
+    fx.ioPublisher->publish("render:filter:remove", std::move(rm));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 0);
+}
+
+TEST_CASE("SceneCollector - filter retained and ephemeral COEXIST",
+          "[scene_collector][light][filter][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("f");
+    a->setInt("renderId", 1);
+    a->setDouble("w", 20.0); a->setDouble("h", 20.0);
+    a->setInt("color", static_cast<int>(0xFF3333FFu));
+    fx.ioPublisher->publish("render:filter:add", std::move(a));
+    fx.pump();
+    fx.collector.clear();
+
+    auto e = std::make_unique<JsonDataNode>("f");
+    e->setDouble("x", 500.0); e->setDouble("w", 20.0); e->setDouble("h", 20.0);
+    e->setInt("color", static_cast<int>(0x3333FFFFu));
+    fx.ioPublisher->publish("render:filter", std::move(e));
+    fx.pump();
+
+    // Neither mode is an error, and a scene mixing them tints with both. Order is irrelevant:
+    // occlusion is a product, and a product does not care which factor came first.
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 2);
+}
