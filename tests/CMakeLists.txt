@@ -1381,6 +1381,18 @@ target_link_libraries(test_light_math PRIVATE
 )
 grove_add_test(LightMathUnit test_light_math ${CMAKE_CURRENT_BINARY_DIR})
 
+# Lighting core (C1): the polar mapping + transmittance accumulation. Header-only, no GPU — this is
+# the ORACLE for a prefix-product scan the GPU will later do in log2(N) passes, which nothing in a
+# shader can assert. See docs/design/lighting-transmittance-core.md.
+add_executable(test_transmittance
+    unit/test_transmittance.cpp
+)
+target_link_libraries(test_transmittance PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(TransmittanceUnit test_transmittance ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.
