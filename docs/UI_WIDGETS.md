@@ -11,7 +11,8 @@ Complete reference for all available widgets and their properties.
 | **UIPanel** | Container widget | - |
 | **UICheckbox** | Toggle checkbox | `ui:value_changed` |
 | **UISlider** | Value slider | `ui:value_changed` |
-| **UITextInput** | Text entry field | `ui:value_changed`, `ui:text_submitted` |
+| **UITextInput** | Single-line text entry (selection, clipboard, click-to-caret) | `ui:text_changed`, `ui:text_submit` |
+| **UITextArea** | Multi-line text area (word wrap, Ctrl+Enter submits) | `ui:text_changed`, `ui:text_submit` |
 | **UIProgressBar** | Progress indicator | - |
 | **UIImage** | Sprite/texture display | - |
 | **UIFlipbook** | Animated sprite-sheet panel (grove::anim) | - |
@@ -254,7 +255,7 @@ Horizontal or vertical value slider.
 
 ## UITextInput
 
-Text entry field with cursor and focus state.
+Single-line text entry field.
 
 ```json
 {
@@ -267,6 +268,9 @@ Text entry field with cursor and focus state.
   "text": "",
   "placeholder": "Enter name...",
   "maxLength": 32,
+  "filter": "none",
+  "passwordMode": false,
+  "onSubmit": "player:rename",
   "style": {
     "fontSize": 20,
     "textColor": "0xFFFFFFFF",
@@ -279,15 +283,75 @@ Text entry field with cursor and focus state.
 **Properties:**
 - `text` - Initial text
 - `placeholder` - Placeholder text when empty
-- `maxLength` - Maximum character limit
-- `style.fontSize` - Font size
-- `style.textColor` - Text color
-- `style.bgColor` - Background color
-- `style.borderColor` - Border color (changes to blue when focused)
+- `maxLength` - Maximum length in BYTES (an accented character costs 2)
+- `filter` - `none` | `alphanumeric` | `numeric` | `float` | `nospaces`
+- `passwordMode` - Mask the displayed characters (the real text is what gets copied)
+- `onSubmit` - Action published on Enter, on top of `ui:text_submit`
+- `style.fontSize` / `textColor` / `bgColor` / `borderColor` (border turns to the focus colour)
+- `frame` - optional 9-slice chrome block (see UIButton), replaces the flat background
+
+**Editing (all of it works — the header's old "future" notes are gone):**
+- **Caret** follows the REAL font: click anywhere to place it, and it lands on the character you
+  clicked even under a proportional face.
+- **UTF-8 safe**: Backspace/Delete/arrows move by CHARACTER, so accents are never cut in half.
+- **Selection**: Shift+arrows, Shift+Home/End, Ctrl+A, mouse drag, double-click selects a word
+  (accented words included). Typing or deleting REPLACES the selection.
+- **Clipboard**: Ctrl+C / Ctrl+X / Ctrl+V. Requires a clipboard service on the bus — `InputModule`
+  provides it (see `input:clipboard:*` in UI_TOPICS). Paste costs one frame of latency.
 
 **Events:**
-- `ui:value_changed` - `{widgetId, text}` - on each character change
-- `ui:text_submitted` - `{widgetId, text}` - on Enter key
+- `ui:text_changed` - `{widgetId, text}` - on every change
+- `ui:text_submit` - `{widgetId, text}` - on Enter
+- `ui:action` - `{action, widgetId, text}` - on Enter when `onSubmit` is set
+- `ui:focus_gained` / `ui:focus_lost` - `{widgetId}`
+
+## UITextArea
+
+Multi-line text area — notes, chat, an in-game debug console.
+
+```json
+{
+  "type": "textarea",
+  "id": "notes",
+  "x": 100,
+  "y": 100,
+  "width": 300,
+  "height": 120,
+  "text": "",
+  "placeholder": "notes...",
+  "maxLength": 4096,
+  "wrap": true,
+  "onSubmit": "notes:save",
+  "style": { "fontSize": 16, "lineHeight": 20 }
+}
+```
+
+**Properties:** same family as `UITextInput` (`text`, `placeholder`, `maxLength`, `filter`,
+`onSubmit`, styles), plus:
+- `wrap` - automatic word wrap, **ON by default**. `false` gives strictly logical lines (one row per
+  `
+`) and a long line is then clipped at the right edge.
+- `style.lineHeight` - row height in pixels (defaults to `fontSize + 4`).
+
+**⚠️ Enter behaves differently from the single-line field:**
+
+| | UITextInput | UITextArea |
+|---|---|---|
+| Enter | submits | inserts a line break |
+| Submit | Enter | **Ctrl+Enter** |
+| Home / End | whole text | **the visual ROW** |
+| Up / Down | — | previous/next visual ROW, keeping the column |
+
+"Visual row" matters once `wrap` is on: a single logical line may occupy several rows, and Up/Down
+move by ROW — what the user sees move — not by logical line.
+
+**Shares everything else with UITextInput**, because both are thin views over the same
+`grove::text::EditModel`: selection, clipboard, UTF-8 safety, double-click word selection.
+
+**Not supported (deliberate):** horizontal scrolling (moot while `wrap` is on).
+
+**Events:** identical to `UITextInput` (`ui:text_changed`, `ui:text_submit`, `ui:action`,
+`ui:focus_gained` / `ui:focus_lost`).
 
 ## UIProgressBar
 

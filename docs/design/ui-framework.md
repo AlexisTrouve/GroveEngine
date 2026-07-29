@@ -248,3 +248,30 @@ them.
 | 2026-06-22 | List scrollbar + drag | ✅ SHIPPED. `UIList` gains a **visual scrollbar** (track + thumb, shown only when content overflows) + **drag-to-scroll**: drag the **thumb** (proportional) or the **content** (1:1 grab-and-pull, past a `dragThreshold` so it disambiguates from a click). Selection moved to **release**, suppressed if the press became a scroll-drag (a scrollbar-column press never selects). Scrollbar render ids registered with the bg in `ensurePool`; drag state driven in `update()` (runs after the click dispatch, so release-select reads the accumulated drag flag). Locked by `IT_035` (content-drag + thumb-drag click-flips + plain-click-still-selects) + `UIListUnit` (thumb geometry). IT_033/IT_034 stay green (a click = press+release at one spot → still selects on release). Style: `scrollbarColor`/`scrollbarTrackColor`/`scrollbarWidth`. |
 | 2026-06-22 | warship GROUPS | ✅ SHIPPED. `UIList` gains **collapsible groups** (warship wings) — the engine SYSTEM; Drifterra builds the final UI. Data is FLAT (`setItems`) or GROUPED (`setGroups`: `groups:[{id,label,collapsed?,items:[…]}]`); both project onto a flat `ListRow` (header\|item) sequence (`rebuildRows`) so virtualization/scroll/clip/hit-test are unchanged. A header click folds/unfolds (`ui:list:group:toggled {id,groupId,collapsed}`); an item click selects with its `groupId` (`ui:list:selected` += `groupId`). Selection follows its item across collapses (tracked by itemId). `ui:list:set_groups` runtime. Locked by `IT_034` (select-with-group / expand click-flip / collapse-hides) + `UIListUnit` (parseGroups + grouped projection + toggle). **Caught + fixed a use-after-free**: the header-click handler passed `r->groupId` (a pointer INTO m_rows) to `toggleGroup`, which rebuilds m_rows → dangling; the toggled event carried an empty groupId. Fix: copy the id before toggling. IT_034 locks it (it failed on exactly that symptom). |
 | 2026-06-22 | 5e Virtualization | ✅ SHIPPED. `UIList` now registers render entries for the **on-screen window only** — a recycled, viewport-bounded id-pool (`ensurePool`, grow-only) remapped to items `[first .. first+count)` each frame via `visibleRange()`; slots past the window are hidden (no ghosts). A 1000-item list registers ~20 entries, not ~4000 → O(visible)/frame, not O(N). Repopulate no longer needs a pool release (slots are rewritten/hidden). Locked by `UIListUnit` (the `entryCount() < 60` bound on a 1000-item render — RED-first against the O(N) version — + `visibleRange` deep-scroll window) + `IT_033` regression (pool-remap-under-scroll proven through the full dispatch path). Remaining list follow-ons: visual scrollbar + drag-to-scroll, row templates, multi-select, grid mode. |
+
+
+---
+
+## Slice — Saisie de texte (2026-07-29)
+
+`UITextInput` avait été écrit pour la police 8×8 monospace et n'avait jamais été repris ; son en-tête
+annonçait encore « Text selection (future) » et « Copy/paste (future) ». Chantier complet, en cinq
+tranches, plan autoportant dans **[ui-textinput.md](ui-textinput.md)**.
+
+| Tranche | Contenu | Verrouillé par |
+|---|---|---|
+| T0 | Mesure réelle du texte (`grove::text::Metrics`), curseur UTF-8-safe, transport `render:font:metrics`, clic → curseur | `TextMetricsUnit`, `IT_062` |
+| T1 | Sélection : clavier, souris, double-clic mot, surlignage | `IT_063`, `SelectionHighlightGpu` |
+| T2 | Presse-papiers `input:clipboard:*` (service générique porté par InputModule) | `IT_064`, `InputModuleStatic [clipboard]` |
+| T3 | `UITextArea` multiligne sur le modèle partagé `grove::text::EditModel` | `TextEditUnit`, `IT_065` |
+| T4 | Retour à la ligne automatique (lignes VISUELLES ≠ lignes logiques) | `TextWrapUnit`, `IT_066` |
+
+**Cinq défauts PRÉEXISTANTS levés au passage**, aucun cherché :
+1. Backspace cassait tout accent (curseur compté en octets).
+2. **Le curseur de saisie n'était jamais visible** — le renderer retained fige la couche d'une entrée
+   à sa première publication, et le widget publiait ses entrées cachées avec un `0` littéral.
+   ⚠️ **Piège général : tout widget qui publie `layer 0` pour cacher quelque chose porte le même bug.**
+3. Ctrl+A/C/V étaient structurellement inatteignables (SDL n'émet pas de texte sous Ctrl).
+4. `insertFilteredText` signalait le changement par la LONGUEUR → un collage à longueur constante
+   n'émettait aucun événement, le jeu ne le voyait jamais.
+5. `InputModule` ne drainait jamais sa boîte de réception IIO.
