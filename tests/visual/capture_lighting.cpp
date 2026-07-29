@@ -115,6 +115,24 @@ int main(int argc, char** argv) {
         l->setDouble("dirDeg", dirDeg); l->setDouble("spreadDeg", spreadDeg);
         gIO->publish("render:light", std::move(l));
     };
+    // A wall: opaque matter. x,y = top-left CORNER (not the sprite convention beside it).
+    // ⚠️ It is INVISIBLE by itself — an occluder affects light, it does not draw. Every shot below
+    //    pairs it with a sprite at the same rect, or the shadow would appear to come from nowhere.
+    auto occluder = [&](double x, double y, double w, double h) {
+        auto o = std::make_unique<JsonDataNode>("d");
+        o->setDouble("x", x); o->setDouble("y", y);
+        o->setDouble("w", w); o->setDouble("h", h);
+        gIO->publish("render:occluder", std::move(o));
+    };
+    // A filter: the same rect, but it TINTS instead of blocking. `color` is the tint after one
+    // perpendicular crossing of the pane's thin axis — here always the width.
+    auto filter = [&](double x, double y, double w, double h, uint32_t col) {
+        auto f = std::make_unique<JsonDataNode>("d");
+        f->setDouble("x", x); f->setDouble("y", y);
+        f->setDouble("w", w); f->setDouble("h", h);
+        f->setInt("color", static_cast<int>(col));
+        gIO->publish("render:filter", std::move(f));
+    };
     auto ambient = [&](uint32_t col) {
         auto a = std::make_unique<JsonDataNode>("d");
         a->setInt("color", static_cast<int>(col));
@@ -186,8 +204,9 @@ int main(int argc, char** argv) {
         std::printf("wrote %s\n", path.c_str());
     };
 
-    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn; decltype(glow)* glowFn; };
-    Ctx ctx{ &light, &ambient, &sprite, &glow };
+    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn;
+                 decltype(glow)* glowFn; decltype(occluder)* occFn; decltype(filter)* filtFn; };
+    Ctx ctx{ &light, &ambient, &sprite, &glow, &occluder, &filter };
 
     // 1. No lighting at all — the zero-cost path every current game is on.
     shoot("01_unlit.png", false, nullptr, nullptr);
@@ -251,6 +270,74 @@ int main(int argc, char** argv) {
         Ctx* k = static_cast<Ctx*>(c);
         (*k->glowFn)(200.0, 135.0, 260.0, 26.0,  0.35, 0xFF9840FFu, 40);
         (*k->glowFn)(280.0, 135.0, 260.0, 26.0, -0.35, 0x50A0FFFFu, 41);
+    }, &ctx);
+
+    plainGround = false;
+
+    // ⚠️ Why the walls and panes below are ~28 units thick and not 6.
+    // The light shader marches the occlusion map in a FIXED number of steps between the lamp and the
+    // fragment, so one step is worth (distance / OCCLUSION_STEPS) world units. At the reach used here
+    // (~300 units) that is ~19 units per step, and matter thinner than a step can be STEPPED OVER
+    // entirely — the shadow would come out full of holes. Thin walls work when lamps are small; these
+    // plates use wide lamps, so the matter is scaled to match.
+
+    // 9. A WALL casts a shadow (plan W). The band on the right is lit only by the ambient — the lamp
+    //    contributes exactly nothing there, because a zero in the occlusion map annihilates the
+    //    running product for the whole rest of that ray.
+    shoot("09_wall_shadow.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x22283aFFu);
+        (*k->lightFn)(120.0, 135.0, 340.0, 0xFFD0A0FFu, 2.6);
+        (*k->spriteFn)(244.0, 135.0, 28.0, static_cast<double>(H), 0x323844FFu, 9);   // the wall, drawn
+        (*k->occFn)(230.0, 0.0, 28.0, static_cast<double>(H));                        // the wall, as matter
+    }, &ctx);
+
+    // 10. THE PAIR: identical shot, the wall swapped for a RED PANE. Light no longer stops — it comes
+    //     through tinted. Same lamp, same rect, same everything else: the only difference in the
+    //     picture is what the matter transmits.
+    shoot("10_filter_red.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x22283aFFu);
+        (*k->lightFn)(120.0, 135.0, 340.0, 0xFFD0A0FFu, 2.6);
+        (*k->spriteFn)(244.0, 135.0, 28.0, static_cast<double>(H), 0x9a3a3aFFu, 9);   // the glass, drawn
+        (*k->filtFn)(230.0, 0.0, 28.0, static_cast<double>(H), 0xFF4040FFu);          // the glass, as matter
+    }, &ctx);
+
+    // 11. Two panes, three zones. Light crossing ONLY the amber one, ONLY the magenta one, and BOTH
+    //     — the last being the product of the other two. No sorting anywhere: the product is
+    //     commutative, so which pane was published first cannot change the picture.
+    shoot("11_filter_stack.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x1e2432FFu);
+        (*k->lightFn)(70.0, 135.0, 460.0, 0xFFFFFFFFu, 1.9);
+        // Amber pane: full height.
+        (*k->spriteFn)(194.0, 135.0, 24.0, static_cast<double>(H), 0x8a6a30FFu, 9);
+        (*k->filtFn)(182.0, 0.0, 24.0, static_cast<double>(H), 0xFFB050FFu);
+        // Magenta pane: UPPER half only, so the lower half stays amber-only for comparison.
+        (*k->spriteFn)(294.0, 67.0, 24.0, 134.0, 0x8a3080FFu, 9);
+        (*k->filtFn)(282.0, 0.0, 24.0, 134.0, 0xFF60FFFFu);
+    }, &ctx);
+
+    // 12. The use case the whole plan is named after: a STAINED-GLASS WALL. Opaque segments with two
+    //     glazed gaps, a lamp outside on the left. Walls and panes are the same mechanism at two ends
+    //     of one scale — one transmits nothing, the other transmits a colour — and they are written
+    //     into the same map by the same pass.
+    shoot("12_stained_window.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x161c28FFu);
+        (*k->lightFn)(60.0, 135.0, 520.0, 0xFFF0D0FFu, 3.0);
+        const double wx = 190.0, wt = 28.0;
+        // Opaque masonry: three segments, leaving two gaps.
+        const double segs[3][2] = { {0.0, 62.0}, {112.0, 46.0}, {212.0, 58.0} };
+        for (auto& s : segs) {
+            (*k->spriteFn)(wx + wt * 0.5, s[0] + s[1] * 0.5, wt, s[1], 0x2c323eFFu, 9);
+            (*k->occFn)(wx, s[0], wt, s[1]);
+        }
+        // The two glazed gaps.
+        (*k->spriteFn)(wx + wt * 0.5, 87.0, wt, 50.0, 0x8a2f2fFFu, 9);
+        (*k->filtFn)(wx, 62.0, wt, 50.0, 0xFF4A3AFFu);          // warm red glass
+        (*k->spriteFn)(wx + wt * 0.5, 185.0, wt, 54.0, 0x2a4a8aFFu, 9);
+        (*k->filtFn)(wx, 158.0, wt, 54.0, 0x50A0FFFFu);         // cold blue glass
     }, &ctx);
 
     renderer->shutdown();

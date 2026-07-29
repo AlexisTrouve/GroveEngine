@@ -135,6 +135,57 @@ Aucun éclairage dans cette image : rien d'autre que le blend ne peut expliquer 
 pour : les **panaches de propulsion** façon Waterfall, « pourquoi il fallait un troisième mode
 plutôt que réutiliser les particules », la différence visuelle entre additif et alpha.
 
+### Matière — murs (plan W) et filtres colorés (plan F)
+
+> **La même scène que ci-dessus, et le même programme de capture.** Ces quatre images racontent une
+> seule chose : la matière a cessé d'être binaire. Jusqu'au plan F, un obstacle bloquait la lumière ou
+> ne la bloquait pas. Un filtre écrit une **couleur** là où un mur écrit du noir — et le moteur ne
+> distingue pas les deux cas, c'est le même produit accumulé le long du rayon.
+> Conception : [`docs/design/lighting-walls.md`](docs/design/lighting-walls.md) ·
+> [`docs/design/lighting-filters.md`](docs/design/lighting-filters.md) · le socle commun :
+> [`docs/design/lighting-transmittance-core.md`](docs/design/lighting-transmittance-core.md).
+
+#### `blog/09_wall_shadow.png`
+**Un mur projette une ombre — le côté droit ne reçoit plus que l'ambiant (2026-07-29).** *(Une lampe
+chaude éclaire la moitié gauche d'un sol dallé ; une bande verticale sombre traverse l'image, et tout
+ce qui est à sa droite retombe dans la nuit bleue, caisse comprise.)* L'ombre n'est **pas un cas
+particulier du code** : le mur écrit une transmittance nulle dans la carte d'occultation, et un zéro
+annule le produit courant que le shader de lampe accumule le long du rayon. Tout ce qui suit sur ce
+rayon s'éteint par **conséquence arithmétique**, sans une seule branche. À utiliser pour : les
+**ombres portées 2D**, « le cas dégénéré d'un mécanisme général plutôt qu'un mécanisme dédié », la
+marche d'accumulation dans le shader.
+
+#### `blog/10_filter_red.png`
+**Le même plan, le mur remplacé par un vitrail rouge (2026-07-29).** *(Image strictement identique à
+la précédente — même lampe, même position, même rectangle — sauf que la bande verticale est rouge et
+que la lumière la traverse : tout le côté droit est baigné d'un rouge sourd qui s'atténue avec la
+distance.)* **La paire 09/10 est la meilleure image du chantier** : une seule chose change entre les
+deux, ce que la matière transmet. C'est aussi la justification du socle commun — livrer les murs avec
+un shadow map 1D (qui ne stocke qu'une *distance*, donc binaire par construction) aurait obligé à tout
+jeter en arrivant aux filtres. À utiliser pour : le **avant/après mur→filtre**, « choisir la structure
+de données sur le chantier N+1, pas sur le chantier N », la transmission colorée.
+
+#### `blog/11_filter_stack.png`
+**Deux vitraux superposés — trois zones, et aucun tri (2026-07-29).** *(Un panneau ambre pleine
+hauteur, puis un panneau magenta qui ne couvre que la moitié supérieure ; à droite on distingue une
+zone brune traversée par l'ambre seul, et une zone violette sombre traversée par les deux.)* La zone
+« les deux » est le **produit** des deux teintes. Comme un produit est commutatif, **l'ordre de
+publication ne peut pas changer l'image** : pas de tri par profondeur, pas de structure ordonnée par
+lampe. C'est un cas rare où la physique du modèle *supprime* du code — le réflexe aurait été de
+commencer par construire ce tri. On y voit aussi que le modèle **mord fort** : deux teintes moyennes
+donnent une zone très sombre. À utiliser pour : la **commutativité comme choix d'architecture**,
+« la propriété qui économise un chantier », les pièges d'un modèle multiplicatif.
+
+#### `blog/12_stained_window.png`
+**Le vitrail : maçonnerie opaque, deux ouvertures teintées, deux faisceaux (2026-07-29).** *(Une
+lampe hors champ à gauche éclaire un sol clair ; un mur vertical sombre coupe l'image, percé de deux
+ouvertures — l'une rouge, l'autre bleue — d'où partent deux faisceaux colorés qui s'ouvrent en éventail
+sur le sol obscur de droite, séparés par une bande d'ombre franche.)* Murs et vitraux dans la **même
+image**, écrits par la **même passe** dans la **même carte** : ce sont les deux extrémités d'une seule
+échelle, l'un ne transmet rien, l'autre transmet une couleur. C'est l'image de couverture du chantier.
+À utiliser pour : l'**illustration principale** d'un article sur l'éclairage 2D, « un mécanisme, trois
+demandes » (murs / filtres / brouillard), l'ouverture ou la clôture d'un devblog rendu.
+
 ---
 
 <!--
