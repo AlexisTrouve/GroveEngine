@@ -113,6 +113,7 @@ private:
     // Global ambient light (lighting L1). 0 = UNSET => lighting inactive => the renderer skips the
     // offscreen targets entirely. Global frame state: survives clear(), like m_clearColor.
     uint32_t m_ambientColor = 0;
+    std::vector<OccluderCommand> m_occluders;   // ephemeral, like m_lights
     std::vector<LightCommand> m_lights;   // ephemeral: cleared at the frame boundary
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
@@ -134,6 +135,7 @@ private:
     void parseClear(const IDataNode& data);
     void parseAmbient(const IDataNode& data);
     void parseLight(const IDataNode& data);
+    void parseOccluder(const IDataNode& data);
     void parseDebugLine(const IDataNode& data);
     void parseDebugRect(const IDataNode& data);
     void parseSector(const IDataNode& data);

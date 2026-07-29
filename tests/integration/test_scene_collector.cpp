@@ -1998,3 +1998,83 @@ TEST_CASE("SceneCollector - light: cone params ride through, omni by default",
     // here would silently switch every existing light off.
     REQUIRE_THAT(p.lights[1].spreadDeg, WithinAbs(360.0f, 0.01f));
 }
+
+// ============================================================================
+// Lighting W1 — opaque occluders (render:occluder).
+//
+// A wall is not a special case anywhere in the code: it writes transmittance 0 into the occlusion
+// map, and a zero annihilates the running product the light march accumulates. Everything beyond it
+// on that ray goes dark as an arithmetic consequence, not as a branch.
+//
+// EPHEMERAL for this slice, like sprites and lights. Retained mode (W3) is where static level
+// geometry belongs — and there it will NOT be premature, for the opposite reason lights are
+// ephemeral: a wall does not move, so re-publishing it every frame would charge a cost proportional
+// to the size of the level for a constant.
+// ============================================================================
+
+TEST_CASE("SceneCollector - occluder: x,y is the CORNER, not the centre",
+          "[scene_collector][light][occluder]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto o = std::make_unique<JsonDataNode>("o");
+    o->setDouble("x", 40.0);
+    o->setDouble("y", 90.0);
+    o->setDouble("w", 20.0);
+    o->setDouble("h", 60.0);
+    fx.ioPublisher->publish("render:occluder", std::move(o));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.occluderCount == 1);
+    REQUIRE(p.occluders != nullptr);
+
+    // A rect's anchor is its CORNER — the field name carries it, and a light's cx,cy carries the
+    // other. Getting this wrong would shift every wall by half its size, which reads as "the shadows
+    // are offset" rather than as an anchor mistake.
+    REQUIRE_THAT(p.occluders[0].x, WithinAbs(40.0f, 0.01f));
+    REQUIRE_THAT(p.occluders[0].y, WithinAbs(90.0f, 0.01f));
+    REQUIRE_THAT(p.occluders[0].w, WithinAbs(20.0f, 0.01f));
+    REQUIRE_THAT(p.occluders[0].h, WithinAbs(60.0f, 0.01f));
+}
+
+TEST_CASE("SceneCollector - occluder: a degenerate rect is dropped, not drawn",
+          "[scene_collector][light][occluder]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Zero or negative extent occludes nothing; keeping it would cost a quad per frame to draw
+    // nothing, and would let a caller's uninitialised struct silently reach the GPU.
+    const double sizes[3][2] = { { 0.0, 10.0 }, { 10.0, 0.0 }, { -5.0, 10.0 } };
+    for (const auto& wh : sizes) {
+        auto o = std::make_unique<JsonDataNode>("o");
+        o->setDouble("x", 0.0); o->setDouble("y", 0.0);
+        o->setDouble("w", wh[0]); o->setDouble("h", wh[1]);
+        fx.ioPublisher->publish("render:occluder", std::move(o));
+    }
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
+}
+
+TEST_CASE("SceneCollector - occluder: ephemeral, and absent means NO array",
+          "[scene_collector][light][occluder]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.occluderCount == 0);
+        REQUIRE(p.occluders == nullptr);   // no arena slice for a feature nobody used
+    }
+
+    auto o = std::make_unique<JsonDataNode>("o");
+    o->setDouble("x", 1.0); o->setDouble("y", 2.0); o->setDouble("w", 3.0); o->setDouble("h", 4.0);
+    fx.ioPublisher->publish("render:occluder", std::move(o));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 1);
+
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
+}

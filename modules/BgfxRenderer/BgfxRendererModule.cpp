@@ -22,6 +22,7 @@
 #include "Passes/SectorPass.h"
 #include "Passes/CompositePass.h"
 #include "Passes/LightPass.h"
+#include "Passes/OcclusionPass.h"
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
@@ -304,6 +305,11 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // publishes render:ambient (the pass returns immediately), and building it lazily would mean
     // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
     // module can hand it the offscreen textures each frame; the graph owns the pass.
+    // Occluders -> the occlusion map the light march samples. Reuses the "color" program: they are
+    // flat black quads, exactly what DebugPass and SectorPass already draw with it.
+    m_renderGraph->addPass(std::make_unique<OcclusionPass>(debugShader));
+    m_logger->info("Added OcclusionPass");
+
     {
         // The occlusion map the light march samples. WHITE = vacuum, so with nothing writing into
         // it the march multiplies by 1 and the render is unchanged — that neutrality IS the proof
@@ -667,18 +673,51 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // Submission order, the reason setViewOrder had to exist: world -> lights -> composite
             // -> HUD. Ascending ids would put the HUD (1) before the composite (3) and the HUD would
             // be overwritten by the composited frame.
-            const rhi::ViewId order[] = { 0, CompositePass::kLightView, CompositePass::kCompositeView, 1 };
-            m_device->setViewOrder(order, 4);
+            // Occlusion map — ONLY when something actually occludes.
+            //
+            // ⚠️ A view with no draw is SKIPPED by bgfx, and a skipped view never runs its clear.
+            // Binding the occlusion target on a frame with no occluders would therefore hand the
+            // light march a target holding whatever was in it last — and the march would multiply
+            // by that garbage instead of by white. Measured: every lit pixel collapsed to the
+            // ambient. The frame LOOKED like a lighting bug, not like a missing clear.
+            //
+            // So an empty frame keeps the 1x1 white placeholder: the map is not merely cleared to
+            // vacuum, it is not consulted at all. That removes the dependency on clear-on-touch
+            // semantics rather than working around it.
+            const bool hasOccluders = (packet.occluders != nullptr && packet.occluderCount > 0);
+            if (hasOccluders) {
+                // Drawn with the WORLD camera, because occluders are published in world coordinates
+                // — the same reason the light view carries it.
+                m_device->setViewFramebuffer(OcclusionPass::kOcclusionView, m_occlusionFB);
+                m_device->setViewClear(OcclusionPass::kOcclusionView, 0xFFFFFFFF, 1.0f);
+                m_device->setViewRect(OcclusionPass::kOcclusionView, 0, 0, m_lightingWidth, m_lightingHeight);
+                m_device->setViewTransform(OcclusionPass::kOcclusionView,
+                                           packet.mainView.viewMatrix, packet.mainView.projMatrix);
+            }
+
+            // Submission order. The occlusion map must be FILLED before the lights march through it
+            // - with ascending ids it would be written after being read, and the shadows would lag
+            // one frame behind the walls that cast them.
+            const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
+                                          CompositePass::kLightView, CompositePass::kCompositeView, 1 };
+            m_device->setViewOrder(order, 5);
 
             if (m_compositePass) {
                 m_compositePass->setTargets(m_device->getFramebufferTexture(m_sceneFB),
                                             m_device->getFramebufferTexture(m_lightFB));
+            }
+            if (m_lightPass) {
+                m_lightPass->setOcclusionTexture(
+                    hasOccluders ? m_device->getFramebufferTexture(m_occlusionFB) : m_occlusionTex);
             }
         } else if (m_lightingWidth != 0) {
             // Lighting was on and has just been turned off: give the targets back and restore the
             // default ascending-id submission order, or view 0 would stay bound to a dead target.
             m_device->setViewFramebuffer(0, rhi::FramebufferHandle{});
             m_device->setViewOrder(nullptr, 0);
+            // Hand the 1x1 white placeholder back BEFORE the targets go: the pass would otherwise
+            // hold a texture from a destroyed framebuffer until lighting is switched on again.
+            if (m_lightPass) m_lightPass->setOcclusionTexture(m_occlusionTex);
             releaseLightingTargets();
         }
 
@@ -699,8 +738,10 @@ void BgfxRendererModule::releaseLightingTargets() {
     if (m_lightingWidth != 0) {
         m_device->destroy(m_sceneFB);
         m_device->destroy(m_lightFB);
+        m_device->destroy(m_occlusionFB);
         m_sceneFB = rhi::FramebufferHandle{};
         m_lightFB = rhi::FramebufferHandle{};
+        m_occlusionFB = rhi::FramebufferHandle{};
         m_lightingWidth = 0;
         m_lightingHeight = 0;
     }
@@ -720,6 +761,9 @@ void BgfxRendererModule::ensureLightingTargets(uint16_t width, uint16_t height) 
     // that already threw its highlights away.
     m_sceneFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
     m_lightFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
+    // The occlusion map stores TRANSMITTANCE, which lives in 0..1 by definition - RGBA8 is exact
+    // enough and half the bandwidth of the two HDR targets beside it.
+    m_occlusionFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA8);
     m_lightingWidth = width;
     m_lightingHeight = height;
 

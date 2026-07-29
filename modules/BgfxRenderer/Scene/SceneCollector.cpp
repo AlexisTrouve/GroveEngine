@@ -162,6 +162,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
+        else if (msg.topic == "render:occluder") {
+            parseOccluder(*msg.data);
+        }
         else if (msg.topic == "render:debug:line") {
             parseDebugLine(*msg.data);
         }
@@ -377,6 +380,19 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.textCount = 0;
     }
 
+    // Copy occluders (ephemeral) - same exactly-sized arena slice as every other primitive array.
+    if (!m_occluders.empty()) {
+        OccluderCommand* occ = allocator.allocateArray<OccluderCommand>(m_occluders.size());
+        if (occ) {
+            std::memcpy(occ, m_occluders.data(), m_occluders.size() * sizeof(OccluderCommand));
+            packet.occluders = occ;
+            packet.occluderCount = m_occluders.size();
+        }
+    } else {
+        packet.occluders = nullptr;
+        packet.occluderCount = 0;
+    }
+
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
     if (!m_lights.empty()) {
         LightCommand* lights = allocator.allocateArray<LightCommand>(m_lights.size());
@@ -558,6 +574,7 @@ void SceneCollector::clear() {
     m_tilemapTiles.clear();
     m_texts.clear();
     m_textStrings.clear();
+    m_occluders.clear();
     m_lights.clear();
     m_particles.clear();
     m_debugLines.clear();
@@ -1026,6 +1043,20 @@ void SceneCollector::parseCamera(const IDataNode& data) {
 
 void SceneCollector::parseClear(const IDataNode& data) {
     m_clearColor = static_cast<uint32_t>(data.getInt("color", 0x303030FF));
+}
+
+void SceneCollector::parseOccluder(const IDataNode& data) {
+    OccluderCommand o;
+    // x,y = top-left CORNER: a rect's anchor is its corner, a light's is its centre, and the field
+    // NAME is what says which - no guessing at the call site.
+    o.x = static_cast<float>(data.getDouble("x", 0.0));
+    o.y = static_cast<float>(data.getDouble("y", 0.0));
+    o.w = static_cast<float>(data.getDouble("w", 0.0));
+    o.h = static_cast<float>(data.getDouble("h", 0.0));
+
+    // A degenerate rect occludes nothing. Dropping it here spares a quad per frame that draws
+    // nothing, and stops a caller's uninitialised struct from reaching the GPU.
+    if (o.w > 0.0f && o.h > 0.0f) m_occluders.push_back(o);
 }
 
 void SceneCollector::parseLight(const IDataNode& data) {

@@ -328,3 +328,100 @@ TEST_CASE("lighting: a CONE light brightens forward and leaves behind dark (GPU)
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a wall casts a SHADOW — dark behind, lit beside, same distance (GPU)",
+          "[gpu][light][occluder]") {
+    // The two probes sit at the SAME DISTANCE from the lamp, one behind the wall and one clear of
+    // it. That is the whole design of this test: comparing "behind the wall" to "far away" would
+    // only re-prove the radial falloff L2 already covers, and would be green with occlusion
+    // entirely absent. Same trap, and same remedy, as the cone test's equal-distance probes.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 96, H = 96;
+    SDL_Window* win = SDL_CreateWindow("light4", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li4_r");
+    auto gIO = mgr.createInstance("li4_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li4_r"); mgr.removeInstance("li4_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    // Lamp at the centre. A vertical wall to its RIGHT, leaving the LEFT clear.
+    const double cx = W * 0.5, cy = H * 0.5;
+    const double wallX = cx + 16.0;
+
+    for (int i = 0; i < 6; ++i) {
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", cx); s->setDouble("cy", cy);
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x303030FFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", cx); l->setDouble("cy", cy);
+          l->setDouble("radius", 44.0);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 2.0);
+          gIO->publish("render:light", std::move(l)); }
+        // The wall: a tall thin rect. x,y = top-left CORNER.
+        { auto o = std::make_unique<JsonDataNode>("o");
+          o->setDouble("x", wallX); o->setDouble("y", 0.0);
+          o->setDouble("w", 4.0);   o->setDouble("h", static_cast<double>(H));
+          gIO->publish("render:occluder", std::move(o)); }
+
+        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        frame();
+    }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    const int offset = 28;   // beyond the wall on the right, and its mirror on the clear left
+    const int shadowed = lumaAt(static_cast<int>(cx) + offset, static_cast<int>(cy));
+    const int lit      = lumaAt(static_cast<int>(cx) - offset, static_cast<int>(cy));
+
+    INFO("shadowed=" << shadowed << " lit=" << lit);
+
+    // Occlusion absent would return the same number twice: same distance, same falloff, same cone.
+    REQUIRE(lit > shadowed + 50);
+    // And behind the wall there must be nothing but the ambient — a wall that merely DIMMED would
+    // still satisfy the comparison above.
+    REQUIRE(shadowed < 60);
+
+    renderer->shutdown();
+    mgr.removeInstance("li4_r");
+    mgr.removeInstance("li4_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

@@ -96,6 +96,7 @@ private:
     rhi::TextureHandle m_occlusionTex;
     rhi::FramebufferHandle m_sceneFB;
     rhi::FramebufferHandle m_lightFB;
+    rhi::FramebufferHandle m_occlusionFB;
     uint16_t m_lightingWidth = 0;      // size the targets were built for (0 = none yet)
     uint16_t m_lightingHeight = 0;
 

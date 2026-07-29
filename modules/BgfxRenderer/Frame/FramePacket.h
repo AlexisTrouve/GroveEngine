@@ -154,6 +154,23 @@ struct LightCommand {
 };
 
 // ============================================================================
+// Occluder Data (lighting W1)
+// ============================================================================
+
+// One opaque rectangle that light does not pass through, in WORLD space.
+//
+// x,y is the top-left CORNER (the field name carries the anchor - render-anchor-convention.md),
+// unlike a light's cx,cy centre. Shifting a wall by half its size would read as "the shadows are
+// offset" rather than as an anchor mistake, which is exactly why the convention is name-encoded.
+//
+// There is no transmittance field here on purpose: an occluder IS the opaque case. Coloured partial
+// transmission is plan F, and it will add its own primitive rather than overload this one.
+struct OccluderCommand {
+    float x, y;      // world top-left CORNER
+    float w, h;      // extent; a non-positive extent is dropped by the collector
+};
+
+// ============================================================================
 // Debug Shape Data
 // ============================================================================
 
@@ -271,6 +288,10 @@ struct FramePacket {
     // published none — no arena slice is claimed for a feature nobody used.
     const LightCommand* lights = nullptr;
     size_t lightCount = 0;
+
+    // Opaque occluders for THIS frame (ephemeral). Null + 0 when none were published.
+    const OccluderCommand* occluders = nullptr;
+    size_t occluderCount = 0;
 
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;
