@@ -1,5 +1,7 @@
 #pragma once
 
+#include <grove/text/TextMetrics.h>  // mesure du texte (curseur, sélection, clic -> index)
+
 #include <string>
 #include <cstdint>
 
@@ -42,6 +44,15 @@ public:
     // Screen size for coordinate normalization
     float screenWidth = 1280.0f;
     float screenHeight = 720.0f;
+
+    // QUOI : les avances de glyphes de la police RÉELLEMENT utilisée par le renderer.
+    // POURQUOI : placer un curseur, surligner une sélection ou convertir un clic en index sont tous
+    //   des calculs de largeur de texte. L'UIModule ne connaît pas la police (il est découplé du
+    //   renderer) : celui-ci lui POUSSE sa table sur `render:font:metrics` à chaque chargement.
+    //   Sans ça, le champ de saisie mesure en monospace 8px et son curseur dérive du texte dessiné.
+    // COMMENT : table VIDE par défaut = repli monospace historique, donc un hôte sans renderer (les
+    //   tests E2E headless) ou une frame antérieure à l'arrivée de la table se comportent comme avant.
+    text::Metrics fontMetrics;
 
     /**
      * @brief Reset per-frame state

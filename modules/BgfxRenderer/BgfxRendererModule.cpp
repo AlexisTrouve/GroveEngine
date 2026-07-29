@@ -26,12 +26,55 @@
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
+#include <grove/text/TextMetricsWire.h>  // push the font's advances to whoever must MEASURE text
 #include <nlohmann/json.hpp>     // parse the declarative asset manifest
 #include <fstream>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace grove {
+
+namespace {
+
+// QUOI : publie la table d'avances de la police courante sur `render:font:metrics`.
+//
+// POURQUOI : le renderer POSSÈDE la police, mais ce n'est pas lui qui a besoin de mesurer. Un champ
+//   de saisie doit savoir où poser son curseur, quel morceau de texte surligner, et sur quel caractère
+//   un clic est tombé — le tout dans la frame même du clic. L'UIModule est délibérément découplé du
+//   renderer, donc il ne peut pas interroger la police ; et un aller-retour par topic serait
+//   asynchrone sur un chemin qui doit être synchrone. On POUSSE donc la table, une fois par
+//   changement de police : un seul sens, pas de requête, et le consommateur mesure localement.
+//
+// COMMENT : plage dense ASCII + Latin-1 (32..255) — ce que loadTTF cuit, et ce qui couvre les accents
+//   français. L'encodage passe par grove::text::MetricsWire (chaîne compacte) parce qu'IIO ne
+//   transporte que le JSON propre du nœud, pas les enfants assemblés par setChild().
+//
+//   Publiée AUSSI pour la police 8x8 intégrée : ses avances valent toutes 8, donc le consommateur
+//   obtient exactement son repli monospace historique. Mesurer devient ainsi un invariant ("l'UI
+//   mesure ce que le renderer dessine") plutôt qu'un cas particulier réservé aux hôtes avec TTF.
+void publishFontMetrics(IIO* io, const BitmapFont& font) {
+    if (!io) return;
+
+    constexpr uint32_t kFirst = 32;   // espace
+    constexpr uint32_t kLast  = 255;  // fin de Latin-1
+
+    text::Metrics m;
+    m.baseSize = font.getBaseSize();
+    m.lineHeight = font.getLineHeight();
+    for (uint32_t cp = kFirst; cp <= kLast; ++cp) {
+        m.advances[cp] = font.getGlyph(cp).advance;
+    }
+
+    const text::MetricsWire wire = text::encodeDense(m, kFirst, kLast);
+    auto payload = std::make_unique<JsonDataNode>("fontMetrics");
+    payload->setDouble("baseSize", wire.baseSize);
+    payload->setDouble("lineHeight", wire.lineHeight);
+    payload->setInt("firstCodepoint", static_cast<int>(wire.firstCodepoint));
+    payload->setString("advances", wire.advances);
+    io->publish("render:font:metrics", std::move(payload));
+}
+
+}  // namespace
 
 BgfxRendererModule::BgfxRendererModule() = default;
 BgfxRendererModule::~BgfxRendererModule() = default;
@@ -265,7 +308,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             BitmapFont& target = asBold ? m_textPass->getFontBold() : m_textPass->getFont();
             if (!target.loadTTF(*m_device, path, size)) {
                 m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
+                return;
             }
+            // La police a changé : rediffuser ses avances, sinon tout consommateur qui MESURE du texte
+            // (curseur d'un champ de saisie, surlignage de sélection) continuerait de mesurer avec
+            // l'ancienne — le curseur dériverait du texte réellement dessiné. On ne pousse que la
+            // face REGULAR : le gras est une seconde table, à traiter le jour où l'UI en aura besoin.
+            if (!asBold) publishFontMetrics(m_io, m_textPass->getFont());
         });
 
         m_io->subscribe("render:screenshot", [this](const Message& msg) {
@@ -363,6 +412,13 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             }
         }
     }
+
+    // Diffuser les avances de la police REGULAR, quelle qu'elle soit (TTF fraîchement cuite ou 8x8
+    // intégrée). C'est ce qui permet à l'UI de placer un curseur là où le glyphe est réellement
+    // dessiné. Avec la 8x8, toutes les avances valent 8 : le consommateur retrouve exactement son
+    // repli monospace, donc aucun hôte existant ne change de comportement.
+    if (m_textPass) publishFontMetrics(m_io, m_textPass->getFont());
+
     m_renderGraph->compile();
     m_logger->info("RenderGraph compiled");
 

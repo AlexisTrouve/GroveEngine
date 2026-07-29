@@ -2,6 +2,7 @@
 
 #include "../Core/UIWidget.h"
 #include "UIFrame.h"
+#include <grove/text/TextMetrics.h>
 #include <cstdint>
 #include <string>
 
@@ -169,10 +170,18 @@ public:
     bool cursorVisible = true;
     static constexpr float CURSOR_BLINK_INTERVAL = 0.5f;
 
-    // Text measurement (approximate)
-    static constexpr float CHAR_WIDTH = 8.0f;  // Average character width
+    // Text measurement.
+    // CHAR_WIDTH est le REPLI monospace historique, utilisé uniquement tant qu'aucune table d'avances
+    // n'est arrivée (hôte sans renderer, tests headless, frames d'avant le chargement de police).
+    // Dès que le renderer pousse `render:font:metrics`, la mesure passe par les avances RÉELLES —
+    // sans quoi, sous une police proportionnelle, le curseur dérive du texte dessiné.
+    static constexpr float CHAR_WIDTH = 8.0f;  // Average character width (fallback only)
     static constexpr float CURSOR_WIDTH = 2.0f;
     static constexpr float PADDING = 8.0f;
+
+    // Métriques de la police courante, prêtées par UIContext à chaque update(). Non-possédant :
+    // le contexte survit au widget. nullptr / table vide => repli CHAR_WIDTH.
+    const text::Metrics* metrics = nullptr;
 
     // 9-slice FRAME — see UIFrame. Dresses the FIELD box; replaces both the flat bg and the border
     // rect (the border is what a nine-patch expresses natively). Tinted by the state bgColor, so the

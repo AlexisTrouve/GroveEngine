@@ -27,6 +27,7 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include <grove/text/TextMetricsWire.h>  // decode render:font:metrics (avances de la police reelle)
 #include <nlohmann/json.hpp>
 
 // Forward declarations for hit testing functions in UIContext.cpp
@@ -174,6 +175,32 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                     m_context->keyChar = 0;
                 }
             }
+        });
+
+        // QUOI : réception de la table d'avances de la police, poussée par le renderer.
+        // POURQUOI : tout ce qui touche au curseur d'un champ de saisie (position, surlignage de
+        //   sélection, clic -> index) est un calcul de largeur de texte. L'UIModule ne connaît pas la
+        //   police ; le renderer la POUSSE plutôt que de répondre à des requêtes, parce que placer un
+        //   curseur doit se faire dans la frame même du clic — un aller-retour serait asynchrone.
+        // COMMENT : décodage de la chaîne dense (IIO ne transporte que le JSON propre du nœud). Une
+        //   charge utile illisible rend une table vide, donc on retombe sur le repli monospace :
+        //   dégradé mais cohérent, jamais un curseur placé au hasard.
+        m_io->subscribe("render:font:metrics", [this](const Message& msg) {
+            if (!msg.data || !m_context) return;
+            text::MetricsWire wire;
+            wire.baseSize = static_cast<float>(msg.data->getDouble("baseSize", 8.0));
+            wire.lineHeight = static_cast<float>(msg.data->getDouble("lineHeight", 8.0));
+            wire.firstCodepoint = static_cast<uint32_t>(msg.data->getInt("firstCodepoint", 32));
+            wire.advances = msg.data->getString("advances", "");
+
+            text::Metrics decoded = text::decodeDense(wire);
+            if (decoded.empty()) {
+                m_logger->warn("render:font:metrics illisible — on garde la mesure monospace");
+                return;
+            }
+            m_context->fontMetrics = std::move(decoded);
+            m_logger->info("Metriques de police recues: base={}px, {} glyphes",
+                           m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
         });
 
         m_io->subscribe("ui:load", [this](const Message& msg) {

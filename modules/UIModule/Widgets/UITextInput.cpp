@@ -9,6 +9,11 @@
 namespace grove {
 
 void UITextInput::update(UIContext& ctx, float deltaTime) {
+    // Emprunte les avances de la police courante au contexte. Elles arrivent du renderer sur
+    // `render:font:metrics` et peuvent changer en cours de partie (render:font) — on relit donc la
+    // référence à chaque frame plutôt que de la capturer une fois à la construction.
+    metrics = &ctx.fontMetrics;
+
     // Update state based on enabled/focused flags
     if (!enabled) {
         state = TextInputState::Disabled;
@@ -136,8 +141,25 @@ bool UITextInput::onMouseButton(int button, bool pressed, float x, float y) {
 
     if (button == 0 && pressed) {  // Left mouse button down
         if (containsPoint(x, y)) {
-            // TODO: Calculate click position and set cursor there
-            // For now, just focus
+            // QUOI : place le curseur sous le clic (le TODO d'origine : on ne savait que prendre le
+            //   focus, donc on ne pouvait éditer qu'en bout de chaîne, aux flèches).
+            // COMMENT : on ramène le x écran dans l'espace du texte — origine à absX + PADDING, et
+            //   décalé du défilement horizontal — puis on demande à la police quelle frontière de
+            //   caractère est la plus proche. indexAtX ne rend jamais un index au milieu d'un
+            //   codepoint, donc un clic sur un mot accentué ne peut pas casser la frappe suivante.
+            //   Sans table d'avances (pas de renderer, tests headless), on retombe sur la division
+            //   monospace — approximatif, mais c'est déjà mieux que « toujours à la fin ».
+            const std::string shown = getDisplayText();
+            const float localX = x - (absX + PADDING) + scrollOffset;
+
+            if (metrics != nullptr && !metrics->empty()) {
+                setCursorPosition(static_cast<int>(metrics->indexAtX(shown, localX, fontSize)));
+            } else {
+                const int approx = static_cast<int>((localX + CHAR_WIDTH * 0.5f) / CHAR_WIDTH);
+                setCursorPosition(approx);  // setCursorPosition borne ET recolle sur une frontière
+            }
+            cursorBlinkTimer = 0.0f;  // le curseur doit être VISIBLE là où on vient de cliquer
+            cursorVisible = true;
             return true;  // Will trigger focus in UIModule
         }
     }
@@ -328,8 +350,21 @@ std::string UITextInput::getVisibleText() const {
 }
 
 float UITextInput::getCursorPixelOffset() const {
-    // Approximate pixel position of cursor
-    return cursorPosition * CHAR_WIDTH;
+    // QUOI : position pixel du curseur, mesurée sur le texte RÉELLEMENT affiché.
+    // POURQUOI : l'ancienne version rendait `cursorPosition * CHAR_WIDTH`, soit une hypothèse
+    //   monospace 8px héritée de la police intégrée. Sous une TTF proportionnelle (un 'i' plus étroit
+    //   qu'un 'M'), le curseur dérivait du point d'insertion, de plus en plus à mesure qu'on tape.
+    // COMMENT : on mesure le préfixe jusqu'au curseur avec les avances de la police courante. Le
+    //   texte mesuré est celui qui est DESSINÉ (donc masqué en mode mot de passe), sinon le curseur
+    //   d'un champ de mot de passe suivrait le texte clair.
+    //   Table absente/vide (pas de renderer, tests headless) => repli monospace strictement identique
+    //   à l'ancien comportement.
+    const std::string shown = getDisplayText();
+    const size_t idx = static_cast<size_t>(std::max(0, cursorPosition));
+    if (metrics != nullptr && !metrics->empty()) {
+        return metrics->xAtIndex(shown, idx, fontSize);
+    }
+    return std::min(idx, shown.size()) * CHAR_WIDTH;
 }
 
 const TextInputStyle& UITextInput::getCurrentStyle() const {
@@ -378,10 +413,18 @@ void UITextInput::updateScrollOffset() {
     float cursorPixelPos = getCursorPixelOffset();
     float textAreaWidth = width - 2 * PADDING;
 
+    // Marge de confort au bord droit : on garde environ une largeur de caractère derrière le curseur
+    // pour que le prochain glyphe ne naisse pas collé au cadre. Avec une police réelle on prend la
+    // largeur de l'espace À LA TAILLE AFFICHÉE — le CHAR_WIDTH figé donnait une marge dérisoire à
+    // grande taille de police et exagérée à petite.
+    const float margin = (metrics != nullptr && !metrics->empty())
+                             ? metrics->advanceOf(static_cast<uint32_t>(' '), fontSize)
+                             : CHAR_WIDTH;
+
     // Scroll to keep cursor visible
-    if (cursorPixelPos - scrollOffset > textAreaWidth - CHAR_WIDTH) {
+    if (cursorPixelPos - scrollOffset > textAreaWidth - margin) {
         // Cursor would be off the right edge
-        scrollOffset = cursorPixelPos - textAreaWidth + CHAR_WIDTH;
+        scrollOffset = cursorPixelPos - textAreaWidth + margin;
     } else if (cursorPixelPos < scrollOffset) {
         // Cursor would be off the left edge
         scrollOffset = cursorPixelPos;

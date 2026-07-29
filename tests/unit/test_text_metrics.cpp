@@ -18,6 +18,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <grove/text/TextMetrics.h>
+#include <grove/text/TextMetricsWire.h>
 
 #include <string>
 
@@ -184,4 +185,58 @@ TEST_CASE("Metrics: une table VIDE reproduit exactement l'ancien comportement mo
     REQUIRE(m.measure("ABCD", 8.0f) == 32.0f);
     REQUIRE(m.xAtIndex("ABCD", 2, 8.0f) == 16.0f);
     REQUIRE(m.indexAtX("ABCD", 16.0f, 8.0f) == 2u);
+}
+
+// ============================================================================
+// Transport (TextMetricsWire) — le renderer possède la police, l'UI doit mesurer sans lui.
+// L'aller-retour est ce qui garantit que ce que l'UI MESURE est ce que le renderer DESSINE ;
+// une divergence ici ferait dériver le curseur du texte, exactement le défaut qu'on répare.
+// ============================================================================
+
+TEST_CASE("MetricsWire: l'aller-retour preserve les avances", "[text][unit][metrics][wire]") {
+    const Metrics src = proportional();
+    const MetricsWire w = encodeDense(src, 'a', 'z');
+    const Metrics back = decodeDense(w);
+
+    REQUIRE(back.baseSize == src.baseSize);
+    REQUIRE(back.lineHeight == src.lineHeight);
+    // Les avances transportées sont celles de la source, à la précision de l'aller-retour texte près.
+    REQUIRE(back.advanceOf('i', 10.0f) == 4.0f);
+    REQUIRE(back.advanceOf('a', 10.0f) == 10.0f);
+    // Et la MESURE, qui est ce qui compte vraiment, est identique des deux côtés.
+    REQUIRE(back.measure("ia", 10.0f) == src.measure("ia", 10.0f));
+}
+
+TEST_CASE("MetricsWire: la plage transportee couvre les accents", "[text][unit][metrics][wire]") {
+    // Latin-1 doit passer : c'est tout l'intérêt en français. 'é' = U+00E9 = 233.
+    const Metrics src = proportional();
+    const MetricsWire w = encodeDense(src, 32, 255);
+    const Metrics back = decodeDense(w);
+    REQUIRE(back.advanceOf(0x00E9u, 10.0f) == 12.0f);
+    REQUIRE(back.measure("aé", 10.0f) == 22.0f);
+}
+
+TEST_CASE("MetricsWire: une charge utile illisible rend une table VIDE (repli monospace)",
+          "[text][unit][metrics][wire][fallback]") {
+    // Échec FRANC : plutôt qu'inventer des largeurs, on rend une table vide et le consommateur
+    // retombe sur son repli monospace — dégradé mais cohérent, jamais un curseur au hasard.
+    MetricsWire bad;
+    bad.advances = "";
+    REQUIRE(decodeDense(bad).empty());
+
+    MetricsWire garbage;
+    garbage.advances = "pas des nombres";
+    REQUIRE(decodeDense(garbage).empty());
+}
+
+TEST_CASE("MetricsWire: un codepoint hors plage prend une largeur plausible pour CETTE police",
+          "[text][unit][metrics][wire]") {
+    // Aucune police ne couvre tout l'Unicode. Hors plage (CJK, emoji), on veut la largeur de l'espace
+    // de la police réelle — pas le 8 monospace hérité, qui serait faux pour une police large.
+    Metrics src;
+    src.baseSize = 10.0f;
+    src.fallbackAdvance = 10.0f;
+    src.advances[static_cast<uint32_t>(' ')] = 5.0f;
+    const Metrics back = decodeDense(encodeDense(src, 32, 126));
+    REQUIRE(back.advanceOf(0x4E2Du, 10.0f) == 5.0f);  // U+4E2D, hors plage transportée
 }

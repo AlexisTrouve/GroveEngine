@@ -170,3 +170,19 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 | Date | Tranche | État |
 |---|---|---|
 | 2026-07-29 | Plan | Rédigé. Constat vérifié dans le code (D1-D4), architecture de mesure tranchée (option B) |
+| 2026-07-29 | **T0a** | ✅ `grove::text::Metrics` + `Utf8.h` remonté dans `include/grove/text/`. `TextMetricsUnit` 17 cas / 233 assertions. **Vérifié adversarialement** : rebranché sur l'implémentation monospace + pas-en-octets, 8 cas passent au rouge |
+| 2026-07-29 | **T0b** | ✅ D2 levé. Backspace/Suppr/flèches passent par `prevIndex`/`nextIndex` ; `setCursorPosition` devient l'entonnoir qui recolle toute position sur une frontière de codepoint. `IT_062`, vu ROUGE avant correctif (5 cas sur 6) |
+| 2026-07-29 | **T0c** | ✅ D1 levé. `render:font:metrics` publié par BgfxRenderer (au boot ET sur `render:font`), consommé par UIModule → `UIContext::fontMetrics` → widget. Encodage dense partagé (`TextMetricsWire.h`) car IIO ne transporte que le JSON propre du nœud. Publié aussi pour la 8x8 (avances toutes à 8 = repli historique exact) |
+| 2026-07-29 | **T0d** | ✅ D3 levé. Le clic place le curseur (`indexAtX`), y compris sur du texte accentué (balayage de tout le champ : aucune position de clic ne corrompt la chaîne) |
+
+**T0 est COMPLET** (D1, D2, D3 levés ; D4 reste, il appartient à T1). Régression : 63/63 verts
+(UI + Radial + InputUI + Text + Render + Scene, tests GPU inclus).
+
+### Piège rencontré — à ne pas repayer
+
+Le premier passage de T0d a échoué avec un résultat qui correspondait *exactement* au calcul du repli
+monospace, alors que la table de métriques était bien arrivée (prouvé par le log du module). Cause
+réelle : **`cmake --build build --target IT_062...` ne reconstruit pas `libUIModule.dll`**, que le
+test charge à l'exécution via `ModuleLoader` — le test tournait donc contre l'ancienne DLL. Localisé
+en trois mesures (métriques reçues ? clic reçu ? curseur posé ?) plutôt qu'en devinant. **Toute
+tranche suivante doit reconstruire la CIBLE MODULE, pas seulement la cible de test.**
