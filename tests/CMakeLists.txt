@@ -2447,17 +2447,31 @@ if(GROVE_BUILD_BGFX_RENDERER)
     grove_add_test(AtlasAverageUnit test_atlas_average ${CMAKE_CURRENT_BINARY_DIR})
 
     # Text truncation with an ellipsis (grove::text::fitLine): pure, font-agnostic, no GPU.
+    # NB: ../include is needed since Text/Utf8.h became a redirect to <grove/text/Utf8.h> (shared
+    # with the UI's text measurement — one UTF-8 decoder for the whole engine, not two).
     add_executable(test_text_fit unit/test_text_fit.cpp)
     target_include_directories(test_text_fit PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(test_text_fit PRIVATE Catch2::Catch2WithMain)
     grove_add_test(TextFitUnit test_text_fit ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Text measurement (grove::text::Metrics): cursor placement, click-to-index, UTF-8 stepping.
+    # PURE — the advance table is injected data, so no font/atlas/GPU/window is involved. The fake
+    # table is deliberately PROPORTIONAL, which a monospace implementation cannot satisfy.
+    add_executable(test_text_metrics unit/test_text_metrics.cpp)
+    target_include_directories(test_text_metrics PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_metrics PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextMetricsUnit test_text_metrics ${CMAKE_CURRENT_BINARY_DIR})
 
     # Real TrueType baking (BitmapFont::loadTTF): headless via MockRHIDevice, skips without a system font.
     add_executable(test_ttf_font unit/test_ttf_font.cpp ../modules/BgfxRenderer/Text/BitmapFont.cpp)
     target_include_directories(test_ttf_font PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${bgfx_SOURCE_DIR}/bgfx/3rdparty/stb)
     target_link_libraries(test_ttf_font PRIVATE Catch2::Catch2WithMain spdlog::spdlog)
