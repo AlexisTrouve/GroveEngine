@@ -2260,6 +2260,7 @@ if(GROVE_BUILD_BGFX_RENDERER)
         ../modules/BgfxRenderer/RenderGraph/RenderGraph.cpp
         ../modules/BgfxRenderer/Passes/CompositePass.cpp
         ../modules/BgfxRenderer/Passes/LightPass.cpp
+        ../modules/BgfxRenderer/Passes/OcclusionPass.cpp
         ../modules/BgfxRenderer/RHI/RHICommandBuffer.cpp
     )
     target_include_directories(test_pipeline_headless PRIVATE

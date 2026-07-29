@@ -333,3 +333,117 @@ TEST_CASE("Composite - an ambient makes the pass draw a full-screen quad", "[pip
 
     pass.shutdown(device);
 }
+
+// ============================================================================
+// OcclusionPass — walls and filters write into ONE map, multiplicatively (lighting F1).
+//
+// The blend mode is the whole subject here. While only walls existed the pass wrote OPAQUE, and
+// that was invisible: black over black is black whichever quad wins. A coloured filter breaks that
+// tie — under an overwrite the last pane drawn would govern the overlap, which is precisely the
+// depth-ordering problem the socle claims not to have. A product has no order.
+// ============================================================================
+
+#include "../../modules/BgfxRenderer/Passes/OcclusionPass.h"
+
+namespace {
+// Bytes one rect costs in the occlusion vertex buffer: 6 vertices of PosColor (3 + 4 floats).
+constexpr uint32_t kBytesPerRect = 6 * 7 * sizeof(float);
+
+rhi::BlendMode firstBlend(const rhi::RHICommandBuffer& cmd) {
+    for (const auto& c : cmd.getCommands()) {
+        if (c.type == rhi::CommandType::SetState) return c.setState.state.blend;
+    }
+    return rhi::BlendMode::None;
+}
+bool hasDraw(const rhi::RHICommandBuffer& cmd) {
+    for (const auto& c : cmd.getCommands()) {
+        if (c.type == rhi::CommandType::Draw || c.type == rhi::CommandType::DrawIndexed) return true;
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE("Occlusion - matter is written MULTIPLICATIVELY, so overlaps compose",
+          "[pipeline][light][filter]") {
+    MockRHIDevice device;
+    OcclusionPass pass(device.createShader(rhi::ShaderDesc{}));
+    rhi::RHICommandBuffer cmd;
+    pass.setup(device);
+
+    OccluderCommand wall{}; wall.x = 0.0f; wall.y = 0.0f; wall.w = 10.0f; wall.h = 10.0f;
+    FramePacket packet;
+    packet.occluders = &wall;
+    packet.occluderCount = 1;
+
+    pass.execute(packet, device, cmd);
+
+    // Not "some blend": the SPECIFIC one. Alpha or additive would each still draw something, and a
+    // test that only checked for a draw would be green on either.
+    REQUIRE(firstBlend(cmd) == rhi::BlendMode::Multiply);
+    pass.shutdown(device);
+}
+
+TEST_CASE("Occlusion - a filter ALONE fills the map (no wall required)",
+          "[pipeline][light][filter]") {
+    MockRHIDevice device;
+    OcclusionPass pass(device.createShader(rhi::ShaderDesc{}));
+    rhi::RHICommandBuffer cmd;
+    pass.setup(device);
+
+    // The regression this pins: the early-out used to test occluders only. A scene whose matter is
+    // entirely stained glass would have recorded nothing and sampled a blank map — the tint would
+    // simply not exist, with no error anywhere to say why.
+    FilterCommand glass{};
+    glass.x = 5.0f; glass.y = 5.0f; glass.w = 20.0f; glass.h = 4.0f;
+    glass.r = 1.0f; glass.g = 0.7f; glass.b = 0.7f;
+
+    FramePacket packet;
+    packet.filters = &glass;
+    packet.filterCount = 1;
+
+    pass.execute(packet, device, cmd);
+
+    REQUIRE(hasDraw(cmd));
+    REQUIRE(device.lastUpdateBufferSize.load() == kBytesPerRect);
+    pass.shutdown(device);
+}
+
+TEST_CASE("Occlusion - walls and filters share ONE draw", "[pipeline][light][filter]") {
+    MockRHIDevice device;
+    OcclusionPass pass(device.createShader(rhi::ShaderDesc{}));
+    rhi::RHICommandBuffer cmd;
+    pass.setup(device);
+
+    OccluderCommand walls[2] = {};
+    walls[0].w = walls[0].h = 10.0f;
+    walls[1].x = 40.0f; walls[1].w = walls[1].h = 10.0f;
+    FilterCommand glass{};
+    glass.w = 20.0f; glass.h = 4.0f; glass.r = 1.0f; glass.g = 0.5f; glass.b = 0.5f;
+
+    FramePacket packet;
+    packet.occluders = walls; packet.occluderCount = 2;
+    packet.filters = &glass;  packet.filterCount = 1;
+
+    pass.execute(packet, device, cmd);
+
+    // Three rects, one upload, one draw. Asserting the byte size rather than "more than zero" is
+    // what would catch a loop that silently dropped the filters after the walls.
+    REQUIRE(device.lastUpdateBufferSize.load() == 3 * kBytesPerRect);
+    int submits = 0;
+    for (const auto& c : cmd.getCommands()) if (c.type == rhi::CommandType::Submit) ++submits;
+    REQUIRE(submits == 1);
+    pass.shutdown(device);
+}
+
+TEST_CASE("Occlusion - no matter at all records NOTHING", "[pipeline][light][filter]") {
+    MockRHIDevice device;
+    OcclusionPass pass(device.createShader(rhi::ShaderDesc{}));
+    rhi::RHICommandBuffer cmd;
+    pass.setup(device);
+
+    FramePacket packet;    // neither occluders nor filters
+    pass.execute(packet, device, cmd);
+
+    REQUIRE(cmd.size() == 0);   // the zero-cost bypass, unchanged by adding a second primitive
+    pass.shutdown(device);
+}

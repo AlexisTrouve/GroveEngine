@@ -179,6 +179,29 @@ struct OccluderCommand {
 };
 
 // ============================================================================
+// Filter Data (lighting F1)
+// ============================================================================
+
+// One rectangle that light passes through while being TINTED, in WORLD space.
+//
+// x,y is the top-left CORNER, like every rect (render-anchor-convention.md).
+//
+// r,g,b is the transmittance PER UNIT of length, NOT the author's `color`. The collector converts
+// (grove::light::perUnitForTint) because the two are different quantities and only the per-unit one
+// composes: the occlusion map is shared with fog, whose whole point is that a longer traversal
+// absorbs more. Keeping the author's value here would force the conversion into the pass, where the
+// pane's thickness is no longer the thing being reasoned about.
+//
+// A separate primitive from OccluderCommand rather than a colour field bolted onto it: an occluder
+// IS the opaque case, and the two stay distinct at the authoring surface even though the pass writes
+// both into the same map with the same blend.
+struct FilterCommand {
+    float x, y;      // world top-left CORNER
+    float w, h;      // extent; a non-positive extent is dropped by the collector
+    float r, g, b;   // PER-UNIT transmittance, already converted from the author's tint
+};
+
+// ============================================================================
 // Debug Shape Data
 // ============================================================================
 
@@ -300,6 +323,10 @@ struct FramePacket {
     // Opaque occluders for THIS frame (ephemeral). Null + 0 when none were published.
     const OccluderCommand* occluders = nullptr;
     size_t occluderCount = 0;
+
+    // Coloured filters for THIS frame (ephemeral). Null + 0 when none were published.
+    const FilterCommand* filters = nullptr;
+    size_t filterCount = 0;
 
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;

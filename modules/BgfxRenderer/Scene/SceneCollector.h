@@ -118,6 +118,7 @@ private:
     // a wall does not move, so re-publishing the level every frame would charge a cost proportional
     // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
+    std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders (retained mode is F3)
     std::vector<LightCommand> m_lights;   // ephemeral: cleared at the frame boundary
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
@@ -140,6 +141,7 @@ private:
     void parseAmbient(const IDataNode& data);
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
+    void parseFilter(const IDataNode& data);
     void parseOccluderAdd(const IDataNode& data);
     void parseOccluderUpdate(const IDataNode& data);
     void parseOccluderRemove(const IDataNode& data);

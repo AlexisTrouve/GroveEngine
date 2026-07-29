@@ -89,6 +89,28 @@ inline float transmitThrough(float perUnit, float distance) {
     return std::pow(perUnit, distance);
 }
 
+/// Inverse of transmitThrough: the per-unit value that yields `tint` after crossing `thickness`.
+///
+/// POURQUOI cette fonction existe (plan F) : la carte stocke du PAR UNITÉ, parce que le brouillard
+/// l'exige — un nuage plus épais doit absorber davantage. Mais l'auteur d'un vitrail énonce la
+/// teinte qu'il veut VOIR derrière, pas un coefficient par unité. Sans cet inverse il devrait
+/// calculer 0.3^(1/40) à la main, et toute valeur tapée d'instinct (0.3) sortirait en mur opaque.
+///
+/// COMMENT : `perUnit = tint^(1/thickness)`, de sorte que traverser exactement `thickness` rend
+/// `tint`. Traverser plus (un rayon oblique) teinte davantage — c'est la géométrie qui fait le
+/// reste, et c'est physiquement juste.
+inline float perUnitForTint(float tint, float thickness) {
+    // Le vide et l'opacité doivent traverser la conversion EXACTEMENT, pas à epsilon près : un
+    // panneau censé ne rien faire doit multiplier par 1 tout rond, sinon un empilement de panneaux
+    // neutres assombrirait une scène qui ne contient aucune matière.
+    if (tint >= 1.0f) return 1.0f;
+    if (tint <= 0.0f) return 0.0f;
+    // Une épaisseur dégénérée n'est pas inversible (1/0). Retomber sur "pas de matière" plutôt que
+    // produire un NaN, qui empoisonnerait le produit courant et éteindrait le rayon entier.
+    if (thickness <= 0.0f) return 1.0f;
+    return std::pow(tint, 1.0f / thickness);
+}
+
 /// Per-unit transmittance of a medium of absorption coefficient `alpha` (Beer-Lambert).
 ///
 /// transmitThrough(fromDensity(a), d) == exp(−a·d). The law is not bolted on: it is what the

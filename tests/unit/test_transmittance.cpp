@@ -203,3 +203,62 @@ TEST_CASE("accumulate: the step length scales the loss", "[light][unit][transmit
 
     REQUIRE_THAT(half[1], WithinAbs(whole[0], 1e-6f));
 }
+
+// ---------------------------------------------------------------------------
+// Plan F — the AUTHORING inverse: a tint over a thickness -> a per-unit value.
+//
+// The map stores transmittance PER UNIT, because fog demands it: a thicker cloud must absorb more.
+// But an author writing a stained-glass window states the tint they want to SEE behind it, not a
+// per-unit coefficient. Without the inverse they would have to hand-compute 0.3^(1/40) = 0.9703 to
+// get a red pane, and every value they might type by instinct (0.3) would come out as a wall.
+//
+// perUnitForTint is that inverse, and the round-trip against transmitThrough is its whole contract.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("perUnitForTint: round-trips through transmitThrough", "[light][unit][transmittance][filter]") {
+    // The ONLY assertion that matters: state a tint, cross the stated thickness, get that tint back.
+    // Anything weaker (e.g. "the result is below 1") would pass with an arbitrary darkening.
+    const float thickness = 40.0f;
+    const float perUnit = perUnitForTint(0.3f, thickness);
+
+    REQUIRE_THAT(transmitThrough(perUnit, thickness), WithinRel(0.3f, 1e-4f));
+}
+
+TEST_CASE("perUnitForTint: crossing MORE than the stated thickness tints MORE",
+          "[light][unit][transmittance][filter]") {
+    // A ray entering the pane at an angle travels further inside it, and must come out darker. This
+    // is what makes the conversion physical rather than a lookup: the tint is stated for ONE
+    // perpendicular crossing, and the geometry does the rest.
+    const float perUnit = perUnitForTint(0.5f, 10.0f);
+
+    REQUIRE_THAT(transmitThrough(perUnit, 10.0f), WithinRel(0.5f, 1e-4f));
+    REQUIRE_THAT(transmitThrough(perUnit, 20.0f), WithinRel(0.25f, 1e-4f));   // squared, not halved
+}
+
+TEST_CASE("perUnitForTint: the degenerate ends stay exact", "[light][unit][transmittance][filter]") {
+    // Vacuum and opacity must survive the conversion EXACTLY, not to within an epsilon: a pane that
+    // is supposed to do nothing has to multiply by exactly 1, or a stack of them would slowly
+    // darken a scene that contains no matter at all.
+    REQUIRE_THAT(perUnitForTint(1.0f, 25.0f), WithinAbs(1.0f, 0.0f));
+    REQUIRE_THAT(perUnitForTint(0.0f, 25.0f), WithinAbs(0.0f, 0.0f));
+
+    // A degenerate thickness cannot be inverted (1/0). It must fall back to "no matter", never to a
+    // NaN that would poison the running product and blank the whole ray.
+    REQUIRE_THAT(perUnitForTint(0.3f, 0.0f), WithinAbs(1.0f, 0.0f));
+    REQUIRE_THAT(perUnitForTint(0.3f, -5.0f), WithinAbs(1.0f, 0.0f));
+}
+
+TEST_CASE("perUnitForTint: two panes stacked multiply, in either order",
+          "[light][unit][transmittance][filter]") {
+    // The oracle plan F asks for: superposed filters compose by PRODUCT. The renderer gets this from
+    // a multiplicative blend into the occlusion map; here we pin what that blend is supposed to
+    // produce, so a wrong blend mode has something to be wrong against.
+    const float red  = perUnitForTint(0.4f, 10.0f);
+    const float blue = perUnitForTint(0.7f, 10.0f);
+
+    const float bothWays = transmitThrough(red * blue, 10.0f);
+    REQUIRE_THAT(bothWays, WithinRel(0.4f * 0.7f, 1e-4f));
+
+    const float swapped = transmitThrough(blue * red, 10.0f);
+    REQUIRE_THAT(swapped, WithinRel(bothWays, 1e-5f));
+}

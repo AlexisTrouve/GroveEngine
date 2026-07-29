@@ -4,6 +4,7 @@
 #include "../Frame/FrameAllocator.h"
 #include "../Assets/AssetManager.h"   // resolve a sprite's "asset" id -> texture id
 #include "grove/ui/NineSlice.h"        // pure 9-slice geometry (render:nineslice expansion)
+#include "grove/light/Transmittance.h" // perUnitForTint: author tint -> per-unit transmittance (F1)
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -170,6 +171,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         }
         else if (msg.topic == "render:occluder:update") {
             parseOccluderUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:filter") {
+            parseFilter(*msg.data);
         }
         else if (msg.topic == "render:occluder:remove") {
             parseOccluderRemove(*msg.data);
@@ -412,6 +416,20 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
+    // Copy filters (F1). Same shape as the occluders above, and for the same reason: no array at all
+    // when nobody published one, so a game without stained glass claims no arena slice.
+    if (!m_filters.empty()) {
+        FilterCommand* flt = allocator.allocateArray<FilterCommand>(m_filters.size());
+        if (flt) {
+            std::memcpy(flt, m_filters.data(), m_filters.size() * sizeof(FilterCommand));
+            packet.filters = flt;
+            packet.filterCount = m_filters.size();
+        }
+    } else {
+        packet.filters = nullptr;
+        packet.filterCount = 0;
+    }
+
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
     if (!m_lights.empty()) {
         LightCommand* lights = allocator.allocateArray<LightCommand>(m_lights.size());
@@ -594,6 +612,7 @@ void SceneCollector::clear() {
     m_texts.clear();
     m_textStrings.clear();
     m_occluders.clear();
+    m_filters.clear();
     m_lights.clear();
     m_particles.clear();
     m_debugLines.clear();
@@ -1127,6 +1146,45 @@ void SceneCollector::parseOccluder(const IDataNode& data) {
     // A degenerate rect occludes nothing. Dropping it here spares a quad per frame that draws
     // nothing, and stops a caller's uninitialised struct from reaching the GPU.
     if (o.w > 0.0f && o.h > 0.0f) m_occluders.push_back(o);
+}
+
+void SceneCollector::parseFilter(const IDataNode& data) {
+    FilterCommand f;
+    // x,y = top-left CORNER, like every rect. Same rule as the occluder beside it.
+    f.x = static_cast<float>(data.getDouble("x", 0.0));
+    f.y = static_cast<float>(data.getDouble("y", 0.0));
+    f.w = static_cast<float>(data.getDouble("w", 0.0));
+    f.h = static_cast<float>(data.getDouble("h", 0.0));
+
+    // A degenerate rect filters nothing -- AND its thin axis is 0, which is exactly the thickness
+    // the conversion below cannot invert. Dropping it here is what keeps that division safe.
+    if (f.w <= 0.0f || f.h <= 0.0f) return;
+
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+    float tint[3] = {
+        static_cast<float>((color >> 24) & 0xFF) / 255.0f,
+        static_cast<float>((color >> 16) & 0xFF) / 255.0f,
+        static_cast<float>((color >>  8) & 0xFF) / 255.0f,
+    };
+    // The colour's alpha byte is ignored on purpose: "how much of this tint applies" is `opacity`,
+    // a separate knob, and reading it from two places would make one of them silently lose.
+
+    // `opacity` is the author's guard rail against a multiplicative model's brutality (three panes
+    // at 0.3 leave 2.7% of the light). It blends the stated tint back towards vacuum, so 0 is a TRUE
+    // no-op -- a filter dialled to nothing must leave the scene exactly as bright as no filter.
+    const float opacity = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("opacity", 1.0))));
+    for (float& c : tint) c = 1.0f - opacity * (1.0f - c);
+
+    // THE conversion. `color` is the tint after ONE perpendicular crossing; the map stores per-unit
+    // transmittance because it is shared with fog, where a longer traversal must absorb more. The
+    // reference thickness is the pane's THIN axis: a window is crossed through its narrow side, and
+    // a ray entering at an angle travels further inside it and comes out darker -- which is right.
+    const float thickness = (f.w < f.h) ? f.w : f.h;
+    f.r = grove::light::perUnitForTint(tint[0], thickness);
+    f.g = grove::light::perUnitForTint(tint[1], thickness);
+    f.b = grove::light::perUnitForTint(tint[2], thickness);
+
+    m_filters.push_back(f);
 }
 
 void SceneCollector::parseLight(const IDataNode& data) {

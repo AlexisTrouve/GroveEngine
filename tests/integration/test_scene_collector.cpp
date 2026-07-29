@@ -2251,3 +2251,128 @@ TEST_CASE("SceneCollector - sprite blend: additive rides through, absent = alpha
     }
     REQUIRE(sawEphemeralAlpha);
 }
+
+// ============================================================================
+// Lighting F1 — coloured filters (render:filter).
+//
+// A wall writes (0,0,0) into the occlusion map. A FILTER writes a COLOUR — and that is the entire
+// difference. The socle does not change by a line: the same running product that annihilates
+// everything behind a wall tints everything behind a stained-glass window.
+//
+// The one decision this slice had to make is what `color` MEANS. The map stores transmittance PER
+// UNIT of length (fog demands it — a thicker cloud must absorb more), but an author writing a window
+// states the tint they want to SEE behind it. So the collector converts, keyed on the pane's THIN
+// axis: crossing min(w,h) perpendicularly yields exactly `color`, and crossing at an angle tints
+// more because the ray travelled further inside the glass.
+// ============================================================================
+
+#include <grove/light/Transmittance.h>
+
+TEST_CASE("SceneCollector - filter: `color` is the tint after ONE perpendicular crossing",
+          "[scene_collector][light][filter]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A wide, thin pane: 200x10, so the thin axis — the one a ray crosses head-on — is 10.
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setDouble("x", 40.0);
+    f->setDouble("y", 90.0);
+    f->setDouble("w", 200.0);
+    f->setDouble("h", 10.0);
+    f->setInt("color", static_cast<int>(0xFF4D4DFFu));   // RRGGBBAA — red glass: 1.0, 0.302, 0.302
+    fx.ioPublisher->publish("render:filter", std::move(f));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.filterCount == 1);
+    REQUIRE(p.filters != nullptr);
+
+    REQUIRE_THAT(p.filters[0].x, WithinAbs(40.0f, 0.01f));   // x,y = CORNER, like every rect
+    REQUIRE_THAT(p.filters[0].y, WithinAbs(90.0f, 0.01f));
+
+    // The packet holds PER-UNIT transmittance, so the assertion has to travel the pane to mean
+    // anything. Asserting the stored value directly would pin the conversion to itself.
+    using grove::light::transmitThrough;
+    REQUIRE_THAT(transmitThrough(p.filters[0].r, 10.0f), Catch::Matchers::WithinRel(1.0f, 1e-3f));
+    REQUIRE_THAT(transmitThrough(p.filters[0].g, 10.0f), Catch::Matchers::WithinRel(0.302f, 1e-2f));
+    REQUIRE_THAT(transmitThrough(p.filters[0].b, 10.0f), Catch::Matchers::WithinRel(0.302f, 1e-2f));
+
+    // THE discriminant of this whole chantier: a filter TINTS, it does not merely darken. A grey
+    // pane would satisfy every luminance-based check while proving nothing, so the assertion has to
+    // be that the channels DIVERGE — red survives untouched where green and blue collapse.
+    REQUIRE(p.filters[0].r > p.filters[0].g + 0.05f);
+    REQUIRE_THAT(p.filters[0].r, WithinAbs(1.0f, 1e-6f));   // vacuum stays EXACTLY vacuum
+}
+
+TEST_CASE("SceneCollector - filter: `opacity` runs from no effect to full tint",
+          "[scene_collector][light][filter]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // opacity 0 must be a true no-op, not "nearly nothing": the author's guard rail against the
+    // brutality of a multiplicative model has to have a neutral end, or dialling a filter down
+    // would still leave the scene slightly darker than having no filter at all.
+    auto off = std::make_unique<JsonDataNode>("f");
+    off->setDouble("x", 0.0); off->setDouble("y", 0.0);
+    off->setDouble("w", 50.0); off->setDouble("h", 50.0);
+    off->setInt("color", static_cast<int>(0xFF0000FFu));   // pure red: green and blue at ZERO
+    off->setDouble("opacity", 0.0);
+    fx.ioPublisher->publish("render:filter", std::move(off));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.filterCount == 1);
+    REQUIRE_THAT(p.filters[0].r, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p.filters[0].g, WithinAbs(1.0f, 1e-6f));   // untinted, exactly
+    REQUIRE_THAT(p.filters[0].b, WithinAbs(1.0f, 1e-6f));
+    fx.collector.clear();
+
+    // ...and at full opacity the same pane blocks green outright. A zero channel IS a wall for that
+    // channel — the degenerate case of the same mechanism, which is the point of the socle.
+    auto full = std::make_unique<JsonDataNode>("f");
+    full->setDouble("x", 0.0); full->setDouble("y", 0.0);
+    full->setDouble("w", 50.0); full->setDouble("h", 50.0);
+    full->setInt("color", static_cast<int>(0xFF0000FFu));
+    full->setDouble("opacity", 1.0);
+    fx.ioPublisher->publish("render:filter", std::move(full));
+    fx.pump();
+
+    FramePacket p2 = fx.collector.finalize(allocator);
+    REQUIRE(p2.filterCount == 1);
+    REQUIRE_THAT(p2.filters[0].r, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p2.filters[0].g, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - filter: ephemeral, degenerate dropped, absent means NO array",
+          "[scene_collector][light][filter]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {   // A feature nobody used claims no arena slice — the zero-cost bypass every consumer relies on.
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.filterCount == 0);
+        REQUIRE(p.filters == nullptr);
+    }
+
+    // A rect with no extent filters nothing, and its thin axis is 0 — which is precisely the
+    // thickness the conversion cannot invert. Dropping it here is what keeps that division safe.
+    auto bad = std::make_unique<JsonDataNode>("f");
+    bad->setDouble("x", 10.0); bad->setDouble("y", 10.0);
+    bad->setDouble("w", 0.0);  bad->setDouble("h", 40.0);
+    bad->setInt("color", static_cast<int>(0xFF0000FFu));
+    fx.ioPublisher->publish("render:filter", std::move(bad));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 0);
+
+    auto ok = std::make_unique<JsonDataNode>("f");
+    ok->setDouble("x", 10.0); ok->setDouble("y", 10.0);
+    ok->setDouble("w", 40.0); ok->setDouble("h", 40.0);
+    ok->setInt("color", static_cast<int>(0x80FF80FFu));
+    fx.ioPublisher->publish("render:filter", std::move(ok));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 1);
+
+    // Ephemeral like lights: silence for one frame means the pane is gone.
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).filterCount == 0);
+}
