@@ -27,6 +27,17 @@ public:
     bool keyPressed = false;
     int keyCode = 0;
     char keyChar = 0;
+
+    // QUOI : modificateurs de la touche de cette frame.
+    // POURQUOI : UIModule portait `bool ctrl = false; // TODO: Add ctrl modifier to UIContext`, ce qui
+    //   rendait Ctrl+A/C/V INDÉTECTABLES — les branches correspondantes de UITextInput::onKeyInput
+    //   étaient du code mort. Maj est ce qui distingue « déplacer le curseur » de « étendre la
+    //   sélection ». InputModule les publie DEPUIS TOUJOURS dans input:keyboard:key
+    //   (InputConverter.cpp:38-41, alimentés par KMOD_* côté SDL) : le câble existait, il n'était
+    //   simplement pas branché ici.
+    bool keyShift = false;
+    bool keyCtrl = false;
+    bool keyAlt = false;
     // Texte saisi cette frame (commit IME / coller / codepoint UTF-8 multi-octets).
     // Distinct de keyChar (1 octet) : un input:keyboard:text peut porter PLUSIEURS
     // caractères ; on insère la chaîne entière (cf. #5/C2). Vide si la frame n'a pas
@@ -64,6 +75,9 @@ public:
         keyPressed = false;
         keyCode = 0;
         keyChar = 0;
+        keyShift = false;
+        keyCtrl = false;
+        keyAlt = false;
         keyText.clear();
         mouseWheelDelta = 0.0f;
         // Note: hoveredWidgetId is NOT cleared here - it persists

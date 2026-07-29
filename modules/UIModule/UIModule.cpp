@@ -168,11 +168,36 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 // input:keyboard:text (ci-dessus) — on NE lève PAS keyPressed pour eux,
                 // sinon le scancode brut écraserait keyChar (déjà posé par :text) avec
                 // un no-op et le caractère serait perdu.
-                int editKey = sdlScancodeToEditKey(msg.data->getInt("scancode", 0));
-                if (editKey != 0) {
+                // Les modificateurs voyagent DÉJÀ dans ce payload (InputConverter.cpp) ; on les
+                // relaie enfin. Maj distingue « déplacer le curseur » de « étendre la sélection »,
+                // Ctrl porte les raccourcis d'édition.
+                const bool shift = msg.data->getBool("shift", false);
+                const bool ctrl  = msg.data->getBool("ctrl", false);
+                const int scancode = msg.data->getInt("scancode", 0);
+
+                int editKey = sdlScancodeToEditKey(scancode);
+
+                // QUOI : avec Ctrl enfoncé, une LETTRE devient elle aussi un événement d'édition.
+                // POURQUOI : SDL n'émet pas de SDL_TEXTINPUT pour une touche modifiée par Ctrl — un
+                //   Ctrl+A n'arrivait donc par AUCUN des deux chemins (ni :text, ni :key, puisque 'A'
+                //   n'est pas une touche d'édition). Les raccourcis étaient structurellement
+                //   inatteignables, indépendamment du `bool ctrl = false` du site d'appel.
+                // COMMENT : SDL_SCANCODE_A..Z sont contigus (4..29) — on les ramène en minuscules,
+                //   dialecte attendu par onKeyInput. Sans Ctrl, on ne touche à rien : les caractères
+                //   imprimables continuent d'arriver par input:keyboard:text (sinon le scancode brut
+                //   écraserait keyChar et le caractère serait perdu — cf. FIX #5-suite).
+                int shortcutChar = 0;
+                if (ctrl && scancode >= 4 && scancode <= 29) {
+                    shortcutChar = 'a' + (scancode - 4);
+                }
+
+                if (editKey != 0 || shortcutChar != 0) {
                     m_context->keyPressed = true;
-                    m_context->keyCode = editKey;
-                    m_context->keyChar = 0;
+                    m_context->keyCode = editKey;  // 0 pour un raccourci pur (Ctrl+lettre)
+                    m_context->keyChar = static_cast<char>(shortcutChar);
+                    m_context->keyShift = shift;
+                    m_context->keyCtrl = ctrl;
+                    m_context->keyAlt = msg.data->getBool("alt", false);
                 }
             }
         });
@@ -935,8 +960,10 @@ void UIModule::updateUI(float deltaTime) {
                     // et se sign-extendrait en un code-point énorme. On passe par `unsigned char` d'abord
                     // pour garder la valeur 0..255 correcte (bugprone-signed-char-misuse).
                     uint32_t character = static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
-                    bool ctrl = false;  // TODO: Add ctrl modifier to UIContext
-                    handled = textInput->onKeyInput(m_context->keyCode, character, ctrl);
+                    // Les modificateurs viennent enfin du contexte (levée du `bool ctrl = false`) :
+                    // Ctrl porte les raccourcis, Maj distingue déplacer de sélectionner.
+                    handled = textInput->onKeyInput(m_context->keyCode, character,
+                                                    m_context->keyCtrl, m_context->keyShift);
                 }
 
                 if (handled) {

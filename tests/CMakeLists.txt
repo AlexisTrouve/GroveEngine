@@ -2943,6 +2943,15 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITextInputUtf8E2E IT_062_ui_textinput_utf8_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_063: text SELECTION (T1). The widget header advertised "Text selection (future)" and nothing
+    # existed; worse, UIModule dropped the keyboard modifiers (`bool ctrl = false; // TODO`), making
+    # Ctrl+A/C/V undetectable. Selection is never published, so it is proven by its observable effect:
+    # typing over a selection replaces it, so the resulting text reveals what was selected.
+    add_executable(IT_063_ui_textinput_selection_e2e integration/IT_063_ui_textinput_selection_e2e.cpp)
+    target_link_libraries(IT_063_ui_textinput_selection_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputSelectionE2E IT_063_ui_textinput_selection_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)

@@ -85,9 +85,38 @@ public:
      * @param keyCode Key code
      * @param character Unicode character (if printable)
      * @param ctrl Ctrl key modifier
+     * @param shift Shift modifier — étend la sélection au lieu de déplacer le curseur
      * @return true if event was consumed
      */
-    bool onKeyInput(int keyCode, uint32_t character, bool ctrl);
+    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false);
+
+    // ------------------------------------------------------------------
+    // Sélection.
+    //
+    // MODÈLE : un unique `selectionAnchor` face à `cursorPosition`. La sélection est l'intervalle
+    // [min, max) ; ancre == curseur signifie AUCUNE sélection. Un seul état à tenir cohérent, au
+    // lieu d'un couple début/fin + un booléen « active » qu'il faudrait synchroniser à chaque
+    // opération. L'ancre est le bord FIXE (celui posé au début du geste), le curseur le bord
+    // mobile — c'est ce qui permet d'étendre dans les deux sens.
+    // ------------------------------------------------------------------
+    bool hasSelection() const { return selectionAnchor != cursorPosition; }
+    int selectionStart() const { return selectionAnchor < cursorPosition ? selectionAnchor : cursorPosition; }
+    int selectionEnd()   const { return selectionAnchor < cursorPosition ? cursorPosition : selectionAnchor; }
+
+    /** @brief Annule la sélection en laissant le curseur où il est. */
+    void clearSelection() { selectionAnchor = cursorPosition; }
+
+    /** @brief Sélectionne tout le contenu (Ctrl+A). */
+    void selectAll();
+
+    /**
+     * @brief Efface la sélection s'il y en a une. Retourne true si quelque chose a été supprimé.
+     *
+     * Point de passage unique de toute suppression d'intervalle : frappe, Backspace, Suppr et
+     * Couper y convergent, pour qu'ils ne puissent pas diverger sur les cas limites (sélection
+     * vide, bornes inversées, curseur laissé hors du texte).
+     */
+    bool deleteSelection();
 
     /**
      * @brief Gain focus (start receiving keyboard input)
@@ -162,7 +191,9 @@ public:
     // Current state
     TextInputState state = TextInputState::Normal;
     bool isFocused = false;
-    int cursorPosition = 0;        // Index in text string
+    int cursorPosition = 0;        // Index in text string (OCTETS, toujours sur une frontière UTF-8)
+    int selectionAnchor = 0;       // Bord FIXE de la sélection ; == cursorPosition => pas de sélection
+    bool draggingSelection = false;  // un appui a démarré un glisser-sélectionner dans ce champ
     float scrollOffset = 0.0f;     // Horizontal scroll for long text
 
     // Cursor blink animation
@@ -216,6 +247,19 @@ private:
     uint32_t m_textRenderId = 0;         // Text content element
     uint32_t m_placeholderRenderId = 0;  // Placeholder text element
     uint32_t m_cursorRenderId = 0;       // Cursor element
+    uint32_t m_selectionRenderId = 0;    // Surlignage de sélection (DERRIÈRE le texte)
+
+    /** @brief Index de caractère sous une abscisse ÉCRAN (clic, glisser). */
+    int indexAtScreenX(float screenX) const;
+
+    /**
+     * @brief Largeur du préfixe de `shown` jusqu'à l'octet `index`, à la taille affichée.
+     *
+     * Unique endroit qui convertit un index en pixels : le curseur ET les deux bords du surlignage
+     * en dépendent, donc les faire passer par la même fonction est ce qui garantit qu'un surlignage
+     * ne peut pas se décaler du curseur qui l'a produit.
+     */
+    float measureTextTo(const std::string& shown, int index) const;
 };
 
 } // namespace grove

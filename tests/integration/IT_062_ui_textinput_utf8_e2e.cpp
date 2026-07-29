@@ -23,118 +23,16 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
-#include <grove/ModuleLoader.h>
-#include <grove/IntraIOManager.h>
-#include <grove/IntraIO.h>
-#include <grove/JsonDataNode.h>
+
+#include "helpers/UITextInputHarness.h"
+
 #include <grove/text/TextMetricsWire.h>
 
 #include <memory>
 #include <string>
 
 using namespace grove;
-
-namespace {
-
-// "é" = U+00E9 = 0xC3 0xA9 en UTF-8. Deux octets, UN caractère.
-const std::string kEAigu = "\xC3\xA9";
-
-// Scancodes SDL bruts, tels que publiés par InputModule (cf. sdlScancodeToEditKey dans UIModule.cpp).
-constexpr int kScanBackspace = 42;
-constexpr int kScanDelete    = 76;
-constexpr int kScanLeft      = 80;
-constexpr int kScanRight     = 79;
-constexpr int kScanHome      = 74;
-
-// Harnais : charge le vrai UIModule sur la fixture textinput et expose de quoi le piloter.
-struct TextInputHarness {
-    std::shared_ptr<IntraIO> inputPub;
-    std::shared_ptr<IntraIO> uiIO;
-    std::shared_ptr<IntraIO> observer;
-    ModuleLoader loader;
-    std::unique_ptr<IModule> module;
-
-    std::string lastText;
-    int textChanges = 0;
-
-    explicit TextInputHarness(const std::string& suffix) {
-        auto& mgr = IntraIOManager::getInstance();
-        inputPub = mgr.createInstance("input_publisher_" + suffix);
-        uiIO     = mgr.createInstance("ui_module_" + suffix);
-        observer = mgr.createInstance("test_observer_" + suffix);
-
-        std::string uiPath = "../modules/libUIModule.so";
-#ifdef _WIN32
-        uiPath = "../modules/libUIModule.dll";
-#endif
-        module = loader.load(uiPath, "ui_module_" + suffix);
-        REQUIRE(module != nullptr);
-
-        JsonDataNode cfg("config");
-        cfg.setInt("windowWidth", 800);
-        cfg.setInt("windowHeight", 600);
-        cfg.setString("layoutFile", "../../assets/ui/test_e2e_textinput.json");
-        cfg.setInt("baseLayer", 1000);
-        REQUIRE_NOTHROW(module->setConfiguration(cfg, uiIO.get(), nullptr));
-
-        observer->subscribe("ui:text_changed", [this](const Message& m) {
-            textChanges++;
-            lastText = m.data->getString("text", "");
-        });
-    }
-
-    ~TextInputHarness() { if (module) module->shutdown(); }
-
-    void pump() {
-        JsonDataNode input("input");
-        input.setDouble("deltaTime", 0.016);
-        module->process(input);
-        while (observer->hasMessages() > 0) observer->pullAndDispatch();
-    }
-
-    // Le champ est en (100,100) taille 300x40 -> centre (250,120).
-    void focusField() {
-        auto move = std::make_unique<JsonDataNode>("d");
-        move->setDouble("x", 250.0); move->setDouble("y", 120.0);
-        inputPub->publish("input:mouse:move", std::move(move));
-        pump();
-        for (bool pressed : {true, false}) {
-            auto d = std::make_unique<JsonDataNode>("d");
-            d->setInt("button", 0); d->setBool("pressed", pressed);
-            d->setDouble("x", 250.0); d->setDouble("y", 120.0);
-            inputPub->publish("input:mouse:button", std::move(d));
-            pump();
-        }
-    }
-
-    void type(const std::string& s) {
-        auto d = std::make_unique<JsonDataNode>("d");
-        d->setString("text", s);
-        inputPub->publish("input:keyboard:text", std::move(d));
-        pump();
-    }
-
-    void pressKey(int scancode) {
-        auto d = std::make_unique<JsonDataNode>("d");
-        d->setInt("scancode", scancode);
-        d->setBool("pressed", true);
-        inputPub->publish("input:keyboard:key", std::move(d));
-        pump();
-    }
-};
-
-// Rend une chaîne lisible dans un message d'échec : "aé" -> "a<C3><A9>".
-std::string hexdump(const std::string& s) {
-    static const char* kHex = "0123456789ABCDEF";
-    std::string out;
-    for (unsigned char c : s) {
-        if (c >= 32 && c < 127) { out += static_cast<char>(c); }
-        else { out += '<'; out += kHex[c >> 4]; out += kHex[c & 0xF]; out += '>'; }
-    }
-    return out;
-}
-
-}  // namespace
+using namespace grove::uitest;
 
 TEST_CASE("IT_062: Backspace efface un caractere accentue ENTIER", "[integration][ui][e2e][utf8]") {
     // Le cas nominal du bug. Taper "é" puis Backspace doit vider le champ. Avec un curseur compté en

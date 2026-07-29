@@ -175,8 +175,32 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 | 2026-07-29 | **T0c** | ✅ D1 levé. `render:font:metrics` publié par BgfxRenderer (au boot ET sur `render:font`), consommé par UIModule → `UIContext::fontMetrics` → widget. Encodage dense partagé (`TextMetricsWire.h`) car IIO ne transporte que le JSON propre du nœud. Publié aussi pour la 8x8 (avances toutes à 8 = repli historique exact) |
 | 2026-07-29 | **T0d** | ✅ D3 levé. Le clic place le curseur (`indexAtX`), y compris sur du texte accentué (balayage de tout le champ : aucune position de clic ne corrompt la chaîne) |
 
-**T0 est COMPLET** (D1, D2, D3 levés ; D4 reste, il appartient à T1). Régression : 63/63 verts
-(UI + Radial + InputUI + Text + Render + Scene, tests GPU inclus).
+| 2026-07-29 | **T1** | ✅ Sélection complète. D4 levé (shift/ctrl/alt propagés dans `UIContext`). Maj+flèches/Début/Fin, Ctrl+A, glisser-souris, remplacement à la frappe, Backspace/Suppr sur intervalle, surlignage rendu. `IT_063` (12 cas), vu ROUGE avant (9 sur 10 des cas de modèle) |
+
+**T0 + T1 sont COMPLETS** (D1-D4 levés). Régression : 64/64 verts (UI + Radial + InputUI + Text +
+Render + Scene, tests GPU inclus). Reste T2 (presse-papiers) puis T3 (multiligne).
+
+### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
+
+Le test qui vérifie ce que le renderer reçoit RÉELLEMENT (et pas seulement le modèle de sélection) a
+révélé que **le renderer retained FIGE la couche d'une entrée à sa première publication**
+(`// Keep original layer (don't update it)`, `UIRenderer.cpp`). Or `UITextInput` publiait ses entrées
+cachées avec un `0` littéral en couche, et la toute première frame passe par la branche
+« placeholder » (champ vide, non focalisé) — donc le texte, **le curseur** et le surlignage étaient
+enregistrés à la couche 0 *définitivement*, sous le fond du champ (~1001).
+
+1. **Mon surlignage** aurait été invisible dès la première frame.
+2. **Le curseur de saisie n'a jamais été visible** dans aucun champ GroveEngine. Personne ne l'avait
+   vu parce que le texte, lui, s'en sortait par accident : il part dans `TextPass`, une passe qui
+   s'exécute après `SpritePass` quelles que soient les couches. Le curseur, un rect, n'a pas cette
+   chance.
+
+**Correctif** : les six couches du widget sont réservées d'un bloc, dans un ordre fixe, en tête de
+`render()` — la profondeur ne dépend donc plus de la branche prise à la première frame. Toute entrée
+cachée est publiée à taille nulle **sur sa couche définitive**.
+
+**Leçon générale** : dans ce renderer, « cacher une entrée en publiant des zéros » doit conserver la
+couche. Tout widget qui publie `layer 0` pour cacher quelque chose porte le même bug latent.
 
 ### Piège rencontré — à ne pas repayer
 
