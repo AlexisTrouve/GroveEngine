@@ -100,6 +100,23 @@ Testable headless avec un oracle exact ; le GPU ne prouve alors que le câblage.
 - **Les normal maps** par sprite. L'éclairage 2D plat est l'idiome ; l'ajouter doublerait le coût
   mémoire de chaque atlas pour un gain que personne n'a demandé.
 
+## 5bis. Suite : la matiere (murs, filtres, attenuateurs)
+
+Le §6 met les ombres hors perimetre. **Cette decision a ete revue le 2026-07-29** : elles passent
+avant les particules-lumieres, avec deux compagnons qui n'etaient pas prevus.
+
+Les trois se ramenent a une seule question — *combien de lumiere, et de quelle couleur, survit du
+point A au point B* — donc ils partagent **un socle** decide une fois pour toutes :
+
+- 📐 **[Socle : table de transmittance polaire](lighting-transmittance-core.md)** ← lire en premier
+- [Plan W — les murs](lighting-walls.md) : transmittance nulle
+- [Plan F — les filtres](lighting-filters.md) : transmittance coloree
+- [Plan A — les attenuateurs](lighting-attenuators.md) : transmittance continue (Beer-Lambert)
+
+⚠️ **Le budget de ce document est perime par avance** : le §4 annonce « des dizaines de lampes ». La
+reference du shadow map 1D mesure le decrochage vers **20 lampes**, sans transmittance. A remesurer,
+et a corriger dans la doc consommateur — pas a laisser annoncer un chiffre qui n'a plus cours.
+
 ## 6bis. À faire plus tard — particules-lumières et le chemin bulk
 
 > **Statut** : dette assumée, pas planifiée. Notée le 2026-07-29 depuis une question terrain
