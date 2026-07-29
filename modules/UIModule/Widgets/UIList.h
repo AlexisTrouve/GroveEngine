@@ -111,6 +111,14 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "list"; }
 
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return pointInBounds(x, y); }
+
+    // Remontée au module sur les DEUX fronts : le press peut amorcer un défilement par glisser
+    // (résolu dans UIList::update), et le module tranche la sélection de ligne au relâchement —
+    // seulement s'il ne s'agissait pas d'un glisser.
+    bool surfacesClick(bool /*pressed*/, bool /*handled*/) const override { return true; }
+
     // Container pattern: clip the hit-test to the list bounds (no children today, but consistent + future
     // proof — a click scrolled out of view never lands on a row). Default hitClipRect = full bounds.
     bool clipsHitTest() const override { return true; }

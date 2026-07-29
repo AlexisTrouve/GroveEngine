@@ -58,7 +58,10 @@ public:
     void releaseRenderEntries(UIRenderer& renderer) override;
 
     bool containsPoint(float px, float py) const;
-    bool onMouseButton(int button, bool pressed, float x, float y);
+    bool onMouseButton(int button, bool pressed, float x, float y) override;
+
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return containsPoint(x, y); }
 
     /**
      * @brief Touche d'édition. Même dialecte que UITextInput (Backspace=8, Entrée=13, flèches…),

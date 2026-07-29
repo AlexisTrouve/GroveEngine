@@ -24,6 +24,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "drawer"; }
+
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return pointInBounds(x, y); }
     // Libère le chrome 9-slice PARESSEUX, que la base ignore. Compte aussi pour la purge que render()
     // déclenche quand le tiroir est complètement refermé. Verrouillé par IT_067.
     void releaseRenderEntries(UIRenderer& renderer) override;

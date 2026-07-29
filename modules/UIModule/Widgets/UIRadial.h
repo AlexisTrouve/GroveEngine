@@ -64,7 +64,11 @@ public:
     // Comptabilité press/release (calque UIButton). Renvoie true si consommé. Au
     // release, recalcule le segment depuis le point EXACT du clic (indépendant du
     // timing de update(), qui tourne après le dispatch souris).
-    bool onMouseButton(int button, bool pressed, float x, float y);
+    bool onMouseButton(int button, bool pressed, float x, float y) override;
+
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return containsPoint(x, y); }
+
 
     // Action du segment courant, ou "" si dead-zone / aucun. Lu par UIModule au
     // release pour publier ui:action.

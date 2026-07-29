@@ -63,6 +63,51 @@ public:
     virtual bool clipsHitTest() const { return false; }
 
     /**
+     * @brief Ce widget ABSORBE-t-il un clic en (x,y) ? (hit-test)
+     *
+     * QUOI     : le prédicat d'opacité au pointeur. Le hit-test descend d'abord dans les enfants ;
+     *            en remontant, il demande à chaque widget s'il prend le clic pour lui.
+     * POURQUOI : `hitTest` énumérait ONZE types concrets pour appeler onze prédicats qui existaient
+     *            déjà — `containsPoint`, `pointInWindow`, `pointInBounds` — sous trois noms
+     *            différents pour une seule question. Le nom variait, pas la sémantique.
+     * COMMENT  : défaut `false` = transparent au clic, ce qui laisse passer vers ce qui est derrière.
+     *            C'est le bon défaut : un widget décoratif (panneau, libellé, image) ne doit rien
+     *            intercepter. Les widgets opaques délèguent à leur prédicat existant en une ligne.
+     */
+    virtual bool absorbsPoint(float /*x*/, float /*y*/) const { return false; }
+
+    /**
+     * @brief Handle a mouse button press/release that hit this widget.
+     * @return true if the widget CONSUMED the event (it reacted to it).
+     *
+     * QUOI     : le point d'entrée souris d'un widget. Le hit-test choisit la cible, ceci la traite.
+     * POURQUOI : six widgets écrivaient déjà cette méthode avec CETTE signature exacte, sans qu'elle
+     *            soit virtuelle — le routeur devait donc connaître chaque type concret et faire un
+     *            `static_cast` pour l'appeler. L'interface existait, elle n'avait jamais été déclarée.
+     * COMMENT  : défaut inerte (`false`) — un widget purement décoratif (label, image, panel) ne
+     *            consomme rien et n'a rien à écrire.
+     *
+     * ⚠️ Un widget interactif qui OUBLIE le `override` devient silencieusement inerte : ce défaut ne
+     *    peut pas le signaler. Ce sont les E2E qui cliquent réellement dessus qui l'attrapent.
+     */
+    virtual bool onMouseButton(int /*button*/, bool /*pressed*/, float /*x*/, float /*y*/) {
+        return false;
+    }
+
+    /**
+     * @brief Le module doit-il être saisi de ce clic (pour publier un événement / arbitrer) ?
+     *
+     * QUOI     : sépare « j'ai réagi » (onMouseButton) de « le module a quelque chose à faire ».
+     * POURQUOI : les widgets n'ont PAS accès à l'IIO — c'est un choix d'archi (UI_ARCHITECTURE.md),
+     *            pas un oubli : c'est ce qui les rend testables sans bus. Le widget ne publie donc
+     *            jamais lui-même ; il signale, et UIModule publie. Trois widgets veulent être remontés
+     *            SANS avoir consommé (tabs/modal au press, list toujours), d'où un second prédicat
+     *            plutôt qu'un `bool` surchargé de deux sens.
+     * COMMENT  : défaut = « seulement si j'ai consommé », qui couvre slider/checkbox/saisies.
+     */
+    virtual bool surfacesClick(bool /*pressed*/, bool handled) const { return handled; }
+
+    /**
      * @brief The rect (screen px) a clipping widget clips its CHILDREN's hit-test to.
      *
      * WHY: a scroll panel clips to its full bounds, but a window clips to the area BELOW its
