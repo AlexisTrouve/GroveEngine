@@ -75,6 +75,7 @@ add_library(BgfxRenderer SHARED
     Passes/ClearPass.cpp
     Passes/TilemapPass.cpp
     Passes/CompositePass.cpp
+    Passes/LightPass.cpp
     Passes/SpritePass.cpp
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp
@@ -173,6 +174,7 @@ add_library(BgfxRenderer_static STATIC
     Passes/ClearPass.cpp
     Passes/TilemapPass.cpp
     Passes/CompositePass.cpp
+    Passes/LightPass.cpp
     Passes/SpritePass.cpp
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp

@@ -134,3 +134,107 @@ TEST_CASE("lighting: the composite multiplies the scene by the ambient (GPU)", "
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a radial light brightens its centre, under a PANNED+ZOOMED camera (GPU)",
+          "[gpu][light]") {
+    // The camera is deliberately far from the origin AND zoomed. That is not decoration:
+    //
+    //   - lights are published in WORLD coordinates and drawn on their own view, so if that view
+    //     lost the world camera the lamp would land somewhere else entirely — with a pan of 1000 it
+    //     would be far off-screen and the frame would come back uniformly dark;
+    //   - with the DEFAULT camera the world transform is near-identity, so a missing matrix would
+    //     change almost nothing and this test would pass while proving nothing.
+    //
+    // So the pan is what makes the assertion below bite on the transform, not just on the falloff.
+    // Predicted in docs/design/lighting-2d.md §7.4 before this test existed.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("light2", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li2_r");
+    auto gIO = mgr.createInstance("li2_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li2_r"); mgr.removeInstance("li2_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    // Camera at world (1000,1000), zoom 2 -> the 64px viewport shows world 1000..1032.
+    const double camX = 1000.0, camY = 1000.0, zoom = 2.0;
+    const double midWorldX = camX + (W / 2.0) / zoom;   // 1016 -> screen centre
+    const double midWorldY = camY + (H / 2.0) / zoom;
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x", camX); cam->setDouble("y", camY); cam->setDouble("zoom", zoom);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    for (int i = 0; i < 6; ++i) {
+        // A white sprite covering the whole view (32 world units at zoom 2 = 64 px).
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", midWorldX); s->setDouble("cy", midWorldY);
+          s->setDouble("scaleX", W / zoom); s->setDouble("scaleY", H / zoom);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        // A DIM ambient, so anything bright can only come from the lamp.
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x303030FFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        // The lamp, centred on the sprite in WORLD space. radius 8 world = 16 px on screen.
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", midWorldX); l->setDouble("cy", midWorldY);
+          l->setDouble("radius", 8.0);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 1.0);
+          gIO->publish("render:light", std::move(l)); }
+
+        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        frame();
+    }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    const int centre = lumaAt(W/2, H/2);
+    // Corners: outside the lamp's 16px screen radius, so they carry the ambient alone.
+    const int corner = (lumaAt(3,3) + lumaAt(W-4,3) + lumaAt(3,H-4) + lumaAt(W-4,H-4)) / 4;
+
+    INFO("centre=" << centre << " corner=" << corner);
+
+    // THE assertion. It fails two different ways for two different bugs: if the lamp never drew, or
+    // if the light view lost the world camera and the lamp landed off-screen, centre == corner.
+    REQUIRE(centre > corner + 40);
+
+    // The corners must still show the ambient — a composite that lit everything uniformly, or one
+    // that dropped the scene, would break this.
+    REQUIRE(corner > 5);
+
+    renderer->shutdown();
+    mgr.removeInstance("li2_r");
+    mgr.removeInstance("li2_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

@@ -11,6 +11,8 @@
 #include "fs_tilemap.bin.h"
 #include "vs_composite.bin.h"
 #include "fs_composite.bin.h"
+#include "vs_light.bin.h"
+#include "fs_light.bin.h"
 
 namespace grove {
 
@@ -118,6 +120,9 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     // Full-screen lighting composite (lighting L1).
     loadCompositeShader(device, rendererName);
+
+    // Radial lights (lighting L2).
+    loadLightShader(device, rendererName);
 }
 
 void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
@@ -229,6 +234,37 @@ void ShaderManager::loadCompositeShader(rhi::IRHIDevice& device, const std::stri
     rhi::ShaderHandle compositeProgram = device.createShader(shaderDesc);
     if (compositeProgram.isValid()) {
         m_programs["composite"] = compositeProgram;
+    }
+}
+
+void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& rendererName) {
+    // Same per-renderer mapping as every other program. Loaded unconditionally for the same reason
+    // as the composite: a few KB once, versus building a GPU program mid-frame the first time a game
+    // lights something.
+    const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
+    const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_light_glsl; vsSize = sizeof(vs_light_glsl);
+        fsData = fs_light_glsl; fsSize = sizeof(fs_light_glsl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_light_dx11; vsSize = sizeof(vs_light_dx11);
+        fsData = fs_light_dx11; fsSize = sizeof(fs_light_dx11);
+    } else if (rendererName == "Metal") {
+        vsData = vs_light_mtl; vsSize = sizeof(vs_light_mtl);
+        fsData = fs_light_mtl; fsSize = sizeof(fs_light_mtl);
+    } else {
+        vsData = vs_light_spv; vsSize = sizeof(vs_light_spv);
+        fsData = fs_light_spv; fsSize = sizeof(fs_light_spv);
+    }
+
+    rhi::ShaderDesc shaderDesc;
+    shaderDesc.vsData = vsData; shaderDesc.vsSize = vsSize;
+    shaderDesc.fsData = fsData; shaderDesc.fsSize = fsSize;
+
+    rhi::ShaderHandle lightProgram = device.createShader(shaderDesc);
+    if (lightProgram.isValid()) {
+        m_programs["light"] = lightProgram;
     }
 }
 

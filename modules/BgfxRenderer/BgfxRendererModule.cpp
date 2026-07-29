@@ -21,6 +21,7 @@
 #include "Passes/DebugPass.h"
 #include "Passes/SectorPass.h"
 #include "Passes/CompositePass.h"
+#include "Passes/LightPass.h"
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
@@ -303,6 +304,9 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // publishes render:ambient (the pass returns immediately), and building it lazily would mean
     // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
     // module can hand it the offscreen textures each frame; the graph owns the pass.
+    m_renderGraph->addPass(std::make_unique<LightPass>(m_shaderManager->getProgram("light")));
+    m_logger->info("Added LightPass");
+
     {
         auto compositePass = std::make_unique<CompositePass>(m_shaderManager->getProgram("composite"));
         m_compositePass = compositePass.get();
