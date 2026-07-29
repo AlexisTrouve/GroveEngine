@@ -634,6 +634,13 @@ void BgfxRendererModule::process(const IDataNode& input) {
             m_device->setViewFramebuffer(CompositePass::kLightView, m_lightFB);
             m_device->setViewClear(CompositePass::kLightView, 0x000000FF, 1.0f);
             m_device->setViewRect(CompositePass::kLightView, 0, 0, m_lightingWidth, m_lightingHeight);
+            // SAME camera as the world view, and this is load-bearing: lights are published in WORLD
+            // coordinates (render:light {cx,cy}), and the composite samples the two targets pixel for
+            // pixel. If this view carried any other transform, a lamp at a sprite's position would
+            // land somewhere else on screen — and the error would scale with zoom and pan, so it
+            // would look like a physics or camera bug rather than a missing matrix.
+            m_device->setViewTransform(CompositePass::kLightView,
+                                       packet.mainView.viewMatrix, packet.mainView.projMatrix);
 
             // The composite draws to the BACKBUFFER (no framebuffer bound) over the full viewport.
             m_device->setViewRect(CompositePass::kCompositeView, 0, 0, m_lightingWidth, m_lightingHeight);

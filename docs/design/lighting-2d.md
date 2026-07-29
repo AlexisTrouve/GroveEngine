@@ -115,6 +115,17 @@ Testable headless avec un oracle exact ; le GPU ne prouve alors que le câblage.
    la cible du **composite**. À concevoir comme tel, sinon il mesurera la scène non éclairée et
    passera au vert en ne prouvant rien.
 3. **Format du buffer de lumière** — voir §8, c'est le seul arbitrage que je ne tranche pas seul.
+4. ⚠️ **La transformation de la vue lumière n'est pas prouvée** (posée en L2, avant `LightPass`).
+   Elle doit porter **la même caméra que la vue 0**, parce que les lumières sont publiées en
+   coordonnées MONDE et que le composite échantillonne les deux cibles pixel pour pixel. Une matrice
+   absente décalerait chaque lampe, et **l'erreur croîtrait avec le zoom et le pan** — donc ça
+   ressemblerait à un bug de caméra ou de gameplay, pas à une ligne manquante.
+
+   **Contrainte de conception pour le test GPU de L2, à ne pas rater** : il doit utiliser une caméra
+   **déplacée et zoomée**. Avec la caméra par défaut, la transformation monde est proche de
+   l'identité — une matrice manquante passerait alors inaperçue et le test serait vert en ne prouvant
+   rien. C'est exactement le piège du « discriminant qui ne discrimine pas » : ici, ne pas régler la
+   caméra reviendrait à mesurer le seul cas où le défaut est invisible.
 
 ## 8. ✅ Arbitrage tranché : **RGBA16F** (Alexi, 2026-07-28)
 
