@@ -226,6 +226,10 @@ profondeur nulle part.
 | **Brouillard** (`render:fog`) | `exp(−α)` | absorbe d'autant plus qu'on traverse loin |
 | **Nébuleuse** (`render:nebula`) | idem, mais **densité radiale** | un nuage, sans bord géométrique |
 
+Les quatre existent en **éphémère** et en **retenu** (`:add`/`:update`/`:remove`). Le retenu est la
+bonne forme dès que la matière ne bouge pas — un mur, un vitrail, une nébuleuse ; l'éphémère est le
+bon choix pour les lampes, qui suivent en général quelque chose de mobile.
+
 ⚠️ **Pièges qui coûtent du temps**
 
 - **`density` n'est pas une opacité** : c'est le coefficient α de Beer-Lambert, sans borne haute et
@@ -267,7 +271,7 @@ Guide consommateur détaillé : [DEVELOPER_GUIDE](../../docs/DEVELOPER_GUIDE.md)
 | `render:occluder` | `{x,y,w,h}` — mur opaque **éphémère**, `x,y` = COIN. `+ :add`/`:update`/`:remove` **retenus** (la bonne forme pour du décor) |
 | `render:filter` | `{x,y,w,h,color,opacity?}` — vitrail **éphémère**, `x,y` = COIN. `color` = la teinte après UNE traversée perpendiculaire de l'axe mince. `+ :add`/`:update`/`:remove` |
 | `render:fog` | `{x,y,w,h,density,color?,scatter?}` — milieu rectangulaire **éphémère**, `x,y` = COIN. `density` = α de Beer-Lambert (**pas** une opacité). `scatter` rend le milieu **visible**. `+ :add`/`:update`/`:remove` |
-| `render:nebula` | `{cx,cy,radius,density,color?,scatter?}` — milieu **radial**, `cx,cy` = CENTRE. Densité maximale au cœur, nulle au bord : le quad de découpe est invisible. En superposer plusieurs pour un nuage |
+| `render:nebula` | `{cx,cy,radius,density,color?,scatter?}` — milieu **radial** éphémère, `cx,cy` = CENTRE. Densité maximale au cœur, nulle au bord : le quad de découpe est invisible. `+ :add`/`:update`/`:remove` **retenus** — la bonne forme pour un nuage, qui fait quatre à six volumes superposés |
 
 ## Intégration
 

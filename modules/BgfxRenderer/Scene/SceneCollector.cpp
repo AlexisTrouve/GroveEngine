@@ -190,6 +190,15 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:nebula") {
             parseNebula(*msg.data);
         }
+        else if (msg.topic == "render:nebula:add") {
+            parseNebulaAdd(*msg.data);
+        }
+        else if (msg.topic == "render:nebula:update") {
+            parseNebulaUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:nebula:remove") {
+            parseNebulaRemove(*msg.data);
+        }
         else if (msg.topic == "render:fog:add") {
             parseFogAdd(*msg.data);
         }
@@ -468,17 +477,25 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
-    // Copy nebulae (A4). Ephemeral; same no-array-when-unused rule as the rest.
-    if (!m_nebulae.empty()) {
-        NebulaCommand* nb = allocator.allocateArray<NebulaCommand>(m_nebulae.size());
-        if (nb) {
-            std::memcpy(nb, m_nebulae.data(), m_nebulae.size() * sizeof(NebulaCommand));
-            packet.nebulae = nb;
-            packet.nebulaCount = m_nebulae.size();
+    // Copy nebulae: RETAINED (a cloud, which does not move — and is usually SEVERAL overlapping
+    // volumes, so the saving is per-volume) then EPHEMERAL. Same no-array-when-unused rule as the rest.
+    {
+        const size_t totalNebulae = m_retainedNebulae.size() + m_nebulae.size();
+        if (totalNebulae > 0) {
+            NebulaCommand* nb = allocator.allocateArray<NebulaCommand>(totalNebulae);
+            if (nb) {
+                size_t idx = 0;
+                for (const auto& kv : m_retainedNebulae) nb[idx++] = kv.second;
+                if (!m_nebulae.empty()) {
+                    std::memcpy(&nb[idx], m_nebulae.data(), m_nebulae.size() * sizeof(NebulaCommand));
+                }
+                packet.nebulae = nb;
+                packet.nebulaCount = totalNebulae;
+            }
+        } else {
+            packet.nebulae = nullptr;
+            packet.nebulaCount = 0;
         }
-    } else {
-        packet.nebulae = nullptr;
-        packet.nebulaCount = 0;
     }
 
     // Copy fog volumes: RETAINED (a nebula, which does not move) then EPHEMERAL. Same
@@ -1332,30 +1349,73 @@ void SceneCollector::parseFog(const IDataNode& data) {
     m_fogs.push_back(buildFog(src));
 }
 
-void SceneCollector::parseNebula(const IDataNode& data) {
-    NebulaCommand n;
+// Merges the message's fields into `out`, each DEFAULTING TO ITS CURRENT VALUE. That default is
+// what makes a partial update partial: a drifting cloud must move without restating its radius,
+// density, colour or scattering, and an update that reset the omitted fields would DELETE it while
+// looking like a move.
+void SceneCollector::readNebulaFields(const IDataNode& data, NebulaCommand& out) {
     // cx,cy = CENTRE. Unlike the rect media beside it, this primitive is a DISC, and the field name
     // is what says so (render-anchor-convention.md).
-    n.cx     = static_cast<float>(data.getDouble("cx", 0.0));
-    n.cy     = static_cast<float>(data.getDouble("cy", 0.0));
-    n.radius = static_cast<float>(data.getDouble("radius", 0.0));
-    if (n.radius <= 0.0f) return;   // no extent, nothing to absorb
+    out.cx     = static_cast<float>(data.getDouble("cx", static_cast<double>(out.cx)));
+    out.cy     = static_cast<float>(data.getDouble("cy", static_cast<double>(out.cy)));
+    out.radius = static_cast<float>(data.getDouble("radius", static_cast<double>(out.radius)));
 
     // `density` is the PEAK Beer-Lambert alpha, reached at the core; it falls to exactly zero at the
     // rim. Same units as render:fog, so a value tuned on one transfers to the other.
-    n.density = static_cast<float>(data.getDouble("density", 0.0));
-    if (n.density <= 0.0f) return;
+    out.density = static_cast<float>(data.getDouble("density", static_cast<double>(out.density)));
 
-    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
-    n.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
-    n.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
-    n.b = static_cast<float>((color >>  8) & 0xFF) / 255.0f;
-    // NOT converted here, unlike every other matter: the density varies across the volume, so the
+    if (data.hasProperty("color")) {
+        const uint32_t c = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+        out.r = static_cast<float>((c >> 24) & 0xFF) / 255.0f;
+        out.g = static_cast<float>((c >> 16) & 0xFF) / 255.0f;
+        out.b = static_cast<float>((c >>  8) & 0xFF) / 255.0f;
+    }
+    // NOT converted, unlike every other matter: the density varies across the volume, so the
     // Beer-Lambert conversion has to happen per pixel. The collector only validates.
 
-    n.scatter = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("scatter", 0.0))));
+    out.scatter = std::min(1.0f, std::max(0.0f,
+        static_cast<float>(data.getDouble("scatter", static_cast<double>(out.scatter)))));
+}
 
+void SceneCollector::parseNebula(const IDataNode& data) {
+    NebulaCommand n{};   // fresh: an ephemeral message states everything
+    n.r = n.g = n.b = 1.0f;   // white = neutral, the default when no colour is named
+    readNebulaFields(data, n);
+    if (n.radius <= 0.0f || n.density <= 0.0f) return;   // nothing to absorb
     m_nebulae.push_back(n);
+}
+
+void SceneCollector::parseNebulaAdd(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    // 0 is the "no id" value: accepting it would give every unidentified volume the SAME slot, each
+    // add silently replacing the last. Same guard as every other retained primitive.
+    if (renderId == 0) return;
+
+    NebulaCommand n{};
+    n.r = n.g = n.b = 1.0f;
+    readNebulaFields(data, n);
+    if (n.radius <= 0.0f || n.density <= 0.0f) return;
+
+    m_retainedNebulae[renderId] = n;
+}
+
+void SceneCollector::parseNebulaUpdate(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    auto it = m_retainedNebulae.find(renderId);
+    if (it == m_retainedNebulae.end()) return;   // updating something absent is a no-op, not an add
+
+    NebulaCommand merged = it->second;
+    readNebulaFields(data, merged);
+    if (merged.radius <= 0.0f || merged.density <= 0.0f) return;   // a shrink to nothing is refused
+    it->second = merged;
+}
+
+void SceneCollector::parseNebulaRemove(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    m_retainedNebulae.erase(renderId);
 }
 
 void SceneCollector::parseFogAdd(const IDataNode& data) {

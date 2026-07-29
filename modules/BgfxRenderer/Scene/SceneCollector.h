@@ -120,6 +120,10 @@ private:
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
     std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders
     std::vector<NebulaCommand> m_nebulae;   // ephemeral: a soft radial medium (A4)
+    // RETAINED nebulae, by renderId (A5). Simpler than the fog and filter registers: a nebula's
+    // parameters are NOT converted on the CPU (its density varies per pixel, so Beer-Lambert lives
+    // in the shader), so the record IS the packet command — there is nothing to re-derive.
+    std::unordered_map<uint32_t, NebulaCommand> m_retainedNebulae;
     std::vector<FogCommand> m_fogs;         // ephemeral
 
     // RETAINED media, by renderId (A3). Stores the AUTHOR's numbers, not the converted ones, so that
@@ -179,6 +183,12 @@ private:
     void parseFilter(const IDataNode& data);
     void parseFog(const IDataNode& data);
     void parseNebula(const IDataNode& data);
+    void parseNebulaAdd(const IDataNode& data);
+    void parseNebulaUpdate(const IDataNode& data);
+    void parseNebulaRemove(const IDataNode& data);
+    // Shared by the ephemeral and retained paths, so the two cannot diverge on which fields a
+    // message may omit. Merges INTO `out`, each field defaulting to its current value.
+    static void readNebulaFields(const IDataNode& data, NebulaCommand& out);
     void parseFogAdd(const IDataNode& data);
     void parseFogUpdate(const IDataNode& data);
     void parseFogRemove(const IDataNode& data);

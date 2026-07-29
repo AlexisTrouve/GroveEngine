@@ -2814,3 +2814,124 @@ TEST_CASE("SceneCollector - nebula: ephemeral, degenerate dropped, absent means 
     fx.collector.clear();
     REQUIRE(fx.collector.finalize(allocator).nebulaCount == 0);
 }
+
+// ============================================================================
+// Lighting A5 — RETAINED nebulae (render:nebula:add / :update / :remove).
+//
+// The asymmetry this closes was the wrong way round: walls, filters and fog all had a retained mode
+// and nebulae did not — yet the argument for retained ("it does not move, so do not re-publish it
+// every frame") applies MORE strongly to a nebula than to anything else. A cloud is several
+// overlapping volumes, so an ephemeral-only nebula charges four to six messages per frame for data
+// that never changes.
+//
+// Simpler than the fog and filter registers, and for a reason worth stating: a nebula's parameters
+// are NOT converted on the CPU (its density varies per pixel, so Beer-Lambert lives in the shader).
+// The retained record is therefore the packet command itself — there is nothing to re-derive.
+// ============================================================================
+
+TEST_CASE("SceneCollector - nebula retained: add PERSISTS across frames, remove deletes",
+          "[scene_collector][light][nebula][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("n");
+    a->setInt("renderId", 11);
+    a->setDouble("cx", 260.0); a->setDouble("cy", 140.0);
+    a->setDouble("radius", 110.0);
+    a->setDouble("density", 0.018);
+    a->setDouble("scatter", 0.6);
+    fx.ioPublisher->publish("render:nebula:add", std::move(a));
+    fx.pump();
+
+    for (int frame = 0; frame < 3; ++frame) {
+        fx.collector.clear();
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.nebulaCount == 1);
+        REQUIRE_THAT(p.nebulae[0].cx, WithinAbs(260.0f, 0.01f));
+        REQUIRE_THAT(p.nebulae[0].radius, WithinAbs(110.0f, 0.01f));
+        REQUIRE_THAT(p.nebulae[0].scatter, WithinAbs(0.6f, 0.01f));
+    }
+
+    fx.collector.clear();
+    auto rm = std::make_unique<JsonDataNode>("n");
+    rm->setInt("renderId", 11);
+    fx.ioPublisher->publish("render:nebula:remove", std::move(rm));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 0);
+}
+
+TEST_CASE("SceneCollector - nebula retained: update PRESERVES unspecified fields",
+          "[scene_collector][light][nebula][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("n");
+    a->setInt("renderId", 12);
+    a->setDouble("cx", 100.0); a->setDouble("cy", 100.0);
+    a->setDouble("radius", 80.0);
+    a->setDouble("density", 0.02);
+    a->setInt("color", static_cast<int>(0xFF80C0FFu));
+    a->setDouble("scatter", 0.5);
+    fx.ioPublisher->publish("render:nebula:add", std::move(a));
+    fx.pump();
+    fx.collector.clear();
+
+    // A drifting cloud must be able to move without restating its radius, density, colour or
+    // scattering — an update that reset the omitted fields would DELETE it while looking like a move.
+    auto u = std::make_unique<JsonDataNode>("n");
+    u->setInt("renderId", 12);
+    u->setDouble("cx", 180.0);
+    fx.ioPublisher->publish("render:nebula:update", std::move(u));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.nebulaCount == 1);
+    REQUIRE_THAT(p.nebulae[0].cx, WithinAbs(180.0f, 0.01f));      // moved
+    REQUIRE_THAT(p.nebulae[0].cy, WithinAbs(100.0f, 0.01f));      // kept
+    REQUIRE_THAT(p.nebulae[0].radius, WithinAbs(80.0f, 0.01f));   // kept
+    REQUIRE_THAT(p.nebulae[0].density, WithinAbs(0.02f, 1e-5f));  // kept
+    REQUIRE_THAT(p.nebulae[0].scatter, WithinAbs(0.5f, 0.01f));   // kept
+    REQUIRE(p.nebulae[0].r > p.nebulae[0].g);                      // colour kept (pink-ish)
+    fx.collector.clear();
+
+    // Updating something absent is a no-op, not an add.
+    auto ghost = std::make_unique<JsonDataNode>("n");
+    ghost->setInt("renderId", 777);
+    ghost->setDouble("cx", 5.0);
+    fx.ioPublisher->publish("render:nebula:update", std::move(ghost));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 1);
+}
+
+TEST_CASE("SceneCollector - nebula retained and ephemeral COEXIST",
+          "[scene_collector][light][nebula][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // The intended authoring shape for a cloud: several retained volumes published ONCE...
+    for (int i = 0; i < 3; ++i) {
+        auto a = std::make_unique<JsonDataNode>("n");
+        a->setInt("renderId", 20 + i);
+        a->setDouble("cx", 100.0 + 40.0 * i); a->setDouble("cy", 120.0);
+        a->setDouble("radius", 90.0 - 10.0 * i);
+        a->setDouble("density", 0.015);
+        fx.ioPublisher->publish("render:nebula:add", std::move(a));
+    }
+    fx.pump();
+    fx.collector.clear();
+
+    // ...plus an ephemeral puff for something transient, in the same frame.
+    auto e = std::make_unique<JsonDataNode>("n");
+    e->setDouble("cx", 400.0); e->setDouble("cy", 200.0);
+    e->setDouble("radius", 50.0); e->setDouble("density", 0.03);
+    fx.ioPublisher->publish("render:nebula", std::move(e));
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 4);
+
+    // The ephemeral one is gone next frame; the three retained ones stay.
+    fx.collector.clear();
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 3);
+}

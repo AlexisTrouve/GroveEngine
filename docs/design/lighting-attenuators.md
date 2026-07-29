@@ -113,6 +113,7 @@ des couchers de soleil, et une nébuleuse teintée.
 | **A2** ✅ | **diffusion** : le terme additif au composite | ✅ livré. Sur fond noir : 0 / 0 / **255** |
 | **A3** ✅ | mode retenu + absorption colorée | ✅ livré. La couleur était déjà dans A1 ; A3 se réduit au mode retenu |
 | **A4** ✅ | **nébuleuses** : densité radiale, hors périmètre à l'origine | ✅ livré. `render:nebula`. Core 0,63 / rasant 0,79 / hors disque **1,00** — le quad est invisible |
+| **A5** ✅ | nébuleuses en **mode retenu** | ✅ livré. Comble une asymétrie que A4 avait créée — voir ci-dessous |
 
 ### Ce que ce découpage annonçait et qui s'est révélé plus simple
 
@@ -154,6 +155,22 @@ Deux choix consignés :
 
 Le shader **réutilise `vs_light`** : placer un quad unitaire à l'échelle d'un rayon autour d'un centre
 monde est exactement le problème d'une lampe. Seul l'étage fragment diffère.
+
+### A5 — l'asymétrie que A4 avait créée, à l'envers
+
+A4 livrait `render:nebula` en **éphémère seulement**, alors que les murs, les vitraux et le
+brouillard avaient tous leur mode retenu. C'était l'asymétrie dans le mauvais sens : l'argument du
+retenu — « ça ne bouge pas, ne le republie pas chaque frame » — vaut **plus fort** pour une nébuleuse
+que pour un mur, puisqu'un nuage se compose de quatre à six volumes superposés. Un décor spatial
+payait donc six messages par frame pour une donnée constante.
+
+Le registre est **plus simple** que ceux du brouillard et des filtres, et pour une raison qui vaut
+d'être dite : les paramètres d'une nébuleuse ne sont pas convertis côté CPU (sa densité varie par
+pixel), donc le registre **est** la commande du paquet — il n'y a rien à re-dériver. Le piège du
+redimensionnement de F3 n'existe pas ici.
+
+Verrouillé par `SceneCollectorTest [nebula][retained]` : persistance, fusion partielle (un nuage qui
+dérive en ne nommant que `cx`/`cy`), no-op sur un id absent, suppression, coexistence des deux modes.
 
 ### Et ce qui s'est révélé déjà fait
 

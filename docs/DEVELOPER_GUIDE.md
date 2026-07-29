@@ -556,13 +556,17 @@ exactly zero at the rim.
 | Topic | Payload | Notes |
 |-------|---------|-------|
 | `render:nebula` | `{cx, cy, radius, density, color?, scatter?}` | soft radial medium, **ephemeral** |
+| `render:nebula:add` / `:update` / `:remove` | `{renderId, cx?, cy?, radius?, density?, color?, scatter?}` | **retained** — the right form for a cloud |
 
 **`cx, cy` is the CENTRE** — a disc's anchor, unlike the rect media above. `density` is the *peak*
 Beer-Lambert α, in the same units as `render:fog`, so a value tuned on one transfers to the other.
 `color` and `scatter` behave exactly as they do for fog.
 
-**Overlap several to build a cloud.** Each volume fades to vacuum at its own rim, so overlapping
-discs give an organic silhouette with no geometry showing. ⚠️ Do NOT try this with `render:fog`: a
+**Overlap several to build a cloud, and use the RETAINED form for it.** Each volume fades to vacuum
+at its own rim, so overlapping discs give an organic silhouette with no geometry showing — but that
+means a cloud is four to six volumes, and re-publishing all of them every frame charges a per-frame
+cost for data that never changes. `:add` them once; `:update` merges, so a drifting cloud moves by
+naming only `cx`/`cy`. ⚠️ Do NOT try this with `render:fog`: a
 stack of rectangles produces visible concentric outlines — a ziggurat, not a cloud. That is measured,
 not theoretical, and it is why this primitive exists.
 
