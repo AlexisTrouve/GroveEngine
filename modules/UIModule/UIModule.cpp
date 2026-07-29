@@ -13,6 +13,7 @@
 #include "Widgets/UICheckbox.h"
 #include "Widgets/UITextInput.h"
 #include "Widgets/UITextArea.h"
+#include "Core/UITextEditWidget.h"
 #include "Widgets/UIScrollPanel.h"
 #include "Widgets/UILabel.h"
 #include "Widgets/UIRadial.h"
@@ -757,18 +758,11 @@ void UIModule::updateUI(float deltaTime) {
     // Handle mouse wheel for scroll panels AND lists (both scroll their content on the wheel).
     if (m_context->mouseWheelDelta != 0.0f && hoveredWidget) {
         // Walk up from the hovered widget to the first scrollable ancestor (scrollpanel or list).
-        UIWidget* widget = hoveredWidget;
-        while (widget) {
-            const std::string wt = widget->getType();
-            if (wt == "scrollpanel") {
-                static_cast<UIScrollPanel*>(widget)->handleMouseWheel(m_context->mouseWheelDelta);
-                break;
-            }
-            if (wt == "list") {
-                static_cast<UIList*>(widget)->handleMouseWheel(m_context->mouseWheelDelta);
-                break;
-            }
-            widget = widget->parent;
+        // On remonte jusqu'au premier widget qui se declare hote de defilement. Enumerer
+        // `scrollpanel` et `list` ici obligeait a revenir editer ce fichier pour tout futur widget
+        // defilant ; le virtuel `handleMouseWheel` pose la question a la place.
+        for (UIWidget* w = hoveredWidget; w; w = w->parent) {
+            if (w->handleMouseWheel(m_context->mouseWheelDelta)) break;
         }
     }
 
@@ -800,53 +794,42 @@ void UIModule::updateUI(float deltaTime) {
                 clickedWidget->id, widgetType, m_context->mousePressed);
 
             // Handle focus for text inputs
-            if (widgetType == "textinput" && m_context->mousePressed) {
-                UITextInput* textInput = static_cast<UITextInput*>(clickedWidget);
-
-                // Lose focus on previous widget
-                if (!m_context->focusedWidgetId.empty() && m_context->focusedWidgetId != textInput->id) {
-                    if (UIWidget* prevFocused = m_root->findById(m_context->focusedWidgetId)) {
-                        if (prevFocused->getType() == "textinput") {
-                            static_cast<UITextInput*>(prevFocused)->loseFocus();
-                        }
-                    }
-
-                    auto lostFocusEvent = std::make_unique<JsonDataNode>("focus_lost");
-                    lostFocusEvent->setString("widgetId", m_context->focusedWidgetId);
-                    m_io->publish("ui:focus_lost", std::move(lostFocusEvent));
-                }
-
-                // Gain focus
-                textInput->gainFocus();
-                m_context->setFocus(textInput->id);
-
-                auto gainedFocusEvent = std::make_unique<JsonDataNode>("focus_gained");
-                gainedFocusEvent->setString("widgetId", textInput->id);
-                m_io->publish("ui:focus_gained", std::move(gainedFocusEvent));
-
-                m_logger->info("TextInput '{}' gained focus", textInput->id);
-            }
-            else if (widgetType == "textarea" && m_context->mousePressed) {
-                // Jumelle de la branche textinput : un clic prend le focus clavier. Les deux widgets
-                // partagent l'espace de focus, donc cliquer de l'un a l'autre transfere correctement.
-                UITextArea* area = static_cast<UITextArea*>(clickedWidget);
-
-                if (!m_context->focusedWidgetId.empty() && m_context->focusedWidgetId != area->id) {
+            // ---------------- FOCUS CLAVIER ----------------
+            //
+            // QUOI     : un clic donne le focus au widget cliquable au clavier, et le retire au
+            //            precedent.
+            // POURQUOI : ce bloc etait ecrit DEUX FOIS -- une branche `textinput`, une branche
+            //            `textarea` -- pour un corps identique au type pres. Un troisieme widget
+            //            focusable aurait exige une troisieme copie.
+            // COMMENT  : `acceptsFocus()` remplace l'enumeration des types, `loseFocus()`/
+            //            `gainFocus()` sont appeles a travers l'interface. La publication reste ici :
+            //            un widget n'a pas d'IIO (cf. UI_ARCHITECTURE.md).
+            //
+            // ⚠️ CORRECTION DE COMPORTEMENT au passage. L'ancienne branche `textinput` ne retirait le
+            //    focus au precedent QUE s'il etait lui aussi un `textinput` -- elle ignorait le cas
+            //    `textarea`, que la branche jumelle traitait pourtant. Cliquer d'une zone multiligne
+            //    vers un champ laissait donc la zone focalisee en interne (curseur et bordure de
+            //    focus toujours dessines), alors que les touches partaient ailleurs. Unifier le
+            //    corps supprime l'asymetrie : c'etait un defaut de la duplication elle-meme.
+            if (clickedWidget->acceptsFocus() && m_context->mousePressed) {
+                if (!m_context->focusedWidgetId.empty() &&
+                    m_context->focusedWidgetId != clickedWidget->id) {
                     if (UIWidget* prev = m_root->findById(m_context->focusedWidgetId)) {
-                        if (prev->getType() == "textinput") static_cast<UITextInput*>(prev)->loseFocus();
-                        else if (prev->getType() == "textarea") static_cast<UITextArea*>(prev)->loseFocus();
+                        prev->loseFocus();
                     }
                     auto lost = std::make_unique<JsonDataNode>("focus_lost");
                     lost->setString("widgetId", m_context->focusedWidgetId);
                     m_io->publish("ui:focus_lost", std::move(lost));
                 }
 
-                area->gainFocus();
-                m_context->setFocus(area->id);
+                clickedWidget->gainFocus();
+                m_context->setFocus(clickedWidget->id);
 
                 auto gained = std::make_unique<JsonDataNode>("focus_gained");
-                gained->setString("widgetId", area->id);
+                gained->setString("widgetId", clickedWidget->id);
                 m_io->publish("ui:focus_gained", std::move(gained));
+
+                m_logger->info("Widget '{}' gained keyboard focus", clickedWidget->id);
             }
             else if (widgetType == "button") {
                 // Publish action event if button has onClick
@@ -999,16 +982,14 @@ void UIModule::updateUI(float deltaTime) {
 
         if (!pasted.empty() && !m_context->focusedWidgetId.empty()) {
             if (UIWidget* w = m_root->findById(m_context->focusedWidgetId)) {
+                // Le collage ne demande rien de specifique a un type : n'importe quel widget de
+                // saisie sait inserer une chaine (meme contrat que le routage clavier ci-dessous).
                 bool pastedOk = false;
                 std::string widgetId, newText;
-                if (w->getType() == "textinput") {
-                    UITextInput* ti = static_cast<UITextInput*>(w);
-                    pastedOk = ti->insertFilteredText(pasted);
-                    widgetId = ti->id; newText = ti->text();
-                } else if (w->getType() == "textarea") {
-                    UITextArea* ta = static_cast<UITextArea*>(w);
-                    pastedOk = ta->insertFilteredText(pasted);
-                    widgetId = ta->id; newText = ta->text();
+                if (UITextEditWidget* edit = dynamic_cast<UITextEditWidget*>(w)) {
+                    pastedOk = edit->insertFilteredText(pasted);
+                    widgetId = edit->id;
+                    newText  = edit->text();
                 }
                 if (pastedOk) {
                     auto ev = std::make_unique<JsonDataNode>("text_changed");
@@ -1023,157 +1004,111 @@ void UIModule::updateUI(float deltaTime) {
     // Handle keyboard input for focused widget
     if (m_context->keyPressed && !m_context->focusedWidgetId.empty()) {
         if (UIWidget* focusedWidget = m_root->findById(m_context->focusedWidgetId)) {
-            // ---------------- ZONE DE TEXTE MULTILIGNE ----------------
-            // Meme routage que le champ monoligne ; deux differences de SEMANTIQUE :
-            //   - Entree insere un saut de ligne, donc la SOUMISSION passe a Ctrl+Entree ;
-            //   - le presse-papiers reutilise exactement le meme protocole (le service est generique).
-            if (focusedWidget->getType() == "textarea") {
-                UITextArea* area = static_cast<UITextArea*>(focusedWidget);
-
-                bool consumed = false;
-                if (m_context->keyCtrl) {
-                    const char shortcut = m_context->keyChar;
-                    if (shortcut == 'c' || shortcut == 'x') {
-                        const std::string sel = area->edit.selectedText();
-                        if (!sel.empty()) {
-                            auto d = std::make_unique<JsonDataNode>("clip");
-                            d->setString("text", sel);
-                            m_io->publish("input:clipboard:set", std::move(d));
-                            if (shortcut == 'x' && area->edit.deleteSelection()) {
-                                auto ev = std::make_unique<JsonDataNode>("text_changed");
-                                ev->setString("widgetId", area->id);
-                                ev->setString("text", area->text());
-                                m_io->publish("ui:text_changed", std::move(ev));
-                            }
-                        }
-                        consumed = true;
-                    } else if (shortcut == 'v') {
-                        m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
-                        consumed = true;
-                    }
-                }
-
-                // Ctrl+Entree = SOUMETTRE. Entree seule insere un saut de ligne (traite dans le widget).
-                if (!consumed && m_context->keyCtrl &&
-                    (m_context->keyCode == 13 || m_context->keyCode == 10)) {
-                    auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
-                    submitEvent->setString("widgetId", area->id);
-                    submitEvent->setString("text", area->text());
-                    m_io->publish("ui:text_submit", std::move(submitEvent));
-
-                    if (!area->onSubmit.empty()) {
-                        auto actionEvent = std::make_unique<JsonDataNode>("action");
-                        actionEvent->setString("action", area->onSubmit);
-                        actionEvent->setString("widgetId", area->id);
-                        actionEvent->setString("text", area->text());
-                        m_io->publish("ui:action", std::move(actionEvent));
-                    }
-                    consumed = true;
-                }
-
-                bool handled = false;
-                if (!consumed) {
-                    if (!m_context->keyText.empty()) {
-                        handled = area->insertFilteredText(m_context->keyText);
-                    } else {
-                        const uint32_t character =
-                            static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
-                        handled = area->onKeyInput(m_context->keyCode, character,
-                                                   m_context->keyCtrl, m_context->keyShift);
-                    }
-                }
-
-                if (handled) {
-                    auto ev = std::make_unique<JsonDataNode>("text_changed");
-                    ev->setString("widgetId", area->id);
-                    ev->setString("text", area->text());
-                    m_io->publish("ui:text_changed", std::move(ev));
-                }
-            }
-            else if (focusedWidget->getType() == "textinput") {
-                UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
-
-                // PRESSE-PAPIERS — traité ICI et non dans le widget, parce que c'est le module qui
-                // possède l'IIO ; le widget reste ignorant du transport (même partage des rôles que
-                // pour le drag de fenêtre, cf. §3.2 du handoff UI).
-                //
-                // NB : un raccourci consommé ne fait PAS sortir de updateUI — la passe de mise à jour
-                // des widgets (m_root->update(), interaction fenêtre…) doit se dérouler normalement.
-                // Un `return` ici gèlerait toute l'UI pendant la frame du Ctrl+C.
+            // ---------------- SAISIE CLAVIER ----------------
+            //
+            // QUOI     : raccourcis presse-papiers, insertion, touches d'edition, puis publication
+            //            de `ui:text_changed` / `ui:text_submit` / `ui:action`.
+            // POURQUOI : ce corps etait ecrit DEUX FOIS -- une branche `textarea`, une branche
+            //            `textinput` -- pour une centaine de lignes quasi identiques. La seule
+            //            divergence reelle est le declencheur de SOUMISSION : Entree pour le champ
+            //            monoligne, Ctrl+Entree pour la zone (ou Entree insere un saut de ligne).
+            // COMMENT  : `UITextEditWidget` porte l'API commune ; on caste UNE fois vers ce contrat
+            //            au lieu de deux fois vers des types concrets, et `submitsOn()` porte la
+            //            divergence. Ajouter un 3e widget editable ne touche plus ce fichier.
+            //
+            // Le PRESSE-PAPIERS reste ici, et non dans le widget, parce que c'est le module qui
+            // possede l'IIO -- meme partage des roles que partout ailleurs (cf. UI_ARCHITECTURE.md).
+            //
+            // NB : un raccourci consomme ne fait PAS sortir de updateUI -- la passe de mise a jour
+            // des widgets doit se derouler normalement. Un `return` ici gelerait l'UI pendant la
+            // frame du Ctrl+C.
+            if (UITextEditWidget* edit = dynamic_cast<UITextEditWidget*>(focusedWidget)) {
                 bool shortcutConsumed = false;
                 if (m_context->keyCtrl) {
                     const char shortcut = m_context->keyChar;
                     if (shortcut == 'c' || shortcut == 'x') {
-                        // Rien de sélectionné = rien à copier. Sans ce garde, un Ctrl+C par réflexe
-                        // écraserait le presse-papiers système avec du vide, détruisant ce que
+                        // Rien de selectionne = rien a copier. Sans ce garde, un Ctrl+C par reflexe
+                        // ecraserait le presse-papiers systeme avec du vide, detruisant ce que
                         // l'utilisateur y avait mis depuis une autre application.
-                        const std::string sel = textInput->selectedText();
+                        const std::string sel = edit->selectedText();
                         if (!sel.empty()) {
                             auto d = std::make_unique<JsonDataNode>("clip");
                             d->setString("text", sel);
                             m_io->publish("input:clipboard:set", std::move(d));
 
-                            if (shortcut == 'x' && textInput->deleteSelection()) {
+                            if (shortcut == 'x' && edit->deleteSelection()) {
                                 auto ev = std::make_unique<JsonDataNode>("text_changed");
-                                ev->setString("widgetId", textInput->id);
-                                ev->setString("text", textInput->text());
+                                ev->setString("widgetId", edit->id);
+                                ev->setString("text", edit->text());
                                 m_io->publish("ui:text_changed", std::move(ev));
                             }
                         }
-                        shortcutConsumed = true;  // pas de frappe derrière un raccourci
-                    }
-                    else if (shortcut == 'v') {
-                        // On DEMANDE le presse-papiers ; l'insertion se fera à la réception.
+                        shortcutConsumed = true;   // pas de frappe derriere un raccourci
+                    } else if (shortcut == 'v') {
+                        // On DEMANDE le presse-papiers ; l'insertion se fera a la reception.
                         m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
                         shortcutConsumed = true;
                     }
                 }
 
+                // SOUMISSION. Le declencheur ET le moment appartiennent au widget :
+                //   - `submitsOn` dit QUELLE touche soumet (Entree vs Ctrl+Entree) ;
+                //   - `swallowsSubmitKey` dit si elle est AVALEE (avant la frappe) ou si elle
+                //     traverse le widget et soumet APRES.
+                // Les deux flux different reellement -- les forcer dans un seul ordre changerait le
+                // comportement de l'un des deux widgets (cf. UITextEditWidget).
+                const bool submitKey = edit->submitsOn(m_context->keyCode, m_context->keyCtrl);
+                auto publishSubmit = [&] {
+                    auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
+                    submitEvent->setString("widgetId", edit->id);
+                    submitEvent->setString("text", edit->text());
+                    m_io->publish("ui:text_submit", std::move(submitEvent));
+
+                    if (!edit->submitAction().empty()) {
+                        auto actionEvent = std::make_unique<JsonDataNode>("action");
+                        actionEvent->setString("action", edit->submitAction());
+                        actionEvent->setString("widgetId", edit->id);
+                        actionEvent->setString("text", edit->text());
+                        m_io->publish("ui:action", std::move(actionEvent));
+                    }
+                    m_logger->info("TextEdit '{}' submitted: '{}'", edit->id, edit->text());
+                };
+
+                // Cas AVALE (zone multiligne) : on soumet et la touche n'atteint jamais le widget.
+                bool swallowed = false;
+                if (!shortcutConsumed && submitKey && edit->swallowsSubmitKey()) {
+                    publishSubmit();
+                    swallowed = true;
+                }
+
                 bool handled = false;
-                if (shortcutConsumed) {
-                    // Raccourci déjà traité au-dessus : on ne le fait PAS redescendre dans le champ,
-                    // sinon un Ctrl+C ajouterait un 'c' au texte.
+                if (shortcutConsumed || swallowed) {
+                    // Raccourci deja traite : on ne le fait PAS redescendre dans le widget, sinon un
+                    // Ctrl+C ajouterait un 'c' au texte.
                 } else if (!m_context->keyText.empty()) {
-                    // FIX #5/C2 : chemin saisie texte (commit IME / coller / UTF-8) — on
-                    // insère la chaîne ENTIÈRE, pas un seul caractère.
-                    handled = textInput->insertFilteredText(m_context->keyText);
+                    // Chemin saisie texte (commit IME / collage / UTF-8) : on insere la chaine
+                    // ENTIERE, pas un seul caractere.
+                    handled = edit->insertFilteredText(m_context->keyText);
                 } else {
-                    // Chemin touches d'édition / legacy mono-caractère.
-                    // keyChar est un `char` SIGNÉ : un octet > 127 (accent Latin-1) deviendrait négatif
-                    // et se sign-extendrait en un code-point énorme. On passe par `unsigned char` d'abord
-                    // pour garder la valeur 0..255 correcte (bugprone-signed-char-misuse).
-                    uint32_t character = static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
-                    // Les modificateurs viennent enfin du contexte (levée du `bool ctrl = false`) :
-                    // Ctrl porte les raccourcis, Maj distingue déplacer de sélectionner.
-                    handled = textInput->onKeyInput(m_context->keyCode, character,
-                                                    m_context->keyCtrl, m_context->keyShift);
+                    // Chemin touches d'edition / legacy mono-caractere.
+                    // keyChar est un `char` SIGNE : un octet > 127 (accent Latin-1) deviendrait
+                    // negatif et se sign-extendrait en un code-point enorme. On passe par
+                    // `unsigned char` d'abord pour garder la valeur 0..255 (bugprone-signed-char-misuse).
+                    const uint32_t character =
+                        static_cast<uint32_t>(static_cast<unsigned char>(m_context->keyChar));
+                    handled = edit->onKeyInput(m_context->keyCode, character,
+                                               m_context->keyCtrl, m_context->keyShift);
                 }
 
                 if (handled) {
-                    // Publish text_changed event
-                    auto textChangedEvent = std::make_unique<JsonDataNode>("text_changed");
-                    textChangedEvent->setString("widgetId", textInput->id);
-                    textChangedEvent->setString("text", textInput->text());
-                    m_io->publish("ui:text_changed", std::move(textChangedEvent));
+                    auto ev = std::make_unique<JsonDataNode>("text_changed");
+                    ev->setString("widgetId", edit->id);
+                    ev->setString("text", edit->text());
+                    m_io->publish("ui:text_changed", std::move(ev));
 
-                    // Check if Enter was pressed (submit)
-                    if (m_context->keyCode == 13 || m_context->keyCode == 10) {
-                        auto submitEvent = std::make_unique<JsonDataNode>("text_submit");
-                        submitEvent->setString("widgetId", textInput->id);
-                        submitEvent->setString("text", textInput->text());
-                        m_io->publish("ui:text_submit", std::move(submitEvent));
-
-                        // Publish onSubmit action if specified
-                        if (!textInput->onSubmit.empty()) {
-                            auto actionEvent = std::make_unique<JsonDataNode>("action");
-                            actionEvent->setString("action", textInput->onSubmit);
-                            actionEvent->setString("widgetId", textInput->id);
-                            actionEvent->setString("text", textInput->text());
-                            m_io->publish("ui:action", std::move(actionEvent));
-                        }
-
-                        m_logger->info("TextInput '{}' submitted: '{}'", textInput->id, textInput->text());
-                    }
+                    // Cas NON avale (champ monoligne) : la touche a traverse le widget, la
+                    // soumission suit la frappe -- donc `text_changed` PUIS `text_submit`.
+                    if (submitKey && !edit->swallowsSubmitKey()) publishSubmit();
                 }
             }
         }

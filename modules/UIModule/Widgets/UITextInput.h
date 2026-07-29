@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Core/UIWidget.h"
+#include "../Core/UITextEditWidget.h"
 #include "UIFrame.h"
 #include <grove/text/TextMetrics.h>
 #include <grove/text/TextEdit.h>
@@ -61,7 +61,7 @@ struct TextInputStyle {
  * - ui:focus_gained → {widgetId}
  * - ui:focus_lost → {widgetId}
  */
-class UITextInput : public UIWidget {
+class UITextInput : public UITextEditWidget {
 public:
     UITextInput() = default;
     ~UITextInput() override = default;
@@ -95,7 +95,7 @@ public:
      * @param shift Shift modifier — étend la sélection au lieu de déplacer le curseur
      * @return true if event was consumed
      */
-    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false);
+    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false) override;
 
     // ------------------------------------------------------------------
     // Sélection.
@@ -123,7 +123,7 @@ public:
      * n'aurait aucun sens. (Un champ qui doit interdire la copie de son contenu doit le refuser
      * explicitement — c'est une décision de sécurité, pas un effet de bord du masquage.)
      */
-    std::string selectedText() const;
+    std::string selectedText() const override;
 
     /**
      * @brief Efface la sélection s'il y en a une. Retourne true si quelque chose a été supprimé.
@@ -132,17 +132,17 @@ public:
      * Couper y convergent, pour qu'ils ne puissent pas diverger sur les cas limites (sélection
      * vide, bornes inversées, curseur laissé hors du texte).
      */
-    bool deleteSelection();
+    bool deleteSelection() override;
 
     /**
      * @brief Gain focus (start receiving keyboard input)
      */
-    void gainFocus();
+    void gainFocus() override;
 
     /**
      * @brief Lose focus (stop receiving keyboard input)
      */
-    void loseFocus();
+    void loseFocus() override;
 
     /**
      * @brief Insert text at cursor position
@@ -157,7 +157,7 @@ public:
      * a single event carries more than one character. With filter None the whole string
      * is inserted; with a restrictive filter only the passing (ASCII) characters are kept.
      */
-    bool insertFilteredText(const std::string& str);
+    bool insertFilteredText(const std::string& str) override;
 
     /**
      * @brief Delete character before cursor (backspace)
@@ -203,7 +203,15 @@ public:
     text::EditModel edit;
 
     /** @brief Contenu du champ. */
-    const std::string& text() const { return edit.text(); }
+    const std::string& text() const override { return edit.text(); }
+
+    // Contrat de saisie : un champ MONOLIGNE soumet sur Entree seule.
+    const std::string& submitAction() const override { return onSubmit; }
+    // Entree traverse le widget (elle n'insere rien) ; la soumission SUIT la frappe.
+    bool swallowsSubmitKey() const override { return false; }
+    bool submitsOn(int keyCode, bool /*ctrl*/) const override {
+        return keyCode == 13 || keyCode == 10;
+    }
     /** @brief Remplace le contenu (chargement JSON, binding, setState) ; curseur en fin. */
     void setText(const std::string& value) { edit.setText(value); }
 
