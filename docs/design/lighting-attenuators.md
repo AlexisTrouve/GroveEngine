@@ -1,113 +1,153 @@
-# Plan A — les atténuateurs (absorption progressive)
+# Plan A — les milieux (absorption **et** diffusion)
 
 > **Statut** : 📋 plan, rien d'implémenté.
-> **Socle** : [table de transmittance polaire](lighting-transmittance-core.md) — **lire d'abord**.
-> **Dépend de** : [plan W](lighting-walls.md) et [plan F](lighting-filters.md), dont il continue la
-> matière.
+> **⚠️ RÉÉCRIT le 2026-07-29.** La version précédente ne couvrait que l'**absorption** et posait la
+> diffusion hors périmètre. Le besoin réel — **des nébuleuses** — la rend obligatoire : une nébuleuse
+> se *voit*. L'absorption seule aurait donné un vide qui s'assombrit sans raison visible, c'est-à-dire
+> ce qui ressemble à un bug de réglage plutôt qu'à une atmosphère.
+>
+> **Socle** : [table de transmittance](lighting-transmittance-core.md) — lire d'abord.
+> **Dépend de** : [plan W](lighting-walls.md) ✅ livré, [plan F](lighting-filters.md).
 
-## 1. Ce que ça donne
+## 1. Trois choses portent le même mot
 
-Un milieu qui **affaiblit** la lumière au lieu de la bloquer : brouillard, fumée, feuillage, eau
-trouble. Plus la lumière en traverse, moins il en reste. Le faisceau d'un phare se perd dans la brume
-au lieu de s'arrêter net.
+« Nébuleuse » (ou « brouillard ») en désigne trois, et les confondre coûterait cher :
 
-## 2. Ce que ça ajoute au socle : la continuité
+| | Ce que c'est | Qui le porte |
+|---|---|---|
+| **Absorbe** | la lumière qui traverse est mangée — un phare porte moins loin | ✅ le socle le fait déjà |
+| **Diffuse** | la lumière qui la traverse la fait **briller** — le faisceau visible de côté | 🆕 ce plan |
+| **Émet** | on la voit **sans aucune lampe** | ❌ pas de la physique de lumière — un sprite ou une texture |
 
-Murs et filtres sont des matières **discrètes** — on les traverse ou non. Un atténuateur est
-**continu** : la perte dépend de la **distance parcourue dedans**, pas du fait d'y être entré.
+Le troisième n'est pas dans ce plan et ne devrait pas y entrer. L'aspect d'une nébuleuse au repos est
+de l'**art**, pas un calcul d'éclairage ; le faire passer par le pipeline lumineux coûterait une
+cible et une passe pour dessiner ce qu'un quad texturé dessine déjà.
 
-Le socle le porte déjà, et c'est pour ça qu'il stocke une transmittance **par unité de longueur** et
-non par occulteur :
+## 2. En 2D, la diffusion est presque gratuite — et c'est ce qui change tout
+
+En 3D, la diffusion est chère : il faut parcourir le **rayon de vue** à travers le volume et intégrer
+ce qui rebondit vers l'œil à chaque pas.
+
+**En vue à plat, ce rayon est perpendiculaire au plan. Il n'y a pas de profondeur à parcourir.**
+L'intégrale s'effondre en un terme par pixel :
 
 ```
-T = Π transmittanceParUnité ^ (longueur du pas)
+diffusé(px) = lumièreQuiArrive(px) × densité(px) × sigma
 ```
 
-Un mur annule en un pas. Un brouillard de coefficient α donne `exp(−α·d)` — la **loi de
-Beer-Lambert** ([Volumetric Rendering](https://wallisc.github.io/rendering/2020/05/02/Volumetric-Rendering-Part-1.html)),
-qui tombe directement de la forme multiplicative choisie au socle.
+Et `lumièreQuiArrive`, la passe de lumière la calcule **déjà** — atténuation radiale, masque conique
+et transmittance comprises. La diffusion n'ajoute donc pas un parcours : elle ajoute **une
+multiplication et une lecture de densité**.
 
-Autrement dit : ce plan n'ajoute pas de mathématiques. Il ajoute **une façon d'écrire une densité**
-là où W et F écrivaient une valeur ponctuelle.
+> ⚠️ **Hypothèse porteuse : la vue est à plat.** Le milieu est une couche vue perpendiculairement.
+> Si le jeu donne une profondeur perçue — parallaxe forte, nébuleuse « devant » et « derrière » les
+> vaisseaux — l'effondrement ne tient plus et ce plan est à revoir avant d'être écrit.
 
-## 3. ⚠️ Atténuer la lumière ≠ avoir l'air brumeux
+## 3. La conséquence structurelle, qui est le vrai sujet
 
-**C'est le malentendu le plus probable de ce chantier, et il faut le poser avant tout le reste.**
+Le composite fait aujourd'hui :
 
-Ce plan fait *perdre* de la lumière dans le milieu. Il ne fait **pas** le voile laiteux qu'on associe
-au brouillard. Ce voile-là est de la **diffusion** — la lumière qui rebondit dans le milieu et
-revient vers l'œil — et c'est un **second terme**, additif, indépendant de celui-ci.
+```
+final = scene × (ambiant + lumière)
+```
 
-Concrètement, avec ce plan seul :
-- un phare éclaire moins loin dans la brume ✅
-- une zone brumeuse n'a pas l'air blanchâtre ❌
-- un faisceau n'est pas visible « de côté » ❌
+**Dans l'espace, `scene` est noire.** Donc `scene × lumière` vaut zéro, et **aucun faisceau ne serait
+visible** — précisément le cas des nébuleuses. Le terme diffusé doit donc être **additif au résultat
+final**, jamais multiplicatif avec la scène :
 
-Les deux derniers sont ce que les gens attendent en disant « brouillard ». Faire l'un sans l'autre
-donne une scène qui s'assombrit sans raison visible. **À trancher avant A1 : est-ce l'absorption que
-tu veux, ou l'aspect ?** Si c'est l'aspect, il faut un plan de diffusion en plus — pas à la place.
+```
+final = scene × (ambiant + lumière) + diffusé
+```
 
-## 4. Surface d'écriture
+C'est ce qui fait qu'une nébuleuse traversée par un moteur **brille dans le vide**, là où il n'y a
+aucune surface à éclairer. Sans cette séparation on n'obtiendrait qu'un halo sur les objets solides,
+et le vide resterait noir — l'inverse exact de l'effet recherché.
+
+**C'est le seul changement d'architecture de ce plan.** Tout le reste est du câblage.
+
+## 4. La densité, lue deux fois
+
+La même donnée sert aux deux effets, à deux endroits différents :
+
+| Effet | Où la densité est lue | Ce qu'elle produit |
+|---|---|---|
+| Absorption | **le long du rayon** lampe → fragment | la lumière qui arrive est réduite |
+| Diffusion | **au fragment**, une seule lecture | ce qui reste est renvoyé vers l'œil |
+
+Une seule carte alimente donc les deux, comme les murs et les filtres alimentent déjà la même. Le
+socle ne change pas.
+
+## 5. Surface d'écriture
 
 | Topic | Charge | Notes |
 |---|---|---|
-| `render:fog` | `{x, y, w, h, density, color?}` | volume atténuant rectangulaire, éphémère |
-| `render:fog:add` / `:update` / `:remove` | `{renderId, …}` | retenu — une nappe de brume ne bouge pas vite |
+| `render:fog` | `{x, y, w, h, density, color?, scatter?}` | volume rectangulaire, éphémère |
+| `render:fog:add` / `:update` / `:remove` | `{renderId, …}` | retenu — une nébuleuse ne bouge pas vite |
 
-`density` est le **coefficient α** de Beer-Lambert, pas une opacité 0..1 : il n'a pas de borne haute,
-et doubler la distance traversée double son effet dans l'exposant. Nommer le champ `density` plutôt
-qu'`opacity` est délibéré — appeler « opacité » une grandeur non bornée garantirait qu'on la règle à
-1 en croyant saturer.
+**`x, y` = coin haut-gauche** (c'est un rect, même règle que les occulteurs).
 
-`color` (défaut blanc) permet une absorption **sélective** : une brume qui mange le bleu plus vite
-que le rouge donne des couchers de soleil. C'est le même champ que les filtres, avec une
-interprétation continue.
+`density` est le **coefficient α de Beer-Lambert**, pas une opacité 0..1 : il n'a pas de borne haute,
+et doubler la distance traversée double son effet dans l'exposant. Nommer ce champ `opacity`
+garantirait qu'on le règle à 1 en croyant saturer.
 
-## 5. Découpage
+`scatter` (défaut 0) est le coefficient de **diffusion** — et le séparer de `density` est délibéré :
+un milieu peut beaucoup absorber en diffusant peu (fumée noire) ou l'inverse (brume claire). Les
+confondre supprimerait la moitié des matières exprimables.
+
+`color` module l'absorption **sélective** : un milieu qui mange le bleu plus vite que le rouge donne
+des couchers de soleil, et une nébuleuse teintée.
+
+## 6. Découpage
 
 | Tranche | Contenu | Preuve |
 |---|---|---|
-| **A1** | `render:fog` → carte de densité | headless : oracle sur `exp(−α·d)` à trois distances |
-| **A2** | l'atténuation à l'écran | `[gpu]` : à **densité doublée**, la lumière restante est le **carré** de la précédente |
+| **A1** | `render:fog` → carte de densité ; **absorption** seule | headless : oracle sur `exp(−α·d)` à trois distances. `[gpu]` : à **densité doublée**, la lumière restante est le **CARRÉ** de la précédente |
+| **A2** | **diffusion** : la cible additive + le terme au composite | `[gpu]` : une lampe dans un milieu éclaire **là où il n'y a aucune scène** — le test doit avoir un fond NOIR, sinon il ne prouve rien |
 | **A3** | mode retenu + absorption colorée | headless + `[gpu]` sur la divergence des canaux |
 
-### Pourquoi A2 teste un carré et pas « c'est plus sombre »
+### Pourquoi A1 teste un carré et pas « c'est plus sombre »
 
-« Avec du brouillard c'est plus sombre » serait vert avec n'importe quel assombrissement — un simple
-facteur constant passerait.
+« Avec du brouillard c'est plus sombre » serait vert avec n'importe quel assombrissement — un facteur
+constant passerait. Ce qui caractérise Beer-Lambert, c'est l'**exponentielle** : doubler α, ou
+doubler la distance, **élève au carré** ce qui reste. C'est la seule assertion qui distingue une
+absorption d'une soustraction.
 
-Ce qui caractérise Beer-Lambert, c'est **l'exponentielle** : doubler α, ou doubler la distance,
-**élève au carré** ce qui reste. Trois mesures suffisent à distinguer une exponentielle d'une
-droite, et c'est la seule assertion qui prouve qu'on a implémenté une absorption plutôt qu'une
-soustraction.
+### Pourquoi A2 exige un fond noir
 
-C'est la même exigence qu'en L2, où il fallait séparer une atténuation carrée d'une linéaire : la
-forme de la courbe est le contrat, pas le fait que ça baisse.
+Sur un fond clair, `scene × lumière` est déjà non nul : un test verrait de la lumière **avec ou
+sans** le terme diffusé, et passerait au vert en ne prouvant rien. Le fond noir est ce qui rend le
+terme additif la **seule** explication possible d'un pixel allumé.
 
-## 6. Risques
+Même piège que la caméra non déplacée de L2 et que les sondes à distance égale de W2 : un
+discriminant placé là où les deux hypothèses coïncident.
 
-1. **Le pas de marche fixe la précision.** Le socle échantillonne la table à N rayons ; une nappe
-   fine entre deux pas est invisible, une nappe traversée en biais est sous-estimée. Un brouillard
-   dense et mince est le pire cas.
-2. **La densité et le rayon de lampe interagissent** de façon non intuitive : `exp(−α·d)` combiné à
-   l'atténuation radiale `(1−d/r)²` donne une chute très rapide. Attendez-vous à devoir baisser α
-   d'un ordre de grandeur par rapport à l'intuition, et documentez une valeur de départ.
-3. **Rien n'atténue l'ambiant.** Ce plan agit sur les **lampes**, pas sur le terme ambiant, qui n'a
-   pas de trajet — il est global par construction. Une scène très brumeuse mais fortement ambiante
-   ne paraîtra pas brumeuse du tout. C'est cohérent avec le modèle, et parfaitement déroutant sans
-   l'avoir écrit.
+## 7. Risques
 
-## 7. Hors périmètre
+1. **Le pas de marche fixe la précision de l'absorption.** Une nappe fine entre deux pas est
+   invisible, une nappe traversée en biais est sous-estimée. Un milieu dense et mince est le pire cas.
+2. **Densité et rayon de lampe interagissent mal à l'intuition** : `exp(−α·d)` combiné à
+   l'atténuation `(1−d/r)²` chute très vite. Prévoir de baisser α d'un ordre de grandeur par rapport
+   au réflexe, et **documenter une valeur de départ** plutôt que laisser chacun la chercher.
+3. **Rien n'atténue l'ambiant.** Le terme ambiant n'a pas de trajet — il est global par construction.
+   Une scène très brumeuse mais fortement ambiante ne paraîtra pas brumeuse. Cohérent avec le modèle,
+   et parfaitement déroutant sans l'avoir écrit.
+4. **La sur-brillance devient facile.** Le terme diffusé est additif et non écrêté (cible RGBA16F) ;
+   une nébuleuse dense sous une lampe intense saturera. C'est voulu — c'est ce dont le bloom se
+   nourrira — mais ça se règle, et il faudra le dire.
 
-- **La diffusion** (§3) — le voile laiteux et les faisceaux visibles. C'est un terme additif à part.
-- **Le brouillard texturé / animé** — une nappe non uniforme. Le rect uniforme est le socle
-  d'authoring ; une texture de densité est une extension naturelle mais pas gratuite.
-- **Le brouillard de guerre**, qui ressemble mais n'a rien à voir : il masque de
-  l'**information**, pas de la lumière, et il existe déjà côté tilemap (`render:tilemap:fog`). Ne
-  pas les confondre dans la doc — deux systèmes, deux buts.
+## 8. Hors périmètre
 
-## 8. Sources
+- **L'émission propre** (§1) — l'aspect d'une nébuleuse sans lumière. C'est de l'art.
+- **La diffusion multiple** (la lumière qui rebondit plusieurs fois). Un seul rebond suffit
+  visuellement en 2D ; le second coûterait une itération pour un gain que personne ne verrait.
+- **Le milieu texturé / animé** — une densité non uniforme. Le rect uniforme est le socle
+  d'authoring ; une texture de densité est l'extension naturelle, et probablement la première
+  demandée pour de vraies nébuleuses.
+- **Le brouillard de guerre**, qui ressemble mais n'a rien à voir : il masque de l'**information**,
+  pas de la lumière, et il existe déjà côté tilemap (`render:tilemap:fog`). Deux systèmes, deux buts.
 
-- [Volumetric Rendering, Part 1 — Beer-Lambert](https://wallisc.github.io/rendering/2020/05/02/Volumetric-Rendering-Part-1.html) — `I = I₀·exp(−α·d)` et le rôle du coefficient d'absorption.
-- [Volumetric Raymarching — GM Shaders](https://mini.gmshaders.com/p/volumetric) — l'accumulation pas à pas de densité et de transmittance, transposable en 2D.
-- [Real-time cloudscapes with volumetric raymarching](https://blog.maximeheckel.com/posts/real-time-cloudscapes-with-volumetric-raymarching/) — la séparation entre absorption et diffusion, c'est-à-dire exactement la distinction du §3.
+## 9. Sources
+
+- [Volumetric Rendering, Part 1 — Beer-Lambert](https://wallisc.github.io/rendering/2020/05/02/Volumetric-Rendering-Part-1.html) — `I = I₀·exp(−α·d)`, et la séparation absorption / diffusion.
+- [Volumetric Raymarching — GM Shaders](https://mini.gmshaders.com/p/volumetric) — l'accumulation pas à pas de densité et de transmittance.
+- [Real-time cloudscapes with volumetric raymarching](https://blog.maximeheckel.com/posts/real-time-cloudscapes-with-volumetric-raymarching/) — pourquoi la diffusion est le terme qui *rend visible* le milieu, là où l'absorption ne fait que l'assombrir.

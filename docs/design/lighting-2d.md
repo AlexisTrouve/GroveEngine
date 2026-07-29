@@ -109,9 +109,9 @@ Les trois se ramenent a une seule question — *combien de lumiere, et de quelle
 point A au point B* — donc ils partagent **un socle** decide une fois pour toutes :
 
 - 📐 **[Socle : table de transmittance polaire](lighting-transmittance-core.md)** ← lire en premier
-- [Plan W — les murs](lighting-walls.md) : transmittance nulle
+- [Plan W — les murs](lighting-walls.md) : transmittance nulle — ✅ **LIVRE**
 - [Plan F — les filtres](lighting-filters.md) : transmittance coloree
-- [Plan A — les attenuateurs](lighting-attenuators.md) : transmittance continue (Beer-Lambert)
+- [Plan A — les milieux](lighting-attenuators.md) : Beer-Lambert **+ diffusion** (nebuleuses)
 
 ⚠️ **Le budget de ce document est perime par avance** : le §4 annonce « des dizaines de lampes ». La
 reference du shadow map 1D mesure le decrochage vers **20 lampes**, sans transmittance. A remesurer,
