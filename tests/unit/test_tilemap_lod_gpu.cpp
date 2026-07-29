@@ -129,6 +129,40 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         // packed as 0xAABBGGRR -> same layout as the palette literals
     };
 
+    // Variante de renderCenter qui rend la COLONNE centrale au lieu d'un seul pixel. Necessaire pour
+    // juger la FORME d'un bord : un pixel isole ne dit rien de son ondulation.
+    auto renderColumn = [&](const TilemapChunk& chunk, int grid) -> std::vector<uint32_t> {
+        const float g = static_cast<float>(grid);
+        float view[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+        float proj[16] = { 2.0f/g,0,0,0, 0,2.0f/g,0,0, 0,0,1,0, -1.0f,-1.0f,0,1 };
+        device->setViewFramebuffer(0, fb);
+        device->setViewRect(0, 0, 0, P, P);
+        device->setViewClear(0, 0x000000FFu, 1.0f);
+        device->setViewTransform(0, view, proj);
+
+        FramePacket frame;
+        frame.tilemaps = &chunk;
+        frame.tilemapCount = 1;
+        frame.mainView.positionX = 0.0f; frame.mainView.positionY = 0.0f;
+        frame.mainView.zoom = 1.0f;
+        frame.mainView.viewportW = 100000; frame.mainView.viewportH = 100000;
+
+        rhi::RHICommandBuffer cmd;
+        pass.execute(frame, *device, cmd);
+        device->executeCommandBuffer(cmd);
+        device->frame();
+
+        std::vector<uint8_t> px(static_cast<size_t>(P) * P * 4, 0);
+        REQUIRE(device->readFramebuffer(fb, px.data(), static_cast<uint32_t>(px.size())));
+        std::vector<uint32_t> out;
+        for (int y = 0; y < P; ++y) {
+            const size_t c = (static_cast<size_t>(y) * P + (P / 2)) * 4;
+            out.push_back((static_cast<uint32_t>(px[c + 3]) << 24) | (static_cast<uint32_t>(px[c + 2]) << 16)
+                        | (static_cast<uint32_t>(px[c + 1]) << 8) | static_cast<uint32_t>(px[c + 0]));
+        }
+        return out;
+    };
+
     // --- DETAIL: a uniform 8x8 chunk of tile id 1 -> 0.125 tiles/pixel -> the tile's exact color.
     {
         const int G = 8;
@@ -393,6 +427,82 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         pass.setFogOffset(0.0f, 0.0f);
         pass.setFogTexture(rhi::TextureHandle{});
         device->destroy(fogTex);
+    }
+
+    // --- BORD DE BROUILLARD ONDULE (fogEdge) : le bord cesse de suivre la grille.
+    //
+    // POURQUOI : le masque n'a qu'un texel par tuile ; interpole lineairement, son degrade s'etale sur
+    // exactement une tuile et le bord reste visiblement ALIGNE SUR LA GRILLE. Le reflexe serait de
+    // reclamer au jeu un masque sous-tuile -- ce serait une erreur : la visibilite est CONNUE par
+    // tuile (DAOS revele en minant), donc un masque 4x plus fin ne porterait AUCUNE information de
+    // plus, seulement du travail en plus cote jeu. On perturbe donc la lecture du masque avec du
+    // bruit, a information constante.
+    //
+    // COMMENT LE PROUVER : masque coupe VERTICALEMENT, 2 tuiles a gauche de la colonne echantillonnee.
+    // Sans ondulation cette colonne est franchement du cote visible, donc UNIFORME. Avec ondulation
+    // le bord serpente et la colonne traverse tantot le cache tantot le visible : elle cesse d'etre
+    // uniforme. C'est la FORME du bord qu'on mesure, pas une couleur.
+    //
+    // ⚠️ PIEGE PAYE ICI : un premier essai utilisait un damier 4x4 repete 8 fois sur le chunk. A cette
+    // frequence le GPU descend dans les mips et rend la MOYENNE du damier -- exactement 0.5 -- donc une
+    // perturbation rigoureusement nulle et un test vert-pour-de-mauvaises-raisons... ou plutot rouge
+    // sans que le code soit en cause. Le bruit de test doit etre BASSE FREQUENCE : ici 2 texels sur la
+    // hauteur, un seul cycle sur le chunk.
+    {
+        // Bruit vertical basse frequence : noir en haut, blanc en bas.
+        const uint32_t BLACK = 0xFF000000u, WHITE = 0xFFFFFFFFu;
+        std::vector<uint32_t> noise = { BLACK, WHITE };   // 1 x 2
+
+        rhi::TextureDesc nd;
+        nd.width = 1; nd.height = 2;
+        nd.format = rhi::TextureDesc::RGBA8;
+        nd.data = noise.data();
+        nd.dataSize = static_cast<uint32_t>(noise.size() * 4);
+        rhi::TextureHandle noiseTex = device->createTexture(nd);
+        REQUIRE(noiseTex.isValid());
+        pass.setFogTexture(noiseTex);
+        pass.setFogScale(64.0f);      // chunk de 16 -> fogUv 0..0.25 -> x4 -> UN cycle vertical
+        pass.setFogOffset(0.0f, 0.0f);
+
+        const int G = 16;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        std::vector<uint8_t>  fog(static_cast<size_t>(G) * G);
+        for (int y = 0; y < G; ++y)
+            for (int x = 0; x < G; ++x)
+                fog[static_cast<size_t>(y) * G + x] = (x < G / 2 - 2) ? 0 : 255;
+
+        auto columnSpread = [&](float edge, uint32_t chunkId) -> int {
+            pass.setFogEdge(edge);
+            TilemapChunk c{};
+            c.x = 0; c.y = 0; c.width = G; c.height = G;
+            c.tileWidth = 1; c.tileHeight = 1;
+            c.tiles = tiles.data(); c.tileCount = tiles.size();
+            c.fog = fog.data();
+            c.id = chunkId; c.dirty = true;
+            const std::vector<uint32_t> colPx = renderColumn(c, G);
+            int lo = 255, hi = 0;
+            for (uint32_t v : colPx) {
+                const int r = byteOf(v, 0);
+                lo = std::min(lo, r); hi = std::max(hi, r);
+            }
+            return hi - lo;   // 0 = colonne uniforme = bord parfaitement droit
+        };
+
+        const int straight = columnSpread(0.0f, 600);
+        const int wobbly   = columnSpread(4.0f, 601);
+
+        INFO("bord droit spread=" << straight << " bord ondule spread=" << wobbly);
+
+        // 1. Sans le reglage, le bord est une DROITE : la colonne centrale ne varie pas.
+        CHECK(straight <= 2);
+
+        // 2. Avec le reglage, le bord serpente : la meme colonne traverse cache ET visible.
+        CHECK(wobbly > straight + 20);
+
+        pass.setFogEdge(0.0f);
+        pass.setFogScale(64.0f);
+        pass.setFogTexture(rhi::TextureHandle{});
+        device->destroy(noiseTex);
     }
 
     // --- DERIVED LOD COLOUR: the zoom-out band takes its colours from the TILESET (per-layer average)

@@ -105,6 +105,22 @@ public:
      * un brouillard qui dérive ne doit jamais re-cacher ce qui a été exploré.
      */
     void setFogOffset(float x, float y) { m_fogOffsetX = x; m_fogOffsetY = y; }
+
+    /**
+     * @brief Amplitude d'ONDULATION du bord de brouillard, en TUILES (0 = bord droit, défaut).
+     *
+     * POURQUOI : le masque n'a qu'un texel par tuile — interpolé linéairement, son dégradé s'étale
+     * sur exactement une tuile et le bord reste visiblement aligné sur la grille. Le réflexe serait
+     * de réclamer au jeu un masque sous-tuile ; ce serait une erreur, car la visibilité est CONNUE
+     * par tuile (DAOS révèle en minant) — un masque 4× plus fin ne porterait aucune information de
+     * plus, seulement du travail en plus côté jeu. On perturbe donc la LECTURE du masque avec du
+     * bruit : le bord ondule et cesse de suivre la grille, à information constante.
+     *
+     * ⚠️ Suppose une vraie texture de brouillard : avec la 1×1 par défaut le bruit est constant, donc
+     * le bord se décale uniformément au lieu d'onduler.
+     */
+    void setFogEdge(float tiles) { m_fogEdge = (tiles > 0.0f) ? tiles : 0.0f; }
+    float fogEdge() const { return m_fogEdge; }
     float fogOffsetX() const { return m_fogOffsetX; }
     float fogOffsetY() const { return m_fogOffsetY; }
 
@@ -166,6 +182,7 @@ private:
     float m_fogScale = 64.0f;
     float m_fogOffsetX = 0.0f;
     float m_fogOffsetY = 0.0f;
+    float m_fogEdge = 0.0f;   // 0 = bord droit = comportement historique au pixel près
 
     // Per-textureId atlas arrays registered by the host (Slice A3.3); NON-owning. A chunk's
     // textureId selects one, else the procedural m_defaultAtlas is bound.

@@ -215,7 +215,39 @@ le filtrage ni l'arrondi ne brouillent le verdict. Vérifié adversarialement : 
 deux réglages, les trois rendus donnent le **pixel identique** (`ff005fa0`) et 6 assertions passent
 au rouge — c'est exactement le comportement d'avant.
 
-**Reste ouvert** (non fait, pas oublié) : la granularité de douceur du masque est d'**une tuile**
-(masque R8 à 1 texel par tuile, filtré linéairement). Le nuage par-dessus le masque assez bien ; des
-bords plus fins demanderaient un masque sous-tuile — un vrai chantier, à ne lancer que sur besoin
-constaté (DAOS : `vision.md` fait du fog-of-war révélé par le minage un pilier).
+### Bord ondulé — et pourquoi PAS un masque sous-tuile
+
+Le masque n'a qu'un texel par tuile : interpolé linéairement, son dégradé s'étale sur exactement une
+tuile et le bord reste **visiblement aligné sur la grille**.
+
+Le réflexe est de réclamer au jeu un masque sous-tuile (4×4 échantillons par tuile). **C'est une
+erreur** : la visibilité est CONNUE par tuile — DAOS révèle en minant, une cellule à la fois — donc
+un masque 4× plus fin ne porterait **aucune information de plus**. Il ne ferait que lisser plus
+finement la même donnée, au prix d'un buffer 16× plus gros à produire et à transmettre, côté jeu.
+
+Ce qui produit vraiment un bord organique, c'est de **perturber la LECTURE du masque avec du bruit** :
+
+```glsl
+if (u_fogParams.w > 0.0) {
+    float n = texture2D(s_fognoise, fogUv * 4.0).r;   // le nuage lui-même, 4x plus fin
+    maskUv += (n - 0.5) * 2.0 * u_fogParams.w / grid;
+}
+```
+
+Le bord ondule et cesse de suivre la grille, **à information constante** — zéro donnée en plus, zéro
+travail côté jeu. La source de bruit est la texture de brouillard elle-même : le nuage dessine donc
+son PROPRE bord, les deux restent cohérents, et un changement d'art se propage tout seul.
+
+`fogEdge` (config) / `{edge}` (topic), en **tuiles**. 0 = bord droit = rendu historique au pixel près.
+⚠️ Suppose une vraie texture de brouillard : avec la 1×1 par défaut le bruit est constant, donc le
+bord se **décale** uniformément au lieu d'onduler.
+
+**Preuve :** masque coupé verticalement, 2 tuiles à gauche de la colonne échantillonnée. Sans
+ondulation cette colonne est uniforme (bord = droite parfaite) ; avec, elle traverse caché ET visible.
+On mesure la FORME du bord, pas une couleur. Vérifié adversarialement (le réglage neutralisé → 0).
+
+> **Piège payé en écrivant ce test** — le premier bruit était un damier 4×4 répété 8 fois sur le
+> chunk. À cette fréquence le GPU **descend dans les mips et rend la moyenne du damier, exactement
+> 0.5** : perturbation rigoureusement nulle, test rouge sans que le code soit en cause. Localisé en
+> deux mesures (la branche s'exécute-t-elle ? le bruit varie-t-il ?) et non en tâtonnant sur les
+> valeurs. **Un bruit de test doit être BASSE FRÉQUENCE.**

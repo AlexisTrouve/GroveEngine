@@ -23,7 +23,7 @@ uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w unused)
 uniform vec4 u_tilemapParams;  // x=originX, y=originY, z=tilePixW, w=tilePixH (world-space fog uv)
 uniform vec4 u_tileAnim[4];    // animated tiles: per entry x=tileId, y=frameCount, z=fps (w unused)
 uniform vec4 u_tileAnimMeta;   // x=animCount, y=time(seconds) (z,w unused)
-uniform vec4 u_fogParams;      // x=worldScale, y=offsetX, z=offsetY (world units), w unused
+uniform vec4 u_fogParams;      // x=worldScale, y=offsetX, z=offsetY (world units), w=edge (tiles)
 
 void main()
 {
@@ -73,10 +73,30 @@ void main()
     // but not the scale it repeats at. y,z offset the sampling in WORLD units, so a host that ramps
     // them over time gets drifting fog for the price of a uniform (the mask is untouched — the
     // REVEAL stays exactly where the game put it, only the cloud moves).
-    float vis = texture2D(s_fog, tc / grid).r;
     vec2 worldPos = u_tilemapParams.xy + tc * u_tilemapParams.zw;
     float fogScale = max(u_fogParams.x, 0.0001);   // guard: 0 would blow the uv up to infinity
-    vec3 fogColor = texture2D(s_fognoise, (worldPos + u_fogParams.yz) / fogScale).rgb;
+    vec2 fogUv = (worldPos + u_fogParams.yz) / fogScale;
+    vec3 fogColor = texture2D(s_fognoise, fogUv).rgb;
+
+    // BORD ORGANIQUE (u_fogParams.w, en TUILES). Le masque n'a qu'un texel par tuile : interpolé
+    // linéairement, son dégradé s'étale sur exactement une tuile et le bord reste visiblement aligné
+    // sur la grille. Plutôt que de réclamer au jeu un masque sous-tuile — qui ne porterait AUCUNE
+    // information de plus, la visibilité étant connue par tuile — on PERTURBE la lecture du masque
+    // avec du bruit : le bord ondule et cesse de suivre la grille, sans une donnée de plus.
+    //
+    // La source de bruit est la texture de brouillard elle-même, échantillonnée 4x plus fin. C'est
+    // volontaire : le nuage dessine ainsi son PROPRE bord, donc les deux restent cohérents et un
+    // changement d'art se propage tout seul.
+    //
+    // w = 0 -> décalage nul -> comportement d'avant AU PIXEL PRÈS (défaut à coût zéro).
+    // ⚠️ Avec la texture de brouillard 1x1 par défaut, le bruit est constant : le bord se décale
+    // uniformément au lieu d'onduler. Le réglage suppose une vraie texture de brouillard.
+    vec2 maskUv = tc / grid;
+    if (u_fogParams.w > 0.0) {
+        float n = texture2D(s_fognoise, fogUv * 4.0).r;
+        maskUv += (n - 0.5) * 2.0 * u_fogParams.w / grid;
+    }
+    float vis = texture2D(s_fog, maskUv).r;
     col.rgb = mix(fogColor, col.rgb, vis);
 
     if (col.a < 0.01) {

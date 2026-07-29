@@ -404,7 +404,7 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             cmd.setUniform(m_gridUniform, grid, 1);
             cmd.setUniform(m_animUniform, animData, kMaxTileAnims);   // animated-tile table + clock
             cmd.setUniform(m_animMetaUniform, animMeta, 1);
-            const float fogParams[4] = { m_fogScale, m_fogOffsetX, m_fogOffsetY, 0.0f };
+            const float fogParams[4] = { m_fogScale, m_fogOffsetX, m_fogOffsetY, m_fogEdge };
             cmd.setUniform(m_fogParamsUniform, fogParams, 1);
             cmd.setTexture(0, index, m_indexSampler);
             cmd.setTexture(1, tileset, m_atlasSampler);

@@ -308,6 +308,11 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             const double scale = d.getDouble("scale", 0.0);
             if (scale > 0.0) m_tilemapPass->setFogScale(static_cast<float>(scale));
 
+            // `edge` accepte 0 (= remettre un bord droit), on relit donc la valeur courante comme
+            // défaut plutôt que de traiter 0 comme « absent ».
+            const double edge = d.getDouble("edge", static_cast<double>(m_tilemapPass->fogEdge()));
+            m_tilemapPass->setFogEdge(static_cast<float>(edge));
+
             // Le décalage n'a pas de sentinelle « absent » utilisable (0 est une valeur légitime), on
             // relit donc la valeur courante comme défaut : publier l'un sans l'autre est sans effet
             // de bord.
@@ -699,6 +704,12 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         if (fogScale > 0.0) {
             m_tilemapPass->setFogScale(static_cast<float>(fogScale));
             m_logger->info("Fog scale: {} world units per fog tile", fogScale);
+        }
+        // Ondulation du bord, en tuiles. 0 (défaut) = bord droit = rendu historique.
+        const double fogEdge = config.getDouble("fogEdge", 0.0);
+        if (fogEdge > 0.0) {
+            m_tilemapPass->setFogEdge(static_cast<float>(fogEdge));
+            m_logger->info("Fog edge: {} tiles of wobble", fogEdge);
         }
     }
 
