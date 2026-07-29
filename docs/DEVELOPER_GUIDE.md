@@ -538,6 +538,29 @@ expressible matter.
 so a very foggy but strongly ambient scene will not look foggy. Consistent with the model, and
 thoroughly confusing if you have not read this line.
 
+##### Nebulae — a medium whose density varies
+
+`render:fog` is a **rectangle of uniform density**: right for a fog bank or a smoke-filled room,
+unusable as a cloud. `render:nebula` is a **disc** whose density peaks at the core and falls to
+exactly zero at the rim.
+
+| Topic | Payload | Notes |
+|-------|---------|-------|
+| `render:nebula` | `{cx, cy, radius, density, color?, scatter?}` | soft radial medium, **ephemeral** |
+
+**`cx, cy` is the CENTRE** — a disc's anchor, unlike the rect media above. `density` is the *peak*
+Beer-Lambert α, in the same units as `render:fog`, so a value tuned on one transfers to the other.
+`color` and `scatter` behave exactly as they do for fog.
+
+**Overlap several to build a cloud.** Each volume fades to vacuum at its own rim, so overlapping
+discs give an organic silhouette with no geometry showing. ⚠️ Do NOT try this with `render:fog`: a
+stack of rectangles produces visible concentric outlines — a ziggurat, not a cloud. That is measured,
+not theoretical, and it is why this primitive exists.
+
+⚠️ **Start around `0.02`, not `0.9`.** The density is per unit of length, so it compounds: a volume
+of radius 150 at `density: 0.9` absorbs `exp(-135)` through its core — a black disc. Every author's
+first instinct here is one to two orders of magnitude too high.
+
 ⚠️ **Overbright is easy to reach.** The scattered term is additive and unclamped (RGBA16F), so a dense
 medium under an intense lamp saturates. That is intended — it is what a bloom pass will feed on — but
 it means `scatter` near 1 with `intensity` above 2 will flatten to white.
@@ -1767,7 +1790,8 @@ Two modes:
 | `render:filter` | `{x, y, w, h, color, opacity?}` | Rectangle that **tints** the light crossing it instead of blocking it, **ephemeral**. `x,y` = top-left CORNER. `color` = the tint after ONE perpendicular crossing of `min(w,h)`; its alpha byte is ignored (`opacity`, default 1, is the knob). Overlapping filters compose by product, in any order. A non-positive extent is dropped. |
 | `render:filter:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, color?, opacity?}` | **Retained** filter — for static stained glass. `:update` merges, and **re-derives the tint** if the pane is resized. |
 | `render:fog` | `{x, y, w, h, density, color?, scatter?}` | Absorbing (and optionally scattering) volume, **ephemeral**. `x,y` = top-left CORNER. `density` is the Beer-Lambert **α**, unbounded and per-unit — NOT an opacity. `color` (white = neutral) makes absorption selective. `scatter` (0..1, default 0) re-emits crossing light **additively**, which is what makes a beam visible in the void. |
-| `render:fog:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, density?, color?, scatter?}` | **Retained** medium — for a nebula. `:update` merges and re-derives. |
+| `render:fog:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?, density?, color?, scatter?}` | **Retained** rectangular medium. `:update` merges and re-derives. |
+| `render:nebula` | `{cx, cy, radius, density, color?, scatter?}` | Soft RADIAL medium, **ephemeral**. `cx,cy` = CENTRE (a disc, not a rect). Density peaks at the core and reaches exactly zero at the rim, so the bounding quad is invisible — overlap several for an organic cloud. Same `density` units as `render:fog`. |
 
 See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
 `include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").

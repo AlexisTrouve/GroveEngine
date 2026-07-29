@@ -220,6 +220,31 @@ pas dessinable en sprite : c'est de la matière éclairée, pas une surface.
 Beer-Lambert « ce n'est pas un assombrissement », les **rais de lumière** (god rays) en 2D, ou pour
 illustrer qu'un même mécanisme porte murs, filtres et milieux.
 
+### Nébuleuses — un milieu à densité variable
+
+> **Pourquoi une primitive de plus.** `render:fog` est un **rectangle de densité uniforme** : la
+> bonne forme pour un banc de brume ou une pièce enfumée, et inutilisable en nébuleuse — bords
+> francs, intérieur plat. Empiler des rects pour simuler un dégradé a été **mesuré** : ça donne une
+> ziggourat de contours concentriques, pas un nuage. `render:nebula` est un **disque** dont la
+> densité culmine au cœur et tombe à zéro **exactement** au bord.
+
+#### `blog/15_nebula.png`
+**Une nébuleuse éclairée de côté (2026-07-29).** *(Fond noir. Un nuage aux contours organiques et
+irréguliers, vivement éclairé sur sa face gauche et s'assombrissant vers la droite, avec des
+variations de teinte rose et ambre en son sein.)* La lampe est **à côté** du nuage, pas dedans :
+c'est ce qui distingue un **milieu** du halo d'une lampe. Quatre volumes se chevauchent — chacun
+s'éteignant à son propre bord, la silhouette combinée n'a aucun contour géométrique. À utiliser
+pour : un article sur les **nébuleuses / milieux volumétriques**, « pourquoi un rectangle ne suffit
+pas », la composition de volumes.
+
+#### `blog/16_nebula_drift.gif`
+**La source tourne autour du nuage (2026-07-29).** *(Le nuage reste immobile pendant qu'une source
+lumineuse en fait le tour ; sa face éclairée voyage avec elle, la face opposée restant sombre.)*
+**L'image fixe ne peut pas trancher entre un milieu et un halo** — les deux sont une tache
+lumineuse. Déplacer la source règle la question : un halo suivrait la lampe, un nuage reste où il
+est et change seulement de côté éclairé. À utiliser pour : la même famille de sujets que 15, et
+partout où il faut prouver qu'un volume est **de la matière éclairée**, pas un sprite peint.
+
 ### Instrument de mesure
 
 #### `blog/90_edge_probe.png`

@@ -912,3 +912,121 @@ TEST_CASE("lighting: a scattering medium GLOWS where there is no scene at all (G
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a nebula absorbs PROGRESSIVELY, and its bounding quad is invisible (GPU)",
+          "[gpu][light][nebula]") {
+    // Two claims, and the second is the one that makes this primitive worth existing.
+    //
+    // 1. PROGRESSIVE. A ray through the core is absorbed far more than a ray grazing the edge. A
+    //    uniform disc — or a rect — would absorb the same everywhere it covered.
+    // 2. The BOUNDING QUAD IS INVISIBLE. The volume is drawn as a square, but its density reaches
+    //    exactly zero at the disc's rim, so a ray that crosses the square OUTSIDE the disc must come
+    //    out bit-for-bit as if no nebula existed. Get that wrong and every cloud in the game wears a
+    //    visible box — the exact failure that stacking rects produced.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 128, H = 128;
+    SDL_Window* win = SDL_CreateWindow("light9", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li9_r");
+    auto gIO = mgr.createInstance("li9_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li9_r"); mgr.removeInstance("li9_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    const double lampX = 10.0, lampY = 64.0;
+    const double nebX = 64.0, nebY = 64.0, nebR = 25.0;
+
+    auto render = [&](bool withNebula, std::vector<uint8_t>& out) {
+        for (int i = 0; i < 6; ++i) {
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x080808FFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            { auto l = std::make_unique<JsonDataNode>("l");
+              l->setDouble("cx", lampX); l->setDouble("cy", lampY);
+              l->setDouble("radius", 400.0);
+              l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              l->setDouble("intensity", 2.5);
+              gIO->publish("render:light", std::move(l)); }
+            if (withNebula) {
+                auto n = std::make_unique<JsonDataNode>("n");
+                n->setDouble("cx", nebX); n->setDouble("cy", nebY);
+                n->setDouble("radius", nebR);
+                n->setDouble("density", 0.05);   // scatter left at 0: absorption is what is under test
+                gIO->publish("render:nebula", std::move(n));
+            }
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        out.assign(static_cast<size_t>(W)*H*4, 0);
+        REQUIRE(dev->readFramebuffer(fb, out.data(), static_cast<uint32_t>(out.size())));
+    };
+
+    std::vector<uint8_t> without, with;
+    render(false, without);
+    render(true, with);
+
+    auto luma = [&](const std::vector<uint8_t>& buf, int x, int y) {
+        const uint8_t* p = &buf[(static_cast<size_t>(y)*W + x)*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    // Three probes, all beyond the volume, each compared to ITS OWN no-nebula value — so the radial
+    // falloff of the lamp cancels out and only the medium's effect remains.
+    //  - core:    the ray passes straight through the centre (impact parameter 0)
+    //  - grazing: the ray clips the disc well off-centre (impact ~13 of 25)
+    //  - clear:   the ray crosses the bounding SQUARE but never the disc
+    const int probes[3][2] = { {110, 64}, {110, 40}, {110, 8} };
+    double ratio[3];
+    for (int i = 0; i < 3; ++i) {
+        const double a = luma(without, probes[i][0], probes[i][1]);
+        const double b = luma(with,    probes[i][0], probes[i][1]);
+        REQUIRE(a > 40.0);            // there is light to absorb at every probe
+        ratio[i] = b / a;
+    }
+
+    INFO("core=" << ratio[0] << " grazing=" << ratio[1] << " clear=" << ratio[2]);
+
+    // 1. The core absorbs substantially.
+    REQUIRE(ratio[0] < 0.80);
+
+    // 2. PROGRESSIVE: the grazing ray keeps measurably more light than the core ray. A volume of
+    //    uniform density would return the same figure for both, and assertion 1 alone would pass.
+    REQUIRE(ratio[1] > ratio[0] + 0.06);
+
+    // 3. THE QUAD IS INVISIBLE. This ray crosses the drawn square but never the disc, so it must be
+    //    untouched. A square-shaped medium, or a falloff that does not reach zero at the rim, shows
+    //    up here and nowhere else.
+    REQUIRE(ratio[2] > 0.985);
+
+    renderer->shutdown();
+    mgr.removeInstance("li9_r");
+    mgr.removeInstance("li9_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

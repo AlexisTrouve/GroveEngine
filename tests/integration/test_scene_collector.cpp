@@ -2734,3 +2734,83 @@ TEST_CASE("SceneCollector - fog retained and ephemeral COEXIST",
 
     REQUIRE(fx.collector.finalize(allocator).fogCount == 2);
 }
+
+// ============================================================================
+// Lighting A4 — nebulae (render:nebula), a medium whose density VARIES.
+//
+// `render:fog` is a rectangle of uniform density: the right primitive for a fog bank or a smoke-
+// filled room, and unusable as a nebula — hard edges, flat interior. Faking one by stacking rects
+// was MEASURED and produces a visible ziggurat of concentric outlines, not a cloud.
+//
+// So this primitive is a DISC whose density peaks at the core and reaches exactly zero at the rim.
+// One consequence separates it from every other matter: nothing is pre-converted here, because the
+// density varies per pixel and the Beer-Lambert conversion has to happen in the shader.
+// ============================================================================
+
+TEST_CASE("SceneCollector - nebula: cx,cy is the CENTRE and nothing is pre-converted",
+          "[scene_collector][light][nebula]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto n = std::make_unique<JsonDataNode>("n");
+    n->setDouble("cx", 180.0); n->setDouble("cy", 96.0);
+    n->setDouble("radius", 70.0);
+    n->setDouble("density", 0.02);
+    n->setInt("color", static_cast<int>(0xFF8040FFu));   // 1.0, 0.5, 0.25
+    n->setDouble("scatter", 0.4);
+    fx.ioPublisher->publish("render:nebula", std::move(n));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.nebulaCount == 1);
+    REQUIRE(p.nebulae != nullptr);
+
+    // A disc's anchor is its CENTRE — the field name carries it, exactly as x,y carries a corner on
+    // the rect media beside it.
+    REQUIRE_THAT(p.nebulae[0].cx, WithinAbs(180.0f, 0.01f));
+    REQUIRE_THAT(p.nebulae[0].cy, WithinAbs(96.0f, 0.01f));
+    REQUIRE_THAT(p.nebulae[0].radius, WithinAbs(70.0f, 0.01f));
+    REQUIRE_THAT(p.nebulae[0].scatter, WithinAbs(0.4f, 0.01f));
+
+    // The density is carried VERBATIM, not turned into a transmittance. That is the contract: it
+    // varies across the volume, so only the shader can convert it. A collector that "helpfully"
+    // applied fogPerUnit here would hand the shader a number it would then exponentiate twice.
+    REQUIRE_THAT(p.nebulae[0].density, WithinAbs(0.02f, 1e-5f));
+    REQUIRE_THAT(p.nebulae[0].r, WithinAbs(1.0f, 0.01f));
+    REQUIRE_THAT(p.nebulae[0].g, WithinAbs(0.502f, 0.01f));
+    REQUIRE_THAT(p.nebulae[0].b, WithinAbs(0.251f, 0.01f));
+}
+
+TEST_CASE("SceneCollector - nebula: ephemeral, degenerate dropped, absent means NO array",
+          "[scene_collector][light][nebula]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.nebulaCount == 0);
+        REQUIRE(p.nebulae == nullptr);
+    }
+
+    // No radius, or no density: nothing to absorb either way.
+    for (int i = 0; i < 2; ++i) {
+        auto bad = std::make_unique<JsonDataNode>("n");
+        bad->setDouble("cx", 10.0); bad->setDouble("cy", 10.0);
+        bad->setDouble("radius", i == 0 ? 0.0 : 40.0);
+        bad->setDouble("density", i == 0 ? 0.02 : 0.0);
+        fx.ioPublisher->publish("render:nebula", std::move(bad));
+    }
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 0);
+    fx.collector.clear();
+
+    auto ok = std::make_unique<JsonDataNode>("n");
+    ok->setDouble("cx", 10.0); ok->setDouble("cy", 10.0);
+    ok->setDouble("radius", 40.0); ok->setDouble("density", 0.02);
+    fx.ioPublisher->publish("render:nebula", std::move(ok));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 1);
+
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).nebulaCount == 0);
+}

@@ -13,6 +13,7 @@
 #include "fs_composite.bin.h"
 #include "vs_light.bin.h"
 #include "fs_light.bin.h"
+#include "fs_nebula.bin.h"
 
 namespace grove {
 
@@ -123,6 +124,9 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     // Radial lights (lighting L2).
     loadLightShader(device, rendererName);
+
+    // Soft radial media (lighting A4).
+    loadNebulaShader(device, rendererName);
 }
 
 void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
@@ -265,6 +269,36 @@ void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& 
     rhi::ShaderHandle lightProgram = device.createShader(shaderDesc);
     if (lightProgram.isValid()) {
         m_programs["light"] = lightProgram;
+    }
+}
+
+void ShaderManager::loadNebulaShader(rhi::IRHIDevice& device, const std::string& rendererName) {
+    // ⚠️ The VERTEX stage is vs_light, shared verbatim. A nebula and a lamp pose the identical
+    // geometry problem — scale a unit quad by a radius, place it at a world centre, hand the
+    // fragment stage its position in the -1..1 disc — so duplicating that shader to rename a
+    // uniform would be strictly worse than this comment. Only the fragment stage differs.
+    const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
+    const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_light_glsl; vsSize = sizeof(vs_light_glsl);
+        fsData = fs_nebula_glsl; fsSize = sizeof(fs_nebula_glsl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_light_dx11; vsSize = sizeof(vs_light_dx11);
+        fsData = fs_nebula_dx11; fsSize = sizeof(fs_nebula_dx11);
+    } else {
+        // No Metal variant of fs_nebula on this toolchain; SPIR-V is the fallback everywhere else.
+        vsData = vs_light_spv; vsSize = sizeof(vs_light_spv);
+        fsData = fs_nebula_spv; fsSize = sizeof(fs_nebula_spv);
+    }
+
+    rhi::ShaderDesc shaderDesc;
+    shaderDesc.vsData = vsData; shaderDesc.vsSize = vsSize;
+    shaderDesc.fsData = fsData; shaderDesc.fsSize = fsSize;
+
+    rhi::ShaderHandle nebulaProgram = device.createShader(shaderDesc);
+    if (nebulaProgram.isValid()) {
+        m_programs["nebula"] = nebulaProgram;
     }
 }
 

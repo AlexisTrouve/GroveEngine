@@ -23,6 +23,7 @@
 #include "Passes/CompositePass.h"
 #include "Passes/LightPass.h"
 #include "Passes/OcclusionPass.h"
+#include "Passes/NebulaPass.h"
 
 #include <grove/JsonDataNode.h>
 #include <grove/IIO.h>           // IIO subscribe + Message (render:tilemap:anim handler)
@@ -309,6 +310,12 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // flat black quads, exactly what DebugPass and SectorPass already draw with it.
     m_renderGraph->addPass(std::make_unique<OcclusionPass>(debugShader));
     m_logger->info("Added OcclusionPass");
+
+    // Soft radial media, into the SAME map and with the same multiplicative blend. Its own pass
+    // because it needs its own shader and one draw per volume, where OcclusionPass batches flat
+    // quads into one buffer.
+    m_renderGraph->addPass(std::make_unique<NebulaPass>(m_shaderManager->getProgram("nebula")));
+    m_logger->info("Added NebulaPass");
 
     {
         // The occlusion map the light march samples. WHITE = vacuum, so with nothing writing into
@@ -689,7 +696,8 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // matter is entirely stained glass sampling the 1x1 white placeholder — no tint at all.
             const bool hasOccluders = (packet.occluders != nullptr && packet.occluderCount > 0)
                                    || (packet.filters   != nullptr && packet.filterCount   > 0)
-                                   || (packet.fogs      != nullptr && packet.fogCount      > 0);
+                                   || (packet.fogs      != nullptr && packet.fogCount      > 0)
+                                   || (packet.nebulae   != nullptr && packet.nebulaCount   > 0);
             if (hasOccluders) {
                 // Drawn with the WORLD camera, because occluders are published in world coordinates
                 // — the same reason the light view carries it.

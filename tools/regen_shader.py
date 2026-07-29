@@ -54,11 +54,13 @@ def main():
     src = os.path.join(SRCDIR, name + ".sc")
     dst = os.path.join(SRCDIR, name + ".bin.h")
 
-    for p in (SHADERC, src, dst):
+    for p in (SHADERC, src):
         if not os.path.exists(p):
             raise SystemExit("introuvable : " + p)
 
-    current = io.open(dst, encoding="utf-8").read()
+    # Un .bin.h absent est le cas NORMAL d'un shader neuf : on le cree, simplement sans bloc Metal
+    # a reprendre (il n'y en a pas encore).
+    current = io.open(dst, encoding="utf-8").read() if os.path.exists(dst) else ""
     blocks = {}
 
     with tempfile.TemporaryDirectory() as tmp:

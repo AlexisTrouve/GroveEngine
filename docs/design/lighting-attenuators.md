@@ -112,6 +112,7 @@ des couchers de soleil, et une nébuleuse teintée.
 | **A1** | `render:fog` → carte de densité ; **absorption** seule | headless : oracle sur `exp(−α·d)` à trois distances. `[gpu]` : à **densité doublée**, la lumière restante est le **CARRÉ** de la précédente |
 | **A2** ✅ | **diffusion** : le terme additif au composite | ✅ livré. Sur fond noir : 0 / 0 / **255** |
 | **A3** ✅ | mode retenu + absorption colorée | ✅ livré. La couleur était déjà dans A1 ; A3 se réduit au mode retenu |
+| **A4** ✅ | **nébuleuses** : densité radiale, hors périmètre à l'origine | ✅ livré. `render:nebula`. Core 0,63 / rasant 0,79 / hors disque **1,00** — le quad est invisible |
 
 ### Ce que ce découpage annonçait et qui s'est révélé plus simple
 
@@ -125,6 +126,34 @@ composent comme des couvertures indépendantes, commutativement, et le composite
 
 Ni cible supplémentaire, ni passe supplémentaire : une lecture de texture de plus dans un composite
 qui en faisait déjà deux.
+
+### A4 — les nébuleuses, et pourquoi ce plan avait tort de les sortir du périmètre
+
+Le §8 rangeait « le milieu texturé / animé — une densité non uniforme » hors périmètre, en ajoutant
+qu'il s'agissait « probablement de la première extension demandée pour de vraies nébuleuses ».
+**C'est arrivé le jour même.**
+
+Avant de coder quoi que ce soit, la question a été posée à la mesure : peut-on approcher une
+nébuleuse en **empilant des rects** de densités décroissantes ? Réponse rendue par le moteur —
+quatorze **contours rectangulaires concentriques**, une ziggourat. Non.
+
+**A4 livre `render:nebula`** : un **disque** dont la densité culmine au cœur et tombe à zéro
+**exactement** au bord, avec la même courbe quadratique que l'atténuation d'une lampe. Ce zéro exact
+au bord est ce qui rend le quad de découpe **invisible** — et c'est l'assertion principale du test
+GPU, parce que c'est le défaut qui condamnerait la primitive (chaque nuage porterait une boîte).
+
+Empiler des **disques**, en revanche, marche : chacun s'éteignant à son propre bord, la silhouette
+combinée est organique. Ce qui échouait avec des rects réussit avec des volumes à bord nul.
+
+Deux choix consignés :
+- **une primitive de plus, pas un drapeau sur `FogCommand`** — un rect uniforme reste la bonne forme
+  pour un banc de brume, et c'est ce qu'un auteur veut taper pour ça ;
+- **rien n'est pré-converti côté CPU**, contrairement à toutes les autres matières : la densité varie
+  par pixel, donc la conversion Beer-Lambert appartient au shader. Un collecteur « serviable » qui
+  appliquerait `fogPerUnit` ici ferait exponentier deux fois.
+
+Le shader **réutilise `vs_light`** : placer un quad unitaire à l'échelle d'un rayon autour d'un centre
+monde est exactement le problème d'une lampe. Seul l'étage fragment diffère.
 
 ### Et ce qui s'est révélé déjà fait
 

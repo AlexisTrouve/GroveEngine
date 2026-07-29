@@ -230,6 +230,28 @@ struct FogCommand {
 };
 
 // ============================================================================
+// Nebula Data (lighting A4) — a medium whose density VARIES
+// ============================================================================
+
+// A soft radial volume of medium, in WORLD space. cx,cy = CENTRE (the field name carries the anchor,
+// unlike the rect primitives beside it).
+//
+// POURQUOI a second medium primitive rather than a flag on FogCommand: a rect of uniform density is
+// the right shape for a fog bank or a smoke-filled room, and it is what an author wants to type for
+// those. It cannot be a nebula — hard edges, flat interior — and faking one by stacking rects was
+// MEASURED: it produces a visible ziggurat of concentric rectangle outlines, not a cloud.
+//
+// Unlike the other matter, nothing is pre-converted here: the density varies per pixel, so the
+// shader does the Beer-Lambert conversion itself. The collector's job is only to validate.
+struct NebulaCommand {
+    float cx, cy;      // world CENTRE
+    float radius;      // world units; density falls to EXACTLY zero at the rim
+    float density;     // peak Beer-Lambert alpha, at the core
+    float r, g, b;     // colour 0..1 — selective absorption; white is neutral
+    float scatter;     // peak fraction of crossing light re-emitted towards the viewer
+};
+
+// ============================================================================
 // Debug Shape Data
 // ============================================================================
 
@@ -359,6 +381,10 @@ struct FramePacket {
     // Absorbing media for THIS frame (ephemeral). Null + 0 when none were published.
     const FogCommand* fogs = nullptr;
     size_t fogCount = 0;
+
+    // Soft radial media for THIS frame. Null + 0 when none were published.
+    const NebulaCommand* nebulae = nullptr;
+    size_t nebulaCount = 0;
 
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;

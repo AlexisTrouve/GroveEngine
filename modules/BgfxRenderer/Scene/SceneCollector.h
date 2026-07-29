@@ -119,6 +119,7 @@ private:
     // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
     std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders
+    std::vector<NebulaCommand> m_nebulae;   // ephemeral: a soft radial medium (A4)
     std::vector<FogCommand> m_fogs;         // ephemeral
 
     // RETAINED media, by renderId (A3). Stores the AUTHOR's numbers, not the converted ones, so that
@@ -177,6 +178,7 @@ private:
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);
     void parseFog(const IDataNode& data);
+    void parseNebula(const IDataNode& data);
     void parseFogAdd(const IDataNode& data);
     void parseFogUpdate(const IDataNode& data);
     void parseFogRemove(const IDataNode& data);

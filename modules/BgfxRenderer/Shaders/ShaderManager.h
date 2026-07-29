@@ -61,6 +61,8 @@ private:
     void loadTilemapShader(rhi::IRHIDevice& device, const std::string& rendererName);
     void loadCompositeShader(rhi::IRHIDevice& device, const std::string& rendererName);
     void loadLightShader(rhi::IRHIDevice& device, const std::string& rendererName);
+    // Soft radial media (lighting A4). Reuses vs_light: the geometry problem is identical.
+    void loadNebulaShader(rhi::IRHIDevice& device, const std::string& rendererName);
 
     std::unordered_map<std::string, rhi::ShaderHandle> m_programs;
     bool m_initialized = false;

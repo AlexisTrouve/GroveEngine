@@ -187,6 +187,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:fog") {
             parseFog(*msg.data);
         }
+        else if (msg.topic == "render:nebula") {
+            parseNebula(*msg.data);
+        }
         else if (msg.topic == "render:fog:add") {
             parseFogAdd(*msg.data);
         }
@@ -465,6 +468,19 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
+    // Copy nebulae (A4). Ephemeral; same no-array-when-unused rule as the rest.
+    if (!m_nebulae.empty()) {
+        NebulaCommand* nb = allocator.allocateArray<NebulaCommand>(m_nebulae.size());
+        if (nb) {
+            std::memcpy(nb, m_nebulae.data(), m_nebulae.size() * sizeof(NebulaCommand));
+            packet.nebulae = nb;
+            packet.nebulaCount = m_nebulae.size();
+        }
+    } else {
+        packet.nebulae = nullptr;
+        packet.nebulaCount = 0;
+    }
+
     // Copy fog volumes: RETAINED (a nebula, which does not move) then EPHEMERAL. Same
     // no-array-when-unused rule as the rest; retained ones are derived here from the author's
     // numbers so a partial update naming only one field stays coherent.
@@ -671,6 +687,7 @@ void SceneCollector::clear() {
     m_occluders.clear();
     m_filters.clear();
     m_fogs.clear();
+    m_nebulae.clear();
     m_lights.clear();
     m_particles.clear();
     m_debugLines.clear();
@@ -1313,6 +1330,32 @@ void SceneCollector::parseFog(const IDataNode& data) {
     // No extent, or no density: either way there is nothing to absorb, and nothing worth a quad.
     if (src.w <= 0.0f || src.h <= 0.0f || src.density <= 0.0f) return;
     m_fogs.push_back(buildFog(src));
+}
+
+void SceneCollector::parseNebula(const IDataNode& data) {
+    NebulaCommand n;
+    // cx,cy = CENTRE. Unlike the rect media beside it, this primitive is a DISC, and the field name
+    // is what says so (render-anchor-convention.md).
+    n.cx     = static_cast<float>(data.getDouble("cx", 0.0));
+    n.cy     = static_cast<float>(data.getDouble("cy", 0.0));
+    n.radius = static_cast<float>(data.getDouble("radius", 0.0));
+    if (n.radius <= 0.0f) return;   // no extent, nothing to absorb
+
+    // `density` is the PEAK Beer-Lambert alpha, reached at the core; it falls to exactly zero at the
+    // rim. Same units as render:fog, so a value tuned on one transfers to the other.
+    n.density = static_cast<float>(data.getDouble("density", 0.0));
+    if (n.density <= 0.0f) return;
+
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+    n.r = static_cast<float>((color >> 24) & 0xFF) / 255.0f;
+    n.g = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+    n.b = static_cast<float>((color >>  8) & 0xFF) / 255.0f;
+    // NOT converted here, unlike every other matter: the density varies across the volume, so the
+    // Beer-Lambert conversion has to happen per pixel. The collector only validates.
+
+    n.scatter = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("scatter", 0.0))));
+
+    m_nebulae.push_back(n);
 }
 
 void SceneCollector::parseFogAdd(const IDataNode& data) {

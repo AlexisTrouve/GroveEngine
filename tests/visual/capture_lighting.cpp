@@ -145,6 +145,16 @@ int main(int argc, char** argv) {
         f->setDouble("scatter", scatter);
         gIO->publish("render:fog", std::move(f));
     };
+    // A NEBULA: a soft radial medium. cx,cy = CENTRE (a disc, not a rect — the field name says so).
+    // Its density peaks at the core and reaches EXACTLY zero at the rim, so no square is ever visible.
+    auto nebula = [&](double cx, double cy, double radius, double density, uint32_t col, double scatter) {
+        auto n = std::make_unique<JsonDataNode>("d");
+        n->setDouble("cx", cx); n->setDouble("cy", cy); n->setDouble("radius", radius);
+        n->setDouble("density", density);
+        n->setInt("color", static_cast<int>(col));
+        n->setDouble("scatter", scatter);
+        gIO->publish("render:nebula", std::move(n));
+    };
     auto ambient = [&](uint32_t col) {
         auto a = std::make_unique<JsonDataNode>("d");
         a->setInt("color", static_cast<int>(col));
@@ -222,9 +232,9 @@ int main(int argc, char** argv) {
 
     struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn;
                  decltype(glow)* glowFn; decltype(occluder)* occFn; decltype(filter)* filtFn;
-                 decltype(fog)* fogFn;
+                 decltype(fog)* fogFn; decltype(nebula)* nebFn;
                  double animT; };   // 0..1 around the loop — only the animation mode reads it
-    Ctx ctx{ &light, &ambient, &sprite, &glow, &occluder, &filter, &fog, 0.0 };
+    Ctx ctx{ &light, &ambient, &sprite, &glow, &occluder, &filter, &fog, &nebula, 0.0 };
 
     // ------------------------------------------------------------------------------------------
     // ANIMATION MODE — `capture_lighting <dir> anim` writes a numbered frame sequence instead of
@@ -240,6 +250,53 @@ int main(int argc, char** argv) {
     // it, and the beam fades with distance because absorption compounds along the ray. None of that
     // is drawable as a sprite — it is the medium being lit, not a surface.
     // ------------------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------------
+    // ANIMATION MODE 3 — `capture_lighting <dir> anim-neb`: a nebula, lit from a drifting source.
+    //
+    // A still cannot separate a medium from a lamp's own halo: both are a bright blob. Move the
+    // source and the difference is immediate — the cloud stays put while its LIT SIDE travels around
+    // it, and the far side stays dark. That is what a medium does and a halo cannot.
+    // ------------------------------------------------------------------------------------------
+    if (argc > 2 && std::string(argv[2]) == "anim-neb") {
+        const int FRAMES = 48;
+        plainGround = true;
+        for (int i = 0; i < FRAMES; ++i) {
+            ctx.animT = static_cast<double>(i) / static_cast<double>(FRAMES);
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%03d.png", i);
+            shoot(name, true, [](void* c){
+                Ctx* k = static_cast<Ctx*>(c);
+                const double tau = 6.28318530718;
+                const double a = k->animT * tau;
+                // The source ORBITS the cloud: one full turn, so the loop closes exactly.
+                const double lx = 268.0 + 250.0 * std::cos(a);
+                const double ly = 135.0 + 118.0 * std::sin(a);
+
+                (*k->ambFn)(0x0a0e18FFu);
+
+                const double stars[8][3] = { {30,40,2.2}, {96,200,1.8}, {150,28,2.4}, {420,50,2.0},
+                                             {450,210,2.4}, {60,120,1.6}, {210,246,2.0}, {392,140,1.8} };
+                for (auto& s : stars) (*k->glowFn)(s[0], s[1], s[2], s[2], 0.0, 0xBFD4FFFFu, 30);
+
+                // Four overlapping volumes. Each fades to vacuum at its own rim, so the silhouette is
+                // organic and no bounding square is ever visible.
+                (*k->nebFn)(268.0, 120.0, 120.0, 0.020, 0xFFB0D0FFu, 0.60);
+                (*k->nebFn)(318.0, 158.0,  96.0, 0.016, 0xC0A0FFFFu, 0.55);
+                (*k->nebFn)(222.0, 168.0,  86.0, 0.014, 0xFFD0B0FFu, 0.50);
+                (*k->nebFn)(300.0,  96.0,  64.0, 0.012, 0xFFFFFFFFu, 0.45);
+
+                (*k->lightFn)(lx, ly, 380.0, 0xFFE9C0FFu, 6.5);
+                (*k->glowFn)(lx, ly, 7.0, 7.0, 0.0, 0xFFF6E4FFu, 31);   // the source, visible
+            }, &ctx);
+        }
+        renderer->shutdown();
+        mgr.removeInstance("capl_r");
+        mgr.removeInstance("capl_g");
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 0;
+    }
+
     if (argc > 2 && std::string(argv[2]) == "anim-fog") {
         const int FRAMES = 48;
         plainGround = true;   // near-black: a shaft is only legible against something dark
@@ -466,6 +523,23 @@ int main(int argc, char** argv) {
         (*k->spriteFn)(wx + wt * 0.5, 185.0, wt, 54.0, 0x2a4a8aFFu, 9);
         (*k->filtFn)(wx, 158.0, wt, 54.0, 0x50A0FFFFu);         // cold blue glass
     }, &ctx);
+
+    // 15. A NEBULA: a medium whose density VARIES. Several volumes OVERLAP -- each one fades to
+    //     vacuum at its own rim, so the combined silhouette is organic. That is precisely what
+    //     stacking rectangles could not do: it produced concentric outlines, a ziggurat.
+    plainGround = true;
+    shoot("15_nebula.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x0c1018FFu);
+        // The lamp sits BESIDE the cloud, not inside it: a medium must light on one side and
+        // darken on the other, which is what tells it apart from a lamp's own halo.
+        (*k->nebFn)(268.0, 120.0, 120.0, 0.020, 0xFFB0D0FFu, 0.60);
+        (*k->nebFn)(318.0, 158.0,  96.0, 0.016, 0xC0A0FFFFu, 0.55);
+        (*k->nebFn)(222.0, 168.0,  86.0, 0.014, 0xFFD0B0FFu, 0.50);
+        (*k->nebFn)(300.0,  96.0,  64.0, 0.012, 0xFFFFFFFFu, 0.45);
+        (*k->lightFn)(120.0, 135.0, 380.0, 0xFFE9C0FFu, 6.5);
+    }, &ctx);
+    plainGround = false;
 
     // 90. EDGE PROBE — not a blog plate, a MEASURING INSTRUMENT. A flat ground, one lamp, one block:
     //     the shadow boundary is the only feature in the image, so its shape can be read column by
