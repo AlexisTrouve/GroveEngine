@@ -149,10 +149,17 @@ creuser, deux choses qui sentent le vrai problème :
 - une **dette de test** assumée : « le rendu HUD/map n'est PAS vérifié automatiquement » ;
 - un **plafond hot-reload de ~70-100 reloads par process** (Windows/MinGW).
 
-Le `docs/BACKLOG.md` du moteur note par ailleurs un reste concret : **seul `UIRadial` surcharge
-`releaseRenderEntries`** — les autres widgets multi-entrées (bouton avec texte, slider…) laissent
-encore des entrées fantômes quand on les cache. Le correctif général existe, il n'est pas appliqué
-partout. C'est de la même famille que §3.1.
+Le `docs/BACKLOG.md` du moteur note par ailleurs un reste concret autour de `releaseRenderEntries`.
+
+> ⚠️ **Correction (30 juillet)** — j'avais recopié ici la ligne du backlog telle quelle : « seul
+> `UIRadial` surcharge ». **C'est faux, et mesuré faux.** Neuf widgets surchargent, complètement
+> (`UIButton`, `UIList`, `UIModal`, `UIPanel`, `UIRadial`, `UIScrollPanel`, `UITabs`, `UITextArea`,
+> `UIWindow`). Le trou réel est de cinq widgets : `UITextInput` (6 entrées), `UIProgressBar` (4),
+> `UICheckbox` (3), `UISlider` (2), `UIDrawer` (1). J'ai propagé une affirmation de doc sans la
+> vérifier — exactement ce que §3.3 dit de ne pas faire, appliqué cette fois à un backlog plutôt
+> qu'à un diagnostic de bug. **Une ligne de backlog est une hypothèse datée, pas un état.**
+
+C'est de la même famille que §3.1.
 
 ---
 
