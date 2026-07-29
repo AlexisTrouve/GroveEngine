@@ -21,6 +21,7 @@
 
 #define SDL_MAIN_HANDLED
 
+#include <cmath>
 #include <catch2/catch_test_macros.hpp>
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -422,6 +423,122 @@ TEST_CASE("lighting: a wall casts a SHADOW — dark behind, lit beside, same dis
     renderer->shutdown();
     mgr.removeInstance("li4_r");
     mgr.removeInstance("li4_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
+
+TEST_CASE("lighting: a red filter TINTS the light behind it — red survives, blue collapses (GPU)",
+          "[gpu][light][filter]") {
+    // THE assertion of plan F, and it is deliberately not about brightness. A filter darkens, but so
+    // does a semi-opaque wall, and so does simply moving further from the lamp. What distinguishes a
+    // TINT is that the channels DIVERGE: red comes through untouched while blue is eaten. A test on
+    // luminance would be green with a plain grey pane — that is, green while proving nothing.
+    //
+    // Probes on the same circle around the lamp, as in the wall test: one behind the glass, one
+    // clear of it. Comparing "behind" to "far away" would only re-prove the radial falloff.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 96, H = 96;
+    SDL_Window* win = SDL_CreateWindow("light5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li5_r");
+    auto gIO = mgr.createInstance("li5_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li5_r"); mgr.removeInstance("li5_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    const double cx = W * 0.5, cy = H * 0.5;
+    const double glassX = cx + 16.0;
+
+    for (int i = 0; i < 6; ++i) {
+        // A WHITE scene, so any colour in the result came from the light path and nowhere else.
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", cx); s->setDouble("cy", cy);
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        // A DIM ambient: it adds to every channel equally, so a bright one would dilute the very
+        // divergence being measured. It cannot be zero — zero turns lighting off entirely.
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x101010FFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        // A WHITE lamp: the tint must be produced by the glass, not smuggled in by the light.
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", cx); l->setDouble("cy", cy);
+          l->setDouble("radius", 44.0);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 4.0);
+          gIO->publish("render:light", std::move(l)); }
+        // The stained glass: a tall thin pane, x,y = top-left CORNER. Its thin axis (4) is the
+        // thickness `color` is stated for.
+        { auto f = std::make_unique<JsonDataNode>("f");
+          f->setDouble("x", glassX); f->setDouble("y", 0.0);
+          f->setDouble("w", 4.0);    f->setDouble("h", static_cast<double>(H));
+          f->setInt("color", static_cast<int>(0xFF3333FFu));   // red glass: transmits red, eats blue
+          gIO->publish("render:filter", std::move(f)); }
+
+        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        frame();
+    }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+
+    auto channelAt = [&](int x, int y, int c) {
+        return static_cast<int>(rgba[(static_cast<size_t>(y)*W + x)*4 + c]);
+    };
+
+    const int offset = 28;   // beyond the glass on the right, and its mirror on the clear left
+    const int px = static_cast<int>(cx) + offset, py = static_cast<int>(cy);
+    const int qx = static_cast<int>(cx) - offset;
+
+    const int rBehind = channelAt(px, py, 0), bBehind = channelAt(px, py, 2);
+    const int rClear  = channelAt(qx, py, 0), bClear  = channelAt(qx, py, 2);
+
+    INFO("behind r=" << rBehind << " b=" << bBehind << " | clear r=" << rClear << " b=" << bClear);
+
+    // 1. The channels diverge behind the glass. A GREY pane — or any plain attenuation — would
+    //    return two equal numbers here, which is the whole point of asserting on the ratio.
+    REQUIRE(rBehind > bBehind + 40);
+
+    // 2. Red passes through very nearly untouched. Without this, a filter that merely dimmed
+    //    everything a little more in blue would still satisfy (1).
+    REQUIRE(rBehind > rClear - 30);
+
+    // 3. ...and blue really did collapse, rather than red having been boosted.
+    REQUIRE(bBehind < bClear - 40);
+
+    // 4. On the clear side the light is still WHITE: the glass tinted the ray that crossed it, not
+    //    the lamp. A filter applied globally would show up right here.
+    REQUIRE(std::abs(rClear - bClear) < 12);
+
+    renderer->shutdown();
+    mgr.removeInstance("li5_r");
+    mgr.removeInstance("li5_g");
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
