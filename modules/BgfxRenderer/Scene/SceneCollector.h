@@ -114,6 +114,10 @@ private:
     // offscreen targets entirely. Global frame state: survives clear(), like m_clearColor.
     uint32_t m_ambientColor = 0;
     std::vector<OccluderCommand> m_occluders;   // ephemeral, like m_lights
+    // RETAINED occluders, by renderId. The opposite choice to lights, and for the opposite reason:
+    // a wall does not move, so re-publishing the level every frame would charge a cost proportional
+    // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
+    std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
     std::vector<LightCommand> m_lights;   // ephemeral: cleared at the frame boundary
     uint64_t m_frameNumber = 0;
     float m_deltaTime = 0.0f;
@@ -136,6 +140,9 @@ private:
     void parseAmbient(const IDataNode& data);
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
+    void parseOccluderAdd(const IDataNode& data);
+    void parseOccluderUpdate(const IDataNode& data);
+    void parseOccluderRemove(const IDataNode& data);
     void parseDebugLine(const IDataNode& data);
     void parseDebugRect(const IDataNode& data);
     void parseSector(const IDataNode& data);

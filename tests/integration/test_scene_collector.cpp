@@ -2078,3 +2078,127 @@ TEST_CASE("SceneCollector - occluder: ephemeral, and absent means NO array",
     fx.collector.clear();
     REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
 }
+
+// ============================================================================
+// Lighting W3 — RETAINED occluders (render:occluder:add / :update / :remove).
+//
+// The opposite reasoning to lights, and deliberately so. A light almost always follows something
+// that moves, so re-publishing it every frame is its normal case. A WALL does not move: publishing
+// the level's geometry every frame would charge a cost proportional to the size of the level for a
+// constant. Retained mode here is not premature — it is the shape the data actually has.
+// ============================================================================
+
+TEST_CASE("SceneCollector - occluder retained: add PERSISTS across frames",
+          "[scene_collector][light][occluder][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("o");
+    a->setInt("renderId", 7);
+    a->setDouble("x", 10.0); a->setDouble("y", 20.0);
+    a->setDouble("w", 30.0); a->setDouble("h", 40.0);
+    fx.ioPublisher->publish("render:occluder:add", std::move(a));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.occluderCount == 1);
+        REQUIRE_THAT(p.occluders[0].x, WithinAbs(10.0f, 0.01f));
+    }
+
+    // The whole point: WITHOUT re-publishing, the wall is still there next frame.
+    fx.collector.clear();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.occluderCount == 1);
+        REQUIRE_THAT(p.occluders[0].w, WithinAbs(30.0f, 0.01f));
+    }
+}
+
+TEST_CASE("SceneCollector - occluder retained: update PRESERVES unspecified fields",
+          "[scene_collector][light][occluder][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("o");
+    a->setInt("renderId", 3);
+    a->setDouble("x", 100.0); a->setDouble("y", 200.0);
+    a->setDouble("w", 50.0);  a->setDouble("h", 60.0);
+    fx.ioPublisher->publish("render:occluder:add", std::move(a));
+    fx.pump();
+
+    // Move it without restating its size. A door that slides must not have to repeat its extent —
+    // and an update that silently reset the omitted fields to zero would DELETE the wall while
+    // looking like a move.
+    auto u = std::make_unique<JsonDataNode>("o");
+    u->setInt("renderId", 3);
+    u->setDouble("x", 150.0);
+    fx.ioPublisher->publish("render:occluder:update", std::move(u));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.occluderCount == 1);
+    REQUIRE_THAT(p.occluders[0].x, WithinAbs(150.0f, 0.01f));   // moved
+    REQUIRE_THAT(p.occluders[0].y, WithinAbs(200.0f, 0.01f));   // kept
+    REQUIRE_THAT(p.occluders[0].w, WithinAbs(50.0f, 0.01f));    // kept
+    REQUIRE_THAT(p.occluders[0].h, WithinAbs(60.0f, 0.01f));    // kept
+}
+
+TEST_CASE("SceneCollector - occluder retained: remove deletes it",
+          "[scene_collector][light][occluder][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("o");
+    a->setInt("renderId", 9);
+    a->setDouble("x", 0.0); a->setDouble("y", 0.0);
+    a->setDouble("w", 10.0); a->setDouble("h", 10.0);
+    fx.ioPublisher->publish("render:occluder:add", std::move(a));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 1);
+
+    auto r = std::make_unique<JsonDataNode>("o");
+    r->setInt("renderId", 9);
+    fx.ioPublisher->publish("render:occluder:remove", std::move(r));
+    fx.pump();
+
+    // A destroyed wall must stop casting its shadow. Leaving it would be the exact mirror of the
+    // orphaned-sprite hazard the FX layer had to solve at hot-reload.
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
+}
+
+TEST_CASE("SceneCollector - occluder: retained and ephemeral BOTH reach the packet",
+          "[scene_collector][light][occluder][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto a = std::make_unique<JsonDataNode>("o");
+    a->setInt("renderId", 1);
+    a->setDouble("x", 0.0); a->setDouble("y", 0.0); a->setDouble("w", 5.0); a->setDouble("h", 5.0);
+    fx.ioPublisher->publish("render:occluder:add", std::move(a));
+
+    auto e = std::make_unique<JsonDataNode>("o");
+    e->setDouble("x", 90.0); e->setDouble("y", 90.0); e->setDouble("w", 5.0); e->setDouble("h", 5.0);
+    fx.ioPublisher->publish("render:occluder", std::move(e));
+    fx.pump();
+
+    // The two modes coexist: static level geometry retained, a moving shutter ephemeral. Neither is
+    // an error, and a scene mixing them must occlude with both.
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 2);
+}
+
+TEST_CASE("SceneCollector - occluder retained: renderId 0 is rejected",
+          "[scene_collector][light][occluder][retained]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // 0 is the "no id" value, so accepting it would give every unidentified wall the SAME slot —
+    // each add silently replacing the last. Same guard as every other retained primitive.
+    auto a = std::make_unique<JsonDataNode>("o");
+    a->setInt("renderId", 0);
+    a->setDouble("x", 1.0); a->setDouble("y", 1.0); a->setDouble("w", 9.0); a->setDouble("h", 9.0);
+    fx.ioPublisher->publish("render:occluder:add", std::move(a));
+    fx.pump();
+
+    REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
+}

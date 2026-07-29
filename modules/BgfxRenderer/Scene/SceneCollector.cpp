@@ -165,6 +165,15 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:occluder") {
             parseOccluder(*msg.data);
         }
+        else if (msg.topic == "render:occluder:add") {
+            parseOccluderAdd(*msg.data);
+        }
+        else if (msg.topic == "render:occluder:update") {
+            parseOccluderUpdate(*msg.data);
+        }
+        else if (msg.topic == "render:occluder:remove") {
+            parseOccluderRemove(*msg.data);
+        }
         else if (msg.topic == "render:debug:line") {
             parseDebugLine(*msg.data);
         }
@@ -380,17 +389,27 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.textCount = 0;
     }
 
-    // Copy occluders (ephemeral) - same exactly-sized arena slice as every other primitive array.
-    if (!m_occluders.empty()) {
-        OccluderCommand* occ = allocator.allocateArray<OccluderCommand>(m_occluders.size());
-        if (occ) {
-            std::memcpy(occ, m_occluders.data(), m_occluders.size() * sizeof(OccluderCommand));
-            packet.occluders = occ;
-            packet.occluderCount = m_occluders.size();
+    // Copy occluders: RETAINED (static level geometry) then EPHEMERAL (a moving shutter). Both
+    // modes coexist -- neither is an error -- so a scene mixing them occludes with both. Order is
+    // irrelevant here: occlusion is a product, and a product does not care which factor came first.
+    {
+        const size_t totalOccluders = m_retainedOccluders.size() + m_occluders.size();
+        if (totalOccluders > 0) {
+            OccluderCommand* occ = allocator.allocateArray<OccluderCommand>(totalOccluders);
+            if (occ) {
+                size_t idx = 0;
+                for (const auto& kv : m_retainedOccluders) occ[idx++] = kv.second;
+                if (!m_occluders.empty()) {
+                    std::memcpy(&occ[idx], m_occluders.data(),
+                                m_occluders.size() * sizeof(OccluderCommand));
+                }
+                packet.occluders = occ;
+                packet.occluderCount = totalOccluders;
+            }
+        } else {
+            packet.occluders = nullptr;
+            packet.occluderCount = 0;
         }
-    } else {
-        packet.occluders = nullptr;
-        packet.occluderCount = 0;
     }
 
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
@@ -1043,6 +1062,47 @@ void SceneCollector::parseCamera(const IDataNode& data) {
 
 void SceneCollector::parseClear(const IDataNode& data) {
     m_clearColor = static_cast<uint32_t>(data.getInt("color", 0x303030FF));
+}
+
+void SceneCollector::parseOccluderAdd(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    // 0 is the "no id" value: accepting it would give every unidentified wall the SAME slot, each
+    // add silently replacing the last. Same guard as every other retained primitive.
+    if (renderId == 0) return;
+
+    OccluderCommand o;
+    o.x = static_cast<float>(data.getDouble("x", 0.0));
+    o.y = static_cast<float>(data.getDouble("y", 0.0));
+    o.w = static_cast<float>(data.getDouble("w", 0.0));
+    o.h = static_cast<float>(data.getDouble("h", 0.0));
+    if (o.w <= 0.0f || o.h <= 0.0f) return;   // degenerate, same rule as the ephemeral path
+
+    m_retainedOccluders[renderId] = o;
+}
+
+void SceneCollector::parseOccluderUpdate(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+
+    auto it = m_retainedOccluders.find(renderId);
+    if (it == m_retainedOccluders.end()) return;   // updating something absent is a no-op, not an add
+
+    // PARTIAL merge: each field keeps its current value when the message omits it. A sliding door
+    // must be able to move without restating its extent -- and an update that reset the omitted
+    // fields to zero would DELETE the wall while looking like a move.
+    OccluderCommand& o = it->second;
+    o.x = static_cast<float>(data.getDouble("x", static_cast<double>(o.x)));
+    o.y = static_cast<float>(data.getDouble("y", static_cast<double>(o.y)));
+    o.w = static_cast<float>(data.getDouble("w", static_cast<double>(o.w)));
+    o.h = static_cast<float>(data.getDouble("h", static_cast<double>(o.h)));
+}
+
+void SceneCollector::parseOccluderRemove(const IDataNode& data) {
+    const uint32_t renderId = static_cast<uint32_t>(data.getInt("renderId", 0));
+    if (renderId == 0) return;
+    // A destroyed wall must stop casting its shadow -- leaving it would be the mirror of the
+    // orphaned-sprite hazard the FX layer had to solve at hot-reload.
+    m_retainedOccluders.erase(renderId);
 }
 
 void SceneCollector::parseOccluder(const IDataNode& data) {

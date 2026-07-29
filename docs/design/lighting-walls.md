@@ -1,6 +1,8 @@
 # Plan W — les murs (occultation opaque)
 
-> **Statut** : 📋 plan, rien d'implémenté.
+> **Statut** : ✅ **W1 + W2 + W3 LIVRÉS le 2026-07-29.** Mesure : ombre 48 (l'ambiant seul) contre
+> 120 éclairé, sondes à distance égale. Verrouillé par `SceneCollectorTest [occluder]` +
+> `LightingGpu [occluder]`.
 > **Socle** : [table de transmittance polaire](lighting-transmittance-core.md) — **lire d'abord**.
 > Ce plan n'y ajoute qu'une chose : de quoi écrire de la matière opaque dans la carte d'occultation.
 > **Prérequis livré** : [lumières 2D L1+L2](lighting-2d.md)
@@ -41,7 +43,7 @@ lumières éphémères — et la raison est la même : suivre ce que la donnée 
 |---|---|---|
 | **W1** | `render:occluder` éphémère → carte d'occultation | headless : le rect atterrit dans le paquet, ancré au coin ; rien de publié ⇒ tableau nul |
 | **W2** | l'ombre à l'écran | `[gpu]` : un point **derrière** le mur est nettement plus sombre qu'un point à côté, à distance **égale** de la lampe |
-| **W3** | mode retenu (`:add`/`:update`/`:remove`) | headless : persiste à travers `clear()`, disparaît sur `:remove` |
+| **W3** ✅ | mode retenu (`:add`/`:update`/`:remove`) | ✅ livré. `:update` fusionne partiellement — une porte coulissante bouge sans redire son extent, et un update qui remettrait les champs omis à zéro SUPPRIMERAIT le mur en ayant l'air de le déplacer |
 
 ### L'assertion qui fait tout le travail en W2
 

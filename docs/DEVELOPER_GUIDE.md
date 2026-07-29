@@ -384,6 +384,34 @@ conventions.
 The rim fades rather than cutting: a hard angular edge reads as a cardboard pie slice, for the same
 reason a linear radial falloff reads as a hard-edged disc.
 
+##### Walls — occluders that cast shadows
+
+Publish a rectangle and light stops passing through it:
+
+| Topic | Payload | Notes |
+|-------|---------|-------|
+| `render:occluder` | `{x, y, w, h}` | opaque rect, **ephemeral** (re-publish each frame) |
+| `render:occluder:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?}` | **retained** — for static level geometry |
+
+**`x, y` is the top-left CORNER**, not the centre — a rect's anchor is its corner, a light's is its
+centre, and the field name is what says which. Getting it wrong shifts every wall by half its size,
+which reads as "the shadows are offset" rather than as an anchor mistake.
+
+**Use the retained form for level geometry.** This is the opposite advice to lights, for the
+opposite reason: a light usually follows something that moves, a wall does not. Re-publishing a
+level's walls every frame charges a cost proportional to its size for data that never changes. An
+`:update` merges — a sliding door can move without restating its extent.
+
+The two modes coexist: retained walls plus an ephemeral shutter in the same frame occlude together.
+
+A wall is not a special case anywhere in the engine: it writes transmittance 0 into an occlusion map
+that the light march multiplies through, so everything beyond it on that ray goes dark as an
+arithmetic consequence. That is also why coloured and partial transmission (stained glass, fog) fit
+the same mechanism — see `docs/design/lighting-transmittance-core.md`.
+
+⚠️ **Occluders only block LIGHT, not sight.** A wall does not hide what is behind it from the
+player; that is a visibility system and it lives in game code, not in the renderer.
+
 ##### Asking "is this point lit?" from gameplay
 
 The same curve is available as plain C++ (`include/grove/light/Light.h`, header-only, no renderer
@@ -1593,6 +1621,9 @@ Two modes:
 |-------|---------|-------------|
 | `render:ambient` | `{color}` | Global ambient term. **Absent or 0 = lighting entirely OFF** (no offscreen targets, no composite, output byte-identical to a build without lighting). A **white** ambient leaves the scene unchanged and lets lights only ever brighten it. |
 | `render:light` | `{cx, cy, radius, color, intensity?, dirDeg?, spreadDeg?}` | One light, **ephemeral** (re-publish each frame). `cx,cy` = CENTRE, `radius` in **world units**. `dirDeg`/`spreadDeg` (degrees, `grove::fx::Emitter` convention, 360 = omni **and the default**) turn it into a cone. Colour alpha ignored; `intensity` may exceed 1 (RGBA16F target keeps the overbright for bloom). Falloff `(1 − d/r)²`, exactly 0 at `radius`. |
+
+| `render:occluder` | `{x, y, w, h}` | Opaque rectangle light does not pass through, **ephemeral**. `x,y` = top-left CORNER (a rect's anchor), unlike a light's `cx,cy`. A non-positive extent is dropped. |
+| `render:occluder:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?}` | **Retained** occluder — the right form for static level geometry. `:update` merges, so a moving wall need not restate its extent. |
 
 See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
 `include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").
