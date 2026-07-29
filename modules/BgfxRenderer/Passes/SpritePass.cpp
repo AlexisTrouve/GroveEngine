@@ -19,6 +19,14 @@ namespace {
 //   couvre exactement ses instances ; le scissor bgfx est consommé par le submit, donc un batch
 //   non-clippé qui suit (pas de setScissor) revient à la vue pleine — aucun reset à gérer.
 inline bool spriteHasClip(const SpriteInstance& s) { return s.reserved[2] > 0.0f; }
+// BLEND rides in padding0 (0 = alpha, 1 = additive) - see FramePacket. A batch carries ONE render
+// state, so a change here must split it exactly as a texture or clip change does; without the
+// split the first sprite's blend would silently govern everything batched with it, and the defect
+// would read as "additive works sometimes", depending on draw order.
+inline bool spriteAdditive(const SpriteInstance& s) { return s.padding0 > 0.5f; }
+inline bool sameBlend(const SpriteInstance& a, const SpriteInstance& b) {
+    return spriteAdditive(a) == spriteAdditive(b);
+}
 inline bool sameClip(const SpriteInstance& a, const SpriteInstance& b) {
     return a.reserved[0] == b.reserved[0] && a.reserved[1] == b.reserved[1]
         && a.reserved[2] == b.reserved[2] && a.reserved[3] == b.reserved[3];
@@ -200,12 +208,17 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
         //   batch suivant (drawInstanced multiples) -> n'importe quel nombre de sprites rend correctement.
         if (!firstBatch && (spriteTexId != currentTextureId ||
                             batchSprites.size() >= MAX_SPRITES_PER_BATCH ||
-                            (!batchSprites.empty() && !sameClip(sprite, batchSprites.back())))) {
+                            (!batchSprites.empty() && !sameClip(sprite, batchSprites.back())) ||
+                            (!batchSprites.empty() && !sameBlend(sprite, batchSprites.back())))) {
             // Flush previous batch using TRANSIENT BUFFER (one per batch)
             uint32_t batchSize = static_cast<uint32_t>(batchSprites.size());
             rhi::TransientInstanceBuffer transientBuffer = device.allocTransientInstanceBuffer(batchSize);
 
-            // CRITICAL: Set render state before EACH batch (consumed by submit)
+            // CRITICAL: Set render state before EACH batch (consumed by submit). The batch is
+            // homogeneous in blend by construction (it splits on a change), so its first sprite
+            // decides for all of them.
+            state.blend = spriteAdditive(batchSprites.front()) ? rhi::BlendMode::Additive
+                                                              : rhi::BlendMode::Alpha;
             cmd.setState(state);
             // Clip this batch to its shared scissor rect, if any (rides in reserved[]). Consumed by
             // the submit below; the next unclipped batch omits it and draws against the full view.
@@ -264,7 +277,9 @@ void SpritePass::renderSpriteSet(rhi::IRHIDevice& device, rhi::RHICommandBuffer&
         uint32_t batchSize = static_cast<uint32_t>(batchSprites.size());
         rhi::TransientInstanceBuffer transientBuffer = device.allocTransientInstanceBuffer(batchSize);
 
-        // CRITICAL: Set render state before EACH batch (consumed by submit)
+        // Same per-batch blend resolution as above, for the trailing batch.
+        state.blend = spriteAdditive(batchSprites.front()) ? rhi::BlendMode::Additive
+                                                           : rhi::BlendMode::Alpha;
         cmd.setState(state);
         // Clip the final batch to its scissor rect, if any (same mechanism as above).
         if (!batchSprites.empty() && spriteHasClip(batchSprites.front())) {

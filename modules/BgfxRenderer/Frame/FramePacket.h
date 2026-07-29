@@ -28,6 +28,14 @@ struct SpriteInstance {
     float v1;             // UV end y
     float textureId;      // As float for GPU compatibility
     float layer;          // Z-order as float
+    // BLEND MODE, read CPU-side by SpritePass: 0 = alpha (the default and the historical
+    // behaviour), 1 = ADDITIVE. Uploaded to the GPU but IGNORED by the sprite shader - exactly like
+    // reserved[] below, which carries the scissor rect. Reusing this slot rather than growing the
+    // instance keeps the stride at 80 bytes, so the bulk path and the shader layout are untouched.
+    //
+    // Additive exists for glowing STRETCHED quads (engine plumes): render:sprite could stretch and
+    // rotate but only in alpha, render:particle was additive but a square billboard - neither could
+    // draw the one thing that look needs.
     float padding0;
     // i_data3 — optional CPU-side clip rect {x,y,w,h} in framebuffer pixels (w<=0 = no clip).
     // Uploaded to the GPU but IGNORED by the sprite shader; SpritePass reads it to drive a per-batch

@@ -114,3 +114,117 @@ TEST_CASE("TextPass routes HUD text to view 1, world text to view 0", "[hud_view
 
     pass.shutdown(device);
 }
+
+// ============================================================================
+// Additive sprites (`blend: "additive"` on render:sprite) — the batching contract.
+//
+// The look this exists for is a Waterfall-style engine plume: a STRETCHED quad that GLOWS, so two
+// overlapping plumes brighten where they cross. `render:sprite` could already stretch and rotate a
+// texture but only in ALPHA blend; `render:particle` was additive but a square billboard. Neither
+// could draw "additive AND stretched", which is the whole effect.
+//
+// SpritePass sets ONE render state per batch, so the batch has to BREAK on a blend change exactly
+// as it already breaks on a texture or clip change. Without that break, the first sprite's blend
+// would silently govern every sprite batched with it — and the bug would look like "additive works
+// sometimes", depending on draw order.
+// ============================================================================
+
+static int submitCount(const rhi::RHICommandBuffer& cmd) {
+    int n = 0;
+    for (const auto& c : cmd.getCommands()) if (c.type == rhi::CommandType::Submit) ++n;
+    return n;
+}
+
+// Blend states recorded, in order, one per SetState command.
+static std::vector<rhi::BlendMode> submittedBlends(const rhi::RHICommandBuffer& cmd) {
+    std::vector<rhi::BlendMode> out;
+    for (const auto& c : cmd.getCommands()) {
+        if (c.type == rhi::CommandType::SetState) out.push_back(c.setState.state.blend);
+    }
+    return out;
+}
+
+static SpriteInstance makeSprite(float x, bool additive) {
+    SpriteInstance s{};
+    s.x = x; s.y = 0.0f;
+    s.scaleX = 10.0f; s.scaleY = 10.0f;
+    s.u1 = 1.0f; s.v1 = 1.0f;
+    s.textureId = 0.0f;          // same texture: only the blend may split the batch
+    s.layer = 0.0f;
+    s.padding0 = additive ? 1.0f : 0.0f;
+    s.r = s.g = s.b = s.a = 1.0f;
+    return s;
+}
+
+TEST_CASE("SpritePass: sprites of the SAME blend stay in ONE batch", "[sprite][blend][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    SpritePass pass(shader);
+    pass.setup(device);
+    rhi::RHICommandBuffer cmd;
+
+    SpriteInstance sprites[3] = { makeSprite(0.0f, false), makeSprite(20.0f, false), makeSprite(40.0f, false) };
+    FramePacket packet;
+    packet.sprites = sprites;
+    packet.spriteCount = 3;
+    packet.mainView.viewportW = 800; packet.mainView.viewportH = 600; packet.mainView.zoom = 1.0f;
+
+    pass.execute(packet, device, cmd);
+
+    // The non-regression: adding a blend field must not fragment batches that share one.
+    REQUIRE(submitCount(cmd) == 1);
+    pass.shutdown(device);
+}
+
+TEST_CASE("SpritePass: a blend CHANGE breaks the batch", "[sprite][blend][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    SpritePass pass(shader);
+    pass.setup(device);
+    rhi::RHICommandBuffer cmd;
+
+    // Same texture, same layer — ONLY the blend differs. Before the break existed these three
+    // batched together and the first one's state governed all of them.
+    SpriteInstance sprites[3] = { makeSprite(0.0f, false), makeSprite(20.0f, true), makeSprite(40.0f, false) };
+    FramePacket packet;
+    packet.sprites = sprites;
+    packet.spriteCount = 3;
+    packet.mainView.viewportW = 800; packet.mainView.viewportH = 600; packet.mainView.zoom = 1.0f;
+
+    pass.execute(packet, device, cmd);
+
+    REQUIRE(submitCount(cmd) == 3);
+
+    // ...and each batch carries ITS OWN blend, in draw order. Counting batches alone would pass on
+    // a pass that split correctly but then submitted them all as alpha.
+    const std::vector<rhi::BlendMode> blends = submittedBlends(cmd);
+    REQUIRE(blends.size() == 3);
+    REQUIRE(blends[0] == rhi::BlendMode::Alpha);
+    REQUIRE(blends[1] == rhi::BlendMode::Additive);
+    REQUIRE(blends[2] == rhi::BlendMode::Alpha);
+
+    pass.shutdown(device);
+}
+
+TEST_CASE("SpritePass: an all-additive set is additive, in one batch", "[sprite][blend][unit]") {
+    MockRHIDevice device;
+    rhi::ShaderHandle shader = device.createShader(rhi::ShaderDesc{});
+    SpritePass pass(shader);
+    pass.setup(device);
+    rhi::RHICommandBuffer cmd;
+
+    SpriteInstance sprites[2] = { makeSprite(0.0f, true), makeSprite(20.0f, true) };
+    FramePacket packet;
+    packet.sprites = sprites;
+    packet.spriteCount = 2;
+    packet.mainView.viewportW = 800; packet.mainView.viewportH = 600; packet.mainView.zoom = 1.0f;
+
+    pass.execute(packet, device, cmd);
+
+    REQUIRE(submitCount(cmd) == 1);
+    const std::vector<rhi::BlendMode> blends = submittedBlends(cmd);
+    REQUIRE_FALSE(blends.empty());
+    REQUIRE(blends[0] == rhi::BlendMode::Additive);
+
+    pass.shutdown(device);
+}

@@ -125,6 +125,16 @@ Le jeu écrit le cône une fois au lieu de convertir entre deux conventions. À 
 **effets de propulsion**, « une convention se choisit sur l'usage, pas sur l'élégance », la
 cohérence entre deux sous-systèmes d'un même moteur.
 
+#### `blog/08_additive_plume.png`
+**Sprites additifs — l'intersection sature en blanc (2026-07-29).** *(Fond quasi noir, deux quads
+très étirés et tournés se croisant en X : l'un orange, l'autre bleu, et à leur intersection un cœur
+blanc pur nettement plus brillant que chacun des deux.)* La preuve de `blend:"additive"` sur
+`render:sprite`. Mesuré : intersection **255**, faisceau orange seul **54**, faisceau bleu seul
+**28** — en mélange alpha l'intersection vaudrait la couleur du dernier dessiné, jamais davantage.
+Aucun éclairage dans cette image : rien d'autre que le blend ne peut expliquer le blanc. À utiliser
+pour : les **panaches de propulsion** façon Waterfall, « pourquoi il fallait un troisième mode
+plutôt que réutiliser les particules », la différence visuelle entre additif et alpha.
+
 ---
 
 <!--

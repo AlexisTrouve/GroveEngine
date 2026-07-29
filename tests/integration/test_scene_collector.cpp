@@ -2202,3 +2202,52 @@ TEST_CASE("SceneCollector - occluder retained: renderId 0 is rejected",
 
     REQUIRE(fx.collector.finalize(allocator).occluderCount == 0);
 }
+
+TEST_CASE("SceneCollector - sprite blend: additive rides through, absent = alpha",
+          "[scene_collector][blend]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto glow = std::make_unique<JsonDataNode>("s");
+    glow->setDouble("cx", 10.0); glow->setDouble("cy", 10.0);
+    glow->setString("blend", "additive");
+    fx.ioPublisher->publish("render:sprite", std::move(glow));
+
+    auto plain = std::make_unique<JsonDataNode>("s");
+    plain->setDouble("cx", 50.0); plain->setDouble("cy", 50.0);
+    fx.ioPublisher->publish("render:sprite", std::move(plain));
+
+    // A retained sprite glows too: a plume held by renderId is a normal case, not an exception.
+    auto held = std::make_unique<JsonDataNode>("s");
+    held->setInt("renderId", 42);
+    held->setDouble("cx", 90.0); held->setDouble("cy", 90.0);
+    held->setString("blend", "additive");
+    fx.ioPublisher->publish("render:sprite:add", std::move(held));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 3);
+
+    int additive = 0, alpha = 0;
+    for (size_t i = 0; i < p.spriteCount; ++i) {
+        if (p.sprites[i].padding0 > 0.5f) ++additive; else ++alpha;
+    }
+    // THE non-regression: a sprite that says nothing about blend stays alpha. A default of additive
+    // would have quietly turned every existing scene into a glow.
+    REQUIRE(additive == 2);
+    REQUIRE(alpha == 1);
+
+    // An unknown mode falls back to alpha rather than to something surprising.
+    fx.collector.clear();
+    auto weird = std::make_unique<JsonDataNode>("s");
+    weird->setDouble("cx", 1.0); weird->setDouble("cy", 1.0);
+    weird->setString("blend", "screen");
+    fx.ioPublisher->publish("render:sprite", std::move(weird));
+    fx.pump();
+    FramePacket q = fx.collector.finalize(allocator);
+    bool sawEphemeralAlpha = false;
+    for (size_t i = 0; i < q.spriteCount; ++i) {
+        if (q.sprites[i].x > 0.5f && q.sprites[i].x < 1.5f) sawEphemeralAlpha = (q.sprites[i].padding0 < 0.5f);
+    }
+    REQUIRE(sawEphemeralAlpha);
+}

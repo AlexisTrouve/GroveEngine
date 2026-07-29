@@ -305,6 +305,39 @@ io->publish("render:sprite", std::move(arm));
   you add the sprite, or re-publish it ephemerally each frame (what an animated paper-doll does
   anyway). Design notes: `docs/design/sprite-transforms.md`.
 
+#### Additive sprites — glowing, stretched quads (`blend`)
+
+`render:sprite` and `render:sprite:add` take an optional **`blend`**:
+
+| Value | Effect |
+|-------|--------|
+| absent, or `"alpha"` | the historical behaviour, **bit for bit** |
+| `"additive"` | the same quad, blended ADDITIVELY — overlapping sprites BRIGHTEN |
+
+Everything else is unchanged: `cx,cy`, `scaleX/scaleY`, `rotation`, `color` tint, `textureId`/`asset`
+and `layer` all behave exactly as before.
+
+```cpp
+// An engine plume: stretched, rotated, glowing.
+auto s = std::make_unique<JsonDataNode>("d");
+s->setDouble("cx", nozzleX); s->setDouble("cy", nozzleY);
+s->setDouble("scaleX", 260.0); s->setDouble("scaleY", 26.0);   // stretched along the jet
+s->setDouble("rotation", heading);
+s->setString("blend", "additive");
+s->setString("asset", "fx/plume_gradient");
+io->publish("render:sprite", std::move(s));
+```
+
+**Why this exists.** Before it, a glowing *stretched* quad was impossible: `render:sprite` could
+stretch and rotate a texture but only in alpha, and `render:particle` was additive but a square
+billboard. Neither could draw the one shape an engine plume needs.
+
+**Batching**: a batch carries one render state, so a blend change **splits the batch** exactly as a
+texture or clip change does. Sprites sharing a blend still batch together — grouping your additive
+sprites on their own layer keeps the draw count down.
+
+An unknown value falls back to alpha rather than to something surprising.
+
 #### 2D lighting — ambient + radial lights
 
 Two topics. The scene renders into an offscreen target, lights accumulate into a second one, and a
@@ -1447,6 +1480,7 @@ The field **name carries the anchor** — you never guess or read `SceneCollecto
 | Topic | Payload | Description |
 |-------|---------|-------------|
 | `render:sprite` | `{cx, cy, scaleX, scaleY, rotation, u0, v0, u1, v1, color, textureId, layer, space?, asset?}` | Render single sprite (ephemeral). `cx,cy` = CENTER (legacy `x,y` rejected — see anchor convention above). `space:"screen"` → HUD overlay (see below) |
+| `render:sprite` `blend` | `"alpha"` (default) / `"additive"` | Optional. Additive makes overlapping sprites BRIGHTEN — a glowing stretched quad, which neither alpha sprites nor square particles could draw. Absent = historical behaviour bit for bit. |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
 | `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |

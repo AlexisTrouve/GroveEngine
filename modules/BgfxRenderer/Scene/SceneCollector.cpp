@@ -634,6 +634,16 @@ static bool rejectsLegacyAnchor(const IDataNode& d, const char* topic, bool& war
     return false;
 }
 
+namespace {
+// Optional `blend` field on a sprite: "additive" turns the quad into a glowing one, anything else
+// (including absent) keeps the historical ALPHA behaviour bit for bit. Parsed as a STRING rather
+// than a bool so a future "multiply" needs no new field and no migration.
+inline float parseSpriteBlend(const IDataNode& data) {
+    const std::string mode = data.getString("blend", "");
+    return (mode == "additive") ? 1.0f : 0.0f;
+}
+} // namespace
+
 void SceneCollector::parseSprite(const IDataNode& data) {
     static bool warnedLegacy = false;
     if (rejectsLegacyAnchor(data, "render:sprite", warnedLegacy)) return;
@@ -654,7 +664,7 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
-    sprite.padding0 = 0.0f;
+    sprite.padding0 = parseSpriteBlend(data);   // 0 = alpha (default), 1 = additive
     // i_data3 (reserved)
     sprite.reserved[0] = 0.0f;
     sprite.reserved[1] = 0.0f;
@@ -1225,7 +1235,7 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
-    sprite.padding0 = 0.0f;
+    sprite.padding0 = parseSpriteBlend(data);   // retained sprites glow too (same field)
     // Optional UI clip rect rides in reserved[] (SpritePass reads it -> bgfx scissor). Absent = 0 = none.
     sprite.reserved[0] = static_cast<float>(data.getDouble("clipX", 0.0));
     sprite.reserved[1] = static_cast<float>(data.getDouble("clipY", 0.0));

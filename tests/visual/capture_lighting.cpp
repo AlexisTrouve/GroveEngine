@@ -95,6 +95,17 @@ int main(int argc, char** argv) {
         s->setInt("color", static_cast<int>(col)); s->setInt("layer", layer);
         gIO->publish("render:sprite", std::move(s));
     };
+    // A STRETCHED, rotated, ADDITIVE quad - the plume primitive. blend:"additive" is the whole
+    // difference: two of these crossing must be BRIGHTER where they overlap, which alpha never does.
+    auto glow = [&](double cx, double cy, double w, double h, double rot, uint32_t col, int layer) {
+        auto s = std::make_unique<JsonDataNode>("d");
+        s->setDouble("cx", cx); s->setDouble("cy", cy);
+        s->setDouble("scaleX", w); s->setDouble("scaleY", h);
+        s->setDouble("rotation", rot);
+        s->setString("blend", "additive");
+        s->setInt("color", static_cast<int>(col)); s->setInt("layer", layer);
+        gIO->publish("render:sprite", std::move(s));
+    };
     // dirDeg/spreadDeg default to omni, so the earlier plates are unchanged by L3.
     auto light = [&](double cx, double cy, double radius, uint32_t col, double intensity,
                      double dirDeg = 0.0, double spreadDeg = 360.0) {
@@ -141,9 +152,14 @@ int main(int argc, char** argv) {
 
     // `lit` selects WHICH view carries the picture: with no ambient the world still goes to view 0
     // (the zero-cost path), with lighting on the finished frame is on the composite view.
+    // `plainGround` swaps the tiled floor for a near-black backdrop: an additive glow is only
+    // legible against something dark, and on the lit stone floor the intersection would be washed
+    // out by what is already there - the shot would show nothing even with the blend working.
+    bool plainGround = false;
     auto shoot = [&](const char* name, bool lit, void (*setup)(void*), void* ctx) {
         for (int i = 0; i < 5; ++i) {
-            drawScene();
+            if (plainGround) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0x0a0d14FFu, 1);
+            else drawScene();
             if (setup) setup(ctx);
             if (lit) {
                 dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
@@ -170,8 +186,8 @@ int main(int argc, char** argv) {
         std::printf("wrote %s\n", path.c_str());
     };
 
-    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn; };
-    Ctx ctx{ &light, &ambient, &sprite };
+    struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn; decltype(glow)* glowFn; };
+    Ctx ctx{ &light, &ambient, &sprite, &glow };
 
     // 1. No lighting at all — the zero-cost path every current game is on.
     shoot("01_unlit.png", false, nullptr, nullptr);
@@ -225,6 +241,16 @@ int main(int argc, char** argv) {
         (*k->spriteFn)(300.0, 135.0, 54.0, 22.0, 0xc8d0dcFFu, 12);   // hull
         (*k->spriteFn)(268.0, 135.0, 16.0, 12.0, 0xFFD9A0FFu, 13);   // nozzle glow
         (*k->lightFn)(262.0, 135.0, 200.0, 0xFFB060FFu, 3.0, 180.0, 42.0);  // exhaust cone, pointing -x
+    }, &ctx);
+
+    // 8. ADDITIVE STRETCHED QUADS on a near-black ground - the Waterfall plume primitive.
+    //    Two crossing beams: the intersection must be BRIGHTER than either beam. No lighting at all
+    //    in this shot, so nothing but the blend can explain it.
+    plainGround = true;
+    shoot("08_additive_plume.png", false, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->glowFn)(200.0, 135.0, 260.0, 26.0,  0.35, 0xFF9840FFu, 40);
+        (*k->glowFn)(280.0, 135.0, 260.0, 26.0, -0.35, 0x50A0FFFFu, 41);
     }, &ctx);
 
     renderer->shutdown();
