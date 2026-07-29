@@ -204,6 +204,22 @@ Produit par `capture_lighting <dir> anim` puis `tools/make_gif.py`. À utiliser 
 d'un article** sur l'éclairage 2D, une démo « ça tourne vraiment », ou partout où il faut montrer que
 l'éclairage est dynamique et pas peint à la main.
 
+#### `blog/14_fog_lighthouse.gif`
+**Un phare dans la brume — le milieu devient le sujet (2026-07-29).** *(Fond noir étoilé. Deux
+faisceaux opposés balayent l'écran en tournant sur un tour complet ; ils sont visibles **dans l'air**
+sur toute leur longueur, s'affaiblissent avec la distance, et les rochers qu'ils croisent y découpent
+des couloirs d'ombre nets qui tournent avec eux.)*
+
+Là où [`13_light_sweep.gif`](blog/13_light_sweep.gif) se sert du brouillard comme d'un **révélateur**
+neutre, celui-ci montre ce que le milieu fait **en propre** : l'absorption qui **compose avec la
+distance** (le faisceau s'éteint en s'éloignant, exponentiellement — pas linéairement) et la
+**diffusion**, qui le rend visible là où il ne touche aucune surface. Un faisceau volumétrique n'est
+pas dessinable en sprite : c'est de la matière éclairée, pas une surface.
+
+À utiliser pour : un article sur le **brouillard / les milieux / les nébuleuses**, la loi de
+Beer-Lambert « ce n'est pas un assombrissement », les **rais de lumière** (god rays) en 2D, ou pour
+illustrer qu'un même mécanisme porte murs, filtres et milieux.
+
 ### Instrument de mesure
 
 #### `blog/90_edge_probe.png`

@@ -232,6 +232,63 @@ int main(int argc, char** argv) {
     // FOLLOW the lamp. Walls, stained glass and a scattering medium all react to the same moving
     // source, in the same frame.
     // ------------------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------------
+    // ANIMATION MODE 2 — `capture_lighting <dir> anim-fog`: a LIGHTHOUSE.
+    //
+    // The other animation uses fog as a neutral revealer. This one makes the medium the subject: a
+    // rotating cone in a scattering haze becomes a visible SHAFT, rocks carve dark corridors out of
+    // it, and the beam fades with distance because absorption compounds along the ray. None of that
+    // is drawable as a sprite — it is the medium being lit, not a surface.
+    // ------------------------------------------------------------------------------------------
+    if (argc > 2 && std::string(argv[2]) == "anim-fog") {
+        const int FRAMES = 48;
+        plainGround = true;   // near-black: a shaft is only legible against something dark
+        for (int i = 0; i < FRAMES; ++i) {
+            ctx.animT = static_cast<double>(i) / static_cast<double>(FRAMES);
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%03d.png", i);
+            shoot(name, true, [](void* c){
+                Ctx* k = static_cast<Ctx*>(c);
+                const double cx = 240.0, cy = 138.0;
+                const double beamDeg = k->animT * 360.0;   // a full turn: the loop closes exactly
+
+                (*k->ambFn)(0x0c1018FFu);
+
+                // Stars: ADDITIVE quads, so they stay self-luminous whatever the lighting does.
+                const double stars[7][3] = { {40,30,2.5}, {120,54,2.0}, {300,26,3.0}, {430,60,2.2},
+                                             {70,220,2.0}, {390,236,2.6}, {200,20,2.0} };
+                for (auto& s : stars) (*k->glowFn)(s[0], s[1], s[2], s[2], 0.0, 0xBFD4FFFFu, 30);
+
+                // Rocks. They are drawn AND declared as occluders — an occluder alone is invisible.
+                const double rocks[5][4] = { {104, 62, 30, 22}, {344, 78, 34, 24},
+                                             {126, 200, 38, 20}, {330, 190, 28, 30}, {236, 44, 26, 18} };
+                for (auto& r : rocks) {
+                    (*k->spriteFn)(r[0] + r[2]*0.5, r[1] + r[3]*0.5, r[2], r[3], 0x6b7488FFu, 9);
+                    (*k->occFn)(r[0], r[1], r[2], r[3]);
+                }
+
+                // THE HAZE. density is small on purpose: absorption compounds along the ray, so a
+                // value that looks negligible still visibly shortens the beam's reach.
+                (*k->fogFn)(0.0, 0.0, 480.0, 270.0, 0.0055, 0xFFF2E0FFu, 0.62);
+
+                // The rotating beam, and a second one opposite it — a real lighthouse carries two.
+                (*k->lightFn)(cx, cy, 300.0, 0xFFE9C0FFu, 3.2, beamDeg, 22.0);
+                (*k->lightFn)(cx, cy, 300.0, 0xFFE9C0FFu, 3.2, beamDeg + 180.0, 22.0);
+                // A small omni glow at the tower, so the source is not a dark hole in its own light.
+                (*k->lightFn)(cx, cy, 46.0, 0xFFE9C0FFu, 1.4);
+
+                (*k->spriteFn)(cx, cy, 12.0, 26.0, 0x3a4356FFu, 12);   // the tower
+                (*k->glowFn)(cx, cy - 8.0, 9.0, 9.0, 0.0, 0xFFF6E4FFu, 31);   // the lamp room
+            }, &ctx);
+        }
+        renderer->shutdown();
+        mgr.removeInstance("capl_r");
+        mgr.removeInstance("capl_g");
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 0;
+    }
+
     if (argc > 2 && std::string(argv[2]) == "anim") {
         const int FRAMES = 48;
         for (int i = 0; i < FRAMES; ++i) {
