@@ -4,6 +4,9 @@ $input v_texcoord0
 
 SAMPLER2D(s_scene, 0);
 SAMPLER2D(s_light, 1);
+// The occlusion map, read here ONLY for its alpha: the scattering coefficient (plan A2). Its RGB is
+// the march's business, not the composite's.
+SAMPLER2D(s_occlusion, 2);
 
 uniform vec4 u_ambient;
 
@@ -42,7 +45,19 @@ void main()
 	         + texture2D(s_light, v_texcoord0 + vec2(0.0,  tx.y)).rgb
 	         + texture2D(s_light, v_texcoord0 + vec2(0.0, -tx.y)).rgb ) * (LIGHT_RESOLVE_W * 0.25);
 
-	vec3 lit = scene.rgb * (u_ambient.rgb + light);
+	// SCATTERING (plan A2) — and the term is ADDED to the result, never multiplied by the scene.
+	//
+	// ⚠️ This is the one architectural decision of plan A, and it is not a detail. In space `scene` is
+	// BLACK, so scene * light is zero and a beam crossing a nebula would be INVISIBLE — exactly the
+	// case the feature exists for. Multiplying would only ever put a halo on solid surfaces and leave
+	// the void dark, which is the opposite of what a nebula is.
+	//
+	// The scattering coefficient rides in the occlusion map's ALPHA as PROD(1 - scatter_i), so the
+	// total is 1 - alpha. An all-white map (no fog, or the 1x1 placeholder) gives exactly 0 and this
+	// whole term vanishes — the zero-cost bypass survives.
+	float scatter = 1.0 - texture2D(s_occlusion, v_texcoord0).a;
+
+	vec3 lit = scene.rgb * (u_ambient.rgb + light) + light * scatter;
 
 	gl_FragColor = vec4(lit, 1.0);
 }

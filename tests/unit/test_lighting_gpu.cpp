@@ -809,3 +809,106 @@ TEST_CASE("lighting: fog absorbs EXPONENTIALLY — doubling the density squares 
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a scattering medium GLOWS where there is no scene at all (GPU)",
+          "[gpu][light][fog][scatter]") {
+    // THE assertion of plan A2, and the scene is BLACK on purpose.
+    //
+    // The composite is `scene * (ambient + light) + scattered`. On any lit background the first term
+    // is already non-zero, so a test would see light with OR without the scattered term and pass
+    // while proving nothing. Against black, `scene * (ambient + light)` is EXACTLY zero — so a lit
+    // pixel can only be explained by the additive term, which is the whole architectural claim of
+    // this slice. Predicted in docs/design/lighting-attenuators.md §6 before this test existed.
+    //
+    // It is also the feature's real use case: a beam crossing a nebula in the void must be visible
+    // although there is no surface anywhere for it to land on.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 96, H = 96;
+    SDL_Window* win = SDL_CreateWindow("light8", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li8_r");
+    auto gIO = mgr.createInstance("li8_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li8_r"); mgr.removeInstance("li8_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+    const double cx = W * 0.5, cy = H * 0.5;
+
+    // fogMode: 0 = no fog, 1 = fog that only ABSORBS, 2 = fog that also SCATTERS.
+    auto measureCentre = [&](int fogMode) -> int {
+        for (int i = 0; i < 6; ++i) {
+            // THE VOID. The clear defaults to a dark grey, which is not black — and "nearly black"
+            // would leave a residue that could be mistaken for the very glow under test.
+            { auto c = std::make_unique<JsonDataNode>("c");
+              c->setInt("color", 0x000000FF);
+              gIO->publish("render:clear", std::move(c)); }
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x202020FFu));   // non-zero: 0 would switch lighting OFF
+              gIO->publish("render:ambient", std::move(a)); }
+            { auto l = std::make_unique<JsonDataNode>("l");
+              l->setDouble("cx", cx); l->setDouble("cy", cy);
+              l->setDouble("radius", 40.0);
+              l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              l->setDouble("intensity", 2.0);
+              gIO->publish("render:light", std::move(l)); }
+            if (fogMode > 0) {
+                auto f = std::make_unique<JsonDataNode>("f");
+                f->setDouble("x", 0.0); f->setDouble("y", 0.0);
+                f->setDouble("w", static_cast<double>(W)); f->setDouble("h", static_cast<double>(H));
+                f->setDouble("density", 0.002);            // barely absorbing: absorption is not the subject
+                if (fogMode == 2) f->setDouble("scatter", 0.8);
+                gIO->publish("render:fog", std::move(f));
+            }
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+        if (!dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size()))) return -1;
+        const uint8_t* p = &rgba[(static_cast<size_t>(static_cast<int>(cy))*W + static_cast<int>(cx))*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    const int noFog    = measureCentre(0);
+    const int absorbing = measureCentre(1);
+    const int scattering = measureCentre(2);
+
+    INFO("noFog=" << noFog << " absorbing=" << absorbing << " scattering=" << scattering);
+
+    // 1. Against black, a lamp alone lights NOTHING. This is the control: it proves the background
+    //    really is void, so anything measured below cannot come from the multiplicative term.
+    REQUIRE(noFog < 6);
+
+    // 2. Absorption alone changes nothing either — a medium that only absorbs is INVISIBLE in the
+    //    void, which is precisely why plan A had to be rewritten to include scattering.
+    REQUIRE(absorbing < 6);
+
+    // 3. ...and with `scatter` the void GLOWS. Zero to bright, with the scene term pinned at zero
+    //    throughout: the additive term is the only possible explanation.
+    REQUIRE(scattering > 80);
+
+    renderer->shutdown();
+    mgr.removeInstance("li8_r");
+    mgr.removeInstance("li8_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

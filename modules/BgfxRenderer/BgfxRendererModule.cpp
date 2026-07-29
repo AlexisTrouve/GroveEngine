@@ -707,13 +707,19 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                           CompositePass::kLightView, CompositePass::kCompositeView, 1 };
             m_device->setViewOrder(order, 5);
 
+            // ONE texture, TWO readers: the march samples its RGB (transmittance), the composite
+            // samples its ALPHA (scattering). Resolved once here so the two can never disagree about
+            // which map they are looking at — and so the no-matter case hands BOTH the white
+            // placeholder, which reads as vacuum and as zero scattering.
+            const rhi::TextureHandle occlusionTex =
+                hasOccluders ? m_device->getFramebufferTexture(m_occlusionFB) : m_occlusionTex;
             if (m_compositePass) {
                 m_compositePass->setTargets(m_device->getFramebufferTexture(m_sceneFB),
-                                            m_device->getFramebufferTexture(m_lightFB));
+                                            m_device->getFramebufferTexture(m_lightFB),
+                                            occlusionTex);
             }
             if (m_lightPass) {
-                m_lightPass->setOcclusionTexture(
-                    hasOccluders ? m_device->getFramebufferTexture(m_occlusionFB) : m_occlusionTex);
+                m_lightPass->setOcclusionTexture(occlusionTex);
             }
         } else if (m_lightingWidth != 0) {
             // Lighting was on and has just been turned off: give the targets back and restore the

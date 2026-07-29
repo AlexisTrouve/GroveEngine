@@ -77,11 +77,17 @@ void OcclusionPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, r
     //         one scale. A wall transmits nothing, a filter transmits a colour — see
     //         lighting-transmittance-core.md. Two loops rather than one only because the two
     //         primitives carry different fields.
-    auto pushRect = [&verts](float x, float y, float w, float h, float r, float g, float b) {
+    // `a` carries the SCATTERING channel (A2), and it rides here rather than on a target of its own.
+    //
+    // The blend is multiplicative, so writing a = 1 - scatter makes the map's alpha accumulate as
+    // PROD(1 - scatter_i): overlapping media compose like independent coverages, commutatively, and
+    // the composite recovers the total as 1 - alpha. Walls and filters write a = 1 (they do not
+    // scatter), and the WHITE clear leaves alpha at 1 — so a scene with no fog reads exactly zero
+    // scattering without any branch.
+    auto pushRect = [&verts](float x, float y, float w, float h, float r, float g, float b, float a) {
         // x,y is the top-left CORNER (anchor convention), so the far corner is +w,+h.
         const float x0 = x,     y0 = y;
         const float x1 = x + w, y1 = y + h;
-        const float a  = 1.0f;
 
         verts.push_back({x0, y0, 0.0f, r, g, b, a});
         verts.push_back({x1, y0, 0.0f, r, g, b, a});
@@ -97,21 +103,22 @@ void OcclusionPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, r
         // BLACK = transmittance 0. The wall is not a branch anywhere downstream: a zero annihilates
         // the running product the light march accumulates, and everything beyond it on that ray is
         // dark as an arithmetic consequence.
-        pushRect(o.x, o.y, o.w, o.h, 0.0f, 0.0f, 0.0f);
+        pushRect(o.x, o.y, o.w, o.h, 0.0f, 0.0f, 0.0f, 1.0f);
     }
 
     for (size_t i = 0; i < filters; ++i) {
         const FilterCommand& f = frame.filters[i];
         // The collector already converted the author's tint into a PER-UNIT transmittance, so this
         // pass writes it verbatim. A wall is the degenerate case of this very quad.
-        pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b);
+        pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b, 1.0f);
     }
 
     for (size_t i = 0; i < fogs; ++i) {
         const FogCommand& f = frame.fogs[i];
-        // Third and last way of feeding one map: exp(-density). Identical quad, identical blend —
-        // only the number differs, which is exactly what the socle claimed and is now three for three.
-        pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b);
+        // Third and last way of feeding one map: exp(-density) in RGB, and 1 - scatter in ALPHA.
+        // Identical quad, identical blend — only the numbers differ, which is exactly what the socle
+        // claimed and is now three for three.
+        pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b, 1.0f - f.scatter);
     }
 
     if (verts.empty()) return;

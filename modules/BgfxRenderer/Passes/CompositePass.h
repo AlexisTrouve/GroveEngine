@@ -47,9 +47,13 @@ public:
     // The two offscreen colour targets, owned by the renderer module (it also owns their resize).
     // Absent (invalid handles) the pass still records its draw — the mock has no textures at all and
     // the headless test must still be able to observe the draw.
-    void setTargets(rhi::TextureHandle scene, rhi::TextureHandle light) {
+    // `occlusion` is read for its ALPHA only — the scattering coefficient (A2). The module hands it
+    // the same texture the light march samples, which is the 1x1 white placeholder when no matter
+    // was published; white means alpha 1, hence zero scattering, hence a term that vanishes.
+    void setTargets(rhi::TextureHandle scene, rhi::TextureHandle light, rhi::TextureHandle occlusion) {
         m_sceneTex = scene;
         m_lightTex = light;
+        m_occlusionTex = occlusion;
     }
 
 private:
@@ -58,9 +62,11 @@ private:
     rhi::BufferHandle  m_quadIB;
     rhi::UniformHandle m_sceneSampler;
     rhi::UniformHandle m_lightSampler;
+    rhi::UniformHandle m_occlusionSampler;
     rhi::UniformHandle m_ambientUniform;
     rhi::TextureHandle m_sceneTex;
     rhi::TextureHandle m_lightTex;
+    rhi::TextureHandle m_occlusionTex;
 };
 
 } // namespace grove

@@ -23,7 +23,7 @@
  *        test_mapview_viewer --load <dir> --poster [out.png] [--ppc N]
  *                                                     (headless: the WHOLE map tiled+stitched to ONE PNG at N
  *                                                      pixels/cell — no cell ceiling, no size cap: big map -> big PNG)
- *        --lens terrain|biome|res_<type>              (which lens the initial view / --shot / --poster uses;
+ *        --lens terrain|biome|elements|res_<type>     (which lens the initial view / --shot / --poster uses;
  *                                                      `biome` needs the world's biomes.json side-car, `res_*` a
  *                                                      matching density field — both fall back to terrain)
  */
@@ -269,6 +269,16 @@ int main(int argc, char** argv) {
             lensBuilder = [biomeTable, hypsoStops](bool hillshade, bool /*banded*/) { return mvdemo::makeBiomeLens(biomeTable, hillshade, hypsoStops); };
         else
             std::fprintf(stderr, "--lens biome: no/empty biomes.json in '%s' -> using terrain lens\n", loadDir.c_str());
+    } else if (lensName == "elements") {
+        // `--lens elements` -> DENSITE D'ELEMENTS par tuile (modele par budget de points de Theomen).
+        //   POURQUOI ici et pas une lens dediee : `element_count` EST un champ scalaire par cellule,
+        //   exactement ce que `makeResourceLens` sait peindre. On reutilise la machinerie eprouvee des
+        //   heatmaps de ressources au lieu d'en ecrire une deuxieme.
+        //   Ce que ca montre : ou le monde est riche en elements (landmarks + gisements + contraintes
+        //   confondus). Le DETAIL par famille demanderait de croiser element_0..7 avec elements.json --
+        //   c'est une lens categorielle a part, non faite.
+        lensBuilder = [hypsoStops](bool hillshade, bool /*banded*/) {
+            return mvdemo::makeResourceLens("element_count", hillshade, hypsoStops); };
     } else if (lensName.rfind("res_", 0) == 0) {
         // `--lens res_<type>` -> that resource's density heatmap over the terrain (the same lens the HUD's
         //   resource rows use). Lets a headless --shot/--poster capture a resource map, not just terrain/biome.

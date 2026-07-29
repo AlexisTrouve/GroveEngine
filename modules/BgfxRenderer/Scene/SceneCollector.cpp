@@ -1271,6 +1271,11 @@ void SceneCollector::parseFog(const IDataNode& data) {
     f.g = grove::light::fogPerUnit(density, static_cast<float>((color >> 16) & 0xFF) / 255.0f);
     f.b = grove::light::fogPerUnit(density, static_cast<float>((color >>  8) & 0xFF) / 255.0f);
 
+    // `scatter` (A2, default 0) is what makes the medium VISIBLE rather than merely darkening. It is
+    // clamped to 0..1 because it is a fraction of the arriving light re-emitted towards the viewer,
+    // not a coefficient like `density` — the two are deliberately different kinds of number.
+    f.scatter = std::min(1.0f, std::max(0.0f, static_cast<float>(data.getDouble("scatter", 0.0))));
+
     m_fogs.push_back(f);
 }
 

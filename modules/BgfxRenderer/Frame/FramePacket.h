@@ -220,6 +220,13 @@ struct FogCommand {
     float x, y;      // world top-left CORNER
     float w, h;      // extent; a non-positive extent is dropped by the collector
     float r, g, b;   // PER-UNIT transmittance = exp(-density / colour), per channel
+
+    // How much of the light crossing this volume is SCATTERED back towards the viewer (A2), 0..1.
+    //
+    // Kept separate from the transmittance on purpose: a medium may absorb a great deal while
+    // scattering little (black smoke) or the reverse (bright haze). Folding the two into one number
+    // would delete half the expressible matter — see docs/design/lighting-attenuators.md §5.
+    float scatter;
 };
 
 // ============================================================================

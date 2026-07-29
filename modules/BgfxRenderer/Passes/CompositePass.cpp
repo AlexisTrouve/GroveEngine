@@ -39,6 +39,7 @@ void CompositePass::setup(rhi::IRHIDevice& device) {
 
     m_sceneSampler   = device.createUniform("s_scene", 1);
     m_lightSampler   = device.createUniform("s_light", 1);
+    m_occlusionSampler = device.createUniform("s_occlusion", 1);
     m_ambientUniform = device.createUniform("u_ambient", 1);
 }
 
@@ -47,6 +48,7 @@ void CompositePass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_quadIB);
     device.destroy(m_sceneSampler);
     device.destroy(m_lightSampler);
+    device.destroy(m_occlusionSampler);
     device.destroy(m_ambientUniform);
     // m_shader is owned by ShaderManager, like every other pass.
 }
@@ -82,6 +84,7 @@ void CompositePass::execute(const FramePacket& frame, rhi::IRHIDevice& device, r
     cmd.setIndexBuffer(m_quadIB);
     cmd.setTexture(0, m_sceneTex, m_sceneSampler);
     cmd.setTexture(1, m_lightTex, m_lightSampler);
+    cmd.setTexture(2, m_occlusionTex, m_occlusionSampler);
     cmd.setUniform(m_ambientUniform, ambient, 1);
     cmd.drawIndexed(6, 0);
     cmd.submit(kCompositeView, m_shader, 0);
