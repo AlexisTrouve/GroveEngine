@@ -1,5 +1,9 @@
 # Handoff — sessions des 27 & 28 juillet 2026
 
+> ➡️ **Suite : [handoff des 28 & 29 juillet](session-handoff-2026-07-29.md)** — l'éclairage 2D
+> (L1→L3 + socle + murs), `IIO::unsubscribe`, le blend additif. Les trois pistes ouvertes ci-dessous
+> y sont reprises et deux sont levées.
+
 > **État à la sortie** : `master` = **`af4a226`**, poussé sur gitea + github, arbre propre,
 > suite **182/182**. Rien en attente, rien de cassé.
 > Point de départ : `28b8def` (176/177, avec un échec rouge sur master depuis un moment).
