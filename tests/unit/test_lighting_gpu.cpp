@@ -659,8 +659,36 @@ TEST_CASE("lighting: a shadow edge is a STRAIGHT line, not a staircase (GPU)",
 
     INFO("slope=" << slope << " expected=" << expectedSlope << " worst=" << worst << "px n=" << xs.size());
 
-    REQUIRE(worst < 5.0);                              // straight, not a staircase
+    // 2.5 px comes from MEASURING both states, not from taste: with the dither the edge deviates
+    // 1.6 px from its fit line, without it 3.5 px (and its longest flat run goes from 3 px to 11).
+    // A looser bound would sail through the staircase this test exists to forbid.
+    REQUIRE(worst < 2.5);                              // straight, not a staircase
     REQUIRE(std::abs(slope - expectedSlope) < 0.06);   // and following the geometry
+
+    // ...and the edge is ANTIALIASED, which is a separate property from being straight.
+    //
+    // An occluder writes 0, so the march's verdict is BINARY: one sample inside the wall annihilates
+    // the product. Left alone that yields a hard cliff — perfectly straight and perfectly ugly, which
+    // the two assertions above would happily accept. The lamp pass dithers the boundary across
+    // neighbouring pixels and the composite resolves that dither into a ramp; what proves the pair is
+    // still working is the EXISTENCE of intermediate values at the boundary.
+    int columnsWithRamp = 0, columnsChecked = 0;
+    for (size_t i = 0; i < xs.size(); ++i) {
+        const int x  = static_cast<int>(xs[i]);
+        const int ey = static_cast<int>(ys[i]);
+        if (ey < 12 || ey > H - 12) continue;
+        ++columnsChecked;
+        const int dark  = luma(x, ey - 8);    // clearly in shadow
+        const int bright = luma(x, ey + 8);   // clearly lit
+        if (bright - dark < 40) continue;     // no usable contrast in this column
+        for (int y = ey - 3; y <= ey + 3; ++y) {
+            const int v = luma(x, y);
+            if (v > dark + 15 && v < bright - 15) { ++columnsWithRamp; break; }
+        }
+    }
+    INFO("columns with a ramp: " << columnsWithRamp << " / " << columnsChecked);
+    REQUIRE(columnsChecked >= 10);
+    REQUIRE(columnsWithRamp * 2 >= columnsChecked);   // a majority, not a lucky pixel
 
     renderer->shutdown();
     mgr.removeInstance("li6_r");

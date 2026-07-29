@@ -68,17 +68,45 @@ hypothèses coïncident.
    la marche était ce pas (~19 px sous une lampe de 340). **Repéré à l'œil par Alexi sur les captures
    du blog, pas par un test.**
 
-   ✅ **Corrigé le 2026-07-29** : le pas est désormais constant **en pixels écran** (3 px, plafonné à
-   64 échantillons), donc la qualité du bord ne dépend plus de la taille de la lampe — une petite
-   lampe prend simplement moins d'échantillons. Écart à la droite mesuré : **9,4 px → 2,9 px**.
-   Verrouillé par `LightingGpu [march]`, qui ajuste une droite sur le bord d'ombre mesuré et échoue
-   s'il ondule.
+   ✅ **Corrigé le 2026-07-29, en DEUX temps** — et le deuxième est le vrai.
 
-   **Ce que ça apprend** : le plan avait *raison sur le symptôme et faux sur la cause*, parce qu'il
-   décrivait la cause d'une structure qu'on n'a pas construite. Un risque énoncé comme propriété
-   d'une implémentation précise cesse d'être surveillé dès qu'on change d'implémentation — alors que
-   le symptôme, lui, était générique. Formuler les risques par le **symptôme observable** plutôt que
-   par le mécanisme supposé.
+   **(a) Le pas constant en pixels.** Écart à la droite : 9,4 px → 2,9 px. Nécessaire, insuffisant :
+   Alexi a regardé et dit « c'est mieux mais c'est toujours un escalier ». Il avait raison.
+
+   **(b) Le tramage, parce qu'un occulteur opaque rend une réponse BINAIRE.** Un mur écrit 0 : dès
+   qu'**un seul** échantillon tombe dedans, le produit s'annule. Tous les pixels situés à moins d'un
+   pas de la frontière répondent donc **exactement pareil**, et aucun raffinement de
+   l'échantillonnage ne change ça — un pas plus fin ne fait que raccourcir la marche de l'escalier, et
+   la paye linéairement. Trois tentatives ont buté là-dessus :
+   - pas plus fin → palier plus court, escalier toujours net ;
+   - carte d'occultation filtrée (demi-résolution) → le dégradé ne survit pas au `pow(prod, stepLen)`,
+     qui lit un texel à moitié couvert comme une **densité** alors que c'est une **couverture** ;
+   - premier tramage `mod(x + 3y, 8)` → **c'était un dégradé, pas un tramage** : 1/8 d'écart entre
+     pixels voisins, donc ils marchaient pareil et il n'y avait rien à moyenner.
+
+   Ce qui marche : un tramage où les pixels **voisins** reçoivent des décalages **opposés**
+   (`mod(5x + 3y, 8)`, qui cycle 0-5-2-7-4-1-6-3), plus une résolution 5 taps de la cible de lumière
+   dans le composite. Le tramage étale la frontière binaire sur les pixels, le composite la remoyenne
+   en rampe. **Écart : 3,5 px → 1,6 px, palier max 11 px → 3 px**, et à l'œil une vraie ligne
+   anticrénelée.
+
+   Verrouillé par `LightingGpu [march]` : ajustement d'une droite sur le bord mesuré, seuil **2,5 px
+   choisi depuis la mesure des deux états** (1,6 avec, 3,5 sans), plus une assertion sur l'existence
+   de valeurs **intermédiaires** au bord.
+
+   **Ce que ça apprend, en trois points :**
+
+   1. Le plan avait *raison sur le symptôme et faux sur la cause* — il décrivait la cause d'une
+      structure qu'on n'a pas construite. Un risque énoncé comme propriété d'une implémentation
+      précise cesse d'être surveillé dès qu'on change d'implémentation, alors que le symptôme, lui,
+      était générique. **Formuler les risques par le symptôme observable.**
+   2. **Une réponse binaire ne s'adoucit pas en amont.** Tant que le verdict par pixel est 0 ou 1,
+      raffiner ou filtrer l'entrée ne fait que déplacer la falaise. Il faut soit supersampler, soit
+      étaler la décision sur les pixels voisins et la remoyenner — ce qu'on a fait.
+   3. **Ma métrique récompensait le bruit.** La longueur de palier chute quand le bord devient
+      bruité, donc le tramage seul « améliorait » le chiffre en dégradant l'image. C'est l'œil qui a
+      tranché entre grain et rampe, pas le nombre. Une métrique de proxy doit être validée contre ce
+      qu'elle prétend mesurer avant qu'on lui fasse confiance pour arbitrer.
 3. **Auto-occultation** — un sprite qui est à la fois éclairé et occulteur s'ombre lui-même sur son
    bord côté lampe. Attendu physiquement, souvent laid en 2D vu de dessus. Prévoir de pouvoir
    déclarer un occulteur **sans** qu'il s'auto-ombre, ou accepter et documenter.

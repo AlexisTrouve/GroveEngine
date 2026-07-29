@@ -173,10 +173,14 @@ int main(int argc, char** argv) {
     // `plainGround` swaps the tiled floor for a near-black backdrop: an additive glow is only
     // legible against something dark, and on the lit stone floor the intersection would be washed
     // out by what is already there - the shot would show nothing even with the blend working.
+    // 0 = the tiled scene, 1 = near-black backdrop (additive plume), 2 = flat mid-grey (edge probe:
+    // a uniform ground is the only way to measure a shadow boundary without the decor confusing it).
+    int groundMode = 0;
     bool plainGround = false;
     auto shoot = [&](const char* name, bool lit, void (*setup)(void*), void* ctx) {
         for (int i = 0; i < 5; ++i) {
-            if (plainGround) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0x0a0d14FFu, 1);
+            if (groundMode == 2) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0xB0B4BCFFu, 1);
+            else if (plainGround) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0x0a0d14FFu, 1);
             else drawScene();
             if (setup) setup(ctx);
             if (lit) {
@@ -339,6 +343,18 @@ int main(int argc, char** argv) {
         (*k->spriteFn)(wx + wt * 0.5, 185.0, wt, 54.0, 0x2a4a8aFFu, 9);
         (*k->filtFn)(wx, 158.0, wt, 54.0, 0x50A0FFFFu);         // cold blue glass
     }, &ctx);
+
+    // 90. EDGE PROBE — not a blog plate, a MEASURING INSTRUMENT. A flat ground, one lamp, one block:
+    //     the shadow boundary is the only feature in the image, so its shape can be read column by
+    //     column without the decor's tiles or wall band being mistaken for it.
+    groundMode = 2;
+    shoot("90_edge_probe.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x0c0c0cFFu);
+        (*k->lightFn)(40.0, 60.0, 640.0, 0xFFFFFFFFu, 2.2);
+        (*k->occFn)(150.0, 0.0, 30.0, 120.0);   // corner at (150,120) casts the edge
+    }, &ctx);
+    groundMode = 0;
 
     renderer->shutdown();
     mgr.removeInstance("capl_r");

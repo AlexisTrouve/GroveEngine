@@ -452,9 +452,11 @@ becomes unreliable when you **zoom out** far enough, not when the lamp gets bigg
 hairline wall to keep occluding at any zoom, make the *occluder* rect thicker than the *sprite* that
 draws it — nothing requires the two to match.
 
-Shadow edges are hard and pixel-crisp; the march is bounded at 64 samples, so a lamp wider than
-~200 px on screen loses a little edge precision at its rim. Locked by `LightingGpu [march]`, which
-fits a line through the measured shadow boundary and fails if it bends.
+Shadow edges are hard (no penumbra) but **antialiased**: the lamp pass dithers the boundary across
+neighbouring pixels and the composite resolves that into a ramp, so a diagonal edge reads as a clean
+line rather than a staircase. The march is bounded at 64 samples, so a lamp wider than ~400 px on
+screen loses a little edge precision at its rim. Locked by `LightingGpu [march]`, which fits a line
+through the measured shadow boundary and fails if it bends.
 
 ##### Filters — stained glass that tints the light it lets through
 

@@ -73,22 +73,45 @@ void main()
 	float steps  = clamp(ceil(pxDist / OCCLUSION_STEP_PX), 1.0, float(MAX_OCCLUSION_STEPS));
 	vec2  stepUV = (uvFrag - uvLight) / steps;
 
-	// ⚠️ [loop] is not decoration — WITHOUT it the whole adaptive scheme is a lie.
+	// ORDERED DITHER on where the march STARTS (core C2b) — this is what antialiases shadow edges.
+	//
+	// An occluder writes 0, so the march's verdict is BINARY: one sample inside a wall annihilates the
+	// product however many others miss it. Every pixel within a step of the boundary therefore returns
+	// the SAME answer and the edge comes out as a staircase (measured tread: 3.9 px). Shrinking the
+	// step only shrinks the tread and pays linearly; filtering the occlusion map does not survive the
+	// pow() below, which reads a half-covered texel as DENSITY rather than as COVERAGE and crushes it.
+	//
+	// Offsetting each pixel's samples by a different fraction of a step spreads that one answer across
+	// the pixels of a tread; the composite then resolves them into a ramp (fs_composite.sc). Cost: one
+	// modulo. An ORDERED pattern rather than a hash on purpose — noise on a still image reads as grain,
+	// a fine regular pattern reads as a soft edge.
+	//
+	// ⚠️ The multipliers are the whole point: NEIGHBOURING pixels must get very DIFFERENT offsets. A
+	//    first attempt used mod(x + 3y, 8), which steps by 1/8 per pixel — a gradient, not a dither.
+	//    Adjacent pixels then marched almost identically, agreed, and left the resolve nothing to
+	//    average. Stepping by 5/8 cycles 0, 5, 2, 7, 4, 1, 6, 3: consecutive pixels land at opposite
+	//    ends of the step. Measured: 3.5 px off the fit line before, 1.6 px after.
+	//
+	// ⚠️ Strictly neutral where there is no matter: in vacuum every sample returns 1 whatever the
+	//    offset, so a scene with no occluder is unchanged to the byte.
+	vec2 fc = floor(gl_FragCoord.xy);
+	float dither = mod(fc.x * 5.0 + fc.y * 3.0, 8.0) * 0.125;
+
+	// ⚠️ [loop] is not decoration — WITHOUT it the adaptive step count is a lie.
 	//
 	// fxc reads the clamp above, deduces the bound can never exceed 64, and UNROLLS: the D3D11
 	// bytecode went from 1.9 KB to 23 KB, and an unrolled loop is predicated, so every lit fragment
 	// would pay all 64 samples whatever `steps` said. Forcing a real loop puts it back to 2.2 KB and
 	// makes a fragment that needs 8 samples take 8. Same picture (verified pixel-identical), a
-	// fraction of the work.
-	//
-	// Guarded because [loop] is HLSL-only; GLSL and SPIR-V keep the dynamic bound and do not unroll.
+	// fraction of the work. Guarded because [loop] is HLSL-only; GLSL and SPIR-V keep the dynamic
+	// bound and do not unroll.
 	int n = int(steps);
 	vec3 prod = vec3_splat(1.0);
 #if BGFX_SHADER_LANGUAGE_HLSL
 	[loop]
 #endif
 	for (int i = 1; i <= n; ++i) {
-		prod *= texture2D(s_occlusion, uvLight + stepUV * float(i)).rgb;
+		prod *= texture2D(s_occlusion, uvLight + stepUV * (float(i) - dither)).rgb;
 	}
 
 	// World length of one step: the fragment sits at `d` in the light's unit disc, so the distance

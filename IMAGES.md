@@ -186,6 +186,19 @@ image**, écrits par la **même passe** dans la **même carte** : ce sont les de
 À utiliser pour : l'**illustration principale** d'un article sur l'éclairage 2D, « un mécanisme, trois
 demandes » (murs / filtres / brouillard), l'ouverture ou la clôture d'un devblog rendu.
 
+### Instrument de mesure
+
+#### `blog/90_edge_probe.png`
+**La sonde qui a servi à chiffrer le crénelage des ombres (2026-07-29).** *(Un aplat gris uniforme,
+une lampe hors champ en haut à gauche, un bloc opaque, et une seule diagonale d'ombre nette qui
+traverse l'image. Aucun décor.)* **Ce n'est pas une plaque de blog, c'est un instrument.** Les
+captures 09-12 ont un sol dallé et une bande de mur : impossible d'y lire la forme d'un bord d'ombre
+sans confondre les tuiles avec l'artefact. Cette sonde ne contient qu'une seule arête, donc elle se
+mesure colonne par colonne — c'est elle qui a donné « palier moyen 3,9 px, max 13 px » avant, et
+« 1,8 px, max 3 px » après. À utiliser pour : un article sur le **débogage visuel** (« rendre le
+défaut mesurable avant de le corriger »), la différence entre voir un bug et le chiffrer, ou en
+avant/après avec sa propre version d'avant.
+
 ---
 
 <!--
