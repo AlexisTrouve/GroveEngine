@@ -41,7 +41,7 @@ private:
     rhi::ShaderHandle  m_shader;
     rhi::BufferHandle  m_quadVB;
     rhi::BufferHandle  m_quadIB;
-    rhi::UniformHandle m_placementUniform;  // `u_light` (cx, cy, radius) — read by the SHARED vs_light
+    rhi::UniformHandle m_placementUniform;  // `u_nebula` (cx, cy, radius) — read by vs_nebula
     rhi::UniformHandle m_fogUniform;        // (density, scatter, _, _)
     rhi::UniformHandle m_fogColorUniform;   // rgb = colour, a unused
 };
