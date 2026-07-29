@@ -1,5 +1,5 @@
 $input a_position, a_color0
-$output v_texcoord0
+$output v_texcoord0, v_color0
 
 #include <bgfx_shader.sh>
 
@@ -22,6 +22,27 @@ void main()
 	gl_Position = mul(u_modelViewProj, vec4(world, 0.0, 1.0));
 
 	v_texcoord0 = a_position.xy;
+
+	// Screen UVs of THIS fragment and of the light centre, packed into the (otherwise unused)
+	// colour varying. The fragment stage marches between the two through the occlusion map, so it
+	// needs both in the SAME space -- and screen space is the one the occlusion map lives in, which
+	// spares an inverse transform per pixel.
+	//
+	// The light centre is constant across the quad, so interpolating it is exact, not an
+	// approximation: a constant interpolates to itself.
+	vec4 clipLight = mul(u_modelViewProj, vec4(u_light.xy, 0.0, 1.0));
+	vec2 uvFrag  = gl_Position.xy / gl_Position.w * 0.5 + 0.5;
+	vec2 uvLight = clipLight.xy / clipLight.w * 0.5 + 0.5;
+
+	// Same render-target origin split as the composite: GL samples from the bottom-left, D3D and
+	// Metal from the top-left. Without this the march would walk the map upside down on one family
+	// of backends -- and only on that family.
+#if !BGFX_SHADER_LANGUAGE_GLSL
+	uvFrag.y  = 1.0 - uvFrag.y;
+	uvLight.y = 1.0 - uvLight.y;
+#endif
+
+	v_color0 = vec4(uvFrag, uvLight);
 
 	vec4 unused = a_color0;
 }

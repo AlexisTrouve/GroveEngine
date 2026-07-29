@@ -42,6 +42,7 @@ void LightPass::setup(rhi::IRHIDevice& device) {
     m_lightUniform      = device.createUniform("u_light", 1);
     m_lightColorUniform = device.createUniform("u_lightColor", 1);
     m_lightConeUniform  = device.createUniform("u_lightCone", 1);
+    m_occlusionSampler  = device.createUniform("s_occlusion", 1);
 }
 
 void LightPass::shutdown(rhi::IRHIDevice& device) {
@@ -50,6 +51,7 @@ void LightPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_lightUniform);
     device.destroy(m_lightColorUniform);
     device.destroy(m_lightConeUniform);
+    device.destroy(m_occlusionSampler);
     // m_shader belongs to ShaderManager, like every other pass.
 }
 
@@ -109,6 +111,7 @@ void LightPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         cmd.setUniform(m_lightUniform, light, 1);
         cmd.setUniform(m_lightColorUniform, lightColor, 1);
         cmd.setUniform(m_lightConeUniform, cone, 1);
+        cmd.setTexture(0, m_occlusionTex, m_occlusionSampler);
         cmd.drawIndexed(6, 0);
         cmd.submit(CompositePass::kLightView, m_shader, 0);
     }

@@ -105,6 +105,35 @@ suffisent : 8 passes de 256×256, soit ~500 k opérations de texel par lampe au 
 > détecter ce cas et basculer. Mais deux chemins à maintenir avant d'avoir mesuré que le premier
 > coûte trop cher, c'est le genre d'optimisation qu'on paie deux fois.
 
+## 4bis. ⚠️ Correction du §4 — la table est une OPTIMISATION, pas le point de départ
+
+*Ajouté le 2026-07-29, en attaquant C2. Je corrige mon propre plan plutôt que de le défendre.*
+
+Le §4 conclut « produit préfixe, scan en log₂(N) » et pose la table comme la structure de base. **Le
+raisonnement est juste mais il arrive trop tôt**, parce qu'il évalue le coût de *construire la
+table* sans le comparer à l'alternative qui n'en construit aucune.
+
+**On peut marcher directement.** Le fragment shader d'une lampe connaît sa position et celle de la
+lampe ; il peut parcourir la carte d'occultation entre les deux et accumuler la transmittance au
+passage — sans table, sans scan, sans cible supplémentaire, sans passe supplémentaire.
+
+| | Table précalculée | Marche directe |
+|---|---|---|
+| Coût | build `A×R` une fois par lampe, puis **1 tap** par pixel couvert | **K taps** par pixel couvert |
+| Structure | une cible de plus, une passe de plus, un shader de plus, une disposition en bandes | rien de neuf |
+| Gagne quand | la lampe couvre beaucoup de pixels | les lampes sont petites ou peu nombreuses |
+
+La table finit par gagner sur les grosses lampes — l'amortissement est réel. Mais **elle gagne une
+course qu'on n'a pas encore mesurée**, et elle coûte quatre pièces d'infrastructure pour ça.
+
+**Donc l'ordre change** : C2 livre la carte d'occultation + **la marche directe**. La table
+polaire devient **C3, une optimisation**, à écrire quand une mesure montrera que la marche coûte
+trop cher — avec, à ce moment-là, une base de comparaison qui existe.
+
+C'est la règle que ce projet s'applique partout ailleurs (mesurer avant d'optimiser) ; l'avoir
+enfreinte dans un plan de conception ne la rend pas moins vraie. Le §4 reste valable comme
+description de C3.
+
 ## 5. ⚠️ L'arbitrage à trancher AVANT la première ligne
 
 **Une carte d'occultation par lampe, ou une seule partagée en espace écran ?**

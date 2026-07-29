@@ -89,6 +89,11 @@ private:
     // redirection, no composite draw — the world goes straight to the backbuffer exactly as it did
     // before lighting existed. See docs/design/lighting-2d.md §3.
     class CompositePass* m_compositePass = nullptr;   // owned by the render graph, borrowed here
+    class LightPass*     m_lightPass = nullptr;       // idem — fed the occlusion map each frame
+    // Placeholder occlusion map (core C2): a 1x1 WHITE texel = vacuum everywhere, sampled with
+    // clamp so the march reads white wherever it looks. Nothing writes occluders yet; plan W
+    // replaces this with a real screen-space target. Created once, destroyed at shutdown.
+    rhi::TextureHandle m_occlusionTex;
     rhi::FramebufferHandle m_sceneFB;
     rhi::FramebufferHandle m_lightFB;
     uint16_t m_lightingWidth = 0;      // size the targets were built for (0 = none yet)

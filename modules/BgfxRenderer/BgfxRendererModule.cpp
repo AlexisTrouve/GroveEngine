@@ -304,8 +304,23 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // publishes render:ambient (the pass returns immediately), and building it lazily would mean
     // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
     // module can hand it the offscreen textures each frame; the graph owns the pass.
-    m_renderGraph->addPass(std::make_unique<LightPass>(m_shaderManager->getProgram("light")));
-    m_logger->info("Added LightPass");
+    {
+        // The occlusion map the light march samples. WHITE = vacuum, so with nothing writing into
+        // it the march multiplies by 1 and the render is unchanged — that neutrality IS the proof
+        // this slice ships. 1x1 + clamp is enough while nothing draws occluders.
+        rhi::TextureDesc od;
+        od.width = 1; od.height = 1; od.format = rhi::TextureDesc::RGBA8;
+        const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
+        od.data = whitePixel;
+        od.dataSize = sizeof(whitePixel);
+        m_occlusionTex = m_device->createTexture(od);
+
+        auto lightPass = std::make_unique<LightPass>(m_shaderManager->getProgram("light"));
+        lightPass->setOcclusionTexture(m_occlusionTex);
+        m_lightPass = lightPass.get();
+        m_renderGraph->addPass(std::move(lightPass));
+        m_logger->info("Added LightPass");
+    }
 
     {
         auto compositePass = std::make_unique<CompositePass>(m_shaderManager->getProgram("composite"));
@@ -718,7 +733,12 @@ void BgfxRendererModule::shutdown() {
     // pass that borrows their textures. Releasing them after would leave the pass holding handles to
     // freed targets for the length of the teardown.
     releaseLightingTargets();
+    if (m_device && m_occlusionTex.isValid()) {
+        m_device->destroy(m_occlusionTex);
+        m_occlusionTex = rhi::TextureHandle{};
+    }
     m_compositePass = nullptr;   // the graph owns it and is about to destroy it
+    m_lightPass = nullptr;
 
     if (m_renderGraph && m_device) {
         m_renderGraph->shutdown(*m_device);

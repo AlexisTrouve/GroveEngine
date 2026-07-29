@@ -42,6 +42,12 @@ public:
     void shutdown(rhi::IRHIDevice& device) override;
     void execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) override;
 
+    /// The per-pixel transmittance of the matter light travels through (core C2). Each texel holds
+    /// transmittance PER UNIT of length; an all-white map is vacuum and changes nothing, which is
+    /// exactly what it is today — nothing writes into it yet. Plan W swaps this placeholder for a
+    /// real render target once walls exist; this setter is the seam.
+    void setOcclusionTexture(rhi::TextureHandle tex) { m_occlusionTex = tex; }
+
 private:
     rhi::ShaderHandle  m_shader;
     rhi::BufferHandle  m_quadVB;
@@ -49,6 +55,8 @@ private:
     rhi::UniformHandle m_lightUniform;       // (cx, cy, radius, intensity)
     rhi::UniformHandle m_lightColorUniform;  // (r, g, b, unused)
     rhi::UniformHandle m_lightConeUniform;   // (axis.x, axis.y, cosOuter, cosInner)
+    rhi::UniformHandle m_occlusionSampler;
+    rhi::TextureHandle m_occlusionTex;
 };
 
 } // namespace grove
