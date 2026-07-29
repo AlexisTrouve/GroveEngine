@@ -2934,6 +2934,15 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIMalformedLayoutE2E IT_061_ui_malformed_layout_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_062: editing ACCENTED text (T0b). UITextInput counts its cursor in BYTES, so Backspace on
+    # "é" (2 UTF-8 bytes) removed one and left an invalid half-sequence — an everyday bug in French.
+    # Driven through the very topics the real InputModule publishes; the cursor is proven indirectly
+    # (insert after moving) since it is never published.
+    add_executable(IT_062_ui_textinput_utf8_e2e integration/IT_062_ui_textinput_utf8_e2e.cpp)
+    target_link_libraries(IT_062_ui_textinput_utf8_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputUtf8E2E IT_062_ui_textinput_utf8_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)

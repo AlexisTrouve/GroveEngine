@@ -1,6 +1,7 @@
 #include "UITextInput.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
+#include <grove/text/TextMetrics.h>
 #include <algorithm>
 #include <cctype>
 #include <spdlog/spdlog.h>
@@ -265,28 +266,56 @@ bool UITextInput::insertFilteredText(const std::string& str) {
 }
 
 void UITextInput::deleteCharBefore() {
+    // QUOI : Backspace — retire le CARACTÈRE avant le curseur.
+    // POURQUOI : l'ancienne version faisait `text.erase(cursorPosition - 1, 1)`, soit UN OCTET. Sur
+    //   "é" (0xC3 0xA9, deux octets) elle laissait une demi-séquence UTF-8 invalide dans le champ —
+    //   un bug de tous les jours en français, et publié tel quel au jeu via ui:text_changed.
+    // COMMENT : prevIndex recule jusqu'à la frontière de codepoint précédente (en enjambant les
+    //   octets de continuation), et on efface tout l'intervalle. En ASCII c'est exactement un octet,
+    //   donc le comportement existant est inchangé.
     if (cursorPosition > 0) {
-        text.erase(cursorPosition - 1, 1);
-        cursorPosition--;
+        const size_t cur = static_cast<size_t>(cursorPosition);
+        const size_t prev = text::Metrics::prevIndex(text, cur);
+        text.erase(prev, cur - prev);
+        cursorPosition = static_cast<int>(prev);
         updateScrollOffset();
     }
 }
 
 void UITextInput::deleteCharAfter() {
+    // Pendant de deleteCharBefore pour la touche Suppr : même défaut d'un octet, même correctif.
+    // Le curseur ne bouge pas — c'est le caractère À DROITE qui disparaît.
     if (cursorPosition < static_cast<int>(text.length())) {
-        text.erase(cursorPosition, 1);
+        const size_t cur = static_cast<size_t>(cursorPosition);
+        const size_t next = text::Metrics::nextIndex(text, cur);
+        text.erase(cur, next - cur);
         updateScrollOffset();
     }
 }
 
 void UITextInput::moveCursor(int offset) {
-    int newPos = cursorPosition + offset;
-    newPos = std::clamp(newPos, 0, static_cast<int>(text.length()));
-    setCursorPosition(newPos);
+    // QUOI : déplace le curseur de `offset` CARACTÈRES (pas d'octets).
+    // POURQUOI : `cursorPosition + offset` sautait d'un octet, donc une flèche pouvait déposer le
+    //   curseur ENTRE les deux octets d'un accent ; la frappe suivante s'insérait au milieu du
+    //   codepoint et corrompait la chaîne (prouvé par IT_062 : "aé" + Left + "X" → "a<C3>X<A9>").
+    // COMMENT : on applique |offset| pas atomiques ; chaque pas enjambe un codepoint entier. Les pas
+    //   saturent aux extrémités, donc une valeur d'offset excessive est inoffensive.
+    size_t pos = static_cast<size_t>(std::clamp(cursorPosition, 0, static_cast<int>(text.length())));
+    for (int i = 0; i < offset; ++i)  pos = text::Metrics::nextIndex(text, pos);
+    for (int i = 0; i > offset; --i)  pos = text::Metrics::prevIndex(text, pos);
+    setCursorPosition(static_cast<int>(pos));
 }
 
 void UITextInput::setCursorPosition(int pos) {
-    cursorPosition = std::clamp(pos, 0, static_cast<int>(text.length()));
+    // Entonnoir unique de toute position de curseur : on borne, PUIS on recolle sur une frontière de
+    // codepoint. Un appelant qui calcule une position en octets (clic, restauration d'état) ne peut
+    // donc pas laisser le curseur au milieu d'un caractère — l'invariant est tenu ici, une fois.
+    const int clamped = std::clamp(pos, 0, static_cast<int>(text.length()));
+    size_t snapped = static_cast<size_t>(clamped);
+    if (snapped < text.size() && isUtf8Continuation(text[snapped])) {
+        snapped = text::Metrics::prevIndex(text, snapped);
+    }
+    cursorPosition = static_cast<int>(snapped);
     updateScrollOffset();
 }
 
