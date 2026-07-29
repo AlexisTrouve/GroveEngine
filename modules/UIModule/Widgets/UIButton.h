@@ -107,7 +107,11 @@ public:
      * @brief Handle mouse button event
      * @return true if event was consumed
      */
-    bool onMouseButton(int button, bool pressed, float x, float y);
+    bool onMouseButton(int button, bool pressed, float x, float y) override;
+
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return containsPoint(x, y); }
+
 
     /**
      * @brief Handle mouse enter/leave

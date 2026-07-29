@@ -23,6 +23,13 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "modal"; }
 
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return pointInBounds(x, y); }
+
+    // Remonté au module dès le PRESS : c'est ainsi qu'un clic HORS du dialogue peut fermer la modale
+    // (le widget n'a pas consommé l'événement, mais le module doit quand même en être saisi).
+    bool surfacesClick(bool pressed, bool handled) const override { return handled || pressed; }
+
     bool clipsHitTest() const override { return true; }
     void hitClipRect(float& outX, float& outY, float& outW, float& outH) const override;
     void releaseRenderEntries(UIRenderer& renderer) override;

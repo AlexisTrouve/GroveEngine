@@ -86,7 +86,29 @@ d'avoir migré le routage, c'est concevoir à l'aveugle.
 
 ## 4. Découpage
 
-### S1a — routage souris (le plus gros gain, le moins risqué)
+### S1a — routage souris — ✅ FAIT (2026-07-29)
+
+**Livré**, avec une **extension assumée** : le plan ne visait que `dispatchMouseButton`, mais
+`hitTest` portait le même commutateur à **onze** branches appelant onze prédicats qui existaient déjà
+sous **trois noms pour une seule question** (`containsPoint`, `pointInWindow`, `pointInBounds`).
+S'arrêter avant aurait laissé `UIContext.cpp` dépendre des onze en-têtes de widgets — le bénéfice
+annoncé (« ajouter un widget ne touche plus ce fichier ») n'aurait pas été atteint. D'où un troisième
+virtuel, `absorbsPoint`.
+
+Résultat : `UIContext.cpp` passe de **20 comparaisons de type et 12 casts à 1 de chaque** (le
+survivant est `updateHoverState`, qui appelle `onMouseEnter`/`onMouseLeave` — propres au bouton, hors
+périmètre). Dix `#include` devenus orphelins retirés. −174 / +141 lignes.
+
+**Nouveau test : `UIWidgetContractUnit`** (`tests/unit/test_ui_widget_contract.cpp`, 33 assertions).
+Il interroge les deux prédicats directement — sans fenêtre, sans IIO, sans renderer. Il existe parce
+que **la suite complète est passée 204/204 avec la régression décrite ci-dessous** : le module ne
+réagit au bouton et à la roue qu'au relâchement, donc l'écart n'avait aucun effet observable par
+l'IIO. Un test de bout en bout ne pouvait pas boucher ce trou ; seul le contrat le peut. Vérifié en
+réintroduisant la régression : 4 assertions rouges.
+
+---
+
+### S1a — le détail de ce qui a été fait
 
 `dispatchMouseButton` (`UIContext.cpp:181`) fait 9 branches / ~66 lignes dont **six sont
 littéralement identiques** :
@@ -125,6 +147,32 @@ Chaque cas particulier devient 1 à 3 lignes **dans le fichier du widget concern
 IT_044→IT_051, IT_062→IT_067…). Le filet est déjà tendu, aucun test à écrire pour S1a. **Preuve
 d'inertie exigée** : suite complète verte avant/après, et au moins un test cassé volontairement (un
 `surfacesClick` rendu faux) pour vérifier que le filet mord vraiment sur ce chemin.
+
+#### ⚠️ Le piège rencontré en faisant S1a : les six `return target` étaient MORTS
+
+La fonction d'origine se terminait par `return handled ? target : nullptr;`. **Cette ligne rend
+inatteignables les six `return target` anticipés** : dès que `handled` est vrai, la sortie de secours
+renvoie déjà `target`. Les conditions qui les gardaient — `handled && !pressed && (!onClick.empty()
+|| eventBindings.count("click") …)` pour le bouton, `handled && !pressed` pour la roue — ne
+changeaient donc **jamais** le résultat.
+
+Traduire ces conditions fidèlement dans `surfacesClick`, ce que j'ai fait d'abord, **introduit une
+régression** : le bouton et la roue cessaient d'être remontés au press, alors qu'ils l'étaient.
+
+La sémantique réelle de la fonction, une fois le code mort retiré :
+
+```
+remonté = handled  ||  (tabs|modal ET press)  ||  (list)
+```
+
+Donc `UIButton` et `UIRadial` n'ont **aucune** surcharge à écrire — le défaut `return handled` EST
+leur comportement historique. Seuls `UITabs`/`UIModal` (`handled || pressed`) et `UIList` (`true`)
+en ont une.
+
+> **La leçon, réutilisable** : sur ce genre de refonte, la référence est le **flot de contrôle
+> complet**, jamais le commentaire d'une branche ni son intention affichée. Un commentaire décrit ce
+> que l'auteur voulait ; une sortie de secours en fin de fonction décrit ce qui se passe. Ici les
+> deux divergeaient depuis longtemps sans que rien ne le signale.
 
 ### S1b — routage clavier + focus
 

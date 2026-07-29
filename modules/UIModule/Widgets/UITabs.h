@@ -24,6 +24,13 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "tabs"; }
 
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return pointInBounds(x, y); }
+
+    // Remonté au module dès le PRESS, même sans avoir rien consommé : c'est lui qui résout le
+    // changement d'onglet (il doit publier ui:tab:changed, ce qu'un widget ne peut pas faire).
+    bool surfacesClick(bool pressed, bool handled) const override { return handled || pressed; }
+
     bool clipsHitTest() const override { return true; }
     void hitClipRect(float& outX, float& outY, float& outW, float& outH) const override;
     void releaseRenderEntries(UIRenderer& renderer) override;

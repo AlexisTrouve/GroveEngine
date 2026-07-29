@@ -656,24 +656,48 @@ clipped, recycled row-id pool) — see UI_ARCHITECTURE / the handoff.
 ```cpp
 class MyWidget : public UIWidget {
 public:
+    // --- Required ---
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "mywidget"; }
 
-    // Event handlers
+    // --- Mouse routing: implement these to be interactive (all have neutral defaults) ---
+
+    // Opaque to clicks? Default false = transparent, the click passes through to what is behind.
+    // A decorative widget leaves it alone.
+    bool absorbsPoint(float x, float y) const override;
+
+    // Handle the click. Return true if you CONSUMED it. Default false = inert.
     bool onMouseButton(int button, bool pressed, float x, float y) override;
-    void onMouseMove(float x, float y) override;
+
+    // Should UIModule be told about this click (so it can publish an event / arbitrate)?
+    // Default = "only if I consumed it", which is what most widgets want. Override only if you
+    // need to be surfaced WITHOUT consuming (tabs/modal on press) or always (list).
+    bool surfacesClick(bool pressed, bool handled) const override;
+
+    // Owns retained entries beyond the primary one? Then release them all on hide — see
+    // UI_RENDERING.md, "A multi-entry widget MUST also override releaseRenderEntries()".
+    void releaseRenderEntries(UIRenderer& renderer) override;
 };
 ```
 
-4. Register in `UITree::createWidget()`:
+> ⚠️ **Widgets never touch the IIO** — they only know `UIRenderer`. That is deliberate: it is what
+> makes them testable without a bus. A widget therefore never publishes `ui:action` itself; it
+> *signals* (returns), and `UIModule` publishes. Do not add an `IIO*` to a widget.
+
+> ⚠️ **A forgotten `override` fails silently.** The defaults are inert, so an interactive widget that
+> forgets `onMouseButton` simply stops reacting — nothing warns you. Cover a new widget with an E2E
+> that really clicks it, and with the routing contract test
+> (`tests/unit/test_ui_widget_contract.cpp`) if its surfacing rule is not the default.
+
+4. Register the factory in `UITree::registerDefaultWidgets()` (`Core/UITree.cpp`):
 
 ```cpp
-if (type == "mywidget") {
+registerWidget("mywidget", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
     auto widget = std::make_unique<MyWidget>();
-    // ... configure from JSON
+    // ... configure from JSON (parseCommonProperties covers x/y/width/height/visible/bindings)
     return widget;
-}
+});
 ```
 
 5. Use in JSON layouts:

@@ -1,16 +1,8 @@
 #include "UIContext.h"
 #include "UIWidget.h"
-#include "../Widgets/UIButton.h"
-#include "../Widgets/UISlider.h"
-#include "../Widgets/UICheckbox.h"
-#include "../Widgets/UITextInput.h"
-#include "../Widgets/UITextArea.h"
-#include "../Widgets/UIRadial.h"
-#include "../Widgets/UIWindow.h"
-#include "../Widgets/UITabs.h"
-#include "../Widgets/UIDrawer.h"
-#include "../Widgets/UIModal.h"
-#include "../Widgets/UIList.h"
+#include "../Widgets/UIButton.h"   // seul type concret encore requis ici :
+                                   // updateHoverState appelle onMouseEnter/onMouseLeave,
+                                   // qui n'existent que sur le bouton (hors perimetre S1a).
 #include <spdlog/spdlog.h>
 
 namespace grove {
@@ -51,88 +43,15 @@ UIWidget* hitTest(UIWidget* widget, float x, float y) {
         }
     }
 
-    // Check this widget if it's interactive
-    std::string type = widget->getType();
-
-    if (type == "button") {
-        UIButton* button = static_cast<UIButton*>(widget);
-        if (button->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "slider") {
-        UISlider* slider = static_cast<UISlider*>(widget);
-        if (slider->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "checkbox") {
-        UICheckbox* checkbox = static_cast<UICheckbox*>(widget);
-        if (checkbox->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "textinput") {
-        UITextInput* textInput = static_cast<UITextInput*>(widget);
-        if (textInput->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "textarea") {
-        // Absorbe le clic sur toute sa boîte : un clic dans la zone de texte ne doit jamais fuir vers
-        // ce qui se trouve derrière (§3.1 du handoff UI).
-        UITextArea* area = static_cast<UITextArea*>(widget);
-        if (area->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "radial") {
-        // Disque interactif (jusqu'à outerRadius) ; la dead-zone se résout en "annuler".
-        UIRadial* radial = static_cast<UIRadial*>(widget);
-        if (radial->containsPoint(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "window") {
-        // Opaque: a click anywhere in the window's bounds is absorbed, so it never leaks to a
-        // widget behind it. Content children were already tested above (clipped to the content
-        // rect); reaching here means the title bar / chrome / empty content was clicked.
-        UIWindow* window = static_cast<UIWindow*>(widget);
-        if (window->pointInWindow(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "tabs") {
-        // Opaque too: clicks in the tab bar / chrome are absorbed (the active page's children were
-        // tested above, clipped to the content area). UIModule reads tabAt() to switch the page.
-        UITabs* tabs = static_cast<UITabs*>(widget);
-        if (tabs->pointInBounds(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "drawer") {
-        // Opaque while on screen: absorb clicks in the (sliding) drawer rect; off-screen when
-        // closed -> pointInBounds is false -> the click passes through.
-        UIDrawer* drawer = static_cast<UIDrawer*>(widget);
-        if (drawer->pointInBounds(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "modal") {
-        // Focus-trap: while open, the backdrop absorbs EVERY click (dialog children were tested
-        // above, clipped to the dialog); nothing behind the modal is reachable.
-        UIModal* modal = static_cast<UIModal*>(widget);
-        if (modal->pointInBounds(x, y)) {
-            return widget;
-        }
-    }
-    else if (type == "list") {
-        // Opaque: rows are a self-managed retained pool (not children), so a click anywhere in the list
-        // bounds is absorbed here; UIModule reads rowAt() to resolve + publish ui:list:selected.
-        UIList* list = static_cast<UIList*>(widget);
-        if (list->pointInBounds(x, y)) {
-            return widget;
-        }
+    // Ce widget prend-il le clic pour lui ?
+    //
+    // POURQUOI un seul appel la ou il y avait ONZE branches : chaque type avait deja son predicat
+    // d'opacite -- containsPoint / pointInWindow / pointInBounds -- soit trois noms pour une seule
+    // question. Le nom variait, jamais la semantique. `absorbsPoint` la pose une fois ; le defaut
+    // (false = transparent) laisse passer le clic, ce qui est exactement le comportement d'avant
+    // pour un widget decoratif absent de la liste.
+    if (widget->absorbsPoint(x, y)) {
+        return widget;
     }
 
     return nullptr;
@@ -179,83 +98,28 @@ void updateHoverState(UIWidget* widget, UIContext& ctx, UIWidget* hovered) {
  * @return Widget that handled the event (for action publishing), or nullptr
  */
 UIWidget* dispatchMouseButton(UIWidget* widget, UIContext& ctx, int button, bool pressed) {
-    // Hit test to find target widget
+    // Le hit-test choisit la cible, la cible se traite elle-meme.
+    //
+    // QUOI     : router un clic vers le widget sous le pointeur, et dire a l'appelant si UIModule
+    //            doit en etre saisi.
+    // POURQUOI : ce corps enumerait NEUF types concrets sur ~66 lignes, dont SIX branches
+    //            rigoureusement identiques -- `X->onMouseButton(...)` derriere un static_cast. Les
+    //            six methodes existaient deja avec la meme signature ; seule la declaration virtuelle
+    //            manquait. Ajouter un widget interactif obligeait donc a revenir editer ce fichier,
+    //            loin du widget concerne.
+    // COMMENT  : deux virtuels sur UIWidget. `onMouseButton` traite (defaut inerte) ; `surfacesClick`
+    //            dit quand remonter la cible (defaut : seulement si elle a consomme). Les cas
+    //            particuliers -- onglets et modale au press, liste toujours, roue au relachement,
+    //            bouton s'il a de quoi emettre -- vivent desormais chacun dans SON widget, en une
+    //            ligne. Les widgets decoratifs heritent des defauts et n'ecrivent rien.
+    //
+    // Ce qui ne bouge PAS : les widgets n'ont toujours aucun acces a l'IIO. Ils signalent, UIModule
+    // publie. C'est le partage qui les garde testables sans bus (cf. docs/UI_ARCHITECTURE.md).
     UIWidget* target = hitTest(widget, ctx.mouseX, ctx.mouseY);
+    if (!target) return nullptr;
 
-    if (!target) {
-        return nullptr;
-    }
-
-    // Dispatch to appropriate widget type
-    std::string type = target->getType();
-    bool handled = false;
-
-    if (type == "button") {
-        UIButton* btn = static_cast<UIButton*>(target);
-        handled = btn->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        // Surface on release if the button has a legacy onClick OR a declarative on:click / on:rightClick
-        // event (so a purely-declarative repeater-row button is clickable — left OR right — with no dummy onClick).
-        if (handled && !pressed && (!btn->onClick.empty() || target->eventBindings.count("click") || target->eventBindings.count("rightClick"))) {
-            return target;  // Return for action / declarative-event publishing
-        }
-    }
-    else if (type == "slider") {
-        UISlider* slider = static_cast<UISlider*>(target);
-        handled = slider->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        if (handled) {
-            return target;  // Return for value_changed publishing
-        }
-    }
-    else if (type == "checkbox") {
-        UICheckbox* checkbox = static_cast<UICheckbox*>(target);
-        handled = checkbox->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        if (handled) {
-            return target;  // Return for value_changed publishing
-        }
-    }
-    else if (type == "textinput") {
-        UITextInput* textInput = static_cast<UITextInput*>(target);
-        handled = textInput->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        if (handled) {
-            return target;  // Return for focus handling in UIModule
-        }
-    }
-    else if (type == "textarea") {
-        UITextArea* area = static_cast<UITextArea*>(target);
-        handled = area->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        if (handled) {
-            return target;  // Return for focus handling in UIModule
-        }
-    }
-    else if (type == "radial") {
-        UIRadial* radial = static_cast<UIRadial*>(target);
-        handled = radial->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
-
-        if (handled && !pressed) {
-            return target;  // release sur la roue -> UIModule résout action vs annuler
-        }
-    }
-    else if (type == "tabs") {
-        // Surface the tabs as the click target on PRESS; UIModule resolves the tab switch (it needs
-        // to publish ui:tab:changed). On release / content, nothing extra.
-        if (pressed) return target;
-    }
-    else if (type == "modal") {
-        // Surface the modal on PRESS so UIModule can close it on an outside-the-dialog click.
-        if (pressed) return target;
-    }
-    else if (type == "list") {
-        // Surface the list on BOTH press and release: the press starts a possible scroll-drag (handled in
-        // UIList::update), and UIModule resolves the row select/toggle on RELEASE (only if it wasn't a drag).
-        return target;
-    }
-
-    return handled ? target : nullptr;
+    const bool handled = target->onMouseButton(button, pressed, ctx.mouseX, ctx.mouseY);
+    return target->surfacesClick(pressed, handled) ? target : nullptr;
 }
 
 } // namespace grove

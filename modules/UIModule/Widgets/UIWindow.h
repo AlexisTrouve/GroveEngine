@@ -25,6 +25,9 @@ public:
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "window"; }
 
+    // Opaque au clic : delegue au predicat deja present sur ce widget.
+    bool absorbsPoint(float x, float y) const override { return pointInWindow(x, y); }
+
     // Opaque + clips content to the area BELOW the title bar.
     bool clipsHitTest() const override { return true; }
     void hitClipRect(float& outX, float& outY, float& outW, float& outH) const override;
