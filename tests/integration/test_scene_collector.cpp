@@ -1970,3 +1970,31 @@ TEST_CASE("SceneCollector - light: no light published means NO light array at al
     REQUIRE(p.lightCount == 0);
     REQUIRE(p.lights == nullptr);   // no arena slice claimed for a feature nobody used
 }
+
+TEST_CASE("SceneCollector - light: cone params ride through, omni by default",
+          "[scene_collector][light][cone]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A cone, in the grove::fx::Emitter convention (degrees, 90 = screen-down).
+    auto l = std::make_unique<JsonDataNode>("l");
+    l->setDouble("cx", 50.0); l->setDouble("cy", 50.0); l->setDouble("radius", 30.0);
+    l->setDouble("dirDeg", 90.0);
+    l->setDouble("spreadDeg", 45.0);
+    fx.ioPublisher->publish("render:light", std::move(l));
+
+    // ...and a plain light right after it, with no cone fields at all.
+    auto plain = std::make_unique<JsonDataNode>("l");
+    plain->setDouble("cx", 10.0); plain->setDouble("cy", 10.0); plain->setDouble("radius", 20.0);
+    fx.ioPublisher->publish("render:light", std::move(plain));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.lightCount == 2);
+    REQUIRE_THAT(p.lights[0].dirDeg, WithinAbs(90.0f, 0.01f));
+    REQUIRE_THAT(p.lights[0].spreadDeg, WithinAbs(45.0f, 0.01f));
+
+    // THE non-regression: a light that says nothing about a cone is a full disc. A default of 0
+    // here would silently switch every existing light off.
+    REQUIRE_THAT(p.lights[1].spreadDeg, WithinAbs(360.0f, 0.01f));
+}

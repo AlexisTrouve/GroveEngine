@@ -146,6 +146,11 @@ struct LightCommand {
     float radius;        // attenuation reaches exactly 0 here (grove::light::attenuation)
     float r, g, b;       // colour, 0..1
     float intensity;     // scales the colour; >1 allowed
+    // CONE (L3), in the grove::fx::Emitter convention: degrees, 0 = +x, 90 = +y (screen-down),
+    // 360 = omni. Sharing that convention means a thruster's flame emitter and its light take the
+    // same numbers. 360 is the default AND the non-regression — a light written before L3 is a disc.
+    float dirDeg;
+    float spreadDeg;
 };
 
 // ============================================================================

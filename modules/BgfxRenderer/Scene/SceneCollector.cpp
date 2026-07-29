@@ -1045,6 +1045,11 @@ void SceneCollector::parseLight(const IDataNode& data) {
     // target is RGBA16F and overlapping lamps are supposed to overshoot 1.0.
     l.intensity = static_cast<float>(data.getDouble("intensity", 1.0));
 
+    // Cone (L3). spreadDeg defaults to 360 = omni, so a light published before cones existed stays
+    // a full disc — a default of 0 would have switched every one of them off.
+    l.dirDeg    = static_cast<float>(data.getDouble("dirDeg", 0.0));
+    l.spreadDeg = static_cast<float>(data.getDouble("spreadDeg", 360.0));
+
     // A light with no extent lights nothing; dropping it here spares the pass a degenerate quad.
     if (l.radius > 0.0f) m_lights.push_back(l);
 }

@@ -238,3 +238,93 @@ TEST_CASE("lighting: a radial light brightens its centre, under a PANNED+ZOOMED 
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a CONE light brightens forward and leaves behind dark (GPU)", "[gpu][light][cone]") {
+    // The whole point of a cone is asymmetry, so the two probes sit at the SAME DISTANCE from the
+    // lamp, one in front and one behind. Comparing "near vs far" instead would only re-prove the
+    // radial falloff L2 already covers, and would be green with the cone entirely ignored.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("light3", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li3_r");
+    auto gIO = mgr.createInstance("li3_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li3_r"); mgr.removeInstance("li3_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    // The lamp sits at the centre and points RIGHT (dirDeg 0 = +x, the grove::fx convention).
+    const double cx = W * 0.5, cy = H * 0.5;
+    for (int i = 0; i < 6; ++i) {
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", cx); s->setDouble("cy", cy);
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x303030FFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", cx); l->setDouble("cy", cy);
+          l->setDouble("radius", 28.0);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 1.5);
+          l->setDouble("dirDeg", 0.0);        // +x
+          l->setDouble("spreadDeg", 60.0);    // ±30°
+          gIO->publish("render:light", std::move(l)); }
+
+        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        frame();
+    }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    const int offset = 14;                                   // same radius, opposite sides
+    const int front = lumaAt(static_cast<int>(cx) + offset, static_cast<int>(cy));
+    const int back  = lumaAt(static_cast<int>(cx) - offset, static_cast<int>(cy));
+
+    INFO("front=" << front << " back=" << back);
+
+    // A light that ignored the cone would return the same number twice — same distance, same falloff.
+    REQUIRE(front > back + 60);
+    // And behind the lamp there must be nothing but the ambient: a cone that merely DIMMED the back
+    // instead of cutting it would still pass the comparison above.
+    REQUIRE(back < 60);
+
+    renderer->shutdown();
+    mgr.removeInstance("li3_r");
+    mgr.removeInstance("li3_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

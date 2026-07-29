@@ -317,7 +317,7 @@ final.rgb = scene.rgb × (ambient.rgb + lightAccum.rgb)
 | Topic | Payload | Notes |
 |-------|---------|-------|
 | `render:ambient` | `{color}` | the global term — **the on/off switch for the whole feature** |
-| `render:light` | `{cx, cy, radius, color, intensity?}` | one radial light, **ephemeral** (re-publish each frame) |
+| `render:light` | `{cx, cy, radius, color, intensity?, dirDeg?, spreadDeg?}` | one light, **ephemeral** (re-publish each frame). Omni by default; a cone with `spreadDeg` |
 
 ##### ⚠️ Nothing is lit until you publish an ambient
 
@@ -364,6 +364,25 @@ io->publish("render:light", std::move(l));
   lights overshoot 1.0 instead of clipping. That headroom is what a future bloom pass feeds on; in
   RGBA8 a bright core would flatten to featureless white.
 - The falloff is `(1 − d/r)²`, reaching **exactly** zero at `radius`.
+
+##### Cone lights (spotlights, thrusters)
+
+Add `dirDeg` + `spreadDeg` and the light becomes a cone. **Both are optional and `spreadDeg`
+defaults to 360 — a light that says nothing about a cone is a full disc**, exactly as before cones
+existed.
+
+```cpp
+l->setDouble("dirDeg", 90.0);      // axis: 0 = +x, 90 = +y (screen-DOWN)
+l->setDouble("spreadDeg", 45.0);   // FULL width, so 22.5 either side of the axis
+```
+
+The convention is **degrees, borrowed from `grove::fx::Emitter`** - not from `render:sector`'s
+`a0`/`a1` radians. That is deliberate and practical: a thruster's flame emitter and the light it
+casts then take **the same numbers**, so you author the cone once instead of converting between two
+conventions.
+
+The rim fades rather than cutting: a hard angular edge reads as a cardboard pie slice, for the same
+reason a linear radial falloff reads as a hard-edged disc.
 
 ##### Asking "is this point lit?" from gameplay
 
@@ -1573,7 +1592,7 @@ Two modes:
 | Topic | Payload | Description |
 |-------|---------|-------------|
 | `render:ambient` | `{color}` | Global ambient term. **Absent or 0 = lighting entirely OFF** (no offscreen targets, no composite, output byte-identical to a build without lighting). A **white** ambient leaves the scene unchanged and lets lights only ever brighten it. |
-| `render:light` | `{cx, cy, radius, color, intensity?}` | One radial light, **ephemeral** (re-publish each frame). `cx,cy` = CENTRE, `radius` in **world units**. Colour alpha ignored; `intensity` may exceed 1 (RGBA16F target keeps the overbright for bloom). Falloff `(1 − d/r)²`, exactly 0 at `radius`. |
+| `render:light` | `{cx, cy, radius, color, intensity?, dirDeg?, spreadDeg?}` | One light, **ephemeral** (re-publish each frame). `cx,cy` = CENTRE, `radius` in **world units**. `dirDeg`/`spreadDeg` (degrees, `grove::fx::Emitter` convention, 360 = omni **and the default**) turn it into a cone. Colour alpha ignored; `intensity` may exceed 1 (RGBA16F target keeps the overbright for bloom). Falloff `(1 − d/r)²`, exactly 0 at `radius`. |
 
 See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
 `include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").

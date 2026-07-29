@@ -61,3 +61,6 @@ chaos_*.txt
 demo_capture.png
 ship_*.png
 fx_demo.png
+
+# Worktrees Claude Code : des depots git a part entiere, jamais du contenu de CE depot.
+.claude/worktrees/

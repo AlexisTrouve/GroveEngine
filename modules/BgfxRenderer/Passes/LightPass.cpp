@@ -2,6 +2,8 @@
 #include "CompositePass.h"        // kLightView — the view lights accumulate into
 #include "../RHI/RHIDevice.h"
 #include "../RHI/RHICommandBuffer.h"
+#include <grove/light/Light.h>   // kConeSoftFraction — the shader mirrors this curve
+#include <cmath>
 
 namespace grove {
 
@@ -39,6 +41,7 @@ void LightPass::setup(rhi::IRHIDevice& device) {
 
     m_lightUniform      = device.createUniform("u_light", 1);
     m_lightColorUniform = device.createUniform("u_lightColor", 1);
+    m_lightConeUniform  = device.createUniform("u_lightCone", 1);
 }
 
 void LightPass::shutdown(rhi::IRHIDevice& device) {
@@ -46,6 +49,7 @@ void LightPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_quadIB);
     device.destroy(m_lightUniform);
     device.destroy(m_lightColorUniform);
+    device.destroy(m_lightConeUniform);
     // m_shader belongs to ShaderManager, like every other pass.
 }
 
@@ -77,6 +81,26 @@ void LightPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         const float light[4]      = { l.cx, l.cy, l.radius, l.intensity };
         const float lightColor[4] = { l.r, l.g, l.b, 1.0f };
 
+        // Cone, resolved to what the shader needs: an axis and two cosines. Doing the trigonometry
+        // HERE rather than per pixel is the point of the cosine formulation — the fragment stage
+        // only ever does a dot product.
+        //
+        // Omni ships bounds BELOW the cosine range, so the shader's smoothstep saturates to 1 for
+        // every direction with no branch: an omni light comes out exactly as it did before cones.
+        //
+        // ⚠️ The two bounds must DIFFER. smoothstep(e, e, x) with equal edges is undefined in GLSL —
+        // it would divide by zero, and "undefined" here means it might look right on this driver and
+        // wrong on the next. -2 and -1 bracket the whole valid cosine range [-1, 1] instead.
+        constexpr float kDeg2Rad = 3.14159265358979323846f / 180.0f;
+        float cone[4] = { 1.0f, 0.0f, -2.0f, -1.0f };
+        if (l.spreadDeg < 360.0f && l.spreadDeg > 0.0f) {
+            const float half = 0.5f * l.spreadDeg * kDeg2Rad;
+            cone[0] = std::cos(l.dirDeg * kDeg2Rad);
+            cone[1] = std::sin(l.dirDeg * kDeg2Rad);
+            cone[2] = std::cos(half);                                                    // rim
+            cone[3] = std::cos(half * (1.0f - grove::light::kConeSoftFraction));         // full
+        }
+
         // State is consumed per submit, so it is set per light — the lesson already paid for by the
         // tilemap pass ("bgfx::setState is consumed per submit -> emit it per chunk, not once").
         cmd.setState(state);
@@ -84,6 +108,7 @@ void LightPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         cmd.setIndexBuffer(m_quadIB);
         cmd.setUniform(m_lightUniform, light, 1);
         cmd.setUniform(m_lightColorUniform, lightColor, 1);
+        cmd.setUniform(m_lightConeUniform, cone, 1);
         cmd.drawIndexed(6, 0);
         cmd.submit(CompositePass::kLightView, m_shader, 0);
     }

@@ -80,7 +80,7 @@ remove`) pour les torches statiques est une optimisation à mesurer avant d'écr
 |---|---|---|
 | **L1** | `setViewOrder` au RHI + les cibles + le composite, **ambiant seul** (pas encore de lumières) | rouge : `render:ambient {0.5}` doit assombrir la scène de moitié ; et **aucun ambiant ⇒ sortie inchangée** |
 | **L2** | lumières radiales — le cœur | pur : l'atténuation et les bornes du quad, oracle headless. GPU : un pixel dans le rayon s'éclaircit, un pixel hors du rayon est **strictement inchangé** |
-| **L3** | lumières coniques | la math d'arc existe déjà dans `SectorPass`/`RadialMath.h` — à réutiliser, pas à réécrire |
+| **L3** ✅ | lumières coniques | ✅ **LIVRÉ 2026-07-29.** Pas la math d'arc de `SectorPass` finalement : le masque se réduit à un **produit scalaire** contre l'axe, donc ni `atan2` ni trigonométrie par pixel. Convention `dirDeg`/`spreadDeg` en degrés reprise de `grove::fx::Emitter` — un propulseur et sa lampe prennent alors les mêmes nombres. Verrouillé par `LightMathUnit [cone]` + `SceneCollectorTest [cone]` + `LightingGpu [cone]` (devant 137 / derrière 48, à distance égale) |
 
 L1 avant L2 est délibéré : elle livre et prouve **la plomberie** (cibles, ordre des vues, contournement
 à coût nul) sans aucune lumière, donc un échec y est un échec d'infrastructure, pas de math. Le même

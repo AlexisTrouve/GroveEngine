@@ -33,7 +33,56 @@ struct Light2D {
     float radius = 0.0f;
     float r = 1.0f, g = 1.0f, b = 1.0f;   // colour, 0..1
     float intensity = 1.0f;               // multiplies the colour; >1 is allowed (RGBA16F target)
+
+    // CONE (L3). Convention borrowed from grove::fx::Emitter — degrees, 0 = +x, 90 = +y
+    // (screen-down), 360 = omni — and NOT from render:sector's a0/a1 radians. The reason is
+    // practical: a thruster's flame emitter and the light it casts then take THE SAME NUMBERS, so a
+    // game authors the cone once instead of converting between two conventions.
+    //
+    // The default 360 IS the non-regression: every light written before L3 stays a full disc.
+    float dirDeg = 0.0f;                  // cone axis
+    float spreadDeg = 360.0f;             // FULL cone width (360 = omni)
 };
+
+// Fraction of the half-angle over which the rim fades. A hard cut reads as a cardboard pie slice —
+// the eye catches the discontinuity exactly as it does on a linear radial falloff. Tuning knob, not
+// dogma: exposing it per-light is a follow-on if anyone asks for a hard-edged spotlight.
+constexpr float kConeSoftFraction = 0.35f;
+
+/// Angular mask of a cone light, evaluated on a direction FROM the light.
+///
+/// Takes a direction vector rather than an angle on purpose: the whole thing reduces to a dot
+/// product against the cone axis, so neither this nor the shader ever calls atan2. It also makes
+/// omni fall out with no branch — cos(180°) = −1 passes every direction.
+///
+/// `dx, dy` need not be normalised; a zero vector (exactly on the light) yields 1.
+inline float coneFactor(float dx, float dy, const Light2D& l) {
+    if (l.spreadDeg >= 360.0f) return 1.0f;   // omni: EXACTLY 1, so nothing pre-L3 shifts by a bit
+    if (l.spreadDeg <= 0.0f) return 0.0f;
+
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len <= 0.0f) return 1.0f;             // the light's own centre is always lit
+
+    constexpr float kDeg2Rad = 3.14159265358979323846f / 180.0f;
+    const float axisX = std::cos(l.dirDeg * kDeg2Rad);
+    const float axisY = std::sin(l.dirDeg * kDeg2Rad);
+
+    // Cosine of the angle between this direction and the cone axis.
+    const float cosA = (dx * axisX + dy * axisY) / len;
+
+    const float half      = 0.5f * l.spreadDeg * kDeg2Rad;
+    const float cosOuter  = std::cos(half);                                  // rim: 0 here
+    const float cosInner  = std::cos(half * (1.0f - kConeSoftFraction));     // full brightness inside
+
+    if (cosA >= cosInner) return 1.0f;
+    if (cosA <= cosOuter) return 0.0f;
+
+    // smoothstep between the two cosines. Note cosine DECREASES as the angle grows, so the
+    // interpolation runs from cosOuter (0) up to cosInner (1) — writing it the other way round
+    // would invert the rim and light everything except the cone.
+    const float t = (cosA - cosOuter) / (cosInner - cosOuter);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 /// Attenuation at distance `d` from a light of radius `r`. 1 at the centre, 0 at and beyond the rim.
 /// A non-positive radius yields 0 — a light with no extent lights nothing, rather than dividing by zero.
@@ -58,7 +107,10 @@ inline Bounds bounds(const Light2D& l) {
 inline void contribution(const Light2D& l, float px, float py, float& outR, float& outG, float& outB) {
     const float dx = px - l.cx;
     const float dy = py - l.cy;
-    const float a  = attenuation(std::sqrt(dx * dx + dy * dy), l.radius) * l.intensity;
+    // Radial falloff AND the cone mask — the gameplay answer must agree with what the screen shows,
+    // or a stealth rule would disagree with the picture the player is looking at.
+    const float a  = attenuation(std::sqrt(dx * dx + dy * dy), l.radius)
+                   * coneFactor(dx, dy, l) * l.intensity;
     outR = l.r * a;
     outG = l.g * a;
     outB = l.b * a;

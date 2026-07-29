@@ -6,6 +6,9 @@ $input v_texcoord0
 uniform vec4 u_light;
 // u_lightColor.rgb = colour 0..1 (alpha unused: a light ADDS, it does not blend)
 uniform vec4 u_lightColor;
+// u_lightCone = (axis.x, axis.y, cosOuter, cosInner) -- precomputed on the CPU.
+// Omni is NOT a branch: it ships cosOuter = cosInner = -1, which passes every direction.
+uniform vec4 u_lightCone;
 
 // Radial light — fragment stage.
 //
@@ -27,6 +30,14 @@ void main()
 	float d = length(v_texcoord0);
 	float t = max(0.0, 1.0 - d);
 	float a = t * t * u_light.w;          // squared falloff, scaled by intensity
+
+	// CONE mask (L3). Works on the COSINE of the angle to the axis -- a dot product, never atan2.
+	// cosine DECREASES as the angle grows, so the smoothstep runs from cosOuter up to cosInner;
+	// writing it the other way round would invert the rim and light everything EXCEPT the cone.
+	// Mirrors grove::light::coneFactor, which LightMathUnit pins headlessly.
+	vec2 dir = (d > 0.0) ? (v_texcoord0 / d) : u_lightCone.xy;
+	float cosA = dot(dir, u_lightCone.xy);
+	a *= smoothstep(u_lightCone.z, u_lightCone.w, cosA);
 
 	gl_FragColor = vec4(u_lightColor.rgb * a, 1.0);
 }

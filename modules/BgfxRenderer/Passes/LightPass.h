@@ -48,6 +48,7 @@ private:
     rhi::BufferHandle  m_quadIB;
     rhi::UniformHandle m_lightUniform;       // (cx, cy, radius, intensity)
     rhi::UniformHandle m_lightColorUniform;  // (r, g, b, unused)
+    rhi::UniformHandle m_lightConeUniform;   // (axis.x, axis.y, cosOuter, cosInner)
 };
 
 } // namespace grove
