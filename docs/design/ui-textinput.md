@@ -175,10 +175,11 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 | 2026-07-29 | **T0c** | ✅ D1 levé. `render:font:metrics` publié par BgfxRenderer (au boot ET sur `render:font`), consommé par UIModule → `UIContext::fontMetrics` → widget. Encodage dense partagé (`TextMetricsWire.h`) car IIO ne transporte que le JSON propre du nœud. Publié aussi pour la 8x8 (avances toutes à 8 = repli historique exact) |
 | 2026-07-29 | **T0d** | ✅ D3 levé. Le clic place le curseur (`indexAtX`), y compris sur du texte accentué (balayage de tout le champ : aucune position de clic ne corrompt la chaîne) |
 
-| 2026-07-29 | **T1** | ✅ Sélection complète. D4 levé (shift/ctrl/alt propagés dans `UIContext`). Maj+flèches/Début/Fin, Ctrl+A, glisser-souris, remplacement à la frappe, Backspace/Suppr sur intervalle, surlignage rendu. `IT_063` (12 cas), vu ROUGE avant (9 sur 10 des cas de modèle) |
+| 2026-07-29 | **T1** | ✅ **Sélection COMPLÈTE** — tout le périmètre annoncé au §3. D4 levé (shift/ctrl/alt propagés dans `UIContext`). Maj+flèches/Début/Fin, Ctrl+A, glisser-souris, **double-clic → mot** (`grove::text::wordBoundsAt`, pur + partagé), remplacement à la frappe, Backspace/Suppr sur intervalle, surlignage rendu. `IT_063` (15 cas) vu ROUGE avant ; `TextMetricsUnit` 24 cas / 311 assertions, **vérifié adversarialement** (classification ASCII-only ⇒ « café » devient « caf ») ; **`SelectionHighlightGpu`** au pixel, lui aussi vérifié adversarialement (passes inversées ⇒ `redInBand=0`, texte illisible) |
 
-**T0 + T1 sont COMPLETS** (D1-D4 levés). Régression : 64/64 verts (UI + Radial + InputUI + Text +
-Render + Scene, tests GPU inclus). Reste T2 (presse-papiers) puis T3 (multiligne).
+**T0 + T1 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
+inclus). Régression : 65/65 verts (UI + Radial + InputUI + Text + Render + Scene + Selection, tests
+GPU inclus). Reste T2 (presse-papiers) puis T3 (multiligne).
 
 ### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
 

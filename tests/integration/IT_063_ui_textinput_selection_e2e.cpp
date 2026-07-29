@@ -336,3 +336,56 @@ TEST_CASE("IT_063: sans selection, aucun surlignage n'est peint",
         }
     }
 }
+
+// ============================================================================
+// Double-clic — sélection du mot.
+// ============================================================================
+
+TEST_CASE("IT_063: un double-clic selectionne le MOT sous le curseur",
+          "[integration][ui][e2e][selection][mouse]") {
+    // Police 8x8 monospace (pas de renderer) : "bonjour le monde", le mot "le" occupe les index
+    // 8..10, soit les pixels 108+64=172 a 108+80=188. On double-clique au milieu, a 178.
+    TextInputHarness h("sel_dblclick");
+    h.focusField();
+
+    h.type("bonjour le monde");
+    h.clickAt(178.0, kFieldCenterY);
+    h.clickAt(178.0, kFieldCenterY);  // second clic rapide au meme endroit
+    h.type("X");                       // doit REMPLACER "le"
+
+    INFO("resultat : " << hexdump(h.lastText));
+    REQUIRE(h.lastText == "bonjour X monde");
+}
+
+TEST_CASE("IT_063: un double-clic sur un mot ACCENTUE le prend en entier",
+          "[integration][ui][e2e][selection][mouse][utf8]") {
+    // Le cas francais. "caf" + e-aigu = 5 octets mais 4 caracteres affiches ; en monospace 8px le mot
+    // occupe donc 108..140. Double-clic a 120, dans le mot.
+    // Une segmentation ASCII-only s'arreterait avant l'accent et laisserait l'accent orphelin.
+    TextInputHarness h("sel_dblclick_utf8");
+    h.focusField();
+
+    h.type("le caf" + kEAigu + std::string(" chaud"));
+    h.clickAt(kTextOriginX + 36.0, kFieldCenterY);  // dans "café"
+    h.clickAt(kTextOriginX + 36.0, kFieldCenterY);
+    h.type("THE");
+
+    INFO("resultat : " << hexdump(h.lastText));
+    REQUIRE(h.lastText == "le THE chaud");
+}
+
+TEST_CASE("IT_063: deux clics ELOIGNES ne forment pas un double-clic",
+          "[integration][ui][e2e][selection][mouse]") {
+    // Discrimination : sans le test de proximite, deux clics rapides n'importe ou selectionneraient
+    // un mot au hasard. Ici le second clic doit simplement REPOSER le curseur.
+    TextInputHarness h("sel_dblclick_far");
+    h.focusField();
+
+    h.type("bonjour le monde");
+    h.clickAt(kTextOriginX + 8.0, kFieldCenterY);    // dans "bonjour"
+    h.clickAt(kTextOriginX + 72.0, kFieldCenterY);   // loin : dans "le"
+    h.type("X");                                      // insere, ne remplace pas
+
+    INFO("resultat : " << hexdump(h.lastText));
+    REQUIRE(h.lastText == "bonjour lXe monde");
+}

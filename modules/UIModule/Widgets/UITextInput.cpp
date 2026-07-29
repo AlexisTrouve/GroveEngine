@@ -2,7 +2,9 @@
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
 #include <grove/text/TextMetrics.h>
+#include <grove/text/TextWords.h>
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <spdlog/spdlog.h>
 
@@ -13,6 +15,10 @@ void UITextInput::update(UIContext& ctx, float deltaTime) {
     // `render:font:metrics` et peuvent changer en cours de partie (render:font) — on relit donc la
     // référence à chaque frame plutôt que de la capturer une fois à la construction.
     metrics = &ctx.fontMetrics;
+
+    // Horloge du double-clic. Saturée pour qu'un champ resté longtemps inactif ne finisse pas par
+    // déborder en float après des heures de jeu.
+    if (timeSinceLastClick < 1.0e6f) timeSinceLastClick += deltaTime;
 
     // GLISSER-SÉLECTIONNER : tant que le bouton reste enfoncé après un appui dans ce champ, on suit
     // le pointeur avec le curseur — l'ancre étant restée là où l'appui a eu lieu, l'intervalle
@@ -249,14 +255,35 @@ bool UITextInput::onMouseButton(int button, bool pressed, float x, float y) {
             //   codepoint, donc un clic sur un mot accentué ne peut pas casser la frappe suivante.
             //   Sans table d'avances (pas de renderer, tests headless), on retombe sur la division
             //   monospace — approximatif, mais c'est déjà mieux que « toujours à la fin ».
+            const bool isDoubleClick = (timeSinceLastClick <= DOUBLE_CLICK_SECONDS) &&
+                                       (std::abs(x - lastClickX) <= DOUBLE_CLICK_SLOP_PX);
+            timeSinceLastClick = 0.0f;
+            lastClickX = x;
+
             setCursorPosition(indexAtScreenX(x));
 
-            // L'appui POSE l'ancre et arme le glisser : tant que le bouton reste enfoncé, update()
-            // déplacera le curseur, donc l'intervalle balayé devient la sélection. Un clic net
-            // (appui + relâchement sans bouger) laisse ancre == curseur, c'est-à-dire AUCUNE
-            // sélection — pas de cas particulier à écrire pour ça.
-            selectionAnchor = cursorPosition;
-            draggingSelection = true;
+            if (isDoubleClick) {
+                // DOUBLE-CLIC : sélectionner le MOT sous le curseur. La segmentation est pure et
+                // partagée (grove::text::wordBoundsAt) — elle traite les lettres accentuées comme des
+                // caractères de mot, sinon un double-clic sur « café » ne prendrait que « caf ».
+                // Ses bornes tombent toujours sur des frontières de codepoint : la sélection ne peut
+                // donc pas couper un accent en deux.
+                const std::string shown = getDisplayText();
+                const text::WordRange w =
+                    text::wordBoundsAt(shown, static_cast<size_t>(cursorPosition));
+                if (!w.empty()) {
+                    selectionAnchor = static_cast<int>(w.start);
+                    setCursorPosition(static_cast<int>(w.end));
+                }
+                draggingSelection = false;  // un double-clic ne s'étend pas au glisser
+            } else {
+                // L'appui POSE l'ancre et arme le glisser : tant que le bouton reste enfoncé,
+                // update() déplacera le curseur, donc l'intervalle balayé devient la sélection. Un
+                // clic net (appui + relâchement sans bouger) laisse ancre == curseur, c'est-à-dire
+                // AUCUNE sélection — pas de cas particulier à écrire pour ça.
+                selectionAnchor = cursorPosition;
+                draggingSelection = true;
+            }
 
             cursorBlinkTimer = 0.0f;  // le curseur doit être VISIBLE là où on vient de cliquer
             cursorVisible = true;

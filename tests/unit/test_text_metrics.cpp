@@ -19,6 +19,7 @@
 
 #include <grove/text/TextMetrics.h>
 #include <grove/text/TextMetricsWire.h>
+#include <grove/text/TextWords.h>
 
 #include <string>
 
@@ -239,4 +240,82 @@ TEST_CASE("MetricsWire: un codepoint hors plage prend une largeur plausible pour
     src.advances[static_cast<uint32_t>(' ')] = 5.0f;
     const Metrics back = decodeDense(encodeDense(src, 32, 126));
     REQUIRE(back.advanceOf(0x4E2Du, 10.0f) == 5.0f);  // U+4E2D, hors plage transportée
+}
+
+// ============================================================================
+// Frontières de mot (TextWords.h) — ce que sélectionne un double-clic.
+// Pur : aucune police, aucun widget. Les cas français sont les plus décisifs, parce qu'une
+// classification naïve « ASCII uniquement » coupe « café » en « caf ».
+// ============================================================================
+
+TEST_CASE("Words: un double-clic dans un mot prend le mot ENTIER", "[text][unit][words]") {
+    const std::string s = "bonjour le monde";
+    //                     0123456789...
+
+    for (size_t i = 0; i <= 7; ++i) {  // n'importe où dans "bonjour", fin incluse
+        const WordRange w = wordBoundsAt(s, i);
+        INFO("index " << i);
+        REQUIRE(w.start == 0u);
+        REQUIRE(w.end == 7u);
+    }
+
+    const WordRange mid = wordBoundsAt(s, 9);  // dans "le"
+    REQUIRE(s.substr(mid.start, mid.end - mid.start) == "le");
+}
+
+TEST_CASE("Words: un mot ACCENTUE n'est pas coupe sur l'accent", "[text][unit][words][utf8]") {
+    // LE cas français. Avec une classification ASCII-only, "café" se couperait en "caf" — et un
+    // double-clic donnerait une selection s'arretant AVANT l'accent, donc un mot tronque.
+    const std::string s = "le caf\xC3\xA9 est chaud";
+    const size_t inWord = 4;  // dans "café"
+    const WordRange w = wordBoundsAt(s, inWord);
+    REQUIRE(s.substr(w.start, w.end - w.start) == "caf\xC3\xA9");
+}
+
+TEST_CASE("Words: les bornes tombent toujours sur des frontieres de codepoint",
+          "[text][unit][words][utf8]") {
+    // Invariant dur : quelle que soit la position sondee -- y compris au MILIEU des deux octets d'un
+    // accent -- les bornes rendues doivent etre des frontieres valides, sinon un double-clic
+    // produirait une selection qui coupe un caractere en deux.
+    const std::string s = "pr\xC3\xA9nom d\xC3\xA9j\xC3\xA0";
+    for (size_t i = 0; i <= s.size(); ++i) {
+        const WordRange w = wordBoundsAt(s, i);
+        INFO("index " << i << " -> [" << w.start << "," << w.end << ")");
+        REQUIRE(w.start <= w.end);
+        REQUIRE(w.end <= s.size());
+        if (w.start < s.size()) REQUIRE_FALSE(grove::isUtf8Continuation(s[w.start]));
+        if (w.end < s.size())   REQUIRE_FALSE(grove::isUtf8Continuation(s[w.end]));
+    }
+}
+
+TEST_CASE("Words: un run de separateurs se selectionne d'un bloc", "[text][unit][words]") {
+    // Double-cliquer dans une suite d'espaces prend la suite entiere, pas un seul espace.
+    const std::string s = "a   b";
+    const WordRange w = wordBoundsAt(s, 2);
+    REQUIRE(w.start == 1u);
+    REQUIRE(w.end == 4u);
+}
+
+TEST_CASE("Words: un index en fin de mot appartient AU MOT, pas au separateur suivant",
+          "[text][unit][words]") {
+    // Sans cette regle de bord, un double-clic en fin de champ ne selectionnerait jamais rien.
+    const std::string s = "abc def";
+    const WordRange atEndOfFirst = wordBoundsAt(s, 3);  // juste apres "abc"
+    REQUIRE(s.substr(atEndOfFirst.start, atEndOfFirst.end - atEndOfFirst.start) == "abc");
+
+    const WordRange atVeryEnd = wordBoundsAt(s, s.size());
+    REQUIRE(s.substr(atVeryEnd.start, atVeryEnd.end - atVeryEnd.start) == "def");
+}
+
+TEST_CASE("Words: la ponctuation separe les mots", "[text][unit][words]") {
+    const std::string s = "vaisseau.moteur";
+    const WordRange w = wordBoundsAt(s, 2);
+    REQUIRE(s.substr(w.start, w.end - w.start) == "vaisseau");
+    const WordRange after = wordBoundsAt(s, 10);
+    REQUIRE(s.substr(after.start, after.end - after.start) == "moteur");
+}
+
+TEST_CASE("Words: une chaine vide ne produit pas d'intervalle", "[text][unit][words]") {
+    const WordRange w = wordBoundsAt("", 0);
+    REQUIRE(w.empty());
 }

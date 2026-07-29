@@ -196,6 +196,16 @@ public:
     bool draggingSelection = false;  // un appui a démarré un glisser-sélectionner dans ce champ
     float scrollOffset = 0.0f;     // Horizontal scroll for long text
 
+    // DOUBLE-CLIC — sélection du mot.
+    // Le widget mesure lui-même l'intervalle entre deux appuis (il reçoit deltaTime à chaque frame)
+    // plutôt que d'attendre un événement « double-clic » du backend : InputModule publie des appuis
+    // bruts, et faire remonter la notion de double-clic jusqu'à SDL obligerait chaque backend à
+    // s'accorder sur le même seuil. La décision reste donc côté UI, où elle est testable.
+    static constexpr float DOUBLE_CLICK_SECONDS = 0.4f;
+    static constexpr float DOUBLE_CLICK_SLOP_PX = 4.0f;  // au-delà, c'est un nouveau clic ailleurs
+    float timeSinceLastClick = 1.0e9f;  // grand = « aucun clic récent »
+    float lastClickX = 0.0f;
+
     // Cursor blink animation
     float cursorBlinkTimer = 0.0f;
     bool cursorVisible = true;

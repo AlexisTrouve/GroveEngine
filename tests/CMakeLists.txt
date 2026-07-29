@@ -3310,6 +3310,23 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(TextClipGpu test_text_clip_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # GPU test: the selection highlight is actually VISIBLE and the text stays readable on top (T1).
+    # Born from a real bug: the highlight — and the caret with it — were published at layer 0 and sat
+    # BEHIND the field background. That kind of defect cannot be read in the code (the 9-slice lesson),
+    # and "do you SEE the highlight, can you still READ the text" is only settled at the pixel.
+    add_executable(test_selection_highlight_gpu unit/test_selection_highlight_gpu.cpp)
+    target_include_directories(test_selection_highlight_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_selection_highlight_gpu PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+        Catch2::Catch2WithMain)
+    grove_add_test(SelectionHighlightGpu test_selection_highlight_gpu ${CMAKE_CURRENT_BINARY_DIR})
+
     # GPU test: a baked TrueType face really reaches the framebuffer, with PROPORTIONAL spans, and
     # maxWidth truncation holds end to end. Both properties fail by construction on the 8x8 monospace.
     add_executable(test_ttf_render_gpu unit/test_ttf_render_gpu.cpp)
@@ -3350,7 +3367,8 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     # working_dir regardless of PATH.
     find_file(GROVE_SDL2_DLL NAMES SDL2.dll PATHS ENV PATH)
     if(GROVE_SDL2_DLL)
-        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu test_sprite_clip_gpu test_text_clip_gpu)
+        foreach(gpu_test test_rhi_readback test_tilemap_lod_gpu test_sprite_clip_gpu test_text_clip_gpu
+                         test_selection_highlight_gpu)
             add_custom_command(TARGET ${gpu_test} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:${gpu_test}>")
