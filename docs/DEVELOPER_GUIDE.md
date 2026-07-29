@@ -445,13 +445,16 @@ the same mechanism — see `docs/design/lighting-transmittance-core.md`.
 ⚠️ **Occluders only block LIGHT, not sight.** A wall does not hide what is behind it from the
 player; that is a visibility system and it lives in game code, not in the renderer.
 
-⚠️ **Matter has a minimum useful thickness, and it scales with the lamp.** The light shader marches
-the occlusion map in a **fixed** number of steps (16) between the lamp and the fragment, so one step
-spans `distance / 16` world units. Matter thinner than a step can be **stepped over entirely**, and
-the shadow comes out with holes in it. Rule of thumb: an occluder should be at least
-`lightRadius / 16` thick — a 4-unit wall is fine under a 64-unit lamp and unreliable under a
-500-unit one. If you need a genuinely thin wall lit from far away, make the *occluder* thicker than
-the *sprite* that draws it; nothing requires the two rects to match.
+⚠️ **Matter has a minimum useful thickness — about 3 screen pixels.** The light shader marches the
+occlusion map in steps of a fixed **pixel** length, so matter thinner than one step can be stepped
+over and the shadow comes out with holes in it. Three pixels *on screen*, which means a thin wall
+becomes unreliable when you **zoom out** far enough, not when the lamp gets bigger. If you need a
+hairline wall to keep occluding at any zoom, make the *occluder* rect thicker than the *sprite* that
+draws it — nothing requires the two to match.
+
+Shadow edges are hard and pixel-crisp; the march is bounded at 64 samples, so a lamp wider than
+~200 px on screen loses a little edge precision at its rim. Locked by `LightingGpu [march]`, which
+fits a line through the measured shadow boundary and fails if it bends.
 
 ##### Filters — stained glass that tints the light it lets through
 

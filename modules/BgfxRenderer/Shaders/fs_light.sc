@@ -2,9 +2,18 @@ $input v_texcoord0, v_color0
 
 #include <bgfx_shader.sh>
 
-// Steps taken through the occlusion map per fragment. A tuning knob, not dogma: too few and a thin
-// wall is stepped over, too many and the cost is paid on every lit pixel.
-#define OCCLUSION_STEPS 16
+// How far apart the occlusion samples sit, IN SCREEN PIXELS, and the ceiling on how many are taken.
+//
+// ⚠️ This used to be a fixed COUNT (16), which made the step length `distance / 16` — proportional to
+// how far the fragment sat from the lamp. Two defects followed, and both were visible: matter thinner
+// than one step was stepped over entirely, and the shadow edge came out as a STAIRCASE whose tread
+// was the step length (measured ~19 px under a 340-unit lamp). Worse, the defect scaled WITH the
+// lamp: doubling a light's radius doubled the ugliness, so no fixed count could ever be right.
+//
+// A step is now a constant number of pixels, so edge quality no longer depends on the lamp's size —
+// a small lamp simply takes fewer samples. The cap bounds the cost of a very large one.
+#define OCCLUSION_STEP_PX 3.0
+#define MAX_OCCLUSION_STEPS 64
 
 // u_light = (centre.x, centre.y, radius, intensity)
 uniform vec4 u_light;
@@ -56,16 +65,36 @@ void main()
 	// accumulated first and raised ONCE, instead of a pow per step. Exact, not an approximation.
 	vec2 uvFrag  = v_color0.xy;
 	vec2 uvLight = v_color0.zw;
-	vec2 stepUV  = (uvFrag - uvLight) / float(OCCLUSION_STEPS);
 
+	// How many samples THIS fragment needs: the ray's length on screen, divided by the step. Near the
+	// lamp that is a handful; at the rim of a wide lamp it saturates at the cap. u_viewRect.zw is the
+	// light view's pixel size, which is what turns a UV distance into a pixel distance.
+	float pxDist = length((uvFrag - uvLight) * u_viewRect.zw);
+	float steps  = clamp(ceil(pxDist / OCCLUSION_STEP_PX), 1.0, float(MAX_OCCLUSION_STEPS));
+	vec2  stepUV = (uvFrag - uvLight) / steps;
+
+	// ⚠️ [loop] is not decoration — WITHOUT it the whole adaptive scheme is a lie.
+	//
+	// fxc reads the clamp above, deduces the bound can never exceed 64, and UNROLLS: the D3D11
+	// bytecode went from 1.9 KB to 23 KB, and an unrolled loop is predicated, so every lit fragment
+	// would pay all 64 samples whatever `steps` said. Forcing a real loop puts it back to 2.2 KB and
+	// makes a fragment that needs 8 samples take 8. Same picture (verified pixel-identical), a
+	// fraction of the work.
+	//
+	// Guarded because [loop] is HLSL-only; GLSL and SPIR-V keep the dynamic bound and do not unroll.
+	int n = int(steps);
 	vec3 prod = vec3_splat(1.0);
-	for (int i = 1; i <= OCCLUSION_STEPS; ++i) {
+#if BGFX_SHADER_LANGUAGE_HLSL
+	[loop]
+#endif
+	for (int i = 1; i <= n; ++i) {
 		prod *= texture2D(s_occlusion, uvLight + stepUV * float(i)).rgb;
 	}
 
 	// World length of one step: the fragment sits at `d` in the light's unit disc, so the distance
-	// travelled is d * radius.
-	float stepLen = (d * u_light.z) / float(OCCLUSION_STEPS);
+	// travelled is d * radius. Dividing by the ACTUAL step count is what keeps t^distance exact —
+	// using the cap here instead would make every capped fragment under-absorb.
+	float stepLen = (d * u_light.z) / steps;
 	vec3 survives = pow(prod, vec3_splat(stepLen));
 
 	gl_FragColor = vec4(u_lightColor.rgb * a * survives, 1.0);

@@ -60,10 +60,25 @@ hypothèses coïncident.
 1. **Occulteurs hors champ** — dépend de l'arbitrage §5 du socle. Avec une carte partagée en espace
    écran, un mur qui sort du cadre cesse d'occulter, et son ombre disparaît **alors que la lampe est
    toujours visible**. La marge autour du viewport repousse le défaut sans l'éliminer.
-2. **Résolution angulaire** — la table a N angles ; à grande distance de la lampe, deux angles
-   voisins s'écartent de plus d'un pixel et le bord de l'ombre crénelle. L'article de référence
-   traite ça par un flou gaussien sur plusieurs angles à l'échantillonnage. À prévoir dans W2, pas
-   après : un bord d'ombre en escalier se voit immédiatement.
+2. ~~**Résolution angulaire**~~ ⚠️ **Le risque était réel, mais pas là où ce plan le plaçait — et il
+   est passé en production.** Il annonçait le crénelage comme une propriété de la *table polaire*
+   (N angles), structure qui n'a finalement pas été livrée : C2 marche directement. Le crénelage est
+   quand même arrivé, par un autre chemin — la marche prenait un nombre **fixe** de pas (16) entre la
+   lampe et le fragment, donc un pas valait `distance/16`, et le bord d'ombre sortait en escalier dont
+   la marche était ce pas (~19 px sous une lampe de 340). **Repéré à l'œil par Alexi sur les captures
+   du blog, pas par un test.**
+
+   ✅ **Corrigé le 2026-07-29** : le pas est désormais constant **en pixels écran** (3 px, plafonné à
+   64 échantillons), donc la qualité du bord ne dépend plus de la taille de la lampe — une petite
+   lampe prend simplement moins d'échantillons. Écart à la droite mesuré : **9,4 px → 2,9 px**.
+   Verrouillé par `LightingGpu [march]`, qui ajuste une droite sur le bord d'ombre mesuré et échoue
+   s'il ondule.
+
+   **Ce que ça apprend** : le plan avait *raison sur le symptôme et faux sur la cause*, parce qu'il
+   décrivait la cause d'une structure qu'on n'a pas construite. Un risque énoncé comme propriété
+   d'une implémentation précise cesse d'être surveillé dès qu'on change d'implémentation — alors que
+   le symptôme, lui, était générique. Formuler les risques par le **symptôme observable** plutôt que
+   par le mécanisme supposé.
 3. **Auto-occultation** — un sprite qui est à la fois éclairé et occulteur s'ombre lui-même sur son
    bord côté lampe. Attendu physiquement, souvent laid en 2D vu de dessus. Prévoir de pouvoir
    déclarer un occulteur **sans** qu'il s'auto-ombre, ou accepter et documenter.

@@ -542,3 +542,129 @@ TEST_CASE("lighting: a red filter TINTS the light behind it — red survives, bl
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+TEST_CASE("lighting: a shadow edge is a STRAIGHT line, not a staircase (GPU)",
+          "[gpu][light][occluder][march]") {
+    // The regression this locks. The occlusion march used a FIXED number of steps between the lamp
+    // and the fragment, so one step spanned `distance / N` world units — the further the fragment,
+    // the coarser the sampling. The shadow edge came out as a STAIRCASE whose tread was the step
+    // length (measured ~19 px under a 340-unit lamp), and it got worse as lamps got bigger.
+    //
+    // The geometry says what the answer must be: the shadow boundary cast by a POINT light past a
+    // corner is a RAY, i.e. a straight line. So the test fits a line through the measured boundary
+    // and bounds the deviation. A staircase fails it by construction; asserting merely that "there
+    // is a shadow" would not, which is why this test measures a SHAPE and not a level.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 192, H = 192;
+    SDL_Window* win = SDL_CreateWindow("light6", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li6_r");
+    auto gIO = mgr.createInstance("li6_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li6_r"); mgr.removeInstance("li6_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    auto frame = [&]{
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+          cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+          gIO->publish("render:camera", std::move(cam)); }
+        JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+    };
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    // Lamp upper-left; a block whose BOTTOM-LEFT corner casts the edge we measure.
+    //
+    // ⚠️ The corner that casts is the one NEAREST the lamp on that side, not the far one. With the
+    // lamp to the LEFT of the block, a ray only escapes below the block if it is already under y=80
+    // when it reaches x=60 — the far corner never gets a say. Predicting from the far corner gives a
+    // slope of 0.56 against a true 0.91, and the test fails while the engine is right.
+    const double lx = 16.0, ly = 40.0;
+    const double bx = 60.0, bw = 28.0, bh = 80.0;   // block spans y 0..80, x 60..88
+    const double cornerX = bx, cornerY = bh;
+
+    for (int i = 0; i < 6; ++i) {
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x101010FFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", lx); l->setDouble("cy", ly);
+          l->setDouble("radius", 400.0);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 3.0);
+          gIO->publish("render:light", std::move(l)); }
+        { auto o = std::make_unique<JsonDataNode>("o");
+          o->setDouble("x", bx); o->setDouble("y", 0.0);
+          o->setDouble("w", bw); o->setDouble("h", bh);
+          gIO->publish("render:occluder", std::move(o)); }
+
+        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        frame();
+    }
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    auto luma = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (p[0] + p[1] + p[2]) / 3;
+    };
+
+    // The boundary is where luma climbs out of "ambient only". Scanning DOWNWARD from the top, the
+    // first lit row of a column is that column's shadow edge.
+    const int kLitThreshold = 60;
+    std::vector<double> xs, ys;
+    for (int x = 110; x <= 180; x += 5) {
+        for (int y = 0; y < H; ++y) {
+            if (luma(x, y) > kLitThreshold) { xs.push_back(static_cast<double>(x)); ys.push_back(static_cast<double>(y)); break; }
+        }
+    }
+    REQUIRE(xs.size() >= 12);   // the edge has to be FOUND before its shape can be judged
+
+    // Least-squares line through the measured boundary, then the worst deviation from it.
+    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    const double n = static_cast<double>(xs.size());
+    for (size_t i = 0; i < xs.size(); ++i) { sx += xs[i]; sy += ys[i]; sxx += xs[i]*xs[i]; sxy += xs[i]*ys[i]; }
+    const double slope = (n*sxy - sx*sy) / (n*sxx - sx*sx);
+    const double icept = (sy - slope*sx) / n;
+    double worst = 0.0;
+    for (size_t i = 0; i < xs.size(); ++i) {
+        const double dev = std::abs(ys[i] - (slope*xs[i] + icept));
+        if (dev > worst) worst = dev;
+    }
+
+    // ...and it must be the RIGHT line: the ray from the lamp through the block's corner. A
+    // perfectly straight edge in the wrong place would otherwise sail through.
+    const double expectedSlope = (cornerY - ly) / (cornerX - lx);
+
+    INFO("slope=" << slope << " expected=" << expectedSlope << " worst=" << worst << "px n=" << xs.size());
+
+    REQUIRE(worst < 5.0);                              // straight, not a staircase
+    REQUIRE(std::abs(slope - expectedSlope) < 0.06);   // and following the geometry
+
+    renderer->shutdown();
+    mgr.removeInstance("li6_r");
+    mgr.removeInstance("li6_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
