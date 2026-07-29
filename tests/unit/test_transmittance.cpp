@@ -262,3 +262,55 @@ TEST_CASE("perUnitForTint: two panes stacked multiply, in either order",
     const float swapped = transmitThrough(blue * red, 10.0f);
     REQUIRE_THAT(swapped, WithinRel(bothWays, 1e-5f));
 }
+
+// ---------------------------------------------------------------------------
+// Plan A — a MEDIUM: absorption that compounds with the distance travelled through it.
+//
+// A filter states the tint after one crossing of a pane. A medium cannot: the whole point of a cloud
+// is that going further through it absorbs MORE. So its authoring quantity is the Beer-Lambert
+// coefficient alpha, which has no upper bound and is per-unit by nature — the opposite convention to
+// a filter, deliberately, because the two things behave differently.
+//
+// `color` makes the absorption SELECTIVE: a channel with a lower colour absorbs faster. That is what
+// gives sunsets (blue extinguishes before red) and coloured nebulae.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("fogPerUnit: white is neutral — every channel absorbs at the stated density",
+          "[light][unit][transmittance][fog]") {
+    // The non-regression of the colour knob: a medium that states no colour preference must absorb
+    // identically everywhere, i.e. fall back exactly onto fromDensity.
+    REQUIRE_THAT(fogPerUnit(0.5f, 1.0f), WithinRel(fromDensity(0.5f), 1e-5f));
+    REQUIRE_THAT(fogPerUnit(0.0f, 1.0f), WithinAbs(1.0f, 0.0f));   // no density = vacuum, EXACTLY
+}
+
+TEST_CASE("fogPerUnit: a darker channel absorbs FASTER", "[light][unit][transmittance][fog]") {
+    // Halving a channel's colour doubles its extinction, so what survives is SQUARED. Asserting
+    // merely "less survives" would pass with any monotonic darkening and would not pin the model.
+    const float base = fogPerUnit(0.4f, 1.0f);
+    const float half = fogPerUnit(0.4f, 0.5f);
+    REQUIRE_THAT(half, WithinRel(base * base, 1e-4f));
+
+    // ...and a channel with no colour at all is opaque: the medium is a wall for that wavelength.
+    REQUIRE_THAT(fogPerUnit(0.4f, 0.0f), WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("fogPerUnit: it is BEER-LAMBERT, not a subtraction", "[light][unit][transmittance][fog]") {
+    // THE assertion of this slice. What characterises an exponential is that doubling the distance
+    // SQUARES what survives. A constant darkening — the thing a naive implementation produces —
+    // would halve it instead, and "it got darker" would be green for both.
+    const float perUnit = fogPerUnit(0.3f, 1.0f);
+    const float at10 = transmitThrough(perUnit, 10.0f);
+    const float at20 = transmitThrough(perUnit, 20.0f);
+
+    REQUIRE_THAT(at20, WithinRel(at10 * at10, 1e-4f));
+    REQUIRE_THAT(at10, WithinRel(std::exp(-0.3f * 10.0f), 1e-4f));   // and it IS exp(-alpha*d)
+}
+
+TEST_CASE("fogPerUnit: doubling the DENSITY also squares what survives",
+          "[light][unit][transmittance][fog]") {
+    // The other half of the same law, and the one the GPU test mirrors: alpha and distance enter the
+    // exponent together, so doubling either has the same effect.
+    const float thin  = transmitThrough(fogPerUnit(0.2f, 1.0f), 8.0f);
+    const float thick = transmitThrough(fogPerUnit(0.4f, 1.0f), 8.0f);
+    REQUIRE_THAT(thick, WithinRel(thin * thin, 1e-4f));
+}

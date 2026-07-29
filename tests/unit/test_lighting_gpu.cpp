@@ -22,6 +22,7 @@
 #define SDL_MAIN_HANDLED
 
 #include <cmath>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -693,6 +694,118 @@ TEST_CASE("lighting: a shadow edge is a STRAIGHT line, not a staircase (GPU)",
     renderer->shutdown();
     mgr.removeInstance("li6_r");
     mgr.removeInstance("li6_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
+
+TEST_CASE("lighting: fog absorbs EXPONENTIALLY — doubling the density squares what survives (GPU)",
+          "[gpu][light][fog]") {
+    // THE assertion of plan A1, and it is deliberately not "it got darker". A constant darkening, a
+    // linear one, or a semi-opaque wall would all be darker too. What characterises Beer-Lambert is
+    // that doubling alpha SQUARES the surviving light — so the test measures the same probe under
+    // three media (none, alpha, 2*alpha) and checks L2 * L0 == L1^2.
+    //
+    // A linear absorber would give L1 = L0 - d and L2 = L0 - 2d, i.e. L2*L0 far below L1^2 (and here
+    // it would land at zero). The relation cannot be satisfied by accident.
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+    const int W = 96, H = 96;
+    SDL_Window* win = SDL_CreateWindow("light7", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("li7_r");
+    auto gIO = mgr.createInstance("li7_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("li7_r"); mgr.removeInstance("li7_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    const double lampX = 16.0, lampY = 48.0;
+    const double fogX = 30.0, fogW = 40.0;   // the ray crosses 40 world units of medium
+    const int probeX = 80, probeY = 48;
+
+    // Mean luminance of a small patch at the probe, under a given fog density (0 = no fog at all).
+    auto measure = [&](double density) -> int {
+        for (int i = 0; i < 6; ++i) {
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x101010FFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            { auto l = std::make_unique<JsonDataNode>("l");
+              l->setDouble("cx", lampX); l->setDouble("cy", lampY);
+              l->setDouble("radius", 200.0);
+              l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              l->setDouble("intensity", 1.2);
+              gIO->publish("render:light", std::move(l)); }
+            if (density > 0.0) {
+                auto f = std::make_unique<JsonDataNode>("f");
+                f->setDouble("x", fogX); f->setDouble("y", 0.0);
+                f->setDouble("w", fogW); f->setDouble("h", static_cast<double>(H));
+                f->setDouble("density", density);
+                gIO->publish("render:fog", std::move(f));
+            }
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+        if (!dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size()))) return -1;
+        // Averaged over a patch: the march dithers its start per pixel, so a single sample carries
+        // one step's worth of jitter (~5% here). The law is what is under test, not the jitter.
+        long sum = 0; int n = 0;
+        for (int y = probeY - 3; y <= probeY + 3; ++y)
+            for (int x = probeX - 3; x <= probeX + 3; ++x) {
+                const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+                sum += (p[0] + p[1] + p[2]) / 3; ++n;
+            }
+        return n ? static_cast<int>(sum / n) : -1;
+    };
+
+    // alpha chosen so one crossing leaves about half the light: ln(2)/40.
+    const double alpha = 0.01733;
+    const int m0 = measure(0.0);
+    const int m1 = measure(alpha);
+    const int m2 = measure(alpha * 2.0);
+
+    // The ambient rides on every reading and has no path through the fog — it is global by
+    // construction — so it must be removed before the law can be read.
+    const double ambient = 16.0;   // 0x10 / 255 * 255, scene is white
+    const double L0 = m0 - ambient, L1 = m1 - ambient, L2 = m2 - ambient;
+
+    INFO("m0=" << m0 << " m1=" << m1 << " m2=" << m2 << "  L0=" << L0 << " L1=" << L1 << " L2=" << L2);
+
+    REQUIRE(L0 > 60.0);            // there is light to absorb in the first place
+    REQUIRE(L1 < L0 - 15.0);       // the fog absorbs
+    REQUIRE(L2 > 4.0);             // ...but does not simply zero it, which a linear model would
+
+    // The law. 25% tolerance: the readback is 8-bit, the march is discrete, and the fog's edges land
+    // between samples — but a linear or constant absorber misses this by a factor, not a percent.
+    REQUIRE_THAT(L2 * L0, Catch::Matchers::WithinRel(L1 * L1, 0.25));
+
+    renderer->shutdown();
+    mgr.removeInstance("li7_r");
+    mgr.removeInstance("li7_g");
     SDL_DestroyWindow(win);
     SDL_Quit();
 }

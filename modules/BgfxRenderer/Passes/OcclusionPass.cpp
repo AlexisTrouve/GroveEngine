@@ -39,11 +39,12 @@ void OcclusionPass::shutdown(rhi::IRHIDevice& device) {
 void OcclusionPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
     const size_t wallCount   = (frame.occluders != nullptr) ? frame.occluderCount : 0;
     const size_t filterCount = (frame.filters   != nullptr) ? frame.filterCount   : 0;
+    const size_t fogCount    = (frame.fogs      != nullptr) ? frame.fogCount      : 0;
 
-    // Nothing to occlude and nothing to tint: record nothing. The view's WHITE clear alone then
-    // leaves the map at vacuum, which the light march multiplies by 1 — a game with neither walls
-    // nor stained glass pays a clear and no more.
-    if (wallCount == 0 && filterCount == 0) {
+    // No matter of any kind: record nothing. The view's WHITE clear alone then leaves the map at
+    // vacuum, which the light march multiplies by 1 — a game with neither walls, stained glass nor
+    // fog pays a clear and no more.
+    if (wallCount == 0 && filterCount == 0 && fogCount == 0) {
         return;
     }
 
@@ -56,18 +57,20 @@ void OcclusionPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, r
     const size_t maxRects = MAX_OCCLUDERS;
     const size_t walls    = (wallCount > maxRects) ? maxRects : wallCount;
     const size_t filters  = (walls + filterCount > maxRects) ? (maxRects - walls) : filterCount;
-    if (wallCount + filterCount > maxRects) {
+    const size_t used     = walls + filters;
+    const size_t fogs     = (used + fogCount > maxRects) ? (maxRects - used) : fogCount;
+    if (wallCount + filterCount + fogCount > maxRects) {
         static bool warned = false;
         if (!warned) {
-            spdlog::warn("[OcclusionPass] {} occluders + {} filters exceed the {} cap — truncated. "
-                         "Raise MAX_OCCLUDERS if this is intentional.",
-                         wallCount, filterCount, maxRects);
+            spdlog::warn("[OcclusionPass] {} occluders + {} filters + {} fog volumes exceed the {} "
+                         "cap — truncated. Raise MAX_OCCLUDERS if this is intentional.",
+                         wallCount, filterCount, fogCount, maxRects);
             warned = true;
         }
     }
 
     std::vector<OccVertex> verts;
-    verts.reserve((walls + filters) * 6);
+    verts.reserve((walls + filters + fogs) * 6);
 
     // QUOI : one quad per rect, coloured by what that matter TRANSMITS per unit of length.
     // POURQUOI walls and filters share this loop shape: they are the same mechanism at two points of
@@ -101,6 +104,13 @@ void OcclusionPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, r
         const FilterCommand& f = frame.filters[i];
         // The collector already converted the author's tint into a PER-UNIT transmittance, so this
         // pass writes it verbatim. A wall is the degenerate case of this very quad.
+        pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b);
+    }
+
+    for (size_t i = 0; i < fogs; ++i) {
+        const FogCommand& f = frame.fogs[i];
+        // Third and last way of feeding one map: exp(-density). Identical quad, identical blend —
+        // only the number differs, which is exactly what the socle claimed and is now three for three.
         pushRect(f.x, f.y, f.w, f.h, f.r, f.g, f.b);
     }
 

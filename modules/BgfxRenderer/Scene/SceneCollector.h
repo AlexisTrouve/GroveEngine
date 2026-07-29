@@ -119,6 +119,7 @@ private:
     // to its size for a constant. Survives clear(); merged with the ephemeral list in finalize().
     std::unordered_map<uint32_t, OccluderCommand> m_retainedOccluders;
     std::vector<FilterCommand> m_filters;   // ephemeral, like m_occluders
+    std::vector<FogCommand> m_fogs;         // ephemeral (retained media are A3)
 
     // RETAINED filters, by renderId (F3). Same rationale as the retained occluders beside them: a
     // stained-glass window does not move.
@@ -161,6 +162,7 @@ private:
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);
+    void parseFog(const IDataNode& data);
     void parseFilterAdd(const IDataNode& data);
     void parseFilterUpdate(const IDataNode& data);
     void parseFilterRemove(const IDataNode& data);

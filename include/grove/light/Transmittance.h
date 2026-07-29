@@ -120,6 +120,24 @@ inline float fromDensity(float alpha) {
     return std::exp(-alpha);
 }
 
+/// Per-unit transmittance of ONE CHANNEL of a medium of density `alpha`, tinted by `channelColor`.
+///
+/// POURQUOI un medium n'est pas un filtre (plan A vs plan F) : une vitre annonce la teinte obtenue
+/// APRES une traversee, parce que son epaisseur est fixe. Un nuage ne le peut pas — tout son interet
+/// est qu'aller plus loin dedans absorbe DAVANTAGE. Sa grandeur d'auteur est donc le coefficient
+/// alpha de Beer-Lambert, sans borne haute et par unite de longueur par nature.
+///
+/// COMMENT la couleur agit : `alpha_c = density / channelColor`, donc un canal deux fois plus sombre
+/// s'eteint deux fois plus vite (ce qui survit est mis au CARRE). Blanc = neutre, et le medium
+/// retombe exactement sur fromDensity ; 0 = ce canal ne passe pas du tout. C'est cette selectivite
+/// qui donne les couchers de soleil (le bleu s'eteint avant le rouge) et les nebuleuses teintees.
+inline float fogPerUnit(float density, float channelColor) {
+    if (density <= 0.0f) return 1.0f;          // pas de matiere = vide, EXACTEMENT
+    if (channelColor <= 0.0f) return 0.0f;     // ce canal ne traverse pas : un mur, pour cette longueur d'onde
+    const float c = (channelColor > 1.0f) ? 1.0f : channelColor;
+    return fromDensity(density / c);
+}
+
 /// Running product along one ray: `out[i]` = what survives from the lamp THROUGH sample i.
 ///
 /// A prefix product, not a per-sample value — each cell answers "how much light reaches here",

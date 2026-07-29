@@ -202,6 +202,27 @@ struct FilterCommand {
 };
 
 // ============================================================================
+// Fog / medium Data (lighting A1)
+// ============================================================================
+
+// One rectangular volume of ABSORBING MEDIUM, in WORLD space. x,y = top-left CORNER.
+//
+// Structurally a twin of FilterCommand, and deliberately a SEPARATE primitive anyway: what differs
+// is the authoring quantity, which is the whole point of the distinction.
+//
+//   - a filter states the tint after ONE crossing, because a pane's thickness is fixed;
+//   - a medium states a Beer-Lambert coefficient, because going further into a cloud must absorb
+//     MORE — there is no "one crossing" to speak of.
+//
+// Both end up as the same per-unit transmittance here, because the march does not care which kind of
+// matter wrote it. The two topics exist so that neither author has to think in the other's units.
+struct FogCommand {
+    float x, y;      // world top-left CORNER
+    float w, h;      // extent; a non-positive extent is dropped by the collector
+    float r, g, b;   // PER-UNIT transmittance = exp(-density / colour), per channel
+};
+
+// ============================================================================
 // Debug Shape Data
 // ============================================================================
 
@@ -327,6 +348,10 @@ struct FramePacket {
     // Coloured filters for THIS frame (ephemeral). Null + 0 when none were published.
     const FilterCommand* filters = nullptr;
     size_t filterCount = 0;
+
+    // Absorbing media for THIS frame (ephemeral). Null + 0 when none were published.
+    const FogCommand* fogs = nullptr;
+    size_t fogCount = 0;
 
     // Allocator for temporary pass data
     FrameAllocator* allocator = nullptr;

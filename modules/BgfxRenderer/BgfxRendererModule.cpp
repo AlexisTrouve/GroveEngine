@@ -688,7 +688,8 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // to bind and clear the target. Testing only for occluders would leave a scene whose
             // matter is entirely stained glass sampling the 1x1 white placeholder — no tint at all.
             const bool hasOccluders = (packet.occluders != nullptr && packet.occluderCount > 0)
-                                   || (packet.filters   != nullptr && packet.filterCount   > 0);
+                                   || (packet.filters   != nullptr && packet.filterCount   > 0)
+                                   || (packet.fogs      != nullptr && packet.fogCount      > 0);
             if (hasOccluders) {
                 // Drawn with the WORLD camera, because occluders are published in world coordinates
                 // — the same reason the light view carries it.

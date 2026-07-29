@@ -184,6 +184,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:filter:remove") {
             parseFilterRemove(*msg.data);
         }
+        else if (msg.topic == "render:fog") {
+            parseFog(*msg.data);
+        }
         else if (msg.topic == "render:occluder:remove") {
             parseOccluderRemove(*msg.data);
         }
@@ -453,6 +456,19 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
+    // Copy fog volumes (A1). Ephemeral only for now; same no-array-when-unused rule as the rest.
+    if (!m_fogs.empty()) {
+        FogCommand* fg = allocator.allocateArray<FogCommand>(m_fogs.size());
+        if (fg) {
+            std::memcpy(fg, m_fogs.data(), m_fogs.size() * sizeof(FogCommand));
+            packet.fogs = fg;
+            packet.fogCount = m_fogs.size();
+        }
+    } else {
+        packet.fogs = nullptr;
+        packet.fogCount = 0;
+    }
+
     // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
     if (!m_lights.empty()) {
         LightCommand* lights = allocator.allocateArray<LightCommand>(m_lights.size());
@@ -636,6 +652,7 @@ void SceneCollector::clear() {
     m_textStrings.clear();
     m_occluders.clear();
     m_filters.clear();
+    m_fogs.clear();
     m_lights.clear();
     m_particles.clear();
     m_debugLines.clear();
@@ -1229,6 +1246,32 @@ void SceneCollector::parseFilter(const IDataNode& data) {
     if (src.w <= 0.0f || src.h <= 0.0f) return;
 
     m_filters.push_back(buildFilter(src));
+}
+
+void SceneCollector::parseFog(const IDataNode& data) {
+    FogCommand f;
+    // x,y = top-left CORNER, like every rect.
+    f.x = static_cast<float>(data.getDouble("x", 0.0));
+    f.y = static_cast<float>(data.getDouble("y", 0.0));
+    f.w = static_cast<float>(data.getDouble("w", 0.0));
+    f.h = static_cast<float>(data.getDouble("h", 0.0));
+    if (f.w <= 0.0f || f.h <= 0.0f) return;
+
+    // `density` is the Beer-Lambert ALPHA, not an opacity in 0..1: it has no upper bound, and
+    // doubling the distance travelled doubles its effect in the exponent. Naming this field
+    // "opacity" would guarantee someone sets it to 1 believing they had saturated it.
+    const float density = static_cast<float>(data.getDouble("density", 0.0));
+    if (density <= 0.0f) return;   // a medium that absorbs nothing is vacuum: nothing to draw
+
+    // `color` makes the absorption SELECTIVE (a channel with a lower colour extinguishes faster) -
+    // sunsets and tinted nebulae. White is neutral, so a fog published without one is plain grey
+    // absorption.
+    const uint32_t color = static_cast<uint32_t>(data.getInt("color", static_cast<int>(0xFFFFFFFFu)));
+    f.r = grove::light::fogPerUnit(density, static_cast<float>((color >> 24) & 0xFF) / 255.0f);
+    f.g = grove::light::fogPerUnit(density, static_cast<float>((color >> 16) & 0xFF) / 255.0f);
+    f.b = grove::light::fogPerUnit(density, static_cast<float>((color >>  8) & 0xFF) / 255.0f);
+
+    m_fogs.push_back(f);
 }
 
 void SceneCollector::parseFilterAdd(const IDataNode& data) {

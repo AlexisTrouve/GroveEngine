@@ -2526,3 +2526,111 @@ TEST_CASE("SceneCollector - filter retained and ephemeral COEXIST",
     // occlusion is a product, and a product does not care which factor came first.
     REQUIRE(fx.collector.finalize(allocator).filterCount == 2);
 }
+
+// ============================================================================
+// Lighting A1 — fog / media (render:fog).
+//
+// The third way of feeding the same occlusion map. A wall writes 0, a filter writes a colour, a
+// medium writes exp(-alpha) — and the march does not know which is which.
+//
+// What separates fog from a filter is the AUTHORING quantity, and it is not cosmetic. A pane states
+// the tint after ONE crossing because its thickness is fixed. A cloud cannot: going further through
+// it must absorb more, so its quantity is the Beer-Lambert coefficient — unbounded, per-unit, and
+// deliberately NOT called "opacity", which would guarantee someone sets it to 1 believing they have
+// saturated it.
+// ============================================================================
+
+TEST_CASE("SceneCollector - fog: `density` is a Beer-Lambert coefficient, per UNIT of length",
+          "[scene_collector][light][fog]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setDouble("x", 30.0); f->setDouble("y", 70.0);
+    f->setDouble("w", 200.0); f->setDouble("h", 120.0);
+    f->setDouble("density", 0.25);
+    fx.ioPublisher->publish("render:fog", std::move(f));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.fogCount == 1);
+    REQUIRE(p.fogs != nullptr);
+
+    REQUIRE_THAT(p.fogs[0].x, WithinAbs(30.0f, 0.01f));   // x,y = CORNER, like every rect
+    REQUIRE_THAT(p.fogs[0].y, WithinAbs(70.0f, 0.01f));
+
+    // The assertion that pins the LAW rather than the direction: crossing twice the distance leaves
+    // the SQUARE, which no constant darkening can imitate. Unlike a filter, no thickness is involved
+    // in the conversion — the geometry supplies it at march time.
+    using grove::light::transmitThrough;
+    const float at4 = transmitThrough(p.fogs[0].r, 4.0f);
+    const float at8 = transmitThrough(p.fogs[0].r, 8.0f);
+    REQUIRE_THAT(at8, Catch::Matchers::WithinRel(at4 * at4, 1e-3f));
+    REQUIRE_THAT(at4, Catch::Matchers::WithinRel(std::exp(-0.25f * 4.0f), 1e-3f));
+}
+
+TEST_CASE("SceneCollector - fog: `color` makes the absorption SELECTIVE",
+          "[scene_collector][light][fog]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // A sunset medium: red passes, blue is eaten. The channels must DIVERGE — a grey medium would
+    // dim everything equally and satisfy any luminance check while proving nothing.
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setDouble("x", 0.0); f->setDouble("y", 0.0);
+    f->setDouble("w", 100.0); f->setDouble("h", 100.0);
+    f->setDouble("density", 0.2);
+    f->setInt("color", static_cast<int>(0xFF8040FFu));   // r=1.0, g=0.5, b=0.25
+    fx.ioPublisher->publish("render:fog", std::move(f));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.fogCount == 1);
+    REQUIRE(p.fogs[0].r > p.fogs[0].g);
+    REQUIRE(p.fogs[0].g > p.fogs[0].b);
+
+    // Halving a channel's colour doubles its extinction, so what survives is squared. That exact
+    // relation is what separates a tint from an arbitrary per-channel fudge.
+    //
+    // 1% and not 0.1%: `0x80` is 128/255 = 0.502, not one half, so the squaring relation is exact
+    // only up to the colour's 8-bit quantisation. Tightening past that would be asserting on the
+    // byte encoding rather than on the law.
+    REQUIRE_THAT(p.fogs[0].g, Catch::Matchers::WithinRel(p.fogs[0].r * p.fogs[0].r, 1e-2f));
+}
+
+TEST_CASE("SceneCollector - fog: ephemeral, degenerate dropped, absent means NO array",
+          "[scene_collector][light][fog]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.fogCount == 0);
+        REQUIRE(p.fogs == nullptr);   // no arena slice for a feature nobody used
+    }
+
+    // No extent, or no density: either way there is nothing to absorb. Dropping both here spares the
+    // pass a quad that would write pure vacuum over the map.
+    for (int i = 0; i < 2; ++i) {
+        auto bad = std::make_unique<JsonDataNode>("f");
+        bad->setDouble("x", 5.0); bad->setDouble("y", 5.0);
+        bad->setDouble("w", i == 0 ? 0.0 : 50.0);
+        bad->setDouble("h", 50.0);
+        bad->setDouble("density", i == 0 ? 0.5 : 0.0);
+        fx.ioPublisher->publish("render:fog", std::move(bad));
+    }
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).fogCount == 0);
+    fx.collector.clear();
+
+    auto ok = std::make_unique<JsonDataNode>("f");
+    ok->setDouble("x", 5.0); ok->setDouble("y", 5.0);
+    ok->setDouble("w", 50.0); ok->setDouble("h", 50.0);
+    ok->setDouble("density", 0.3);
+    fx.ioPublisher->publish("render:fog", std::move(ok));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).fogCount == 1);
+
+    fx.collector.clear();
+    REQUIRE(fx.collector.finalize(allocator).fogCount == 0);   // ephemeral
+}
