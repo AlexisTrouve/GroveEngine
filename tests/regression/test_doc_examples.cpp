@@ -30,6 +30,7 @@
 #include <grove/crash/CrashContext.h>   // Diagnostics: crash-context snapshot
 
 #include "grove/fx/FxWorld.h"
+#include <grove/light/Light.h>   // DEVELOPER_GUIDE: 2D lighting
 
 #include <memory>
 #include <string>
@@ -56,6 +57,40 @@ void iio_pubsub() {
     while (sub->hasMessages() > 0) sub->pullAndDispatch();
     mgr.removeInstance("doc_pub");
     mgr.removeInstance("doc_sub");
+}
+
+// --- DEVELOPER_GUIDE: "2D lighting — ambient + radial lights" --------------------------------------
+// Mirrors the three snippets a consumer copies: the white-ambient trick (lights without a dark
+// game), a per-frame light, and the gameplay "is this point lit?" query. Compile-checked because
+// the first is the difference between "lighting works" and "nothing happens", and the third is a
+// header a game includes directly.
+void lighting_topics() {
+    auto& mgr = IntraIOManager::getInstance();
+    auto io = mgr.createInstance("doc_light");
+
+    // Scene unchanged; lights only ever brighten.
+    auto amb = std::make_unique<JsonDataNode>("d");
+    amb->setInt("color", static_cast<int>(0xFFFFFFFFu));
+    io->publish("render:ambient", std::move(amb));
+
+    const double nozzleX = 120.0, nozzleY = 80.0, throttle = 0.8;
+    auto l = std::make_unique<JsonDataNode>("d");
+    l->setDouble("cx", nozzleX);          // cx,cy = CENTRE (anchor convention)
+    l->setDouble("cy", nozzleY);
+    l->setDouble("radius", 90.0);         // WORLD units — it zooms with the camera
+    l->setInt("color", static_cast<int>(0xFFC070FFu));
+    l->setDouble("intensity", 0.5 + 2.0 * throttle);
+    io->publish("render:light", std::move(l));
+
+    mgr.removeInstance("doc_light");
+}
+
+void lighting_gameplay_query() {
+    grove::light::Light2D lamp{120.0f, 80.0f, 90.0f, 1.0f, 0.75f, 0.44f, 1.5f};
+    float r, g, b;
+    grove::light::contribution(lamp, 130.0f, 90.0f, r, g, b);
+    const bool inTheLight = (r + g + b) > 0.15f;
+    (void)inTheLight;
 }
 
 // --- USER_GUIDE: "Unsubscribing" — the ScopedSubscription member -----------------------------------
@@ -212,6 +247,8 @@ int main(int argc, char**) {
     if (argc < 0) {   // always false
         doc::iio_pubsub();
         doc::iio_scoped_subscription();
+        doc::lighting_topics();
+        doc::lighting_gameplay_query();
         doc::engine_hosting();
         doc::json_node();
         doc::fx_authoring();

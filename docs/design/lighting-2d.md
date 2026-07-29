@@ -100,6 +100,37 @@ Testable headless avec un oracle exact ; le GPU ne prouve alors que le câblage.
 - **Les normal maps** par sprite. L'éclairage 2D plat est l'idiome ; l'ajouter doublerait le coût
   mémoire de chaque atlas pour un gain que personne n'a demandé.
 
+## 6bis. À faire plus tard — particules-lumières et le chemin bulk
+
+> **Statut** : dette assumée, pas planifiée. Notée le 2026-07-29 depuis une question terrain
+> (Drifterra, flammes de propulseur).
+
+**Le §4 dit « pas de chemin bulk, délibérément » — cette règle a une PRÉCONDITION, et elle est
+écrite pour des LAMPES.** « Une scène éclairée en compte des dizaines » est vrai d'un éclairage de
+décor ; c'est faux dès qu'on veut que **chaque particule émette sa propre lumière** (braises d'un
+propulseur, étincelles). Hors de son domaine, la règle ne devient pas inoffensive — elle devient un
+**biais** qui enverrait un consommateur publier des centaines de messages/frame sur un chemin
+dimensionné pour des dizaines.
+
+**Le coût réel est contre-intuitif et il faut le dire dans cet ordre :**
+
+- une lampe coûte surtout du **fill rate**, pas un draw. Rayon 8 px ⇒ 256 pixels ; 600
+  particules-lumières ⇒ ~150 k pixels, soit **moins d'une passe plein écran** en 480×270. Le GPU
+  n'est pas le problème ;
+- le mur est **le message IIO par particule et par frame** — le même plafond ~5 k primitives/frame
+  que sprites, particules et texte ont déjà rencontré, et pour lequel les chemins bulk existent.
+
+**Donc** : si les particules-lumières deviennent un besoin réel, `submitLightBatch` redevient
+légitime et **cette section du plan devra être corrigée, pas défendue**.
+
+**Avant d'écrire quoi que ce soit, mesurer** le nombre de particules réellement vivantes en charge
+chez le consommateur. En dessous de ~200, le chemin actuel passe sans toucher au moteur.
+
+**Et essayer d'abord l'alternative à une lampe** : particules en mélange **additif** (elles
+*brillent* sans éclairer le monde) + **une seule** lumière qui suit l'émetteur. Ça donne le halo et
+la lueur portée pour une lampe au lieu de six cents. Le gain réel des particules-lumières est ailleurs :
+une braise qui **se détache** et va éclairer une surface loin de sa source.
+
 ## 7. Risques et inconnues
 
 1. **Redimensionnement de fenêtre** — les cibles doivent être recréées. `createFramebuffer` ne sert

@@ -305,6 +305,94 @@ io->publish("render:sprite", std::move(arm));
   you add the sprite, or re-publish it ephemerally each frame (what an animated paper-doll does
   anyway). Design notes: `docs/design/sprite-transforms.md`.
 
+#### 2D lighting — ambient + radial lights
+
+Two topics. The scene renders into an offscreen target, lights accumulate into a second one, and a
+full-screen pass composites them:
+
+```
+final.rgb = scene.rgb × (ambient.rgb + lightAccum.rgb)
+```
+
+| Topic | Payload | Notes |
+|-------|---------|-------|
+| `render:ambient` | `{color}` | the global term — **the on/off switch for the whole feature** |
+| `render:light` | `{cx, cy, radius, color, intensity?}` | one radial light, **ephemeral** (re-publish each frame) |
+
+##### ⚠️ Nothing is lit until you publish an ambient
+
+With no `render:ambient`, lighting is **completely off**: no offscreen targets are created, no view
+is redirected, the composite records nothing, and the frame is byte-identical to an engine built
+without lighting. Publishing `render:light` alone changes nothing — the lights accumulate into a
+buffer that is never composited.
+
+This is deliberate: every game that does not light anything must keep paying exactly what it paid
+before. It is also the first thing to check when "the lights don't work".
+
+##### You do NOT need a dark game to use lights
+
+The reflex is to think lighting means a night scene. It does not. Publish a **white ambient** and the
+scene comes out unchanged (`scene × 1.0`) while lights **add** on top:
+
+```cpp
+// Scene looks exactly as it does today; lights only ever brighten.
+auto amb = std::make_unique<JsonDataNode>("d");
+amb->setInt("color", static_cast<int>(0xFFFFFFFFu));
+io->publish("render:ambient", std::move(amb));
+```
+
+A dimmer ambient (`0x2A3040FF`) gives night, and the lights carve it back out. Same machinery.
+
+##### A light, every frame
+
+```cpp
+// Thruster glow: republished each frame at the nozzle, brightness driven by throttle.
+auto l = std::make_unique<JsonDataNode>("d");
+l->setDouble("cx", nozzleX);          // cx,cy = CENTRE (anchor convention)
+l->setDouble("cy", nozzleY);
+l->setDouble("radius", 90.0);         // WORLD units — it zooms with the camera
+l->setInt("color", static_cast<int>(0xFFC070FFu));
+l->setDouble("intensity", 0.5 + 2.0 * throttle);
+io->publish("render:light", std::move(l));
+```
+
+- **Ephemeral, like `render:sprite`/`render:particle`.** A light not re-published this frame is gone.
+  That is what a moving lamp wants; keeping it would smear it across the scene.
+- **`radius` is in world units**, so a light zooms with everything else.
+- The colour's **alpha byte is ignored** — a light adds, it does not blend. Brightness is `intensity`.
+- **`intensity` above 1 is legal and useful.** The accumulation target is RGBA16F, so overlapping
+  lights overshoot 1.0 instead of clipping. That headroom is what a future bloom pass feeds on; in
+  RGBA8 a bright core would flatten to featureless white.
+- The falloff is `(1 − d/r)²`, reaching **exactly** zero at `radius`.
+
+##### Asking "is this point lit?" from gameplay
+
+The same curve is available as plain C++ (`include/grove/light/Light.h`, header-only, no renderer
+dependency) so stealth, visibility or spawn rules can query it without reading back a texture:
+
+```cpp
+#include <grove/light/Light.h>
+
+grove::light::Light2D lamp{nozzleX, nozzleY, 90.0f, 1.0f, 0.75f, 0.44f, 1.5f};
+float r, g, b;
+grove::light::contribution(lamp, playerX, playerY, r, g, b);
+const bool inTheLight = (r + g + b) > 0.15f;
+```
+
+##### What it costs
+
+A light is **one draw**, and its real cost is fill rate — the pixels it covers, blended additively.
+Many *small* lights are therefore cheaper than one huge one. The engine is designed around **tens of
+lights per frame**; at that scale the per-draw cost is noise. Hundreds have not been measured, and
+the limit you would hit first is the IIO message path (~5k primitives/frame), not the GPU — the same
+wall the bulk sprite path exists to break. If you need a light *per particle*, measure before
+building: see `docs/design/lighting-2d.md` §6bis.
+
+##### Not there yet
+
+**No shadows** (nothing occludes light) and **no cone/spot lights** — a thruster is really a cone, and
+a radial light at the nozzle is an approximation. Design + slices: `docs/design/lighting-2d.md`.
+
 #### Bulk Sprite Submission (high throughput)
 
 `render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per
@@ -1479,6 +1567,16 @@ Two modes:
 | Topic | Payload | Description |
 |-------|---------|-------------|
 | `render:camera` | `{x, y, zoom, rotation?, viewportX, viewportY, viewportW, viewportH}` | Set camera transform. `x,y` = world coord at the viewport **top-left** (not center); `screen = zoom·(world−cam)`. `rotation` (radians, default 0) rolls the view around the **screen centre** (0 = unchanged). See the [camera helper](#camera-helper--grovecamera-seamless-zoompan) (`Scene/Camera.h`) + [ZoneNavigator](#nested-zones-navigation--grovecamerazonenavigator-scenezonenavigatorh) |
+
+#### Lighting
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `render:ambient` | `{color}` | Global ambient term. **Absent or 0 = lighting entirely OFF** (no offscreen targets, no composite, output byte-identical to a build without lighting). A **white** ambient leaves the scene unchanged and lets lights only ever brighten it. |
+| `render:light` | `{cx, cy, radius, color, intensity?}` | One radial light, **ephemeral** (re-publish each frame). `cx,cy` = CENTRE, `radius` in **world units**. Colour alpha ignored; `intensity` may exceed 1 (RGBA16F target keeps the overbright for bloom). Falloff `(1 − d/r)²`, exactly 0 at `radius`. |
+
+See [2D lighting](#2d-lighting--ambient--radial-lights) for the full guide, and
+`include/grove/light/Light.h` for the same falloff as plain C++ (gameplay "is this point lit?").
 
 #### Clear
 
