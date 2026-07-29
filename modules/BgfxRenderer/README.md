@@ -244,6 +244,13 @@ bon choix pour les lampes, qui suivent en général quelque chose de mobile.
 - **Empiler des `render:fog` ne fait pas un nuage** — ça donne des contours rectangulaires
   concentriques. Empiler des `render:nebula`, si.
 
+**Combien de lampes ?** Mesuré, pas estimé (`tests/visual/benchmark_lighting.cpp`) : le coût est du
+**fill rate**, proportionnel aux *viewports couverts*, et le nombre de lampes n'entre pas dans le
+modèle. **Sans matière publiée : ~850 viewports couverts par frame à 60 fps. Avec de la matière :
+~47.** Un seul occulteur multiplie donc tout par **18** — c'est un coût de *présence*, pas de volume
+(un mur coûte autant que cinq cents). Réduire les **rayons** est le levier ; réduire le nombre ne
+sert qu'à proportion de la surface retirée.
+
 Conception : [`docs/design/lighting-2d.md`](../../docs/design/lighting-2d.md) (point d'entrée).
 Guide consommateur détaillé : [DEVELOPER_GUIDE](../../docs/DEVELOPER_GUIDE.md).
 

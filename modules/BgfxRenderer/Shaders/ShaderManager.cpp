@@ -274,11 +274,10 @@ void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& 
 }
 
 void ShaderManager::loadNebulaShader(rhi::IRHIDevice& device, const std::string& rendererName) {
-    // ⚠️ Its OWN vertex stage, and that is NOT redundancy — it is the fix for a heap corruption.
-    // This program first reused vs_light verbatim (the geometry problem is identical). bgfx dedupes
-    // shaders by bytecode hash and refcounts them, so two programs built on the SAME vertex bytecode,
-    // each created with _destroyShaders = true, unbalance that count and corrupt the heap at
-    // teardown. See the header of vs_nebula.sc for the symptom and how it was localised.
+    // Its own vertex stage — a READABILITY choice, nothing more: `u_nebula` says what it places,
+    // where the shared `u_light` did not. Reusing vs_light works perfectly well, and was measured to
+    // (5/5 on a clean build). An earlier version of this comment claimed the split fixed a heap
+    // corruption; that claim was WRONG — see the header of vs_nebula.sc.
     const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
     const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
 

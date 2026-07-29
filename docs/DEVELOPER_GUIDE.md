@@ -600,11 +600,28 @@ shadows landed: every covered pixel now marches the occlusion map, up to **64 te
 the sample count follows how far the pixel sits from the lamp *on screen*. Ten small lamps are
 comfortably cheaper than two that fill the viewport.
 
-⚠️ **No lamp budget has been measured since the occlusion march landed.** An earlier version of this
-page promised "tens of lights per frame"; that figure predates shadows entirely and is not a rough
-guide — it describes a different renderer. It has been removed rather than adjusted, because a number
-nobody measured is worse than no number. If your scene is lamp-heavy, profile it; a proper bench (as
-exists for sprites) is named debt in `docs/design/lighting-2d.md`.
+**Measured** (`tests/visual/benchmark_lighting.cpp`, RTX 4060 Laptop, 1280×720). The cost is
+proportional to **covered viewports** — the lamps' areas summed and divided by the screen, with
+overlap counted twice — and to essentially nothing else. Lamp *count* does not appear in the model:
+
+| | per covered viewport | 60 fps budget (16.6 ms) |
+|---|---|---|
+| no matter published | **19.5 µs** | ~850 covered viewports |
+| any matter published | **355 µs** | **~47 covered viewports** |
+
+Read that second row carefully: **publishing a single occluder multiplies the cost of every lamp by
+18**, because the march then samples a real screen-sized map instead of the 1×1 vacuum placeholder.
+It is not proportional to how *much* matter there is — one wall costs the same as five hundred.
+
+Concretely, at 1280×720 with walls in the scene: **~45 lamps of radius 300 px**, or ~700 of radius
+60 px, would consume the entire 60 fps frame. Halve that for a game that also has to draw something.
+Without any matter, lamps are effectively free at any count you are likely to publish.
+
+To convert to your own numbers: one lamp of radius *r* covers `(2r)² / (screenW × screenH)`
+viewports, clipped to the screen.
+
+⚠️ Machine-dependent, obviously — re-run the bench rather than trusting these figures on other
+hardware. The *shape* (fill-rate bound, ×18 for matter, count-independent) is what transfers.
 
 The other limit is unchanged and unrelated to the GPU: publishing lights over IIO costs one message
 each (~5k primitives/frame across all topics), the same wall the bulk sprite path exists to break. If

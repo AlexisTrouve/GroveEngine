@@ -33,6 +33,31 @@ Pistes : `RUN_SERIAL` sur ces trois cibles (CTest sait le faire), ou des budgets
 corrigée le 2026-07-28 (`docs/design/iosystemstress-heap-corruption-handoff.md`). Ne pas le ranger avec
 les autres sous prétexte qu'il est lourd — l'erreur a déjà été faite une fois.
 
+## 3bis. ⚠️ Un artefact périmé se déguise en CORRUPTION DE TAS
+
+**Symptôme** : un test `[gpu]` meurt en `0xC0000374` (corruption de tas) *après* son dernier assert,
+pendant le teardown du renderer — et sur un test **sans rapport** avec ce qu'on vient de modifier
+(vu sur `AssetSpriteGpu`, `RuntimeTextureGpu`, `AssetAsyncModuleGpu`, `ModuleDependencies`).
+
+**Cause** : un artefact de build incohérent, typiquement laissé par la nuisance n°3 ci-dessus (une
+commande qui compile pendant que la suite tourne, ou un build tué en cours).
+
+**Remède** : `cmake --build build --target <la_cible_du_test>` puis relancer. Ça suffit.
+
+### ⚠️ Le piège de diagnostic, qui coûte bien plus cher que le symptôme
+
+Ce défaut est **déterministe** tant qu'on ne reconstruit pas — donc il ressemble à un vrai bug, et
+une coupe différentielle « désigne » n'importe quelle modification récente. **Parce que chaque coupe
+reconstruit la cible, et que c'est la reconstruction qui guérit.**
+
+Coût réel payé le 2026-07-29 : un correctif entier (`vs_nebula.sc`) écrit, commité et documenté sur
+une cause **inventée** — bgfx dédoublonnerait les shaders et déséquilibrerait son comptage. Vérifié
+après coup : la configuration incriminée passe **5/5** avec un build propre. Le diagnostic était faux
+de bout en bout, et trois « preuves » par coupe l'avaient confirmé.
+
+**Règle** : avant d'attribuer une corruption de tas à un changement, vérifier que la variante *saine*
+**échoue encore APRÈS reconstruction**. Sinon on ne mesure que l'effet de reconstruire.
+
 ## 3. ⚠️ NE JAMAIS bâtir pendant que la suite tourne
 
 **`ProductionHotReload` et `RaceConditionHunter` sont eux-mêmes clients du système de build** :

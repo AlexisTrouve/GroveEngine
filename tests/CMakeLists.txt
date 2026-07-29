@@ -3773,6 +3773,25 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "Render savage benchmark 'benchmark_render_savage' enabled")
 
+    # BANC DE LAMPES : ce que coute reellement une scene eclairee. Remplace le chiffre
+    # "des dizaines de lampes" qui trainait dans la doc et qui datait d'avant la marche.
+    add_executable(benchmark_lighting visual/benchmark_lighting.cpp)
+    target_include_directories(benchmark_lighting PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(benchmark_lighting PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET benchmark_lighting POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:benchmark_lighting>")
+    endif()
+    message(STATUS "Lighting benchmark 'benchmark_lighting' enabled")
+
     # INTERACTIVE live demo: stream textures from an ONLINE image bank (picsum.photos) via a demo-side
     # curl-backed IAsyncDecoder — proves the asset pipeline streams from remote sources (network-paced fill).
     add_executable(test_online_stream_demo visual/test_online_stream_demo.cpp)
