@@ -22,6 +22,7 @@
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -133,6 +134,17 @@ int main(int argc, char** argv) {
         f->setInt("color", static_cast<int>(col));
         gIO->publish("render:filter", std::move(f));
     };
+    // A medium: absorbs along the way, and (with `scatter`) glows where the light crosses it.
+    // `density` is the Beer-Lambert alpha, not an opacity — small values go a long way.
+    auto fog = [&](double x, double y, double w, double h, double density, uint32_t col, double scatter) {
+        auto f = std::make_unique<JsonDataNode>("d");
+        f->setDouble("x", x); f->setDouble("y", y);
+        f->setDouble("w", w); f->setDouble("h", h);
+        f->setDouble("density", density);
+        f->setInt("color", static_cast<int>(col));
+        f->setDouble("scatter", scatter);
+        gIO->publish("render:fog", std::move(f));
+    };
     auto ambient = [&](uint32_t col) {
         auto a = std::make_unique<JsonDataNode>("d");
         a->setInt("color", static_cast<int>(col));
@@ -209,8 +221,62 @@ int main(int argc, char** argv) {
     };
 
     struct Ctx { decltype(light)* lightFn; decltype(ambient)* ambFn; decltype(sprite)* spriteFn;
-                 decltype(glow)* glowFn; decltype(occluder)* occFn; decltype(filter)* filtFn; };
-    Ctx ctx{ &light, &ambient, &sprite, &glow, &occluder, &filter };
+                 decltype(glow)* glowFn; decltype(occluder)* occFn; decltype(filter)* filtFn;
+                 decltype(fog)* fogFn;
+                 double animT; };   // 0..1 around the loop — only the animation mode reads it
+    Ctx ctx{ &light, &ambient, &sprite, &glow, &occluder, &filter, &fog, 0.0 };
+
+    // ------------------------------------------------------------------------------------------
+    // ANIMATION MODE — `capture_lighting <dir> anim` writes a numbered frame sequence instead of
+    // the still plates. A still image cannot show the one thing that matters most here: the shadows
+    // FOLLOW the lamp. Walls, stained glass and a scattering medium all react to the same moving
+    // source, in the same frame.
+    // ------------------------------------------------------------------------------------------
+    if (argc > 2 && std::string(argv[2]) == "anim") {
+        const int FRAMES = 48;
+        for (int i = 0; i < FRAMES; ++i) {
+            // A full sine over the loop, so the last frame flows back into the first with no jump.
+            ctx.animT = static_cast<double>(i) / static_cast<double>(FRAMES);
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%03d.png", i);
+            shoot(name, true, [](void* c){
+                Ctx* k = static_cast<Ctx*>(c);
+                const double tau = 6.28318530718;
+                const double lampY = 135.0 + 78.0 * std::sin(k->animT * tau);
+
+                (*k->ambFn)(0x1a2030FFu);
+
+                // The masonry: three segments leaving two glazed gaps (the plate-12 room).
+                const double wx = 190.0, wt = 28.0;
+                const double segs[3][2] = { {-40.0, 100.0}, {112.0, 46.0}, {212.0, 98.0} };
+                for (auto& s : segs) {
+                    (*k->spriteFn)(wx + wt * 0.5, s[0] + s[1] * 0.5, wt, s[1], 0x2c323eFFu, 9);
+                    (*k->occFn)(wx, s[0], wt, s[1]);
+                }
+                // The two panes.
+                (*k->spriteFn)(wx + wt * 0.5, 87.0, wt, 52.0, 0x8a2f2fFFu, 9);
+                (*k->filtFn)(wx, 60.0, wt, 52.0, 0xFF4A3AFFu);
+                (*k->spriteFn)(wx + wt * 0.5, 185.0, wt, 54.0, 0x2a4a8aFFu, 9);
+                (*k->filtFn)(wx, 158.0, wt, 54.0, 0x50A0FFFFu);
+
+                // A SCATTERING medium filling the room beyond the wall: it is what turns the two
+                // beams into visible shafts instead of two patches on the floor.
+                // NEUTRAL white: a tinted medium would recolour the beams and steal the credit
+                // from the panes, which are the thing being shown.
+                (*k->fogFn)(218.0, 0.0, 262.0, 270.0, 0.0015, 0xFFFFFFFFu, 0.5);
+
+                // The moving lamp, outside on the left.
+                (*k->lightFn)(70.0, lampY, 520.0, 0xFFF0D0FFu, 1.9);
+                (*k->spriteFn)(70.0, lampY, 9.0, 9.0, 0xFFF4DCFFu, 20);   // the bulb itself, visible
+            }, &ctx);
+        }
+        renderer->shutdown();
+        mgr.removeInstance("capl_r");
+        mgr.removeInstance("capl_g");
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 0;
+    }
 
     // 1. No lighting at all — the zero-cost path every current game is on.
     shoot("01_unlit.png", false, nullptr, nullptr);

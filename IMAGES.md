@@ -186,6 +186,24 @@ image**, écrits par la **même passe** dans la **même carte** : ce sont les de
 À utiliser pour : l'**illustration principale** d'un article sur l'éclairage 2D, « un mécanisme, trois
 demandes » (murs / filtres / brouillard), l'ouverture ou la clôture d'un devblog rendu.
 
+### Animé
+
+#### `blog/13_light_sweep.gif`
+**Les ombres SUIVENT la lampe — les trois matières à l'œuvre en même temps (2026-07-29).** *(Une
+lampe monte et descend le long du mur de gauche ; à travers deux ouvertures teintées, un faisceau
+rouge et un faisceau bleu balayent la salle de droite en éventail, éclairant les caisses au passage,
+et l'ombre des segments de maçonnerie pivote avec la source. Les faisceaux sont visibles **dans
+l'air**, pas seulement là où ils touchent le sol.)*
+
+**C'est la seule image qui prouve ce qu'aucune fixe ne peut** : rien n'est précalculé, tout est
+recalculé par frame à partir de la position de la lampe. On y voit d'un coup les **murs** (l'ombre
+tourne), les **filtres** (chaque ouverture colore son faisceau) et la **diffusion** (le milieu rend
+les faisceaux visibles dans le vide — sans elle il n'y aurait que deux taches sur le sol).
+
+Produit par `capture_lighting <dir> anim` puis `tools/make_gif.py`. À utiliser pour : l'**ouverture
+d'un article** sur l'éclairage 2D, une démo « ça tourne vraiment », ou partout où il faut montrer que
+l'éclairage est dynamique et pas peint à la main.
+
 ### Instrument de mesure
 
 #### `blog/90_edge_probe.png`
