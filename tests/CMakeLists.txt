@@ -2952,6 +2952,16 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITextInputSelectionE2E IT_063_ui_textinput_selection_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_064: CLIPBOARD (T2). Nothing existed — `grep -ri clipboard` over the whole repo found zero.
+    # UIModule is deliberately SDL-free but the clipboard IS an SDL resource, so it goes over IIO:
+    # input:clipboard:set (copy/cut) and input:clipboard:get -> input:clipboard:text (paste, one frame
+    # of latency). The test plays the clipboard service, proving the protocol without a system
+    # clipboard — hence without a window or a graphical session.
+    add_executable(IT_064_ui_textinput_clipboard_e2e integration/IT_064_ui_textinput_clipboard_e2e.cpp)
+    target_link_libraries(IT_064_ui_textinput_clipboard_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextInputClipboardE2E IT_064_ui_textinput_clipboard_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)

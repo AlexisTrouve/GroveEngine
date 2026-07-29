@@ -219,6 +219,12 @@ void UITextInput::selectAll() {
     setCursorPosition(static_cast<int>(text.length()));
 }
 
+std::string UITextInput::selectedText() const {
+    if (!hasSelection()) return "";
+    const int from = selectionStart();
+    return text.substr(static_cast<size_t>(from), static_cast<size_t>(selectionEnd() - from));
+}
+
 bool UITextInput::deleteSelection() {
     // Point de passage UNIQUE de toute suppression d'intervalle (frappe sur sélection, Backspace,
     // Suppr, Couper). Les bornes viennent de selectionStart/End, donc l'ordre dans lequel
@@ -420,10 +426,17 @@ bool UITextInput::insertFilteredText(const std::string& str) {
     //   gardé) tient sous maxLength — insertText est tout-ou-rien pour le lot.
     if (str.empty()) return false;
 
+    // QUOI : « quelque chose a-t-il changé ? » se décide en comparant le TEXTE, pas sa longueur.
+    // POURQUOI : la version d'origine comparait `text.length()` — un proxy qui marchait tant que le
+    //   seul cas était « insérer dans un champ », où la longueur augmente forcément. Depuis que la
+    //   frappe REMPLACE une sélection, remplacer « abc » par « ZZZ » laisse la longueur identique :
+    //   la fonction rendait false, donc l'appelant n'émettait pas ui:text_changed et le jeu ne voyait
+    //   JAMAIS le collage. Le champ était correct, l'événement manquait — le pire des deux mondes.
+    const std::string before = text;
+
     if (filter == TextInputFilter::None) {
-        size_t before = text.length();
         insertText(str);
-        return text.length() != before;
+        return text != before;
     }
 
     std::string kept;
@@ -435,9 +448,8 @@ bool UITextInput::insertFilteredText(const std::string& str) {
     }
     if (kept.empty()) return false;
 
-    size_t before = text.length();
     insertText(kept);
-    return text.length() != before;
+    return text != before;  // même raison que ci-dessus : comparer le texte, pas sa longueur
 }
 
 void UITextInput::deleteCharBefore() {

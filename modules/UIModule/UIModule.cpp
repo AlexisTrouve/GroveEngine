@@ -228,6 +228,22 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                            m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
         });
 
+        // QUOI : réponse du service presse-papiers à une demande de collage.
+        // POURQUOI : l'UIModule est délibérément SDL-free, or le presse-papiers EST une ressource
+        //   SDL. Il ne peut donc pas le lire lui-même : il demande (`input:clipboard:get`) et le
+        //   propriétaire de SDL — InputModule — répond ici. Conséquence assumée : le collage a UNE
+        //   FRAME DE LATENCE. C'est le prix du découplage, invisible à l'œil humain, et préférable à
+        //   faire rentrer SDL dans l'UIModule pour économiser 16 ms.
+        // COMMENT : on met le texte de côté ; `updateUI` l'insère dans le champ focalisé au prochain
+        //   passage. On ne l'insère pas ici : ce handler s'exécute pendant le drain IIO, hors de la
+        //   phase de mise à jour, et muter l'arbre de widgets à ce moment-là violerait le même
+        //   invariant que les autres handlers (cf. handleWindowInteraction).
+        m_io->subscribe("input:clipboard:text", [this](const Message& msg) {
+            if (!msg.data) return;
+            m_pendingPaste = msg.data->getString("text", "");
+            m_hasPendingPaste = true;
+        });
+
         m_io->subscribe("ui:load", [this](const Message& msg) {
             std::string layoutPath = msg.data->getString("path", "");
             if (!layoutPath.empty()) {
@@ -943,14 +959,78 @@ void UIModule::updateUI(float deltaTime) {
         }
     }
 
+    // COLLAGE EN ATTENTE — la réponse du presse-papiers est arrivée pendant le drain IIO ; on
+    // l'applique ici, dans la phase de mise à jour, au champ focalisé. Passe par le même chemin
+    // d'insertion que la frappe (`insertFilteredText`), donc il hérite gratuitement du remplacement
+    // de la sélection, du filtre du champ et de la limite de longueur : coller ne peut pas introduire
+    // ce que taper interdirait.
+    if (m_hasPendingPaste) {
+        const std::string pasted = m_pendingPaste;
+        m_hasPendingPaste = false;
+        m_pendingPaste.clear();
+
+        if (!pasted.empty() && !m_context->focusedWidgetId.empty()) {
+            if (UIWidget* w = m_root->findById(m_context->focusedWidgetId)) {
+                if (w->getType() == "textinput") {
+                    UITextInput* ti = static_cast<UITextInput*>(w);
+                    if (ti->insertFilteredText(pasted)) {
+                        auto ev = std::make_unique<JsonDataNode>("text_changed");
+                        ev->setString("widgetId", ti->id);
+                        ev->setString("text", ti->text);
+                        m_io->publish("ui:text_changed", std::move(ev));
+                    }
+                }
+            }
+        }
+    }
+
     // Handle keyboard input for focused widget
     if (m_context->keyPressed && !m_context->focusedWidgetId.empty()) {
         if (UIWidget* focusedWidget = m_root->findById(m_context->focusedWidgetId)) {
             if (focusedWidget->getType() == "textinput") {
                 UITextInput* textInput = static_cast<UITextInput*>(focusedWidget);
 
+                // PRESSE-PAPIERS — traité ICI et non dans le widget, parce que c'est le module qui
+                // possède l'IIO ; le widget reste ignorant du transport (même partage des rôles que
+                // pour le drag de fenêtre, cf. §3.2 du handoff UI).
+                //
+                // NB : un raccourci consommé ne fait PAS sortir de updateUI — la passe de mise à jour
+                // des widgets (m_root->update(), interaction fenêtre…) doit se dérouler normalement.
+                // Un `return` ici gèlerait toute l'UI pendant la frame du Ctrl+C.
+                bool shortcutConsumed = false;
+                if (m_context->keyCtrl) {
+                    const char shortcut = m_context->keyChar;
+                    if (shortcut == 'c' || shortcut == 'x') {
+                        // Rien de sélectionné = rien à copier. Sans ce garde, un Ctrl+C par réflexe
+                        // écraserait le presse-papiers système avec du vide, détruisant ce que
+                        // l'utilisateur y avait mis depuis une autre application.
+                        const std::string sel = textInput->selectedText();
+                        if (!sel.empty()) {
+                            auto d = std::make_unique<JsonDataNode>("clip");
+                            d->setString("text", sel);
+                            m_io->publish("input:clipboard:set", std::move(d));
+
+                            if (shortcut == 'x' && textInput->deleteSelection()) {
+                                auto ev = std::make_unique<JsonDataNode>("text_changed");
+                                ev->setString("widgetId", textInput->id);
+                                ev->setString("text", textInput->text);
+                                m_io->publish("ui:text_changed", std::move(ev));
+                            }
+                        }
+                        shortcutConsumed = true;  // pas de frappe derrière un raccourci
+                    }
+                    else if (shortcut == 'v') {
+                        // On DEMANDE le presse-papiers ; l'insertion se fera à la réception.
+                        m_io->publish("input:clipboard:get", std::make_unique<JsonDataNode>("clip"));
+                        shortcutConsumed = true;
+                    }
+                }
+
                 bool handled = false;
-                if (!m_context->keyText.empty()) {
+                if (shortcutConsumed) {
+                    // Raccourci déjà traité au-dessus : on ne le fait PAS redescendre dans le champ,
+                    // sinon un Ctrl+C ajouterait un 'c' au texte.
+                } else if (!m_context->keyText.empty()) {
                     // FIX #5/C2 : chemin saisie texte (commit IME / coller / UTF-8) — on
                     // insère la chaîne ENTIÈRE, pas un seul caractère.
                     handled = textInput->insertFilteredText(m_context->keyText);

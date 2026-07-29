@@ -177,9 +177,11 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 
 | 2026-07-29 | **T1** | ✅ **Sélection COMPLÈTE** — tout le périmètre annoncé au §3. D4 levé (shift/ctrl/alt propagés dans `UIContext`). Maj+flèches/Début/Fin, Ctrl+A, glisser-souris, **double-clic → mot** (`grove::text::wordBoundsAt`, pur + partagé), remplacement à la frappe, Backspace/Suppr sur intervalle, surlignage rendu. `IT_063` (15 cas) vu ROUGE avant ; `TextMetricsUnit` 24 cas / 311 assertions, **vérifié adversarialement** (classification ASCII-only ⇒ « café » devient « caf ») ; **`SelectionHighlightGpu`** au pixel, lui aussi vérifié adversarialement (passes inversées ⇒ `redInBand=0`, texte illisible) |
 
-**T0 + T1 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
+| 2026-07-29 | **T2** | ✅ Presse-papiers. `input:clipboard:set` (copier/couper) + `input:clipboard:get` → `input:clipboard:text` (coller, UNE frame de latence assumée). Implémenté des DEUX côtés : UIModule (raccourcis, insertion) et InputModule (le vrai `SDL_SetClipboardText`/`GetClipboardText`). `IT_064` (8 cas) vu ROUGE avant ; aller-retour sur le VRAI presse-papiers système verrouillé par `InputModuleStatic [clipboard]` |
+
+**T0 + T1 + T2 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
 inclus). Régression : 65/65 verts (UI + Radial + InputUI + Text + Render + Scene + Selection, tests
-GPU inclus). Reste T2 (presse-papiers) puis T3 (multiligne).
+GPU inclus) ; **suite COMPLÈTE 198/198** sur un build propre. Reste T3 (multiligne) — sur ordre.
 
 ### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
 
@@ -211,3 +213,31 @@ réelle : **`cmake --build build --target IT_062...` ne reconstruit pas `libUIMo
 test charge à l'exécution via `ModuleLoader` — le test tournait donc contre l'ancienne DLL. Localisé
 en trois mesures (métriques reçues ? clic reçu ? curseur posé ?) plutôt qu'en devinant. **Toute
 tranche suivante doit reconstruire la CIBLE MODULE, pas seulement la cible de test.**
+
+### Deux défauts trouvés en construisant T2
+
+1. **`insertFilteredText` détectait le changement par la LONGUEUR** (`text.length() != before`). Ce
+   proxy tenait tant que le seul cas était « insérer », où la longueur augmente forcément. Depuis que
+   la frappe REMPLACE une sélection, remplacer « abc » par « ZZZ » laisse la longueur identique : la
+   fonction rendait `false`, donc l'appelant n'émettait pas `ui:text_changed` et **le jeu ne voyait
+   jamais le collage**. Le champ était correct, l'événement manquait — le pire des deux mondes.
+   Corrigé en comparant le texte.
+2. **`InputModule` ne drainait jamais sa boîte de réception IIO.** Il ne faisait que PUBLIER (il
+   traduit des événements SDL) et n'écoutait rien ; aucune souscription n'aurait donc jamais été
+   dispatchée. Rendre un service (le presse-papiers) l'oblige à consommer — boucle de drain ajoutée
+   dans `process()`, comme l'UIModule.
+
+### ⚠️ Piège d'environnement — build du worktree
+
+Configurer le build du worktree avec `FETCHCONTENT_BASE_DIR` pointant sur le `build/_deps` du dépôt
+principal fait **partager les artefacts compilés** entre les deux builds : ils se réécrivent
+mutuellement `libspdlog.a` / `libCatch2.a` et produisent des échecs de lien absurdes
+(`undefined reference to fmt::v9::format_error::~format_error`) sans aucun rapport avec le code.
+
+**À faire à la place** — réutiliser les SOURCES téléchargées, jamais le répertoire de build :
+
+```
+cmake -B build -G Ninja   -DFETCHCONTENT_SOURCE_DIR_BGFX=<repo>/build/_deps/bgfx-src   -DFETCHCONTENT_SOURCE_DIR_CATCH2=<repo>/build/_deps/catch2-src   -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=<repo>/build/_deps/nlohmann_json-src   -DFETCHCONTENT_SOURCE_DIR_SPDLOG=<repo>/build/_deps/spdlog-src   -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON -DGROVE_BUILD_INPUT_MODULE=ON
+```
+
+On garde la configuration rapide (aucun téléchargement) sans partager le moindre artefact.

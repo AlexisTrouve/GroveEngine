@@ -45,6 +45,14 @@ private:
 
     // UI subsystems
     std::unique_ptr<UIContext> m_context;
+
+    // COLLAGE EN ATTENTE. Le presse-papiers arrive de façon asynchrone (`input:clipboard:text`, la
+    // réponse à notre `input:clipboard:get`) : on le met de côté ici, et `updateUI` l'insère dans le
+    // champ focalisé à la frame suivante. Un booléen distinct plutôt qu'une chaîne vide comme
+    // sentinelle : coller un presse-papiers VIDE est une opération légitime, elle ne doit pas se
+    // confondre avec « aucun collage en attente ».
+    std::string m_pendingPaste;
+    bool m_hasPendingPaste = false;
     std::unique_ptr<UITree> m_tree;
     std::unique_ptr<UIRenderer> m_renderer;
     std::unique_ptr<UITooltipManager> m_tooltipManager;

@@ -26,12 +26,57 @@ void InputModule::setConfiguration(const IDataNode& config, IIO* io, ITaskSchedu
     m_enableKeyboard = config.getBool("enableKeyboard", true);
     m_enableGamepad = config.getBool("enableGamepad", false);
 
+    // ========================================================================
+    // PRESSE-PAPIERS — ce module est le seul à posséder SDL, donc le seul à pouvoir y toucher.
+    //
+    // POURQUOI ici : l'UIModule est délibérément SDL-free ; il ne peut donc pas lire le
+    //   presse-papiers lui-même. Plutôt que d'y faire rentrer SDL pour un champ de saisie, on expose
+    //   la ressource par deux topics. Le service est générique : n'importe quel module (console de
+    //   debug, chat) en bénéficie, pas seulement l'UI.
+    //
+    // PROTOCOLE : `input:clipboard:set {text}` écrit ; `input:clipboard:get` demande, et la réponse
+    //   part sur `input:clipboard:text {text}`. Une requête/réponse plutôt qu'une publication
+    //   continue : le presse-papiers change sous nos pieds (d'autres applications l'écrivent) et le
+    //   sonder chaque frame coûterait un appel système pour rien la plupart du temps.
+    if (m_io) {
+        m_io->subscribe("input:clipboard:set", [](const Message& msg) {
+            if (!msg.data) return;
+            const std::string text = msg.data->getString("text", "");
+            // SDL copie la chaîne : elle n'a pas à survivre à l'appel.
+            SDL_SetClipboardText(text.c_str());
+        });
+
+        m_io->subscribe("input:clipboard:get", [this](const Message&) {
+            auto d = std::make_unique<JsonDataNode>("clip");
+            // SDL_GetClipboardText alloue TOUJOURS (chaîne vide si le presse-papiers est vide) et le
+            // conteneur doit être libéré par SDL_free — un `std::string` intermédiaire, puis on rend
+            // la mémoire immédiatement pour ne pas fuir à chaque collage.
+            char* raw = SDL_GetClipboardText();
+            d->setString("text", raw != nullptr ? std::string(raw) : std::string());
+            if (raw != nullptr) SDL_free(raw);
+            m_io->publish("input:clipboard:text", std::move(d));
+        });
+    }
+
     spdlog::info("[InputModule] Configured with backend={}, mouse={}, keyboard={}, gamepad={}",
                  m_backend, m_enableMouse, m_enableKeyboard, m_enableGamepad);
 }
 
 void InputModule::process(const IDataNode& input) {
     m_frameCount++;
+
+    // QUOI : vider la boîte de réception IIO du module.
+    // POURQUOI : ce module ne faisait jusqu'ici que PUBLIER (il traduit des événements SDL) et
+    //   n'écoutait rien — personne ne drainait donc son inbox, et une souscription n'aurait jamais
+    //   été dispatchée. Depuis qu'il rend un SERVICE (le presse-papiers, cf. setConfiguration), il
+    //   doit consommer ce qu'on lui envoie. Même boucle que l'UIModule.
+    // NB : ce drain doit vivre dans process() et non ailleurs, parce que c'est le seul point que le
+    //   fil propriétaire du module appelle — la règle « un seul fil par instance IntraIO ».
+    if (m_io) {
+        while (m_io->hasMessages() > 0) {
+            m_io->pullAndDispatch();
+        }
+    }
 
     // 1. Lock and retrieve events from buffer
     std::vector<SDL_Event> events;

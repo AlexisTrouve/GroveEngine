@@ -110,6 +110,15 @@ public:
     void selectAll();
 
     /**
+     * @brief Texte actuellement sélectionné ("" s'il n'y a pas de sélection).
+     *
+     * Rend le texte RÉEL, jamais la version masquée du mode mot de passe : copier des astérisques
+     * n'aurait aucun sens. (Un champ qui doit interdire la copie de son contenu doit le refuser
+     * explicitement — c'est une décision de sécurité, pas un effet de bord du masquage.)
+     */
+    std::string selectedText() const;
+
+    /**
      * @brief Efface la sélection s'il y en a une. Retourne true si quelque chose a été supprimé.
      *
      * Point de passage unique de toute suppression d'intervalle : frappe, Backspace, Suppr et
