@@ -3380,6 +3380,23 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
 
     # Headless CAPTURE of the demo to a PNG (offscreen framebuffer readback). Console exe (own main()),
     # so SDL2 WITHOUT SDL2main. Needs SDL2.dll next to it to run (like the [gpu] tests).
+    # Headless capture of the 2D lighting (L1+L2) to PNGs — the picture the pixel tests only measure.
+    add_executable(capture_lighting visual/capture_lighting.cpp)
+    target_include_directories(capture_lighting PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(capture_lighting PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_lighting POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_lighting>")
+    endif()
+
     add_executable(capture_ui_demo visual/capture_ui_demo.cpp)
     target_include_directories(capture_ui_demo PRIVATE
         ${CMAKE_SOURCE_DIR}/modules

@@ -1,0 +1,4 @@
+# La page générée embarque les PNG en base64 : la commiter stockerait les mêmes images
+# DEUX FOIS (une en LFS, une inlinée). Les sources durables sont le programme de capture
+# (tests/visual/capture_lighting.cpp) et les PNG ci-contre ; la page se régénère depuis eux.
+*.html
