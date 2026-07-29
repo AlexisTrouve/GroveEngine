@@ -20,6 +20,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "slider"; }
+    // Libère le remplissage + la poignée (la base ne lâche que la piste + les enfants) : sans ça,
+    // cacher un slider laisse sa poignée flotter à l'écran. Verrouillé par IT_067.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     /**
      * @brief Check if a point is inside this slider

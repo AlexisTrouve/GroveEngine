@@ -85,4 +85,17 @@ void UIProgressBar::setProgress(float newProgress) {
     progress = std::max(0.0f, std::min(1.0f, newProgress));
 }
 
+// Rendre le remplissage, le texte et les DEUX chromes 9-slice (piste et remplissage) que la base
+// ignore. Les deux drapeaux paresseux repassent à false avec leurs ids — les laisser à true ferait
+// disparaître le cadre pour de bon après un cycle cacher/montrer. Verrouillé par IT_067.
+void UIProgressBar::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_frameId != 0)      { renderer.unregisterEntry(m_frameId);      m_frameId = 0; }
+    m_frameRegistered = false;
+    if (m_fillFrameId != 0)  { renderer.unregisterEntry(m_fillFrameId);  m_fillFrameId = 0; }
+    m_fillFrameRegistered = false;
+    if (m_fillRenderId != 0) { renderer.unregisterEntry(m_fillRenderId); m_fillRenderId = 0; }
+    if (m_textRenderId != 0) { renderer.unregisterEntry(m_textRenderId); m_textRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // piste (m_renderId) + drapeaux + enfants
+}
+
 } // namespace grove

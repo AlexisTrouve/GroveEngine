@@ -21,6 +21,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "checkbox"; }
+    // Libère la coche + le libellé + le chrome 9-slice (la base ne lâche que la boîte + les enfants).
+    // Verrouillé par IT_067.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     /**
      * @brief Check if a point is inside this checkbox

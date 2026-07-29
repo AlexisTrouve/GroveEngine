@@ -161,4 +161,12 @@ float UISlider::calculateValueFromPosition(float x, float y) const {
     return minValue + t * (maxValue - minValue);
 }
 
+// Rendre les deux entrées que la base ignore (elle ne connaît que la piste + les enfants). Sans ça,
+// cacher un slider laissait son remplissage et sa poignée à l'écran. Verrouillé par IT_067.
+void UISlider::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_fillRenderId != 0)   { renderer.unregisterEntry(m_fillRenderId);   m_fillRenderId = 0; }
+    if (m_handleRenderId != 0) { renderer.unregisterEntry(m_handleRenderId); m_handleRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // piste (m_renderId) + drapeaux + enfants
+}
+
 } // namespace grove

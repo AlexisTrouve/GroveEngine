@@ -3000,6 +3000,15 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITextAreaWrapE2E IT_066_ui_textarea_wrap_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_067: hiding a widget must release ALL its retained entries — else it leaves ghost rects/text
+    # on screen (the renderer is RETAINED: an entry lives until its :remove). Counts :add on reveal vs
+    # :remove on hide, per widget type. Locks the CLASS of bug, not five instances: a future
+    # multi-entry widget that forgets its releaseRenderEntries() override goes red here on its own.
+    add_executable(IT_067_ui_ghost_entries_e2e integration/IT_067_ui_ghost_entries_e2e.cpp)
+    target_link_libraries(IT_067_ui_ghost_entries_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIGhostEntriesE2E IT_067_ui_ghost_entries_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).
     add_executable(IT_054_ui_flipbook_e2e integration/IT_054_ui_flipbook_e2e.cpp)

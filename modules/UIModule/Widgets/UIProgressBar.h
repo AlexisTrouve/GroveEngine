@@ -21,6 +21,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "progressbar"; }
+    // Libère le remplissage + le texte + les DEUX chromes 9-slice (piste et remplissage), que la base
+    // ignore. Verrouillé par IT_067.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     // Data-binding: "value":"{{...}}" drives the progress (clamped); other props fall through to base.
     void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {

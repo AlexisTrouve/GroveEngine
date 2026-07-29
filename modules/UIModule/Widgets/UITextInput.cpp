@@ -514,4 +514,24 @@ void UITextInput::updateScrollOffset() {
     scrollOffset = std::max(0.0f, scrollOffset);
 }
 
+// QUOI : rendre au renderer les SIX entrées que ce widget possède en plus du fond.
+// POURQUOI : le rendu est RETENU — une entrée publiée reste à l'écran jusqu'à son `:remove`. La base
+//   ne connaît que `m_renderId` et les enfants, donc sans cette surcharge, cacher un champ laissait
+//   sa bordure, son texte, son placeholder, son curseur et son surlignage affichés par-dessus le jeu.
+// COMMENT : libérer les extras, puis déléguer à la base (fond + drapeaux + récursion). Le drapeau
+//   `m_frameRegistered` DOIT repasser à false avec l'id : il commande l'enregistrement paresseux du
+//   chrome 9-slice, et le laisser à true ferait croire à un cadre déjà enregistré — le chrome ne
+//   reviendrait jamais après un cycle cacher/montrer. On échangerait un fantôme contre une
+//   disparition silencieuse, strictement pire.
+void UITextInput::releaseRenderEntries(UIRenderer& renderer) {
+    if (m_frameId != 0)             { renderer.unregisterEntry(m_frameId);             m_frameId = 0; }
+    m_frameRegistered = false;
+    if (m_borderRenderId != 0)      { renderer.unregisterEntry(m_borderRenderId);      m_borderRenderId = 0; }
+    if (m_textRenderId != 0)        { renderer.unregisterEntry(m_textRenderId);        m_textRenderId = 0; }
+    if (m_placeholderRenderId != 0) { renderer.unregisterEntry(m_placeholderRenderId); m_placeholderRenderId = 0; }
+    if (m_cursorRenderId != 0)      { renderer.unregisterEntry(m_cursorRenderId);      m_cursorRenderId = 0; }
+    if (m_selectionRenderId != 0)   { renderer.unregisterEntry(m_selectionRenderId);   m_selectionRenderId = 0; }
+    UIWidget::releaseRenderEntries(renderer);   // fond (m_renderId) + drapeaux + enfants
+}
+
 } // namespace grove

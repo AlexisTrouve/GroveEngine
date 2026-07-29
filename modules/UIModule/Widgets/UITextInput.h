@@ -69,6 +69,9 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "textinput"; }
+    // Libère les SIX entrées supplémentaires (la base ne lâche que le fond + les enfants) : sans ça,
+    // cacher un champ laisse son texte, son curseur et son surlignage affichés. Verrouillé par IT_067.
+    void releaseRenderEntries(UIRenderer& renderer) override;
 
     /**
      * @brief Check if a point is inside this text input
