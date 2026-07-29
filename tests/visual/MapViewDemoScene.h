@@ -165,6 +165,56 @@ inline mapview::Lens makeResourceLens(const std::string& field, bool hillshade,
     return mapview::Lens{"resource:" + field, {base, heatLayer}, {}, {}};
 }
 
+// A COUNT lens: the terrain underneath + a scalar field NORMALISED ON ITS OWN DOMAIN [vmin..vmax].
+// WHAT : `makeResourceLens` for a field whose values are NOT 0..1 — a small-integer count, a score, any
+//        quantity whose range only the producer knows. The caller passes the domain; the ramp is laid
+//        out across it instead of across an assumed 0..1.
+// WHY  : this is a bug fix generalised. `--lens elements` painted Theomen's `element_count` (integers
+//        0..8) with the resource ramp, whose stops sit between 0.72 and 1.0 because res_* fields arrive
+//        log-normalised to 0..1. EVERY value >= 1 therefore hit the top stop: the map collapsed to a
+//        flat wash over every cell carrying anything — and since 100% of that world's land carries
+//        elements, it degenerated into a continent mask. Nothing was wrong with the data; the domain
+//        was assumed rather than read. Any consumer that guesses a range reproduces this.
+// HOW  : `absence` (strictly below vmin) stays fully transparent, so the terrain reads where the field
+//        is empty — the same convention as the resource heatmaps (0 = absent, not "a little"). Above
+//        it, a perceptually-ordered blue->teal->green->yellow ramp (viridis-like) spreads the levels
+//        evenly, at NEAR-CONSTANT alpha: modulating alpha by value would confound "few elements" with
+//        "no elements", which is exactly the distinction a count lens exists to show. The overlay
+//        carries the elevation hillshade so relief still reads through the colour (as makeBiomeLens
+//        does — a flat overlay washes the shading out).
+inline mapview::Lens makeCountLens(const std::string& field, double vmin, double vmax, bool hillshade,
+                                   const std::vector<std::pair<double, mapview::Rgba>>& stopsIn = {}) {
+    const auto stops = stopsIn.empty() ? terrainStops() : stopsIn;
+    mapview::Layer base{"elevation", mapview::Palette::ramp(stops), mapview::Filter::always(), 0, 1.0f};
+    if (hillshade) {
+        base.hillshadeField = "elevation";
+        base.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
+    }
+    // Degenerate/absent domain -> force at least one unit of span, otherwise every stop lands on the
+    //   same value and Palette::ramp has nothing to interpolate across (all-or-nothing colouring).
+    if (!(vmax > vmin)) vmax = vmin + 1.0;
+    const double span = vmax - vmin;
+    auto at = [&](double t) { return vmin + t * span; };   // t in 0..1 -> a value in the real domain
+    // The step below vmin is what keeps ABSENCE transparent: a hair under vmin the ramp is still at
+    //   alpha 0, so empty cells show terrain while the lowest present value already paints solidly.
+    const double justUnder = vmin - (span > 0.0 ? span * 1e-3 : 1e-3);
+    mapview::Palette ramp = mapview::Palette::ramp({
+        {0.0,        mapview::Rgba{0.15f, 0.05f, 0.30f, 0.00f}}, // nothing there
+        {justUnder,  mapview::Rgba{0.15f, 0.05f, 0.30f, 0.00f}}, // still nothing (absence plateau)
+        {at(0.00),   mapview::Rgba{0.22f, 0.12f, 0.48f, 0.82f}}, // the LOWEST present value: deep violet
+        {at(0.25),   mapview::Rgba{0.18f, 0.36f, 0.62f, 0.84f}}, // blue
+        {at(0.50),   mapview::Rgba{0.13f, 0.58f, 0.55f, 0.86f}}, // teal
+        {at(0.75),   mapview::Rgba{0.42f, 0.75f, 0.32f, 0.88f}}, // green
+        {at(1.00),   mapview::Rgba{0.98f, 0.90f, 0.22f, 0.90f}}, // the richest cells: yellow
+    });
+    mapview::Layer overlay{field, ramp, mapview::Filter::always(), 10, 1.0f};
+    if (hillshade) {
+        overlay.hillshadeField = "elevation";   // relief reads through the colour
+        overlay.hillshade = mapview::Hillshade::fromAzimuthAltitude(2.36, 0.95, 0.30);
+    }
+    return mapview::Lens{"count:" + field, {base, overlay}, {}, {}};
+}
+
 // A BIOME lens: the terrain underneath (elevation ramp + optional hillshade) + a CATEGORICAL biome overlay.
 // WHAT : field "biome" holds an integer index; Palette::categorical maps table[index] -> colour. Index 0
 //        (ocean / unclassified) is TRANSPARENT so the terrain shows through for water; land biomes paint over.

@@ -184,6 +184,11 @@ int main(int argc, char** argv) {
     double posterCellSize = 1.0;
     // Chunk range of the doc, for the hypsometric sampling below (filled on the --load path).
     int chunkX0 = 0, chunkY0 = 0, chunkX1 = -1, chunkY1 = -1;
+    // PRODUCER blob of the loaded manifest — free-form metadata the producer attaches to describe ITS
+    //   world (mapview itself never interprets it, by design). WHY the viewer reads it: a field like
+    //   `element_count` is a bare integer, and a palette needs its DOMAIN. Guessing it here is what
+    //   produced a saturated, unreadable map; the producer knows the range and now publishes it.
+    nlohmann::json producerMeta;
 
     if (!loadDir.empty()) {
         // Open the .world dir. Pass a zlib compressor so both raw AND compressed documents load (readChunk
@@ -191,6 +196,7 @@ int main(int argc, char** argv) {
         auto p = std::make_unique<mapview::WorldDocumentProvider>(loadDir, mapview::codec::zlibCompressor());
         schema = p->schema();
         grid = p->gridSpec();
+        producerMeta = p->manifest().producer;   // may be null: a producer that ships none is legal
         const auto& coord = p->manifest().coordinate;
         posterMinCellX = coord.boundsMin[0];  posterMinCellY = coord.boundsMin[1];
         posterCellsX = coord.boundsMax[0] - coord.boundsMin[0] + 1;
@@ -270,15 +276,32 @@ int main(int argc, char** argv) {
         else
             std::fprintf(stderr, "--lens biome: no/empty biomes.json in '%s' -> using terrain lens\n", loadDir.c_str());
     } else if (lensName == "elements") {
-        // `--lens elements` -> DENSITE D'ELEMENTS par tuile (modele par budget de points de Theomen).
-        //   POURQUOI ici et pas une lens dediee : `element_count` EST un champ scalaire par cellule,
-        //   exactement ce que `makeResourceLens` sait peindre. On reutilise la machinerie eprouvee des
-        //   heatmaps de ressources au lieu d'en ecrire une deuxieme.
-        //   Ce que ca montre : ou le monde est riche en elements (landmarks + gisements + contraintes
-        //   confondus). Le DETAIL par famille demanderait de croiser element_0..7 avec elements.json --
-        //   c'est une lens categorielle a part, non faite.
-        lensBuilder = [hypsoStops](bool hillshade, bool /*banded*/) {
-            return mvdemo::makeResourceLens("element_count", hillshade, hypsoStops); };
+        // `--lens elements` -> NOMBRE D'ELEMENTS par tuile (modele par budget de points de Theomen).
+        //   LE DOMAINE VIENT DU DOCUMENT, PAS D'UNE SUPPOSITION. `producer.elements.count.{min,max}`
+        //   est ecrit par le producteur qui a mesure ce qu'il generait. POURQUOI ca compte : la
+        //   premiere version peignait ce compteur entier avec `makeResourceLens`, dont la rampe est
+        //   calee sur des `res_*` log-normalises en 0..1 -> toute valeur >= 1 tapait le stop du haut.
+        //   Resultat : un aplat uniforme sur chaque cellule portant quoi que ce soit, soit -- ce monde
+        //   ayant des elements sur 100 % de la terre -- un simple MASQUE DE CONTINENTS. La donnee
+        //   etait bonne ; c'est la plage qui etait devinee. Repli 1..8 si le document est muet (vieil
+        //   export), et on le DIT sur stderr : un repli invisible se confond avec une lecture reussie.
+        double cmin = 1.0, cmax = 8.0; bool fromDoc = false;
+        if (producerMeta.is_object() && producerMeta.contains("elements")) {
+            const auto& el = producerMeta.at("elements");
+            if (el.contains("count")) {
+                const auto& c = el.at("count");
+                // `min` porte le minimum sur les cellules NON VIDES (l'absence, elle, vaut 0 et reste
+                //   transparente) -> la rampe s'etale sur la plage REELLEMENT occupee.
+                if (c.contains("min")) cmin = c.at("min").get<double>();
+                if (c.contains("max")) cmax = c.at("max").get<double>();
+                fromDoc = true;
+            }
+        }
+        if (fromDoc) std::fprintf(stdout, "--lens elements: domaine LU du document = [%.0f, %.0f]\n", cmin, cmax);
+        else std::fprintf(stderr, "--lens elements: le document ne publie pas producer.elements.count"
+                                  " -> repli sur [%.0f, %.0f] (rendu potentiellement sature)\n", cmin, cmax);
+        lensBuilder = [hypsoStops, cmin, cmax](bool hillshade, bool /*banded*/) {
+            return mvdemo::makeCountLens("element_count", cmin, cmax, hillshade, hypsoStops); };
     } else if (lensName.rfind("res_", 0) == 0) {
         // `--lens res_<type>` -> that resource's density heatmap over the terrain (the same lens the HUD's
         //   resource rows use). Lets a headless --shot/--poster capture a resource map, not just terrain/biome.
