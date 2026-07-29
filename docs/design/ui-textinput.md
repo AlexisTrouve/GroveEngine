@@ -181,9 +181,11 @@ caractère : construire T1 sur D1+D2 reviendrait à décorer une fondation fauss
 
 | 2026-07-29 | **T3** | ✅ **Multiligne.** (a) `grove::text::EditModel` extrait, pur — `TextEditUnit` 21 cas / 107 assertions, vérifié adversarialement. (b) `UITextInput` MIGRÉ dessus : les 63 tests de saisie existants restent verts, donc le modèle est éprouvé AVANT que la seconde vue s'y appuie. (c) `UITextArea` — widget séparé, pool d'entrées borné par la HAUTEUR (pas par le nombre de lignes), Entrée insère / **Ctrl+Entrée soumet**, Début/Fin sur la LIGNE, Haut/Bas conservent la colonne. `IT_065` (9 cas), mordant vérifié |
 
-**T0 + T1 + T2 + T3 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
+| 2026-07-29 | **T4** | ✅ **Retour à la ligne automatique.** `grove::text::wrapText` (pur, `TextWrapUnit` 16 cas) + bascule COMPLÈTE du widget sur les lignes VISUELLES (rendu, clic, Haut/Bas, Début/Fin, surlignage, défilement) + cache de mise en page à signature exacte. `IT_066` (9 cas), mordant vérifié. Activé PAR DÉFAUT ; `"wrap": false` rend le découpage strictement logique |
+
+**T0 + T1 + T2 + T3 + T4 sont COMPLETS** (D1-D4 levés, périmètre T1 tenu intégralement — double-clic et preuve GPU
 inclus). Régression : 65/65 verts (UI + Radial + InputUI + Text + Render + Scene + Selection, tests
-GPU inclus) ; **suite COMPLÈTE 200/200** sur un build propre. **Le chantier est terminé.**
+GPU inclus) ; **suite COMPLÈTE 202/202** sur un build propre. **Le chantier est terminé.**
 
 ### Deux bugs de rendu déterrés par le test de T1 — dont un préexistant et invisible
 
@@ -256,9 +258,51 @@ On garde la configuration rapide (aucun téléchargement) sans partager le moind
 
 ### Hors périmètre, assumé et documenté (pas des oublis)
 
-- **Pas de retour à la ligne automatique** dans `UITextArea` : une ligne est un run entre deux `
-`.
-  Le wrap est une question de largeur, donc de police, donc de re-mesure par ligne à chaque
-  redimensionnement — un chantier à part entière.
-- **Pas de défilement horizontal** : une ligne plus large que la boîte est coupée par le clip.
+- ~~Pas de retour à la ligne automatique~~ → ✅ **LEVÉE (T4, voir ci-dessous).**
+- **Pas de défilement horizontal** : avec le repli actif (le défaut) il n'a plus lieu d'être ; avec
+  `wrap: false`, une ligne plus large que la boîte est coupée par le clip.
 - Le filtre de saisie et le mode mot de passe restent des politiques de VUE, hors du modèle.
+
+---
+
+## 7. T4 — Retour à la ligne automatique
+
+### La distinction qui porte tout
+
+Une ligne **logique** est ce que séparent deux `
+`. Une ligne **visuelle** est ce qu'on voit sur une
+rangée. Sans repli les deux coïncident ; avec, une ligne logique trop large en produit plusieurs.
+
+**Tout ce qui traduit entre (rangée, colonne) et pixels doit basculer sur les lignes visuelles** — le
+rendu, le clic, les flèches Haut/Bas, Début/Fin, le surlignage, le défilement. Se tromper de notion à
+un seul de ces endroits produit un décalage que rien ne rattrape, et **qu'aucun test du modèle
+n'attraperait** : le texte y est intact, c'est son découpage à l'écran qui ment. D'où un test E2E qui
+regarde ce que le renderer REÇOIT (`render:text:*`), et non ce que le modèle contient.
+
+Exemple concret verrouillé par `IT_066` : avec une ligne logique unique repliée sur deux rangées, une
+flèche Haut doit remonter d'UNE RANGÉE. Si la navigation suivait les lignes logiques, elle sauterait
+au début du texte — c'est exactement ce que produit la version adversariale (`"Xaaaa…"` au lieu de
+`"aaaaX…"`).
+
+### Découpage
+
+- **Cœur pur** : `include/grove/text/TextWrap.h`. L'avance des glyphes est un CALLABLE — même contrat
+  que `TextFit.h` et `TextMetrics.h` — donc le découpage se teste exhaustivement avec une métrique
+  factice, sans police ni GPU. `maxWidth <= 0` signifie « aucun repli », ce qui donne `wrap: false`
+  sans chemin de code particulier.
+- **Règle de coupe** : à la dernière espace qui tienne ; un mot plus large que la boîte est coupé au
+  caractère (sinon il déborderait indéfiniment) ; **au moins un codepoint par rangée**, ce qui rend
+  l'algorithme total même pour une largeur absurde. Les bornes tombent toujours sur des frontières de
+  codepoint : une coupe ne peut pas casser un accent en deux.
+- **Cache de mise en page à signature EXACTE** — révision du texte (compteur O(1) ajouté à
+  `EditModel`), largeur, taille de police, époque des métriques. Pas d'heuristique : une mise en page
+  périmée est un bug purement visuel, exactement le risque documenté de tout cache de layout
+  (`ui-framework.md` §8). Un changement de police à chaud (`render:font`) incrémente
+  `UIContext::fontMetricsEpoch` et refait donc tous les replis.
+
+### Un défaut trouvé par les tests du cœur pur
+
+Une suite de plusieurs espaces laissait des espaces traînantes en fin de rangée (« `aa   ` » au lieu
+de « `aa` ») : chaque espace écrasait l'opportunité de coupe, qui finissait après la DERNIÈRE au lieu
+de la première. Corrigé en consommant la suite d'espaces d'un bloc. C'est le genre de défaut qu'on ne
+voit pas à l'œil (les espaces sont invisibles) mais qui décale le texte justifié.

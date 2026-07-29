@@ -14,11 +14,15 @@
 //        duplicant.
 //
 // CE QUE CE WIDGET NE FAIT PAS (assumé et documenté) :
-//   - Pas de RETOUR À LA LIGNE AUTOMATIQUE. Une ligne est un run entre deux '\n'. Le wrap est une
-//     question de largeur, donc de police, donc de mesure par ligne à chaque changement de taille —
-//     un chantier à part entière, pas un détail de ce widget.
-//   - Pas de défilement HORIZONTAL. Une ligne plus large que la boîte est coupée par le clip.
-//   Les deux sont des suites naturelles, pas des oublis.
+//   - Pas de défilement HORIZONTAL. Avec le repli actif (le défaut) il n'a plus lieu d'être ;
+//     avec `wrap: false`, une ligne plus large que la boîte est coupée par le clip.
+//
+// LIGNES LOGIQUES vs LIGNES VISUELLES — la distinction qui porte tout le widget. Une ligne LOGIQUE
+//     est ce que séparent deux sauts de ligne ; une ligne VISUELLE est ce qu'on voit sur une rangée.
+//     Avec le repli automatique, une ligne logique trop large en produit plusieurs. TOUT ce qui
+//     traduit entre (ligne, colonne) et pixels — clic, curseur, flèches Haut/Bas, surlignage,
+//     défilement — travaille sur les lignes VISUELLES. Se tromper de notion à un seul de ces
+//     endroits produit un décalage que rien ne rattrape.
 //
 // SÉMANTIQUE D'ENTRÉE : Entrée INSÈRE un saut de ligne (c'est l'attente universelle dans une zone de
 //        texte) — la soumission passe donc à **Ctrl+Entrée**, qui publie `ui:text_submit`. Le champ
@@ -29,6 +33,7 @@
 #include "UITextInput.h"   // TextInputStyle / TextInputFilter — partagés avec le champ monoligne
 #include <grove/text/TextEdit.h>
 #include <grove/text/TextMetrics.h>
+#include <grove/text/TextWrap.h>
 
 #include <cstdint>
 #include <string>
@@ -76,6 +81,13 @@ public:
     const std::string& text() const { return edit.text(); }
     void setText(const std::string& value) { edit.setText(value); }
 
+    /**
+     * @brief Repli automatique. ACTIVÉ par défaut — c'est l'attente universelle dans une zone de
+     *        texte, et sans lui une ligne longue disparaît sous le bord droit sans le moindre indice.
+     *        `"wrap": false` rend le comportement strictement logique (une ligne par saut de ligne).
+     */
+    bool wrap = true;
+
     std::string placeholder = "";
     TextInputFilter filter = TextInputFilter::None;
     bool enabled = true;
@@ -102,12 +114,29 @@ public:
 
     // Métriques de la police courante, prêtées par UIContext à chaque update (non-possédant).
     const text::Metrics* metrics = nullptr;
+    // Époque de ces métriques : un changement de police à chaud doit refaire la mise en page, et
+    // comparer le pointeur ne suffirait pas (la table est modifiée en place).
+    uint32_t metricsEpoch = 0;
 
     /** @brief Index d'octet sous un point ÉCRAN (clic, glisser). */
     int indexAtScreenPos(float screenX, float screenY) const;
 
-    /** @brief Première et dernière ligne visibles dans la boîte, défilement compris. */
+    /** @brief Première et dernière ligne VISUELLE visibles dans la boîte, défilement compris. */
     void visibleLineRange(int& first, int& last) const;
+
+    /**
+     * @brief Mise en page courante (lignes visuelles), recalculée à la demande.
+     *
+     * Le recalcul est déclenché par une SIGNATURE exacte — révision du texte, largeur, taille de
+     * police, époque des métriques — et non par une heuristique : une mise en page périmée serait un
+     * bug visuel qu'aucun test n'attraperait, exactement le risque que porte tout cache de layout.
+     */
+    const std::vector<text::VisualLine>& layout() const { return m_visual; }
+
+    /** @brief Déplace le curseur d'une ligne VISUELLE (ce que l'utilisateur voit bouger). */
+    void moveCursorByVisualLine(int delta, bool extend);
+    void moveToVisualLineStart(bool extend);
+    void moveToVisualLineEnd(bool extend);
 
 private:
     const TextInputStyle& getCurrentStyle() const;
@@ -131,6 +160,23 @@ private:
         uint32_t selectionId = 0;
     };
     std::vector<LineEntry> m_linePool;
+
+    // --- Cache de mise en page ---
+    std::vector<text::VisualLine> m_visual;
+    uint32_t m_layoutRevision = 0xFFFFFFFFu;   // révision du texte prise en compte
+    float m_layoutWidth = -1.0f;
+    float m_layoutFontSize = -1.0f;
+    uint32_t m_layoutMetricsEpoch = 0xFFFFFFFFu;
+    bool m_layoutWrap = true;
+
+    /** @brief Recalcule la mise en page si (et seulement si) la signature a changé. */
+    void refreshLayout();
+
+    /** @brief Texte dessiné de la ligne visuelle `v`. */
+    std::string visualLineText(int v) const;
+
+    /** @brief Abscisse (locale au texte) du curseur dans sa ligne visuelle. */
+    float cursorXInVisualLine() const;
 
     uint32_t m_cursorRenderId = 0;
     uint32_t m_placeholderRenderId = 0;

@@ -2477,6 +2477,15 @@ if(GROVE_BUILD_BGFX_RENDERER)
     target_link_libraries(test_text_edit PRIVATE Catch2::Catch2WithMain)
     grove_add_test(TextEditUnit test_text_edit ${CMAKE_CURRENT_BINARY_DIR})
 
+    # Word wrap (grove::text::wrapText): text -> VISUAL lines. Pure, the advance is a callable, so it
+    # is exercised with a fake metric — no font, no GPU, no window.
+    add_executable(test_text_wrap unit/test_text_wrap.cpp)
+    target_include_directories(test_text_wrap PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_text_wrap PRIVATE Catch2::Catch2WithMain)
+    grove_add_test(TextWrapUnit test_text_wrap ${CMAKE_CURRENT_BINARY_DIR})
+
     # Real TrueType baking (BitmapFont::loadTTF): headless via MockRHIDevice, skips without a system font.
     add_executable(test_ttf_font unit/test_ttf_font.cpp ../modules/BgfxRenderer/Text/BitmapFont.cpp)
     target_include_directories(test_ttf_font PRIVATE
@@ -2981,6 +2990,15 @@ if(GROVE_BUILD_UI_MODULE)
     target_link_libraries(IT_065_ui_textarea_e2e PRIVATE
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UITextAreaE2E IT_065_ui_textarea_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
+    # IT_066: WORD WRAP in the text area. Looks at what the RENDERER receives, because a wrong layout
+    # is invisible in the model — the text is intact, it is its on-screen breaking that lies. Locks the
+    # visual-vs-logical line distinction: Up moves ONE ROW (not one logical line, which may span five),
+    # Home goes to the row's left edge, a click targets the row under the pointer.
+    add_executable(IT_066_ui_textarea_wrap_e2e integration/IT_066_ui_textarea_wrap_e2e.cpp)
+    target_link_libraries(IT_066_ui_textarea_wrap_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UITextAreaWrapE2E IT_066_ui_textarea_wrap_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
     # IT_054: animated flipbook widget E2E (slice 6a) — a sprite-sheet cell advances over time,
     # republished via render:sprite:update (UV plumbed through the retained renderer + change-detection).

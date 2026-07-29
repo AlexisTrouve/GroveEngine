@@ -229,6 +229,7 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
                 return;
             }
             m_context->fontMetrics = std::move(decoded);
+            ++m_context->fontMetricsEpoch;   // invalide les mises en page dependantes de la police
             m_logger->info("Metriques de police recues: base={}px, {} glyphes",
                            m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
         });

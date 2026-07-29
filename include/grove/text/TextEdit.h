@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace grove {
@@ -52,6 +53,16 @@ public:
     int cursor() const { return m_cursor; }
     int anchor() const { return m_anchor; }
 
+    /**
+     * @brief Compteur incrémenté à CHAQUE modification du texte.
+     *
+     * POURQUOI : une vue qui met en cache une mise en page coûteuse (le repli automatique, qui
+     * reparcourt tout le texte) doit savoir quand la refaire. Comparer le texte entier à chaque frame
+     * marcherait mais coûterait O(n) pour rien ; un compteur rend la question O(1) et EXACTE — pas
+     * d'heuristique, donc pas de mise en page périmée qu'aucun test n'attraperait.
+     */
+    uint32_t revision() const { return m_revision; }
+
     int maxLength = 256;
 
     // Remplace tout le contenu (chargement, binding, setState). Le curseur atterrit en fin, ce que
@@ -60,6 +71,7 @@ public:
         m_text = value;
         m_cursor = static_cast<int>(m_text.size());
         m_anchor = m_cursor;
+        ++m_revision;
     }
 
     // ------------------------------------------------------------------
@@ -106,6 +118,7 @@ public:
         m_text.erase(static_cast<size_t>(from), static_cast<size_t>(to - from));
         m_cursor = from;
         m_anchor = from;
+        ++m_revision;
         return true;
     }
 
@@ -169,6 +182,7 @@ public:
         m_text.insert(static_cast<size_t>(m_cursor), s);
         m_cursor += static_cast<int>(s.size());
         m_anchor = m_cursor;
+        ++m_revision;
         return m_text != before;
     }
 
@@ -181,6 +195,7 @@ public:
         m_text.erase(prev, cur - prev);
         m_cursor = static_cast<int>(prev);
         m_anchor = m_cursor;   // toute mutation rétablit l'invariant : pas d'ancre orpheline
+        ++m_revision;
         return true;
     }
 
@@ -192,6 +207,7 @@ public:
         const size_t next = Metrics::nextIndex(m_text, cur);
         m_text.erase(cur, next - cur);
         m_anchor = m_cursor;
+        ++m_revision;
         return true;
     }
 
@@ -285,6 +301,7 @@ private:
     std::string m_text;
     int m_cursor = 0;
     int m_anchor = 0;
+    uint32_t m_revision = 0;
 };
 
 }  // namespace text

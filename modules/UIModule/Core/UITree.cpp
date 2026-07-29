@@ -481,6 +481,7 @@ void UITree::registerDefaultWidgets() {
         area->placeholder = node.getString("placeholder", "");
         area->edit.maxLength = node.getInt("maxLength", 4096);   // une zone de texte est plus longue
         area->onSubmit = node.getString("onSubmit", "");
+        area->wrap = node.getBool("wrap", true);   // repli automatique par defaut
 
         const std::string filterStr = node.getString("filter", "none");
         if (filterStr == "alphanumeric")   area->filter = TextInputFilter::Alphanumeric;

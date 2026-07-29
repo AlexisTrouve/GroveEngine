@@ -65,6 +65,11 @@ public:
     //   tests E2E headless) ou une frame antérieure à l'arrivée de la table se comportent comme avant.
     text::Metrics fontMetrics;
 
+    // Incrémentée à chaque réception d'une nouvelle table. Permet à une vue qui met en cache une
+    // mise en page dépendante de la police de savoir, en O(1), qu'elle doit la refaire — un
+    // changement de police à chaud (render:font) invaliderait sinon silencieusement tous les replis.
+    uint32_t fontMetricsEpoch = 0;
+
     /**
      * @brief Reset per-frame state
      * Call at the start of each frame before processing input

@@ -13,6 +13,10 @@ namespace grove {
 
 void UITextArea::update(UIContext& ctx, float deltaTime) {
     metrics = &ctx.fontMetrics;
+    metricsEpoch = ctx.fontMetricsEpoch;
+    // La mise en page doit être à jour AVANT tout calcul de position (le glisser ci-dessous en
+    // dépend), donc elle est rafraîchie en tête d'update et non au moment du rendu.
+    refreshLayout();
 
     // GLISSER-SÉLECTIONNER : même patron que le champ monoligne — l'ancre reste à l'appui, le curseur
     // suit le pointeur, donc l'intervalle balayé EST la sélection. Ici le pointeur porte aussi une
@@ -102,41 +106,144 @@ float UITextArea::measureInLine(const std::string& line, size_t bytesIntoLine) c
     return std::min(bytesIntoLine, line.size()) * CHAR_WIDTH;
 }
 
+// ============================================================================
+// Mise en page : du texte logique aux LIGNES VISUELLES
+// ============================================================================
+
+void UITextArea::refreshLayout() {
+    // QUOI : recalcule le découpage en lignes visuelles si (et seulement si) quelque chose dont il
+    //   dépend a changé.
+    // POURQUOI la signature EXACTE plutôt qu'une heuristique : une mise en page périmée est un bug
+    //   purement visuel — le texte s'affiche à la mauvaise place, le clic vise à côté — et aucun test
+    //   headless ne l'attrape si l'on ne sait pas déjà quoi comparer. C'est le risque documenté de
+    //   tout cache de layout (cf. ui-framework.md §8). On préfère donc quatre comparaisons exactes.
+    // COMMENT : la révision du texte est O(1) (compteur du modèle) ; largeur, taille de police et
+    //   époque des métriques couvrent les trois autres entrées du calcul.
+    const float usable = std::max(0.0f, width - 2 * PADDING);
+    const uint32_t epoch = metricsEpoch;
+
+    if (m_layoutRevision == edit.revision() &&
+        m_layoutWidth == usable &&
+        m_layoutFontSize == fontSize &&
+        m_layoutMetricsEpoch == epoch &&
+        m_layoutWrap == wrap) {
+        return;
+    }
+
+    // `maxWidth <= 0` signifie « aucun repli » côté wrapText : c'est exactement ce que veut
+    // `wrap: false`, sans chemin de code particulier.
+    const float budget = wrap ? usable : 0.0f;
+
+    if (metrics != nullptr && !metrics->empty()) {
+        const text::Metrics* m = metrics;
+        const float size = fontSize;
+        m_visual = text::wrapText(edit.text(), budget,
+                                  [m, size](uint32_t cp) { return m->advanceOf(cp, size); });
+    } else {
+        // Repli monospace, comme partout ailleurs dans ces widgets.
+        m_visual = text::wrapText(edit.text(), budget, [](uint32_t) { return CHAR_WIDTH; });
+    }
+
+    m_layoutRevision = edit.revision();
+    m_layoutWidth = usable;
+    m_layoutFontSize = fontSize;
+    m_layoutMetricsEpoch = epoch;
+    m_layoutWrap = wrap;
+}
+
+std::string UITextArea::visualLineText(int v) const {
+    if (v < 0 || v >= static_cast<int>(m_visual.size())) return "";
+    const text::VisualLine& line = m_visual[static_cast<size_t>(v)];
+    return edit.text().substr(line.begin, line.length());
+}
+
+float UITextArea::cursorXInVisualLine() const {
+    const size_t v = text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor()));
+    const text::VisualLine& line = m_visual[v];
+    const size_t into = static_cast<size_t>(edit.cursor()) > line.begin
+                            ? static_cast<size_t>(edit.cursor()) - line.begin : 0;
+    return measureInLine(visualLineText(static_cast<int>(v)), std::min(into, line.length()));
+}
+
+void UITextArea::moveCursorByVisualLine(int delta, bool extend) {
+    // QUOI : monter/descendre d'une ligne VISUELLE — ce que l'utilisateur voit bouger.
+    // POURQUOI pas les lignes logiques : avec le repli, une ligne logique peut occuper cinq rangées ;
+    //   une flèche Bas qui sauterait la ligne logique entière ferait bondir le curseur de cinq
+    //   rangées d'un coup. La navigation suit donc ce qui est AFFICHÉ.
+    // COMMENT : on conserve l'ABSCISSE (et non un numéro de colonne) puis on redemande l'index à
+    //   cette abscisse dans la ligne d'arrivée — sous une police proportionnelle, c'est ce qui garde
+    //   le curseur visuellement aligné, ce qu'un décompte de caractères ne ferait pas.
+    if (m_visual.empty()) return;
+
+    const size_t cur = text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor()));
+    const int target = static_cast<int>(cur) + delta;
+
+    if (target < 0) { edit.moveToTextStart(extend); return; }
+    if (target >= static_cast<int>(m_visual.size())) { edit.moveToTextEnd(extend); return; }
+
+    const float x = cursorXInVisualLine();
+    const text::VisualLine& dst = m_visual[static_cast<size_t>(target)];
+    const std::string dstText = visualLineText(target);
+
+    size_t col;
+    if (metrics != nullptr && !metrics->empty()) {
+        col = metrics->indexAtX(dstText, x, fontSize);
+    } else {
+        const int approx = static_cast<int>((x + CHAR_WIDTH * 0.5f) / CHAR_WIDTH);
+        col = static_cast<size_t>(std::clamp(approx, 0, static_cast<int>(dstText.size())));
+    }
+    edit.setCursor(static_cast<int>(dst.begin + col), extend);
+}
+
+void UITextArea::moveToVisualLineStart(bool extend) {
+    if (m_visual.empty()) return;
+    const size_t v = text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor()));
+    edit.setCursor(static_cast<int>(m_visual[v].begin), extend);
+}
+
+void UITextArea::moveToVisualLineEnd(bool extend) {
+    if (m_visual.empty()) return;
+    const size_t v = text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor()));
+    edit.setCursor(static_cast<int>(m_visual[v].end), extend);
+}
+
 void UITextArea::visibleLineRange(int& first, int& last) const {
     const float usable = std::max(0.0f, height - 2 * PADDING);
     first = std::max(0, static_cast<int>(scrollY / lineHeight));
     const int visibleCount = static_cast<int>(usable / lineHeight) + 1;
-    last = std::min(edit.lineCount() - 1, first + visibleCount);
+    const int total = static_cast<int>(m_visual.size());
+    last = std::min(total > 0 ? total - 1 : 0, first + visibleCount);
 }
 
 int UITextArea::indexAtScreenPos(float screenX, float screenY) const {
     // QUOI : convertit un point écran en index d'octet.
-    // COMMENT : la ligne vient du Y (division par la hauteur de ligne, défilement compris), la colonne
-    //   du X, mesurée DANS cette ligne seulement. Passer par indexAtX garantit une frontière de
-    //   codepoint — un clic ne peut donc pas couper un accent, comme dans le champ monoligne.
-    const float localY = screenY - (absY + PADDING) + scrollY;
-    int line = static_cast<int>(localY / lineHeight);
-    line = std::clamp(line, 0, edit.lineCount() - 1);
+    // COMMENT : la ligne VISUELLE vient du Y (division par la hauteur de ligne, défilement compris),
+    //   la colonne du X, mesurée DANS cette ligne visuelle seulement. Passer par indexAtX garantit une
+    //   frontière de codepoint — un clic ne peut donc pas couper un accent.
+    if (m_visual.empty()) return 0;
 
-    const size_t lineBegin = edit.startOfLine(line);
-    const size_t lineFinish = edit.lineEnd(static_cast<int>(lineBegin));
-    const std::string lineText = edit.text().substr(lineBegin, lineFinish - lineBegin);
+    const float localY = screenY - (absY + PADDING) + scrollY;
+    int v = static_cast<int>(localY / lineHeight);
+    v = std::clamp(v, 0, static_cast<int>(m_visual.size()) - 1);
+
+    const text::VisualLine& line = m_visual[static_cast<size_t>(v)];
+    const std::string lineText = visualLineText(v);
 
     const float localX = screenX - (absX + PADDING);
-    size_t col = 0;
+    size_t col;
     if (metrics != nullptr && !metrics->empty()) {
         col = metrics->indexAtX(lineText, localX, fontSize);
     } else {
         const int approx = static_cast<int>((localX + CHAR_WIDTH * 0.5f) / CHAR_WIDTH);
         col = static_cast<size_t>(std::clamp(approx, 0, static_cast<int>(lineText.size())));
     }
-    return static_cast<int>(lineBegin + col);
+    return static_cast<int>(line.begin + col);
 }
 
 void UITextArea::ensureCursorVisible() {
     // Défilement vertical seulement : on ramène la LIGNE du curseur dans la boîte. Le défilement
     // horizontal est hors périmètre (cf. l'en-tête) — une ligne trop large est coupée par le clip.
-    const int line = edit.lineNumberAt(edit.cursor());
+    const int line = static_cast<int>(text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor())));
     const float lineTop = line * lineHeight;
     const float usable = std::max(0.0f, height - 2 * PADDING);
 
@@ -187,6 +294,7 @@ bool UITextArea::insertFilteredText(const std::string& str) {
     }
 
     const bool changed = edit.insert(toInsert);
+    refreshLayout();      // le texte a changé : le repli aussi
     ensureCursorVisible();
     return changed;
 }
@@ -200,8 +308,8 @@ bool UITextArea::onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shi
     // Codes d'édition — même dialecte que UITextInput, plus Haut/Bas qui n'ont de sens qu'ici.
     // Backspace=8, Suppr=127, Entrée=13, Gauche=37, Droite=39, Début=36, Fin=35, Haut=38, Bas=40.
     switch (keyCode) {
-        case 8:   edit.deleteBefore(); ensureCursorVisible(); return true;
-        case 127: edit.deleteAfter();  ensureCursorVisible(); return true;
+        case 8:   edit.deleteBefore(); refreshLayout(); ensureCursorVisible(); return true;
+        case 127: edit.deleteAfter();  refreshLayout(); ensureCursorVisible(); return true;
 
         case 13:
         case 10:
@@ -217,10 +325,10 @@ bool UITextArea::onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shi
         case 39: edit.moveCursor(1, shift);       ensureCursorVisible(); return true;
         // Début/Fin agissent sur la LIGNE (et non sur tout le texte) : c'est la différence de
         // sémantique qui distingue une zone de texte d'un champ monoligne.
-        case 36: edit.moveToLineStart(shift);     ensureCursorVisible(); return true;
-        case 35: edit.moveToLineEnd(shift);       ensureCursorVisible(); return true;
-        case 38: edit.moveCursorByLine(-1, shift); ensureCursorVisible(); return true;
-        case 40: edit.moveCursorByLine(1, shift);  ensureCursorVisible(); return true;
+        case 36: moveToVisualLineStart(shift);     ensureCursorVisible(); return true;
+        case 35: moveToVisualLineEnd(shift);       ensureCursorVisible(); return true;
+        case 38: moveCursorByVisualLine(-1, shift); ensureCursorVisible(); return true;
+        case 40: moveCursorByVisualLine(1, shift);  ensureCursorVisible(); return true;
         default: break;
     }
 
@@ -233,6 +341,7 @@ bool UITextArea::onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shi
         if (ctrl) return false;   // un raccourci n'est pas une frappe
         if (passesFilter(character)) {
             edit.insert(std::string(1, static_cast<char>(character)));
+            refreshLayout();
             ensureCursorVisible();
             return true;
         }
@@ -264,6 +373,8 @@ void UITextArea::render(UIRenderer& renderer) {
         m_cursorRenderId = renderer.registerEntry();
         m_registered = true;
     }
+
+    refreshLayout();   // le rendu ne doit jamais dessiner une mise en page perimee
 
     const TextInputStyle& style = getCurrentStyle();
 
@@ -307,26 +418,28 @@ void UITextArea::render(UIRenderer& renderer) {
 
     for (size_t slot = 0; slot < m_linePool.size(); ++slot) {
         const LineEntry& e = m_linePool[slot];
-        const int line = firstLine + static_cast<int>(slot);
+        const int v = firstLine + static_cast<int>(slot);
 
-        if (showPlaceholder || line > lastLine || line >= edit.lineCount()) {
+        if (showPlaceholder || v > lastLine || v >= static_cast<int>(m_visual.size())) {
             // Emplacement inutilisé cette frame : replié à taille nulle, mais TOUJOURS sur sa couche.
             renderer.updateText(e.textId, 0, 0, "", fontSize, 0, textLayer);
             renderer.updateRect(e.selectionId, 0, 0, 0, 0, 0, selectionLayer);
             continue;
         }
 
-        const size_t lineBegin = edit.startOfLine(line);
-        const size_t lineFinish = edit.lineEnd(static_cast<int>(lineBegin));
-        const std::string lineText = edit.text().substr(lineBegin, lineFinish - lineBegin);
+        const text::VisualLine& line = m_visual[static_cast<size_t>(v)];
+        const std::string lineText = visualLineText(v);
+        const float y = absY + PADDING + v * lineHeight - scrollY;
 
-        const float y = absY + PADDING + line * lineHeight - scrollY;
-
-        // Surlignage : intersection de la sélection avec CETTE ligne. Une sélection multi-lignes
-        // devient donc un bandeau par ligne, ce qui est exactement ce qu'on veut voir.
-        if (hasSel && selTo > static_cast<int>(lineBegin) && selFrom < static_cast<int>(lineFinish)) {
-            const size_t from = static_cast<size_t>(std::max(selFrom, static_cast<int>(lineBegin))) - lineBegin;
-            const size_t to   = static_cast<size_t>(std::min(selTo, static_cast<int>(lineFinish))) - lineBegin;
+        // Surlignage : intersection de la sélection avec CETTE ligne visuelle. Une sélection qui
+        // traverse un repli devient donc un bandeau par rangée, ce qui est exactement ce qu'on veut
+        // voir. On borne sur `end` (texte dessiné) et non sur `next`, pour ne pas surligner les
+        // espaces avalées par la coupe.
+        const int lineFrom = static_cast<int>(line.begin);
+        const int lineTo = static_cast<int>(line.end);
+        if (hasSel && selTo > lineFrom && selFrom < lineTo) {
+            const size_t from = static_cast<size_t>(std::max(selFrom, lineFrom)) - line.begin;
+            const size_t to   = static_cast<size_t>(std::min(selTo, lineTo)) - line.begin;
             const float x0 = measureInLine(lineText, from);
             const float x1 = measureInLine(lineText, to);
             renderer.updateRect(e.selectionId, absX + PADDING + x0, y,
@@ -336,18 +449,15 @@ void UITextArea::render(UIRenderer& renderer) {
             renderer.updateRect(e.selectionId, 0, 0, 0, 0, 0, selectionLayer);
         }
 
-        // Le texte est ancré au CENTRE vertical de sa ligne (convention de render:text).
+        // Le texte est ancré au CENTRE vertical de sa rangée (convention de render:text).
         renderer.updateText(e.textId, absX + PADDING, y + lineHeight * 0.5f, lineText,
                             fontSize, style.textColor, textLayer);
     }
 
     if (isFocused && cursorVisible && !showPlaceholder) {
-        const int line = edit.lineNumberAt(edit.cursor());
-        const size_t lineBegin = edit.startOfLine(line);
-        const size_t lineFinish = edit.lineEnd(static_cast<int>(lineBegin));
-        const std::string lineText = edit.text().substr(lineBegin, lineFinish - lineBegin);
-        const float cx = measureInLine(lineText, static_cast<size_t>(edit.cursor()) - lineBegin);
-        const float cy = absY + PADDING + line * lineHeight - scrollY;
+        const int v = static_cast<int>(text::visualLineAt(m_visual, static_cast<size_t>(edit.cursor())));
+        const float cx = cursorXInVisualLine();
+        const float cy = absY + PADDING + v * lineHeight - scrollY;
         renderer.updateRect(m_cursorRenderId, absX + PADDING + cx, cy,
                             CURSOR_WIDTH, lineHeight, style.cursorColor, cursorLayer);
     } else {

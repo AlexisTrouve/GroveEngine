@@ -164,30 +164,6 @@ private:
         }
         return acc;
     }
-
-    // decodeUtf8 s'arrête sur '\0' ; ici on travaille sur des vues potentiellement non terminées et
-    // bornées à `end`. On décode donc en recopiant la logique de bornes : un codepoint qui déborderait
-    // la borne est tronqué à ce qu'on a lu, et p avance toujours d'au moins 1 (pas de boucle infinie).
-    static uint32_t decodeUtf8Bounded(const char*& p, const char* end) {
-        const unsigned char b0 = static_cast<unsigned char>(*p);
-        if (b0 < 0x80) { ++p; return b0; }
-
-        int extra;
-        uint32_t cp;
-        if      ((b0 & 0xE0) == 0xC0) { extra = 1; cp = b0 & 0x1Fu; }
-        else if ((b0 & 0xF0) == 0xE0) { extra = 2; cp = b0 & 0x0Fu; }
-        else if ((b0 & 0xF8) == 0xF0) { extra = 3; cp = b0 & 0x07u; }
-        else { ++p; return b0; }
-
-        ++p;
-        for (int i = 0; i < extra && p < end; ++i) {
-            const unsigned char bc = static_cast<unsigned char>(*p);
-            if ((bc & 0xC0) != 0x80) return cp;
-            cp = (cp << 6) | (bc & 0x3Fu);
-            ++p;
-        }
-        return cp;
-    }
 };
 
 }  // namespace text
