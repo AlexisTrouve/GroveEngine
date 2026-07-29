@@ -86,6 +86,29 @@ public:
     void setFogTexture(rhi::TextureHandle tex) { m_fogNoise = tex; }
 
     /**
+     * @brief Taille MONDE que couvre une tuile de la texture de brouillard.
+     *
+     * POURQUOI ce réglage existe : l'échelle était écrite en dur dans le shader (`/64.0`), ce qui
+     * rendait « utiliser un asset de brouillard plus grand » littéralement inexprimable — un jeu
+     * pouvait changer l'image, pas la taille à laquelle elle se répète. Une valeur <= 0 est ignorée
+     * (elle ferait exploser l'uv), donc un appelant maladroit dégrade vers le défaut au lieu de
+     * casser l'affichage.
+     */
+    void setFogScale(float worldUnits) { if (worldUnits > 0.0f) m_fogScale = worldUnits; }
+    float fogScale() const { return m_fogScale; }
+
+    /**
+     * @brief Décalage d'échantillonnage du brouillard, en unités MONDE.
+     *
+     * Un hôte qui le fait dériver dans le temps obtient un brouillard qui bouge pour le prix d'un
+     * uniform. ⚠️ Seul le NUAGE bouge : le masque de révélation reste exactement où le jeu l'a mis —
+     * un brouillard qui dérive ne doit jamais re-cacher ce qui a été exploré.
+     */
+    void setFogOffset(float x, float y) { m_fogOffsetX = x; m_fogOffsetY = y; }
+    float fogOffsetX() const { return m_fogOffsetX; }
+    float fogOffsetY() const { return m_fogOffsetY; }
+
+    /**
      * @brief Declare a tile type as ANIMATED (water/lava): tile id `tileId` cycles through `frames`
      *        CONSECUTIVE atlas layers (from its base layer id-1) at `fps`. The index texture is
      *        UNCHANGED (stores the base id) — the shader offsets the LAYER by time, so animation is
@@ -119,6 +142,7 @@ private:
     rhi::UniformHandle m_fogNoiseSampler; // s_fognoise (slot 4) — tiled fog texture (wrap=Repeat)
     rhi::UniformHandle m_animUniform;     // u_tileAnim[16]: per animated tile {id, frames, fps, _}
     rhi::UniformHandle m_animMetaUniform; // u_tileAnimMeta: {animCount, time, _, _}
+    rhi::UniformHandle m_fogParamsUniform; // u_fogParams: {worldScale, offsetX, offsetY, _}
 
     // Animated tiles (water/lava). The index texture holds each tile's BASE id; the shader cycles the
     // atlas LAYER over time (clock = FramePacket::elapsedTime, so the pass is stateless re: time).
@@ -137,6 +161,11 @@ private:
     rhi::TextureHandle m_defaultFog;      // 1x1 R8 = 255 (fully visible), bound when a chunk has no fog
     rhi::TextureHandle m_defaultFogNoise; // 1x1 black: hidden tiles go black (the no-fog-texture case)
     rhi::TextureHandle m_fogNoise;        // tiled fog texture set by the host (NON-owning); invalid -> default
+    // 64 = la constante qui était codée en dur dans le shader : le défaut reproduit donc EXACTEMENT
+    // le rendu d'avant pour tout hôte qui ne configure rien.
+    float m_fogScale = 64.0f;
+    float m_fogOffsetX = 0.0f;
+    float m_fogOffsetY = 0.0f;
 
     // Per-textureId atlas arrays registered by the host (Slice A3.3); NON-owning. A chunk's
     // textureId selects one, else the procedural m_defaultAtlas is bound.

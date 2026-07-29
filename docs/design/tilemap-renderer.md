@@ -174,3 +174,48 @@ Each layer = its own index + LOD; fog shared. Retained only; no shader change. L
 ## Out (over-engineering here)
 GPU-driven / compute-culled / `multiDrawIndirect` — pointless for a tilemap (index-texture is
 already 1 draw) and blocked by our single-threaded bgfx config.
+
+
+---
+
+## Brouillard : échelle et dérive réglables (2026-07-29)
+
+Le brouillard mélangeait déjà les tuiles cachées avec une **texture échantillonnée en espace monde**
+(wrap `Repeat`) plutôt qu'avec du noir — donc un nuage continu, plus grand qu'une tuile et sans
+couture. Mais l'échelle était **écrite en dur dans le shader** :
+
+```glsl
+vec3 fogColor = texture2D(s_fognoise, worldPos / 64.0).rgb;   // avant
+```
+
+Conséquence : un jeu pouvait changer l'IMAGE, pas la taille à laquelle elle se répète. « Utiliser un
+asset de brouillard plus grand » était donc littéralement inexprimable — et le brouillard était figé
+au boot, sans moyen d'en changer par biome ou de le faire vivre.
+
+**Trois réglages ouverts**, portés par un uniform `u_fogParams {worldScale, offsetX, offsetY}` :
+
+| Réglage | Config (boot) | Topic (à chaud) | Effet |
+|---|---|---|---|
+| Texture | `fogTexture` | `render:tilemap:fog:style {path}` | l'asset de brouillard |
+| Échelle | `fogScale` | `… {scale}` | unités monde couvertes par une tuile de l'asset |
+| Décalage | — | `… {offsetX, offsetY}` | déplace l'échantillonnage (rampé par l'hôte = dérive) |
+
+Chaque champ du topic est **optionnel** : publier `{offsetX, offsetY}` chaque frame fait dériver le
+nuage sans retoucher la texture ni l'échelle.
+
+⚠️ **Seul le nuage bouge.** Le masque de révélation (`render:tilemap:fog`) n'est pas touché par ces
+réglages — un brouillard qui dérive ne doit jamais re-cacher ce que le joueur a exploré.
+
+**Non-régression :** les défauts (`scale = 64`, décalage nul) reproduisent l'ancien rendu **au pixel
+près**, donc aucun hôte existant ne bouge.
+
+**Preuve :** `TilemapLodGpu`, au pixel. Une texture de brouillard de 2 texels (rouge/vert) et une
+tuile centrale en `worldX = 4` ; les valeurs sont choisies pour tomber au CENTRE d'un texel, donc ni
+le filtrage ni l'arrondi ne brouillent le verdict. Vérifié adversarialement : en neutralisant les
+deux réglages, les trois rendus donnent le **pixel identique** (`ff005fa0`) et 6 assertions passent
+au rouge — c'est exactement le comportement d'avant.
+
+**Reste ouvert** (non fait, pas oublié) : la granularité de douceur du masque est d'**une tuile**
+(masque R8 à 1 texel par tuile, filtré linéairement). Le nuage par-dessus le masque assez bien ; des
+bords plus fins demanderaient un masque sous-tuile — un vrai chantier, à ne lancer que sur besoin
+constaté (DAOS : `vision.md` fait du fog-of-war révélé par le minage un pilier).

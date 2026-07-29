@@ -23,6 +23,7 @@ uniform vec4 u_tilemapGrid;    // x=gridW, y=gridH (z,w unused)
 uniform vec4 u_tilemapParams;  // x=originX, y=originY, z=tilePixW, w=tilePixH (world-space fog uv)
 uniform vec4 u_tileAnim[4];    // animated tiles: per entry x=tileId, y=frameCount, z=fps (w unused)
 uniform vec4 u_tileAnimMeta;   // x=animCount, y=time(seconds) (z,w unused)
+uniform vec4 u_fogParams;      // x=worldScale, y=offsetX, z=offsetY (world units), w unused
 
 void main()
 {
@@ -66,9 +67,16 @@ void main()
     // tile, vis=0 -> fog. Mipped R8 mask -> dims correctly at every zoom. The fog texture samples at
     // a WORLD-space uv (so the fog is anchored to the terrain) and wraps (Repeat) -> tiles seamlessly.
     // With the default 1x1 black fog texture this reduces to the old "hidden -> black".
+    //
+    // u_fogParams.x = the world size ONE tile of the fog texture covers. It used to be hardcoded to
+    // 64, which made "use a bigger fog asset" literally inexpressible: a game could swap the image
+    // but not the scale it repeats at. y,z offset the sampling in WORLD units, so a host that ramps
+    // them over time gets drifting fog for the price of a uniform (the mask is untouched — the
+    // REVEAL stays exactly where the game put it, only the cloud moves).
     float vis = texture2D(s_fog, tc / grid).r;
     vec2 worldPos = u_tilemapParams.xy + tc * u_tilemapParams.zw;
-    vec3 fogColor = texture2D(s_fognoise, worldPos / 64.0).rgb;
+    float fogScale = max(u_fogParams.x, 0.0001);   // guard: 0 would blow the uv up to infinity
+    vec3 fogColor = texture2D(s_fognoise, (worldPos + u_fogParams.yz) / fogScale).rgb;
     col.rgb = mix(fogColor, col.rgb, vis);
 
     if (col.a < 0.01) {

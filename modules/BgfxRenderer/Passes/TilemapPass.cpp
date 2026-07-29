@@ -122,6 +122,7 @@ void TilemapPass::setup(rhi::IRHIDevice& device) {
     m_fogNoiseSampler = device.createUniform("s_fognoise", 1);
     m_animUniform     = device.createUniform("u_tileAnim", kMaxTileAnims);  // vec4[16] anim table
     m_animMetaUniform = device.createUniform("u_tileAnimMeta", 1);          // {count, time}
+    m_fogParamsUniform = device.createUniform("u_fogParams", 1);            // {fogScale, offX, offY}
 
     // Procedural color atlas ARRAY (Slice A3 verification): one solid color per layer, so tile id N
     // renders as a distinct color (id 1 -> layer 0, ...). Uses the SAME palette as the LOD band
@@ -177,6 +178,7 @@ void TilemapPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_fogNoiseSampler);
     device.destroy(m_animUniform);
     device.destroy(m_animMetaUniform);
+    device.destroy(m_fogParamsUniform);
     device.destroy(m_defaultAtlas);
     device.destroy(m_defaultFog);
     device.destroy(m_defaultFogNoise);
@@ -402,6 +404,8 @@ void TilemapPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
             cmd.setUniform(m_gridUniform, grid, 1);
             cmd.setUniform(m_animUniform, animData, kMaxTileAnims);   // animated-tile table + clock
             cmd.setUniform(m_animMetaUniform, animMeta, 1);
+            const float fogParams[4] = { m_fogScale, m_fogOffsetX, m_fogOffsetY, 0.0f };
+            cmd.setUniform(m_fogParamsUniform, fogParams, 1);
             cmd.setTexture(0, index, m_indexSampler);
             cmd.setTexture(1, tileset, m_atlasSampler);
             cmd.setTexture(2, lod, m_lodSampler);

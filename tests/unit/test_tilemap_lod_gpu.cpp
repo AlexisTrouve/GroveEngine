@@ -323,6 +323,78 @@ TEST_CASE("Tilemap detail->tile color, LOD->average color (end-to-end GPU)", "[g
         CHECK(byteOf(gotOver, 16) == byteOf(teal, 16));
     }
 
+    // --- FOG SCALE / OFFSET : l'asset de brouillard est enfin DIMENSIONNABLE.
+    //
+    // POURQUOI ce cas existe : l'echelle monde du brouillard etait ecrite en dur dans le shader
+    // (`texture2D(s_fognoise, worldPos / 64.0)`). Un jeu pouvait changer l'IMAGE, pas la taille a
+    // laquelle elle se repete -- donc "utiliser un asset de brouillard plus grand" etait litteralement
+    // inexprimable. Le reglage ne se prouve qu'au PIXEL : rien dans le modele ne dit ou la texture a
+    // ete echantillonnee.
+    //
+    // COMMENT : texture de brouillard de 2 texels -- ROUGE puis VERT, wrap Repeat. La tuile centrale
+    // est a worldX = 4. On choisit les valeurs pour tomber au CENTRE d'un texel (uv .25 ou .75), donc
+    // ni le filtrage lineaire ni l'arrondi ne peuvent brouiller le verdict :
+    //     (scale 16, offset 0) -> uv .25 -> ROUGE
+    //     (scale 16, offset 8) -> uv .75 -> VERT    <- l'OFFSET deplace l'echantillonnage
+    //     (scale 48, offset 8) -> uv .25 -> ROUGE   <- a offset EGAL, l'ECHELLE change le resultat
+    {
+        const uint32_t RED   = 0xFF0000FFu;   // 0xAABBGGRR
+        const uint32_t GREEN = 0xFF00FF00u;
+        std::vector<uint32_t> px = { RED, GREEN };
+
+        rhi::TextureDesc fd;
+        fd.width = 2; fd.height = 1;
+        fd.format = rhi::TextureDesc::RGBA8;
+        fd.data = px.data();
+        fd.dataSize = static_cast<uint32_t>(px.size() * 4);
+        rhi::TextureHandle fogTex = device->createTexture(fd);
+        REQUIRE(fogTex.isValid());
+        pass.setFogTexture(fogTex);
+
+        // Chunk ENTIEREMENT cache : vis = 0 partout, donc le pixel rendu EST la texture de brouillard.
+        const int G = 8;
+        std::vector<uint16_t> tiles(static_cast<size_t>(G) * G, static_cast<uint16_t>(1));
+        std::vector<uint8_t>  fog(static_cast<size_t>(G) * G, static_cast<uint8_t>(0));
+
+        auto renderWith = [&](float scale, float offX, uint32_t chunkId) -> uint32_t {
+            pass.setFogScale(scale);
+            pass.setFogOffset(offX, 0.0f);
+            TilemapChunk c{};
+            c.x = 0; c.y = 0; c.width = G; c.height = G;
+            c.tileWidth = 1; c.tileHeight = 1;
+            c.tiles = tiles.data(); c.tileCount = tiles.size();
+            c.fog = fog.data();
+            c.id = chunkId; c.dirty = true;
+            return renderCenter(c, G);
+        };
+
+        const uint32_t atRed   = renderWith(16.0f, 0.0f, 500);
+        const uint32_t atGreen = renderWith(16.0f, 8.0f, 501);
+        const uint32_t backRed = renderWith(48.0f, 8.0f, 502);
+
+        INFO("fog scale/offset: uv.25=" << std::hex << atRed
+             << " uv.75=" << atGreen << " rescaled=" << backRed);
+
+        // 1. Reference : on echantillonne bien le texel ROUGE.
+        CHECK(byteOf(atRed, 0)  > 200);   // R fort
+        CHECK(byteOf(atRed, 8)  < 60);    // G faible
+
+        // 2. L'OFFSET deplace l'echantillonnage -> on tombe sur le texel VERT. Sans le reglage, les
+        //    deux rendus seraient IDENTIQUES et ce cas serait rouge.
+        CHECK(byteOf(atGreen, 8) > 200);  // G fort
+        CHECK(byteOf(atGreen, 0) < 60);   // R faible
+
+        // 3. A offset EGAL, changer l'ECHELLE ramene sur le ROUGE : c'est le knob qui manquait.
+        CHECK(byteOf(backRed, 0) > 200);
+        CHECK(byteOf(backRed, 8) < 60);
+
+        // Remise a l'etat par defaut pour ne pas contaminer les cas suivants.
+        pass.setFogScale(64.0f);
+        pass.setFogOffset(0.0f, 0.0f);
+        pass.setFogTexture(rhi::TextureHandle{});
+        device->destroy(fogTex);
+    }
+
     // --- DERIVED LOD COLOUR: the zoom-out band takes its colours from the TILESET (per-layer average)
     //     instead of the built-in 8-colour palette, so both bands agree. Two things are asserted:
     //     (1) with no table registered the LOD is UNCHANGED (the historical palette) — non-regression;
