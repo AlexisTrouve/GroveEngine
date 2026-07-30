@@ -1,6 +1,7 @@
 # Vitesse de compilation — mesures et décisions
 
-**Statut** : ccache + PCH partagé livrés. Compilation distribuée (distcc/icecream) **écartée sur mesure**.
+**Statut** : ccache + PCH partagé livrés · déport `tools/remote-build.sh` livré et vérifié ·
+compilation *distribuée* (distcc/icecream) **écartée sur mesure**.
 **Date des mesures** : 2026-07-30. Machine : 16 cœurs, MinGW g++, Ninja, `CMAKE_BUILD_TYPE=Release`.
 
 Le déclencheur : « la compil est longue et fait chauffer le PC ». Ce document existe pour qu'on
@@ -175,21 +176,71 @@ C'était la demande initiale : « déporter la compil sur un réseau de VPS ». 
    exigerait un cross-compilo `x86_64-w64-mingw32` **de version identique** sur chaque nœud, à
    maintenir synchronisé à la version près.
 
-**La bonne topologie, si on y revient**, n'est pas de *distribuer* les TU (beaucoup d'allers-retours
-lourds) mais de *déporter* le build entier sur UNE machine : un `rsync` des sources (quelques Mo),
-build + `ctest` distants, rapatriement du log. Un aller-retour au lieu de milliers, et le CPU local
-reste à zéro — ce qui traite le problème thermique, que la distribution ne traite qu'à moitié
-(le poste préprocesse et linke quand même). C'est déjà le motif employé pour TSan/ASan sur VPS142.
-
-Le chiffre manquant pour trancher ce déport : le **débit montant réel** de la connexion.
+Débit montant mesuré depuis le poste : **152 Mb/s vers VPSPapa**, **46 Mb/s vers VPS142** (celui-ci
+sans doute plafonné par le chiffrement SSH sur une machine chargée). Même au meilleur des deux,
+5 Go coûteraient ~4,4 min de réseau **par build**, à ajouter aux ~7 min que le poste met déjà seul.
 
 ---
 
-## 5. Ce qui reste sur la table
+## 5. Le déport — `tools/remote-build.sh` (livré)
 
-- **Déport total vers UNE machine** (§4) — traite la chaleur à 100 %, pas encore fait.
+La bonne topologie n'est pas de *distribuer* les TU mais de *déporter* le build entier sur UNE
+machine. Charge utile : l'arbre versionné, **4,5 Mo / 968 fichiers**, transféré en **5 s**. Un
+aller-retour au lieu de milliers.
+
+### ⚠️ Ma prédiction était fausse, et de beaucoup
+
+J'avais écrit qu'un VPS à 4 cœurs serait « structurellement plus lent » que le poste à 16 cœurs, et
+que le déport serait un compromis « plus lent mais plus froid ». **Mesuré, c'est faux.**
+Même configuration (469 cibles), depuis zéro, des deux côtés :
+
+| | configure | build | **total** |
+|---|---|---|---|
+| Poste local — 16 cœurs, `-j16`, Windows/MinGW | 11 s | 189 s | **200 s** |
+| **VPS142** — 4c/8t, `-j6`, `nice -n 19`, Linux/g++ 14 | 21 s | 146 s | **167 s** |
+
+Le VPS gagne **17 % au total, 23 % sur la phase de build** — en priorité basse, sur 6 threads sur 8,
+sur un serveur de production, contre quatre fois plus de cœurs. Windows/MinGW compile nettement
+moins vite que Linux/g++ à cœurs comparables (création de processus, NTFS, antivirus), et le poste
+est thermiquement dégradé après une heure de compilation — ce qui est précisément sa condition
+réelle d'usage. Le déport n'est donc **pas** un compromis : il est plus rapide **et** il sort 100 %
+de la charge du bureau.
+
+### Choix de la cible
+
+Sondés : VPSPapa n'a **ni cmake, ni ninja, ni rsync**, et 92 % de disque plein → hors jeu.
+**VPS142** a tout (cmake 3.31, ninja 1.12, g++ 14.2, rsync, SDL2/GL/X11 dev déjà installés depuis le
+port Linux) et 175 Go libres. C'est aussi la prod `ai.etheryale.com` : d'où `nice -n 19` et `-j6`
+sur 8 threads, non négociables.
+
+### Ce que le déport sait valider
+
+Vérifié de bout en bout : sync 9 s → build → `ctest` en série → **100/103** sur la config par défaut.
+Les trois échecs sont identifiés et aucun n'est imputable au déport :
+
+| Test | Cause |
+|---|---|
+| `MemoryLeakHunter` | ses 11 % de marge (voir §3) |
+| `CrashHandlerRealE2E` | attendu — le reporter est du SEH Windows, backend Noop ailleurs |
+| `RaceConditionHunter` | **SEGFAULT sous Linux** — non investigué, le port Linux est parké |
+
+Le déport valide donc le cœur et les modules SDL-free ; les tests `[gpu]` restent bloqués par le
+contexte GL 2.1 sous llvmpipe (dette « port Linux », parkée). Il **complète** le build local, il ne
+le remplace pas. `RaceConditionHunter` mérite un œil un jour : un segfault dans un chasseur de races
+est exactement le genre de signal qu'on ne veut pas classer sans regarder.
+
+---
+
+## 6. Ce qui reste sur la table
+
+- **`RaceConditionHunter` segfaute sous Linux** — non diagnostiqué. Peut être un artefact du port
+  parké, peut être une vraie race que Windows masque.
+- **ccache sur VPS142** : absent. Un `apt install ccache` rendrait les builds distants incrémentaux
+  aussi bons que les locaux. Pas fait — c'est un serveur de prod, l'installation est ton appel.
 - **Élargir le PCH aux cibles bgfx/SDL** : elles ont d'autres défines, il leur faudrait un second
   fournisseur. ~56 TU concernées, gain estimé mais non mesuré.
 - **`max_size` du cache** : à remonter quand le disque C: aura de la place.
 - **Réviser le PCH si `grove/JsonDataNode.h` ou `IntraIO.h` deviennent instables** : un en-tête du
   moteur qui bouge souvent invalide le PCH, donc toute la suite, à chaque édition.
+- **La synchro coûte ~9-26 s** même quand rien n'a changé (tar + rsync + nettoyage du dossier
+  d'étape). Optimisable si ça devient gênant sur une boucle courte.

@@ -846,9 +846,19 @@ grove_add_test(NineSliceUnit test_nine_slice ${CMAKE_CURRENT_BINARY_DIR})
 # faithfully SHRANK the behaviour (button + radial stopped surfacing on press), and the full 204-test
 # suite passed anyway: nothing observes that path today. An E2E cannot close that hole; only asking
 # the contract can. Pure predicates — no window, no IIO, no renderer.
-add_executable(test_ui_widget_contract unit/test_ui_widget_contract.cpp)
-target_link_libraries(test_ui_widget_contract PRIVATE UIModule_static Catch2::Catch2WithMain)
-grove_add_test(UIWidgetContractUnit test_ui_widget_contract ${CMAKE_CURRENT_BINARY_DIR})
+#
+# ⚠️ Gardé par TARGET UIModule_static : ce test inclut Widgets/UIButton.h, qui n'existe que si
+# UIModule est construit. Sans la garde, la cible était déclarée même avec
+# -DGROVE_BUILD_UI_MODULE=OFF (le défaut !) et échouait sur
+# "fatal error: Widgets/UIButton.h: No such file or directory" — donc la commande
+# `cmake -B build && cmake --build build` documentée dans CLAUDE.md ("Build core only") ne passait
+# pas. Invisible au quotidien parce qu'on construit toujours avec les flags de modules activés ;
+# attrapé en montant un build par défaut sur une autre machine.
+if(TARGET UIModule_static)
+    add_executable(test_ui_widget_contract unit/test_ui_widget_contract.cpp)
+    target_link_libraries(test_ui_widget_contract PRIVATE UIModule_static Catch2::Catch2WithMain)
+    grove_add_test(UIWidgetContractUnit test_ui_widget_contract ${CMAKE_CURRENT_BINARY_DIR})
+endif()
 
 # Map-viewer engine slice S1e: Hillshade — fake-3D relief from a field gradient (Lambertian illumination
 # factor), the §5 colour modifier. Header-only, std-only. Pure shading math, locked before integration.
