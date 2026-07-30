@@ -517,3 +517,62 @@ rencontrera la même erreur. Faire tourner la suite `gpu` sous Linux demande d'a
 *Leçon de méthode, la même que la doctrine énonce : une cause documentée est une hypothèse. Mais ma
 propre contre-hypothèse en était une aussi — `glxinfo` prouvait ce que le PILOTE sait faire, pas ce
 que bgfx OBTIENT. Seul le test qui coupe la variable a tranché.*
+
+---
+
+## 12. DETTE — décisions et chantiers ouverts
+
+État arrêté au **2026-07-30**. Rien ci-dessous n'est en cours ; c'est la liste de ce qui a été
+**identifié et délibérément laissé**, pour qu'on n'ait pas à le redécouvrir.
+
+### 12.1 Extension de la ferme — EN ATTENTE DE DÉCISION (Alexi)
+
+Alexi dispose de matériel inutilisé. Aucune décision prise, **ce n'est pas le sujet immédiat** —
+ne pas le relancer sans qu'il le rouvre.
+
+| Question | État |
+|---|---|
+| Rôle de chaque machine (7700K+3070 ; un PC « mid » à iGPU) | ouvert |
+| OS de la machine à 3070 — Windows (zéro portage) ou Linux (sa préférence) | ouvert |
+| **Où vivront-elles physiquement** | **sans réponse** — la plainte d'origine était la chaleur ET le bruit *au bureau* ; deux machines allumées en permanence dans la même pièce ne déplacent pas le problème |
+| Un iGPU suffit-il ? | **analysé, non vérifié** : oui pour les 16 tests de correction (ils assertent des pixels, pas des framerates ; la barre D3D11 est basse) ; **non pour la performance** — un iGPU rend des chiffres crédibles et faux |
+
+Matériel connu : poste de dev = **portable** Ryzen 7 7840HS (8c/16t) + RTX 4060 Laptop + Radeon 780M
+— c'est son throttling qui explique la lenteur de compilation d'origine. Machine libre = i7-7700K
+(4c/8t, desktop), 32 Go, RTX 3070.
+
+### 12.2 Chantiers techniques identifiés, non faits
+
+**Rendu / Linux** (le port Linux reste **parké** — décision d'Alexi ; listé ici comme constat, pas
+comme proposition) :
+- **Bug de sélection du bloc shader GL** — 5 tests `gpu` avortent sur
+  `Failed to compile shader / unexpected HASH_TOKEN`. Localisé : `regen_shader.py` produit
+  `spv|glsl|mtl|dx11` dont `mtl` est un PLACEHOLDER ; le chemin GL reçoit vraisemblablement le
+  mauvais bloc. **Ni le matériel ni la version du contexte** (prouvé par test différentiel).
+- **8 tests `gpu` ne compilent pas sous Linux** — non catégorisés. Seule inconnue restante du coût
+  d'un passage sous Linux.
+- Correctifs mécaniques connus mais **non appliqués au dépôt** : la garde `if(WIN32 …)`
+  (`tests/CMakeLists.txt:3171`) et les `#undef None/Status/Bool/Success/Always` après `SDL_syswm.h`
+  (validés sur 55 fichiers, côté serveur uniquement).
+- `RaceConditionHunter` **segfaute sous Linux** — non diagnostiqué.
+
+**Performance jamais mesurée** (c'est ce qu'une vraie carte apporterait) :
+- budget d'éclairage — `CLAUDE.md` le dit lui-même « NOT re-measured since the march landed » ;
+- `benchmark_render_savage` — banc au mur, hors ctest.
+
+**Ferme et CI** :
+- `remote-build.sh` ne gère **qu'un hôte**. Le routage multi-hôtes par capacité est *conçu* (les
+  labels existent et sont testés) mais **non implémenté**.
+- `.gitea/workflows/build.yml` est commité mais **non poussé** : il ne s'arme qu'au premier push, et
+  l'unité Actions doit être activée sur le dépôt.
+- drifterra / DAOS / fractax **non câblés** au CI — délibéré tant que leurs builds échouent.
+- La synchro coûte 9-26 s même à vide (tar + rsync + nettoyage) ; optimisable si ça gêne.
+- `ccache` : `max_size=12G` sur le poste seulement à cause du disque C: à 90 %.
+
+**Dans d'autres dépôts** (à transmettre, pas à corriger ici) :
+- **DAOS** — `CMakeLists.txt` suivi par git en minuscules (`cmakelists.txt`) : invisible sous
+  Windows, fatal sous Linux ; et `-I../groveengine/deps/…` alors que `deps/` est **gitignored**,
+  donc un clone frais ne compile pas non plus.
+- drifterra / fractax — jamais tentés ; attendre les mêmes classes de défaut.
+- Aucun de ces dépôts n'a la règle « où compiler » dans son `CLAUDE.md` : leurs agents ignorent
+  l'existence de la ferme.
