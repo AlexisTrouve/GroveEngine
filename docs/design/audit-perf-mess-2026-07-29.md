@@ -12,7 +12,36 @@ ceux de la seconde passe, vérifiés un par un.
 
 ---
 
-## P1 — 🔴 Une poussée `ui:data` reconstruit INTÉGRALEMENT tous les répéteurs
+## P1 — ✅ CORRIGÉ (2026-07-30) — une poussée `ui:data` reconstruisait tous les répéteurs
+
+> **Après correctif, mesuré sur la même sonde, 30 lignes** : une poussée identique passe de
+> **180 `:remove` + 180 `:add` et 15,8 ms** à **0 / 0 et 0,09 ms**. Soit ~173× sur le temps, et le
+> trafic retenu tombe à rien.
+>
+> Deux étages. **(A) à la source** : le handler `ui:data` compare le modèle entrant à l'actuel et
+> sort s'il est identique — ce qui épargne aussi la ré-résolution de tous les bindings (P2
+> ci-dessous), pas seulement le répéteur. **(B) par hôte** : chaque répéteur retient l'empreinte
+> exacte de son tableau et ne se reconstruit que s'il a bougé — indispensable parce qu'un HUD qui
+> pousse `{hp, fleet}` change `hp` chaque frame et jamais `fleet`, cas où (A) ne protège plus rien.
+> La garde ne saute QUE la destruction/reconstruction : `resolveAllBindings` continue de tourner,
+> donc les valeurs affichées restent fraîches.
+>
+> Au passage, le gabarit est parsé **une fois par hôte** au lieu d'une fois par élément — il ne
+> change jamais à l'exécution, les N−1 autres parses étaient du travail pur perdu.
+>
+> **Choix assumé** : pas de comparaison sur `ui:data:set` / `ui:data:merge`. Détecter un patch sans
+> effet demanderait de copier tout le modèle à chaque appel pour le comparer ensuite — un coût
+> nouveau pour attraper un cas qui n'existe pas : un `set` est par construction l'intention de
+> changer quelque chose.
+>
+> **Verrouillé par `IT_068`** (`UIRepeaterIdleE2E`), trois cas dont le troisième porte tout le poids :
+> une poussée MODIFIÉE doit encore reconstruire. Sans lui, une garde dégénérée en « ne jamais
+> reconstruire » passerait au vert en cassant le répéteur — vérifié en la dégénérant exprès sous sa
+> forme subtile (construire une fois, jamais plus) : cas 1 et 2 verts, cas 3 rouge.
+
+### L'état des lieux d'origine
+
+## P1 (constat initial) — 🔴 Une poussée `ui:data` reconstruit INTÉGRALEMENT tous les répéteurs
 
 **Le constat le plus grave, et il est mesuré.** Sur `test_e2e_repeater.json`, une poussée `ui:data`
 portant des **données strictement identiques** à la précédente :
@@ -145,7 +174,7 @@ un chemin que le reste du code avait déjà appris à protéger ailleurs.
 
 ## Ordre recommandé
 
-1. **P1** — mesuré, borné, gros gain, correctif déjà présent à côté. Le seul qui coûte des frames.
+1. ~~**P1**~~ — ✅ fait le 2026-07-30 (voir l'encadré en tête de P1).
 2. **P3** sur `registerDefaultWidgets` — incrémental, un widget à la fois, réduit les collisions.
 3. **P4** — cosmétique mais gratuit.
 4. **P2** — à re-mesurer *après* P1, pas avant.

@@ -223,6 +223,20 @@ public:
     std::string repeatTemplateJson;
     std::string scopePath;
 
+    // Empreinte EXACTE (le tableau lié sérialisé) telle qu'elle était à la dernière expansion.
+    //
+    // POURQUOI : `expandRepeaters()` détruisait et reconstruisait toutes les instances à CHAQUE
+    //   poussée de données, même identique — mesuré à 180 `:remove` + 180 `:add` et 15,8 ms sur 30
+    //   lignes, pour un budget de frame de 16,6 ms. Un HUD qui rafraîchit ses données par frame ne
+    //   tenait donc pas la frame. On compare donc ce que ce répéteur affiche déjà à ce qu'il devrait
+    //   afficher, et on ne touche à rien si c'est pareil.
+    //
+    // COMMENT : le texte sérialisé, pas un hachage. Un hachage économiserait de la mémoire au prix
+    //   d'un mode de défaillance SILENCIEUX (collision -> UI figée sur des données périmées), pour
+    //   un gain nul en temps : produire le hachage coûte le même parcours que produire le texte.
+    //   Le coût mémoire est celui du JSON du tableau, négligeable à côté des N widgets instanciés.
+    std::string repeatDataSnapshot;
+
     // Conditional (step 5): `"if":"{{flag}}"` — the widget renders only when the bound bool is true. When
     // it goes false the subtree is hidden AND its retained entries are released (no ghost). "" = no condition.
     std::string ifBinding;
