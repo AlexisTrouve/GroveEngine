@@ -216,7 +216,7 @@ TEST_CASE("lighting: a radial light brightens its centre, under a PANNED+ZOOMED 
           l->setDouble("intensity", 1.0);
           gIO->publish("render:light", std::move(l)); }
 
-        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        renderer->setCaptureTarget(fb);
         frame();
     }
 
@@ -308,7 +308,7 @@ TEST_CASE("lighting: a CONE light brightens forward and leaves behind dark (GPU)
           l->setDouble("spreadDeg", 60.0);    // ±30°
           gIO->publish("render:light", std::move(l)); }
 
-        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        renderer->setCaptureTarget(fb);
         frame();
     }
 
@@ -405,7 +405,7 @@ TEST_CASE("lighting: a wall casts a SHADOW — dark behind, lit beside, same dis
           o->setDouble("w", 4.0);   o->setDouble("h", static_cast<double>(H));
           gIO->publish("render:occluder", std::move(o)); }
 
-        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        renderer->setCaptureTarget(fb);
         frame();
     }
 
@@ -510,7 +510,7 @@ TEST_CASE("lighting: a red filter TINTS the light behind it — red survives, bl
           f->setInt("color", static_cast<int>(0xFF3333FFu));   // red glass: transmits red, eats blue
           gIO->publish("render:filter", std::move(f)); }
 
-        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        renderer->setCaptureTarget(fb);
         frame();
     }
 
@@ -628,7 +628,7 @@ TEST_CASE("lighting: a shadow edge is a STRAIGHT line, not a staircase (GPU)",
           o->setDouble("w", bw); o->setDouble("h", bh);
           gIO->publish("render:occluder", std::move(o)); }
 
-        dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+        renderer->setCaptureTarget(fb);
         frame();
     }
 
@@ -774,7 +774,7 @@ TEST_CASE("lighting: fog absorbs EXPONENTIALLY — doubling the density squares 
               cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
               cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
               gIO->publish("render:camera", std::move(cam)); }
-            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
@@ -887,7 +887,7 @@ TEST_CASE("lighting: a scattering medium GLOWS where there is no scene at all (G
               cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
               cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
               gIO->publish("render:camera", std::move(cam)); }
-            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
@@ -988,7 +988,7 @@ TEST_CASE("lighting: a nebula absorbs PROGRESSIVELY, and its bounding quad is in
               cam->setDouble("x",0); cam->setDouble("y",0); cam->setDouble("zoom",1.0);
               cam->setInt("viewportX",0); cam->setInt("viewportY",0); cam->setInt("viewportW",W); cam->setInt("viewportH",H);
               gIO->publish("render:camera", std::move(cam)); }
-            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         out.assign(static_cast<size_t>(W)*H*4, 0);
@@ -1153,7 +1153,7 @@ TEST_CASE("bloom: the glow reaches OUTSIDE the lamp radius, and only nearby (GPU
               b->setDouble("radius", radius);
               gIO->publish("render:bloom", std::move(b)); }
             // Ré-attaché CHAQUE frame : le module possède la redirection de vue et rebâtit ses cibles.
-            dev->setViewFramebuffer(bloomOn ? PresentPass::kPresentView : CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -1289,7 +1289,7 @@ TEST_CASE("lighting: a frame with NO lights shows no residual lamp (GPU)", "[gpu
                 l->setDouble("intensity", 3.0);
                 gIO->publish("render:light", std::move(l));
             }
-            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -1407,7 +1407,7 @@ TEST_CASE("bloom: the glow profile DECREASES monotonically at a large radius (GP
               b->setDouble("threshold", 1.0);
               b->setDouble("radius", radius);
               gIO->publish("render:bloom", std::move(b)); }
-            dev->setViewFramebuffer(PresentPass::kPresentView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -1553,7 +1553,7 @@ TEST_CASE("tonemap: two clipped overbrights become DISTINGUISHABLE (GPU)", "[gpu
             // mauvaise vue mesurerait la frame d'avant la courbe et le test serait vert sans rien
             // prouver — le même piège qu'en L1, deux crans plus loin.
             const bool post = (std::string(mode) != "none");
-            dev->setViewFramebuffer(post ? PresentPass::kPresentView : CompositePass::kCompositeView, fb);
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -1704,14 +1704,9 @@ TEST_CASE("fade: covers everything INCLUDING the HUD, with or without lighting (
             // ⚠️ La lecture se fait toujours sur la vue du FONDU quand il est actif : c'est la dernière
             //    à écrire. Sans fondu, la frame finale est sur la vue 0 (non éclairé) ou celle du
             //    composite (éclairé).
-            if (amount > 0.0) {
-                dev->setViewFramebuffer(FadePass::kFadeView, fb);
-            } else if (lit) {
-                dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
-            } else {
-                dev->setViewFramebuffer(0, fb);
-                dev->setViewFramebuffer(1, fb);
-            }
+            // Le module sait quelles vues composent son image finale ; ce test n'a plus a le
+            // deviner (il enumerait fondu / composite / vue 0 selon `amount` et `lit`).
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -1876,12 +1871,9 @@ TEST_CASE("grade: desaturation respects LUMINANCE and spares the HUD (GPU)", "[g
             //    dessiné après, sur la vue 1 : pour lire les deux sur une même image, on attache la
             //    cible aux DEUX vues. Sans le HUD lié, la mesure 4 ne verrait rien.
             const bool post = (saturation != 1.0 || contrast != 1.0 || tint != 0xFFFFFFFFu);
-            if (post) {
-                dev->setViewFramebuffer(PresentPass::kPresentView, fb);
-            } else {
-                dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
-            }
-            dev->setViewFramebuffer(1, fb);
+            // Les deux branches faisaient la meme chose une fois la vue finale confiee au module :
+            // le `if (post)` ne servait qu'a choisir entre presentation et composite.
+            renderer->setCaptureTarget(fb);
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }
         REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
@@ -2099,10 +2091,10 @@ TEST_CASE("post-processing: the four effects COMPOSE in the right order (GPU)",
             const bool postActive = (p.bloomIntensity > 0.0) || (std::string(p.tonemapMode) != "none")
                                  || (p.saturation != 1.0) || (p.contrast != 1.0)
                                  || (p.tint != 0xFFFFFFFFu);
-            if (p.fadeAmount > 0.0)   dev->setViewFramebuffer(FadePass::kFadeView, fb);
-            else if (postActive)      dev->setViewFramebuffer(PresentPass::kPresentView, fb);
-            else                      dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
-            dev->setViewFramebuffer(1, fb);
+            // Ce bloc RECALCULAIT la regle du module (postActive compris) pour choisir sa vue :
+            // un duplicata voue a deriver des que la regle change. Le module la porte, on la lui
+            // demande.
+            renderer->setCaptureTarget(fb);
 
             JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
         }

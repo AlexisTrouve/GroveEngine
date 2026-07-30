@@ -76,6 +76,13 @@ public:
      *            handle invalide rend la main a l'ecran.
      *
      * ⚠️ Ne redimensionne rien : une cible plus petite que la fenetre capture une image tronquee.
+     *
+     * ⚠️ PERSISTANT, et ca se paie. Le module RE-APPLIQUE la redirection a chaque frame -- c'est ce
+     *    qui la rend robuste aux reconstructions de cibles, mais ca veut dire qu'elle ECRASE toute
+     *    liaison de vue posee a la main tant qu'elle n'est pas relachee. Un appelant qui capture
+     *    puis enchaine sur un autre rendu (un export, un poster) doit poser un handle invalide
+     *    entre les deux, sinon le second rendu part dans la PREMIERE cible. Constate en une heure :
+     *    convertir le test mapview a fait sortir son poster vide, sans autre symptome.
      */
     void setCaptureTarget(rhi::FramebufferHandle fb);
 

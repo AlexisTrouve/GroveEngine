@@ -214,8 +214,8 @@ int main(int argc, char** argv) {
     rhi::IRHIDevice* dev = renderer->getDevice();
     if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
     rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
-    dev->setViewFramebuffer(0, fb);
-    dev->setViewFramebuffer(1, fb);
+    // Capture headless : le module redirige sa sortie finale (cf. docs/design/frame-capture.md).
+    renderer->setCaptureTarget(fb);
 
     const float dt = 1.0f / 60.0f;
 
@@ -400,6 +400,12 @@ int main(int argc, char** argv) {
         const int cellsY = coord.boundsMax[1] - coord.boundsMin[1] + 1;   // 256
         mvdemo::ViewerApp posterApp(&engine, renderer, gIO.get(), tilePx, tilePx, provider,
                                     provider.schema(), provider.gridSpec(), [](bool hs, bool bd) { return mvdemo::makeTerrainLens(hs, bd); }, resetCam);
+        // ⚠️ RELACHER la capture AVANT le poster. `setCaptureTarget` est PERSISTANT : le module la
+        // re-applique a chaque frame, donc elle ecraserait les cibles que le rendu du poster lie
+        // lui-meme, et le poster sortirait vide. (Trouve exactement comme ca : "poster is not
+        // blank/uniform" est tombe des la conversion de ce fichier.)
+        renderer->setCaptureTarget(rhi::FramebufferHandle{});
+
         const mvdemo::PosterResult pr = mvdemo::renderPoster(posterApp, renderer, coord.boundsMin[0], coord.boundsMin[1],
                                                              cellsX, cellsY, coord.cellSize[0], ppc, tileCells);
         CHECK(pr.ok, "poster render succeeds");

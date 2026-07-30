@@ -364,8 +364,8 @@ int main(int argc, char** argv) {
         rhi::IRHIDevice* dev = renderer->getDevice();
         if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
         rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(outW), static_cast<uint16_t>(outH), rhi::TargetFormat::RGBA8);
-        dev->setViewFramebuffer(0, fb);
-        dev->setViewFramebuffer(1, fb);
+        // Capture headless : le module redirige sa sortie finale (cf. docs/design/frame-capture.md).
+        renderer->setCaptureTarget(fb);
         // A few identical frames so any async texture upload (marker icons) lands before readback; the camera
         // is untouched (the fit), so every frame is the same static shot.
         for (int i = 0; i < 3; ++i) app.renderFrame(1.0f / 60.0f);
@@ -386,8 +386,8 @@ int main(int argc, char** argv) {
         rhi::IRHIDevice* dev = renderer->getDevice();
         if (!dev) { std::fprintf(stderr, "no device\n"); return 2; }
         rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
-        dev->setViewFramebuffer(0, fb);
-        dev->setViewFramebuffer(1, fb);
+        // Capture headless : le module redirige sa sortie finale (cf. docs/design/frame-capture.md).
+        renderer->setCaptureTarget(fb);
         for (int i = 0; i < 45; ++i) {
             camera::CameraView c = app.camera();
             c.x += 0.4f;                                        // gentle pan east

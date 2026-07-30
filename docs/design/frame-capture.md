@@ -1,6 +1,7 @@
 # Plan — capture de frame headless, comme capacité de première classe
 
-> **État** : **C1 + C2 livrés** (2026-07-30). C3 (le volume) ouvert. Plan écrit sur `a1ecefa`.
+> **État** : **C1 + C2 + C3 livrés** (2026-07-30). Le chantier est clos ; reste la dette côté jeu,
+> qui n'est pas la nôtre. Plan écrit sur `a1ecefa`.
 > **Origine** : la dette « le rendu HUD/map n'est pas vérifié » de
 > `drifterra/docs/grove_integration.md` §368.
 
@@ -226,7 +227,46 @@ avec éclairage actif). Ils doivent passer **à l'identique**, puis tomber quand
 > précisément ceux qui exhibent la corruption de tas par artefact périmé — un gros diff mécanique
 > dedans brouillerait le signal si ça retombe.
 
-### C3 — le volume (optionnel, à faire quand la zone est calme)
+### C3 — ✅ FAIT (2026-07-30), et volontairement PARTIEL
+
+**Converti** — les sites dont l'équivalence est machine-vérifiable :
+
+| Fichier | Liaisons retirées |
+|---|---|
+| `test_lighting_gpu.cpp` | **22 sur 25** |
+| `test_mapview_viewer.cpp` | 2 |
+| `test_mapview_viewer_e2e.cpp` | 1 |
+
+`test_lighting_gpu` était le vrai gisement, et pour une raison qui dépasse le comptage : il
+**réimplémentait la règle du module**, jusqu'à recalculer `postActive` depuis le bloom, le tonemap,
+la saturation, le contraste et la teinte pour deviner sa vue de capture. Un duplicata voué à dériver
+à la première évolution du pipeline. Il est parti.
+
+**NON converti, et c'est un choix, pas un oubli :**
+
+- **`test_rhi_readback.cpp` (6 sites)** — il teste `setViewFramebuffer` / `readFramebuffer`
+  *eux-mêmes*. Le convertir supprimerait la couverture de la primitive sur laquelle tout le reste
+  repose. À ne jamais convertir.
+- **Les `capture_*` et démos visuelles (12 sites)** — ce ne sont pas des ctest : elles écrivent un
+  PNG que personne n'asserte. Les convertir, c'est du volume avec un filet faible ; on ne saurait pas
+  si on les a cassées. Elles suivront le jour où elles auront une assertion.
+
+#### ⚠️ Un tranchant de l'API, découvert en convertissant
+
+`setCaptureTarget` est **persistant** : le module la ré-applique à chaque frame — c'est ce qui la
+rend robuste aux reconstructions de cibles, et c'est aussi ce qui lui fait **écraser toute liaison de
+vue posée à la main** tant qu'elle n'est pas relâchée.
+
+Constaté immédiatement : convertir `test_mapview_viewer_e2e` a fait sortir son **poster vide**. Le
+test capturait, puis enchaînait sur un export qui lie ses propres cibles — que ma redirection
+écrasait. Aucun autre symptôme qu'une image uniforme.
+
+C'est documenté sur l'API, avec le symptôme, parce que c'est exactement le genre de piège qu'on ne
+déduit pas de la signature.
+
+---
+
+### C3 — ce qui était prévu
 
 Les 14 sites module restants, puis les 6 sites passe avec un second helper si la forme de C1 ne leur
 va pas. **Ne se décide qu'après C2.**
