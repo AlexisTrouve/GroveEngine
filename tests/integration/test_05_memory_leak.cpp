@@ -297,7 +297,20 @@ int main() {
     int finalTempFiles = countTempFiles("/tmp/grove_module_*");
 
     float finalMB = finalMemory / (1024.0f * 1024.0f);
-    float growthMB = (finalMemory - baselineMemory) / (1024.0f * 1024.0f);
+
+    // ⚠️ La différence se calcule en SIGNÉ, et c'est la correction d'un défaut qui rendait cette porte
+    //    de non-régression trompeuse. `finalMemory` et `baselineMemory` sont des `size_t` : quand la
+    //    mémoire finale est INFÉRIEURE à la référence — ce qui est le cas normal quand tout se libère
+    //    bien — la soustraction non signée s'enroulait, et le test annonçait
+    //    `Memory growth: 17592186044416 MB`, soit la pire fuite imaginable. **Il accusait donc une
+    //    amélioration.**
+    //
+    //    Constaté le 2026-07-30 : rouge sur une fusion parfaitement saine, et le chiffre absurde (une
+    //    puissance de deux exacte) est ce qui a mis sur la piste. Un seuil franchi par 2⁴⁴ n'est jamais
+    //    une fuite, c'est un débordement.
+    const long long growthBytes =
+        static_cast<long long>(finalMemory) - static_cast<long long>(baselineMemory);
+    float growthMB = static_cast<float>(growthBytes) / (1024.0f * 1024.0f);
 
     // ========================================================================
     // Results Summary

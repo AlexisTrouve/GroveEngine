@@ -162,7 +162,11 @@ int main() {
             // Memory monitoring every 60 seconds (3600 frames)
             if (frame % 3600 == 0 && frame > 0) {
                 size_t currentMemory = grove::getCurrentMemoryUsage() / (1024 * 1024);
-                size_t memoryGrowth = currentMemory - initialMemory;
+                // Signe, pas size_t : la memoire RETRECIT legitimement (l'OS reprend des pages, un
+                // rechargement libere l'ancienne DLL). En non signe la difference s'enroulait et le
+                // rapport annoncait 18446744073709551615 MB -- soit 2^64-1, jamais une fuite.
+                long long memoryGrowth =
+                    static_cast<long long>(currentMemory) - static_cast<long long>(initialMemory);
                 peakMemory = std::max(peakMemory, currentMemory);
 
                 int minutesElapsed = frame / 3600;
@@ -189,7 +193,12 @@ int main() {
 
         // Final metrics
         size_t finalMemory = grove::getCurrentMemoryUsage() / (1024 * 1024);
-        size_t totalMemoryGrowth = finalMemory - initialMemory;
+        // Idem, et c'est CE calcul qui faisait echouer le test : une baisse de memoire y devenait la
+        // pire fuite imaginable, donc la porte de non-regression accusait une amelioration. Le meme
+        // defaut avait deja ete corrige dans TestMetrics::getMemoryGrowth() (son commentaire cite la
+        // meme valeur absurde) -- mais ce test recalcule la difference lui-meme et contournait la garde.
+        long long totalMemoryGrowth =
+            static_cast<long long>(finalMemory) - static_cast<long long>(initialMemory);
 
         std::cout << "\n═══════════════════════════════════════════════════════════════\n";
         std::cout << "  STRESS TEST COMPLETED\n";
@@ -216,7 +225,7 @@ int main() {
 
         // Validate results
         bool allReloadsSucceeded = (successfulReloads == EXPECTED_RELOADS && failedReloads == 0);
-        bool memoryWithinThreshold = (totalMemoryGrowth < MAX_MEMORY_GROWTH_MB);
+        bool memoryWithinThreshold = (totalMemoryGrowth < static_cast<long long>(MAX_MEMORY_GROWTH_MB));
         bool avgReloadTimeAcceptable = (metrics.getReloadTimeAvg() < 500.0f);
         bool fpsStable = (metrics.getFPSMin() > 30.0f);  // Ensure FPS doesn't drop too much
 

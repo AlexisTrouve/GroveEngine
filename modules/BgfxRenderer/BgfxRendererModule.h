@@ -57,6 +57,32 @@ public:
 
     ResourceCache* getResourceCache() const;
     rhi::IRHIDevice* getDevice() const;
+
+    /**
+     * @brief Redirige la SORTIE FINALE du renderer vers `fb` (handle invalide = retour a l'ecran).
+     *
+     * QUOI     : ce que le joueur verrait, dans une cible relisible au CPU -- de quoi asserter des
+     *            pixels sans ecran.
+     * POURQUOI : c'est le module, et lui seul, qui sait quelles vues composent l'image finale. Cet
+     *            ensemble DEPEND des effets actifs : sans eclairage la vue 0 va au backbuffer, avec
+     *            eclairage elle part dans la cible de scene et c'est le composite qui sort, et si le
+     *            post-traitement tourne c'est la presentation. Un appelant qui lierait "les vues 0 et
+     *            1" -- le geste naturel -- capturerait donc un monde NOIR des qu'un jeu allume
+     *            l'eclairage, sans que rien ne le signale : le HUD, lui, resterait correct, donc le
+     *            test passerait pour un HUD en mentant sur la scene. Mesure a l'appui, cf.
+     *            docs/design/frame-capture.md.
+     * COMMENT  : pose une cible ; le module y renvoie ses vues finales a chaque frame, tant qu'elle
+     *            est valide. La cible appartient a l'APPELANT (il la cree et la detruit) -- poser un
+     *            handle invalide rend la main a l'ecran.
+     *
+     * ⚠️ Ne redimensionne rien : une cible plus petite que la fenetre capture une image tronquee.
+     */
+    void setCaptureTarget(rhi::FramebufferHandle fb);
+
+private:
+    // Rend a l'ecran les vues detournees par la capture (cf. .cpp : sinon corruption de tas).
+    void releaseCaptureBindings();
+public:
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 
     // BULK sprite submission — direct, IIO/JSON-free. A statically-linked host that already
@@ -94,7 +120,13 @@ private:
     // clamp so the march reads white wherever it looks. Nothing writes occluders yet; plan W
     // replaces this with a real screen-space target. Created once, destroyed at shutdown.
     rhi::TextureHandle m_occlusionTex;
+    // Placeholder d'accumulation de lumière : 1×1 NOIR = aucune lumière. Servi au composite quand la
+    // frame ne publie AUCUNE lampe — sans quoi la cible, jamais effacée (une vue sans draw est sautée
+    // par bgfx, donc son clear ne tourne pas), rejouerait la dernière frame éclairée. Voir le
+    // commentaire au point de création dans initialize().
+    rhi::TextureHandle m_blackLightTex;
     rhi::FramebufferHandle m_sceneFB;
+    rhi::FramebufferHandle m_captureTarget{};   // sortie finale detournee (capture headless)
     rhi::FramebufferHandle m_lightFB;
     rhi::FramebufferHandle m_occlusionFB;
     uint16_t m_lightingWidth = 0;      // size the targets were built for (0 = none yet)
@@ -102,8 +134,44 @@ private:
 
     // Create/resize the offscreen targets to WxH. No-op when they already match.
     void ensureLightingTargets(uint16_t width, uint16_t height);
-    // Release them (window resize, or shutdown).
+    // Release them (window resize, or shutdown). Also releases the bloom targets, which are their
+    // children: both are screen-sized, so one size change invalidates all of them.
     void releaseLightingTargets();
+
+    // ---- Post-processing / bloom (plan B) -----------------------------------------------------
+    // Built ONLY once a game publishes `render:bloom` with a non-zero intensity, and released again
+    // the moment it stops. Without bloom the composite writes straight to the backbuffer and none of
+    // this exists — the same zero-cost contract as lighting itself, one layer up.
+    //
+    // ⚠️ Le bloom EXIGE l'éclairage : la source de l'extraction est la frame COMPOSÉE, et sans
+    //    éclairage il n'y a pas de composite du tout (la scène va directement au backbuffer, qui ne
+    //    s'échantillonne pas). Un jeu qui ne veut que du post-traitement publie un ambiant BLANC.
+    class BloomPass*   m_bloomPass = nullptr;     // owned by the render graph, borrowed here
+    class PresentPass* m_presentPass = nullptr;   // idem
+    // La cible HDR où le composite écrit dès qu'un post-traitement est actif (au lieu du backbuffer).
+    //
+    // ⚠️ Elle a sa PROPRE taille, distincte de celle des cibles de flou, parce que deux réglages
+    //    indépendants l'activent : le bloom ET le tonemapping. Un jeu qui ne veut qu'une courbe
+    //    d'exposition doit obtenir cette cible SANS payer les deux cibles de flou.
+    rhi::FramebufferHandle m_hdrFB;
+    uint16_t m_hdrWidth = 0;    // taille pour laquelle la cible HDR a été bâtie (0 = aucune)
+    uint16_t m_hdrHeight = 0;
+    // Les deux cibles au QUART de la résolution : extraction -> A, flou H -> B, flou V -> A.
+    rhi::FramebufferHandle m_bloomFB[2];
+    uint16_t m_bloomWidth = 0;    // taille PLEINE pour laquelle les cibles ont été bâties (0 = aucune)
+    uint16_t m_bloomHeight = 0;
+    uint16_t m_bloomSmallW = 0;   // la cible de flou réduite
+    uint16_t m_bloomSmallH = 0;
+    // Facteur de réduction en cours (4, 8 ou 16), choisi d'après le RAYON par
+    // grove::light::bloomDownsample — voir tranche B4. Il fait partie de l'identité des cibles : un
+    // rayon qui change de palier change leur taille, donc il faut les rebâtir.
+    int m_bloomDownsample = 0;
+
+    void ensureBloomTargets(uint16_t width, uint16_t height, int downsample);
+    void releaseBloomTargets();
+    // La cible HDR, séparément : le tonemapping seul en a besoin, les cibles de flou non.
+    void ensureHdrTarget(uint16_t width, uint16_t height);
+    void releaseHdrTarget();
     std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;

@@ -3,6 +3,13 @@
 #include <cstdint>
 #include <cstddef>
 
+// Le mode de tonemapping est defini par l'oracle (grove::light) : la meme enumeration sert au parsing,
+// au packet et au shader, donc il n'existe qu'UNE liste de modes.
+#include <grove/light/Tonemap.h>
+// Idem pour l'etalonnage : GradeParams est defini par l'oracle, donc le parsing, le packet et le shader
+// partagent une seule description des trois reglages.
+#include <grove/light/Grade.h>
+
 namespace grove {
 
 class FrameAllocator;
@@ -364,6 +371,87 @@ struct FramePacket {
     //          primitive: published once, it governs every later frame until it changes, and it
     //          survives SceneCollector::clear().
     uint32_t ambientColor = 0;
+
+    // Post-processing: bloom settings (plan B) — set by `render:bloom`. GLOBAL FRAME STATE like the
+    // ambient above, not an ephemeral primitive: a reading, published once, that governs every later
+    // frame and survives SceneCollector::clear().
+    //
+    // ⚠️ `intensity == 0` IS THE SWITCH, and it is the default. Zero means no HDR composite target is
+    //    built, no bloom pass is recorded, and the composite writes to the backbuffer exactly as it
+    //    does without this feature — byte for byte. Same contract as `ambientColor == 0`, and it
+    //    protects the same consumers.
+    //
+    // ⚠️ Le bloom EXIGE que l'éclairage soit actif (ambientColor != 0) : sans lui la scène va
+    //    directement au backbuffer, et un backbuffer ne s'échantillonne pas. Un jeu qui ne veut que
+    //    du post-traitement publie un ambiant BLANC, neutre par construction.
+    struct BloomSettings {
+        // Combien de lueur est rajoutée à la frame composée. 0 = éteint.
+        float intensity = 0.0f;
+        // Luminance au-delà de laquelle un pixel brille. 1.0 = « seulement le sur-brillant », ce qui
+        // est la justification même du choix RGBA16F pour les cibles.
+        float threshold = 1.0f;
+        // Étendue de la lueur, en PIXELS ÉCRAN — pas en fraction de l'écran, sinon l'épaisseur de la
+        // lueur changerait au redimensionnement de la fenêtre. Même leçon que le pas de la marche
+        // d'occultation, qui était une fraction de distance et produisait un escalier variable.
+        float radius = 16.0f;
+    };
+    BloomSettings bloom;
+
+    // Post-processing: tonemapping (plan T) — set by `render:tonemap`. GLOBAL FRAME STATE, persistent,
+    // exactly like the ambient and the bloom above.
+    //
+    // ⚠️ SÉPARÉ du bloom, délibérément. Le tonemapping CHANGE l'image : l'agrafer au bloom ferait
+    //    qu'activer une lueur modifierait au passage l'exposition de tout le rendu. Les deux réglages
+    //    partagent la PLOMBERIE (cible HDR + passe de présentation), pas l'interrupteur.
+    //
+    // ⚠️ `mode == None` est le défaut, et c'est une IDENTITÉ EXACTE, pas « un tonemapping neutre » :
+    //    l'un des deux réglages suffit à faire exister la passe de présentation, aucun ne la fait
+    //    exister à moitié. Le contournement à coût nul tient à ce que les deux soient éteints.
+    //
+    // POURQUOI un mode et pas un nombre : « pas de tonemapping » n'est pas « un tonemapping d'intensité
+    //    nulle ». Une courbe n'a pas de réglage continu vers l'identité — Reinhard à faible exposition
+    //    reste une courbe, elle assombrit.
+    struct TonemapSettings {
+        light::TonemapMode mode = light::TonemapMode::None;
+        // Multiplie la scène AVANT la courbe : c'est ce qui place la scène sur la courbe, et sans quoi
+        // le tonemapping est subi. 1 = neutre.
+        float exposure = 1.0f;
+    };
+    TonemapSettings tonemap;
+
+    // Post-processing: full-screen FADE (plan F2) — set by `render:fade`. Persistent global state like
+    // the three settings above.
+    //
+    // ⚠️ Contrairement au bloom et au tonemapping, celui-ci N'EXIGE RIEN : ni éclairage, ni cible HDR.
+    //    C'est un quad mélangé par-dessus le résultat, quel qu'il soit — donc il fonctionne dans un jeu
+    //    qui n'éclaire pas, ce qui est le cas des trois consommateurs actuels.
+    //
+    // ⚠️ Et il est dessiné par une passe soumise EN DERNIER, donc il COUVRE LE HUD. C'est le contraire
+    //    du bloom et du tonemapping, qui l'épargnent délibérément : une transition de scène doit
+    //    emporter l'interface, sinon elle flotte sur un écran noir. Voir docs/design/lighting-fade.md §2,
+    //    qui corrige au passage une affirmation du plan du bloom.
+    struct FadeSettings {
+        // 0 = éteint (le défaut), 1 = l'écran EST la couleur. Borné à [0,1] par le collector : un mix
+        // au-delà de 1 EXTRAPOLE, donc donnerait des artefacts au lieu d'un écran plein.
+        float amount = 0.0f;
+        // RGBA, mais l'octet alpha est IGNORÉ — c'est `amount` qui fait office d'alpha. Noir par défaut,
+        // le fondu de transition étant de loin le cas courant.
+        uint32_t color = 0x000000FFu;
+    };
+    FadeSettings fade;
+
+    // Post-processing: COLOUR GRADING (plan G) — set by `render:grade`. Persistent global state like the
+    // three settings above. Les paramètres eux-mêmes vivent dans l'oracle : il n'existe qu'UNE
+    // définition de cet étalonnage, partagée par le parsing, le packet et le shader.
+    //
+    // ⚠️ Place : la passe de PRÉSENTATION, après la courbe de tonemapping. Donc elle **épargne le HUD**
+    //    — exactement l'inverse du fondu, qui le couvre. Un monde désaturé sous une interface qui garde
+    //    ses couleurs est le comportement voulu : le HUD est un objet de lecture, pas un élément de la
+    //    fiction, et le désaturer rendrait un texte d'alerte rouge illisible au moment où il compte.
+    //
+    // ⚠️ Les trois neutres (saturation 1, contrast 1, teinte blanche) ⇒ INERTE, et surtout n'activent
+    //    PAS la passe de présentation. Voir grove::light::gradeIsNeutral.
+    light::GradeParams grade;
 
     // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
     // published none — no arena slice is claimed for a feature nobody used.

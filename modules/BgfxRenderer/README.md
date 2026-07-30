@@ -244,8 +244,156 @@ bon choix pour les lampes, qui suivent en général quelque chose de mobile.
 - **Empiler des `render:fog` ne fait pas un nuage** — ça donne des contours rectangulaires
   concentriques. Empiler des `render:nebula`, si.
 
+**Combien de lampes ?** Mesuré, pas estimé (`tests/visual/benchmark_lighting.cpp`) : le coût est du
+**fill rate**, proportionnel aux *viewports couverts*, et le nombre de lampes n'entre pas dans le
+modèle. **Sans matière publiée : ~850 viewports couverts par frame à 60 fps. Avec de la matière :
+~47.** Un seul occulteur multiplie donc tout par **18** — c'est un coût de *présence*, pas de volume
+(un mur coûte autant que cinq cents). Réduire les **rayons** est le levier ; réduire le nombre ne
+sert qu'à proportion de la surface retirée.
+
 Conception : [`docs/design/lighting-2d.md`](../../docs/design/lighting-2d.md) (point d'entrée).
 Guide consommateur détaillé : [DEVELOPER_GUIDE](../../docs/DEVELOPER_GUIDE.md).
+
+### Bloom (post-traitement)
+
+Une lueur autour de ce qui est **sur-exposé**. Un seul réglage, persistant :
+
+```cpp
+auto b = std::make_unique<JsonDataNode>("b");
+b->setDouble("intensity", 1.5);      // 0 = ÉTEINT (le défaut). C'est l'interrupteur.
+b->setDouble("threshold", 1.0);      // luminance au-delà de laquelle un pixel brille
+b->setDouble("radius", 24.0);        // étendue, en PIXELS ÉCRAN
+io->publish("render:bloom", std::move(b));
+```
+
+**⚠️ Le bloom exige l'éclairage actif.** Il se nourrit de la frame *composée*, et sans `render:ambient`
+il n'y a pas de composite du tout — la scène va au backbuffer, qui ne s'échantillonne pas. Pour du
+post-traitement sans look éclairé : un **ambiant blanc**, neutre par construction.
+
+**Pourquoi la frame composée et pas le buffer de lumière** — c'est le seul choix d'architecture, et il
+a une conséquence exploitable : la source étant l'image finale, un **sprite additif**
+(`blend:"additive"`) brille aussi, pas seulement les lampes. C'est la forme du panache de moteur.
+L'autre option coûtait une passe de moins et le laissait éteint.
+
+Le seuil a un **genou doux** (la moitié du seuil, pas un bouton) : sans lui la *pente* de la lueur
+saute au franchissement et le halo démarre par un ourlet visible. La courbe est en C++ dans
+`grove::light::brightPassFraction` — un jeu peut demander « cette couleur brillerait-elle ? » sans
+relecture GPU, comme pour la retombée des lampes.
+
+**Coût** : une cible RGBA16F plein écran de plus et quatre passes plein écran, dont trois au **quart**
+de la résolution. Payé seulement tant que `intensity > 0`. **Le HUD ne brille pas** — il est soumis
+après la présentation ; interface nette au-dessus d'un monde qui éblouit, c'est voulu.
+
+**La résolution du flou suit le rayon** (`grove::light::bloomDownsample` → 1/4, 1/8 ou 1/16), et c'est ce
+qui rend une lueur large possible. Les 9 taps tombent aux **mêmes positions écran** quel que soit le
+facteur — le plus externe doit valoir `radius`, c'est imposé — donc ce qui change est l'**empreinte** d'un
+tap, soit un texel. À 1/4 un tap couvre 4 px et laisse 12 px de trou dès que le rayon dépasse ~24 px : ces
+trous sont un **feston**. Rayon utile **jusqu'à ~96 px**.
+
+⚠️ Au-delà, ça redégrade : passer à 1/32 échangerait le feston contre des **blocs** visibles, donc on
+s'arrête à 1/16. Et le plafond de 24 px a été **vu sur une capture** à 40 px — le « ~60 px » écrit avant
+lui par raisonnement était faux.
+
+Conception : [`docs/design/lighting-bloom.md`](../../docs/design/lighting-bloom.md).
+
+### Tonemapping (post-traitement)
+
+Comprime la plage HDR pour que **deux sur-brillances restent différentes** au lieu de devenir le même
+blanc. Réglage persistant, **indépendant du bloom** :
+
+```cpp
+auto t = std::make_unique<JsonDataNode>("t");
+t->setString("mode", "aces");     // "none" (défaut = ÉTEINT), "reinhard" ou "aces"
+t->setDouble("exposure", 1.4);    // multiplie la scène AVANT la courbe
+io->publish("render:tonemap", std::move(t));
+```
+
+**⚠️ L'activer ASSOMBRIT la scène, et ce n'est pas un bug.** `reinhard(1) = 0,5` : ce qui était blanc
+plein devient un gris moyen. C'est ce que fait une courbe de compression — elle fait de la place
+au-dessus. Monter `exposure` (démarrer vers 1,5–2,5) jusqu'à replacer les tons moyens.
+
+Mesuré, sur une surface blanche sous une lampe :
+
+| Intensité | sans tonemap | reinhard | aces |
+|---|---|---|---|
+| 2 | **255** | 170 | 233 |
+| 8 | **255** | 226 | 255 |
+
+Sans courbe, les deux sont le même blanc : le sur-brillant que les cibles RGBA16F existent pour
+conserver était jeté à la dernière ligne du pipeline.
+
+| Mode | Ce que ça donne |
+|---|---|
+| `reinhard` | doux et prévisible ; **n'atteint jamais 1**, donc sépare indéfiniment. Pour une plage dynamique extrême. |
+| `aces` | filmique, contrasté. ⚠️ **Sature vers 6** et ré-écrête au-delà — régler `exposure` pour tenir sous son point blanc. |
+
+La lueur du bloom est ajoutée **avant** la courbe (sinon elle ressortirait au-dessus de 1 et
+ré-écrêterait, donnant un aplat blanc collé sur l'image), la courbe s'applique **par canal** (sur la
+luminance seule, on obtiendrait des halos fluo), et **le HUD n'est pas tonemappé** — il passe après la
+présentation, donc l'interface reste lisible quelle que soit l'exposition.
+
+Conception : [`docs/design/lighting-tonemap.md`](../../docs/design/lighting-tonemap.md).
+
+### Fondus (post-traitement)
+
+```cpp
+auto f = std::make_unique<JsonDataNode>("f");
+f->setDouble("amount", 1.0);        // 0 = éteint (défaut) .. 1 = l'écran EST la couleur
+// f->setInt("color", 0xFF2010FF);  // facultatif ; NOIR par défaut
+io->publish("render:fade", std::move(f));
+```
+
+**✅ Contrairement au bloom et au tonemapping, un fondu n'exige RIEN** — ni `render:ambient`, ni cible
+HDR. C'est un quad mélangé par-dessus le résultat, donc il fonctionne dans un jeu qui n'éclaire pas.
+C'est le seul effet de cette famille utilisable tel quel par les trois consommateurs actuels.
+
+**Il couvre le HUD**, parce qu'il est dessiné sur sa propre vue soumise **en dernier** — après
+l'interface. C'est voulu : une transition de scène doit emporter l'UI, sinon les menus flottent sur un
+écran noir. (Le bloom et le tonemapping font l'inverse et épargnent le HUD.)
+
+**C'est au jeu de ramper `amount`** : pas de durée, pas d'easing. Le moteur ne possède pas cette
+horloge — une durée intégrée devrait décider si une pause gèle le fondu, et retirerait toute courbe
+non linéaire à l'auteur.
+
+`amount` est borné à [0,1] : au-delà, un mix **extrapole** et donne des artefacts au lieu d'un écran
+plein. L'octet alpha de la couleur est ignoré — c'est `amount` qui fait office d'alpha.
+
+Conception : [`docs/design/lighting-fade.md`](../../docs/design/lighting-fade.md).
+
+### Colorimétrie (post-traitement)
+
+Retouche l'image **finie** : le même décor devient un matin froid, un souvenir délavé ou une alerte
+rouge sans qu'un asset change.
+
+```cpp
+auto g = std::make_unique<JsonDataNode>("g");
+g->setDouble("saturation", 0.3);   // 0 = noir et blanc, 1 = neutre (défaut), >1 = criard
+g->setDouble("contrast", 1.2);     // <1 rapproche du gris moyen, >1 en écarte
+g->setInt("tint", 0x8090FFFF);     // blanc = neutre (défaut) — une COULEUR, pas trois flottants
+io->publish("render:grade", std::move(g));
+```
+
+**Il n'y a pas de bouton « luminosité », volontairement.** Il existe déjà : c'est `exposure` du
+tonemapping, et il est du **bon côté de la courbe**. Un gain après la compression ne ferait que saturer
+plus tôt, en annulant ce que le tonemapping venait de sauver. Même raison : **la teinte ne peut
+qu'assombrir** un canal (un octet plafonne à 1,0) — pour éclaircir, on monte `exposure`.
+
+**Elle épargne le HUD**, contrairement au fondu : un monde désaturé sous une interface qui garde ses
+couleurs est le comportement voulu, le HUD étant un objet de lecture et non un élément de la fiction.
+Désaturer un texte d'alerte rouge l'effacerait au moment précis où il compte.
+
+**L'ordre est fixe** : teinte → contraste → saturation, celui d'un étalonnage réel, et il n'est pas
+commutatif — teinter après avoir désaturé donnerait un virage sépia.
+
+Deux détails qui viennent de la math et évitent une heure de perplexité :
+
+- **le contraste pivote sur 0,5** et pas 0,18, parce qu'on opère *après* le tonemapping, dans un espace
+  d'affichage où le gris moyen est à 0,5. Un pivot linéaire assombrirait toute image contrastée ;
+- **la désaturation suit la luminance perceptuelle** (celle du seuil du bloom) : un rouge pur donne
+  54/255 et un bleu pur 18/255, parce que l'œil les voit à des clartés très différentes. Une moyenne
+  `(r+g+b)/3` les enverrait tous deux à 85 et aplatirait la palette.
+
+Conception : [`docs/design/lighting-grade.md`](../../docs/design/lighting-grade.md).
 
 ### Topics complets
 
@@ -336,12 +484,13 @@ int main() {
 *(Tout ce que cette liste réclamait autrefois — textures, shaders, tilemap, texte, particules,
 cibles de rendu, multi-vues — est livré. Une TODO qui ment coûte plus cher qu'une TODO absente.)*
 
-- [ ] **Mesurer le budget de lampes.** Chaque lampe est un quad coûtant jusqu'à 64 accès texture par
-      pixel couvert ; le chiffre « des dizaines » qui circulait est antérieur à la marche
-      d'occultation et n'a pas été revérifié depuis.
-- [ ] **Post-traitement** (bloom en premier) — la cible RGBA16F conserve déjà le sur-brillant pour ça
-- [ ] **Variantes Metal des shaders** : `fs_light`/`fs_nebula` n'ont pas de bloc Metal réel
-      (placeholder), faute de backend Metal sur la chaîne de build
+- [x] ~~**Mesurer le budget de lampes.**~~ Fait (`tests/visual/benchmark_lighting.cpp`) : 19,5 µs par
+      viewport couvert sans matière, 355 µs avec. Voir § Éclairage 2D.
+- [x] ~~**Post-traitement (bloom)**~~ Fait — `render:bloom`, voir § Bloom. Restent le **tonemapping**,
+      les **fondus** et la **colorimétrie**, qui iront sur la passe de présentation qu'il a introduite.
+- [ ] **Chaîne de mips pour le bloom** — sans elle, un rayon au-delà de ~60 px montre des cernes
+- [ ] **Variantes Metal des shaders** : `fs_light`/`fs_nebula`/`vs_nebula` et les trois shaders de
+      post-traitement n'ont pas de bloc Metal réel (placeholder), faute de backend Metal sur la chaîne
 - [ ] `flipX`/`flipY` sur `render:sprite:update` (délibérément non supporté : double-flip)
 
 ## Dépendances

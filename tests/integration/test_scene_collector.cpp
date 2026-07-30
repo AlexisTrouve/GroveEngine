@@ -19,6 +19,8 @@
 #include "grove/IntraIO.h"
 #include "grove/IntraIOManager.h"
 #include "grove/JsonDataNode.h"
+#include <grove/light/Tonemap.h>
+#include <grove/light/Grade.h>
 #include <nlohmann/json.hpp>
 
 #include <memory>
@@ -2934,4 +2936,489 @@ TEST_CASE("SceneCollector - nebula retained and ephemeral COEXIST",
     fx.collector.clear();
     fx.pump();
     REQUIRE(fx.collector.finalize(allocator).nebulaCount == 3);
+}
+
+// ============================================================================
+// Bloom (plan B, tranche B1) — `render:bloom`, un RÉGLAGE et pas une donnée de frame.
+//
+// Même nature que `render:ambient` : état global persistant, et `intensity == 0` est l'interrupteur
+// autant que la valeur. Tout le contournement à coût nul du bloom (aucune cible HDR, aucune passe,
+// composite au backbuffer à l'octet près) tient à ce que ce défaut soit 0.
+//
+// Plan : docs/design/lighting-bloom.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - bloom: absent means OFF", "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-régression. Une intensité non nulle par défaut ferait basculer chaque jeu
+    // existant sur le chemin post-traité — une cible plein écran RGBA16F et quatre passes que
+    // personne n'a demandées.
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - bloom: intensity alone is enough, the rest has defaults",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", 0.6);
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.6f, 1e-5f));
+    // Seuil 1.0 = « seulement le sur-brillant », qui est la justification même du RGBA16F.
+    REQUIRE_THAT(p.bloom.threshold, WithinAbs(1.0f, 1e-5f));
+    // Rayon en PIXELS ÉCRAN — pas en fraction d'écran, sinon la lueur changerait d'épaisseur au
+    // redimensionnement de la fenêtre (la leçon de la marche d'occultation, plan W risque 2).
+    REQUIRE_THAT(p.bloom.radius, WithinAbs(16.0f, 1e-5f));
+}
+
+TEST_CASE("SceneCollector - bloom: it PERSISTS across the frame boundary",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", 0.8);
+    b->setDouble("threshold", 2.5);
+    b->setDouble("radius", 40.0);
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.8f, 1e-5f));
+        REQUIRE_THAT(p.bloom.threshold, WithinAbs(2.5f, 1e-5f));
+        REQUIRE_THAT(p.bloom.radius, WithinAbs(40.0f, 1e-5f));
+    }
+
+    // Un réglage, pas une primitive : il doit survivre, ou un jeu devrait le republier chaque frame.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.8f, 1e-5f));
+        REQUIRE_THAT(p.bloom.threshold, WithinAbs(2.5f, 1e-5f));
+    }
+}
+
+TEST_CASE("SceneCollector - bloom: intensity 0 turns it back OFF",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto b = std::make_unique<JsonDataNode>("b");
+        b->setDouble("intensity", 0.7);
+        fx.ioPublisher->publish("render:bloom", std::move(b));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).bloom.intensity > 0.0f);
+        fx.collector.clear();
+    }
+
+    // Le sujet est l'EXTINCTION. Comme pour l'ambiant, le topic est l'interrupteur autant que la
+    // valeur : un jeu qui coupe son post-traitement doit pouvoir le dire, et le renderer doit alors
+    // rendre ses cibles. Sans ce chemin, le bloom serait allumable et pas éteignable.
+    auto off = std::make_unique<JsonDataNode>("b");
+    off->setDouble("intensity", 0.0);
+    fx.ioPublisher->publish("render:bloom", std::move(off));
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).bloom.intensity, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - bloom: nonsense values are clamped, not propagated",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", -3.0);      // une intensité négative SOUSTRAIRAIT de la lueur
+    b->setDouble("threshold", -1.0);      // un seuil négatif casse la courbe du genou
+    b->setDouble("radius", -50.0);        // un rayon négatif donnerait un sigma négatif
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    // Intensité négative = éteint, pas « lueur inversée » : rien à ajouter est le seul sens qu'on
+    // puisse donner à moins que rien.
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+    // Seuil 0 = tout brille, qui est la valeur limite documentée (le voile).
+    REQUIRE_THAT(p.bloom.threshold, WithinAbs(0.0f, 1e-6f));
+    // Rayon 0 = aucune étalement, donc une lueur nette. Explicable et monotone (plus petit rayon =
+    // lueur plus serrée), là où remettre le défaut ferait un rayon de 16 sorti de nulle part.
+    REQUIRE_THAT(p.bloom.radius, WithinAbs(0.0f, 1e-6f));
+}
+
+// ============================================================================
+// Tonemapping (plan T, tranche T1) — `render:tonemap`, un réglage SÉPARÉ du bloom.
+//
+// Même nature persistante que `render:ambient` et `render:bloom`. Mais son interrupteur est un MODE et
+// non un nombre, parce que « pas de tonemapping » n'est pas « un tonemapping d'intensité nulle » : la
+// courbe n'a pas de réglage continu vers l'identité.
+//
+// ⚠️ SÉPARÉ du bloom, et c'est délibéré : le tonemapping CHANGE l'image. L'agrafer au bloom ferait
+//    qu'activer une lueur modifierait au passage l'exposition de tout le rendu — une surprise que
+//    personne n'a demandée. Les deux partagent la plomberie, pas l'interrupteur.
+//
+// Plan : docs/design/lighting-tonemap.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - tonemap: absent means NONE", "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-régression. Un mode non-None par défaut changerait l'image de CHAQUE jeu
+    // existant — et pas subtilement : Reinhard divise par deux ce qui vaut 1.
+    REQUIRE(p.tonemap.mode == light::TonemapMode::None);
+    REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - tonemap: les deux modes se nomment, et persistent",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "reinhard");
+        t->setDouble("exposure", 1.8);
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.8f, 1e-5f));
+    }
+
+    // Un réglage, pas une primitive : il survit à la frontière de frame.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.8f, 1e-5f));
+    }
+
+    // ...et il se change.
+    fx.collector.clear();
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);
+        // Exposition absente => 1.0, le neutre. PAS la valeur précédente : le message porte l'état
+        // complet du réglage, comme `render:ambient` porte sa couleur.
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.0f, 1e-6f));
+    }
+}
+
+TEST_CASE("SceneCollector - tonemap: \"none\" ÉTEINT", "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).tonemap.mode != light::TonemapMode::None);
+        fx.collector.clear();
+    }
+
+    // Le sujet est l'EXTINCTION, et elle a une conséquence côté renderer : la passe de présentation
+    // doit rendre la vue du composite au backbuffer. Sans ce chemin, la frame resterait dans une cible
+    // que plus personne ne présente — un écran noir.
+    auto off = std::make_unique<JsonDataNode>("t");
+    off->setString("mode", "none");
+    fx.ioPublisher->publish("render:tonemap", std::move(off));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).tonemap.mode == light::TonemapMode::None);
+}
+
+TEST_CASE("SceneCollector - tonemap: un mode inconnu ÉTEINT au lieu d'en deviner un",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto t = std::make_unique<JsonDataNode>("t");
+    t->setString("mode", "filmic-deluxe");     // faute de frappe, ou un mode d'une version future
+    t->setDouble("exposure", 2.0);
+    fx.ioPublisher->publish("render:tonemap", std::move(t));
+    fx.pump();
+
+    // Retomber sur une courbe arbitraire appliquerait au rendu une transformation que l'auteur n'a pas
+    // demandée, et il la chercherait dans son propre code. Éteint est le seul défaut honnête.
+    REQUIRE(fx.collector.finalize(allocator).tonemap.mode == light::TonemapMode::None);
+}
+
+TEST_CASE("SceneCollector - tonemap: une exposition absurde est bornée",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto t = std::make_unique<JsonDataNode>("t");
+    t->setString("mode", "reinhard");
+    t->setDouble("exposure", -4.0);            // une exposition négative inverserait l'image
+    fx.ioPublisher->publish("render:tonemap", std::move(t));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+    REQUIRE_THAT(p.tonemap.exposure, WithinAbs(0.0f, 1e-6f));   // 0 = noir, explicable
+}
+
+TEST_CASE("SceneCollector - tonemap et bloom sont INDÉPENDANTS",
+          "[scene_collector][light][tonemap][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Le tonemapping seul, sans aucun bloom : c'est un cas que le renderer doit savoir servir (cible
+    // HDR + présentation, mais PAS les cibles de flou).
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+        fx.collector.clear();
+    }
+
+    // Et le bloom seul ne doit PAS allumer le tonemapping — sinon activer une lueur changerait
+    // l'exposition de tout le rendu.
+    {
+        auto b = std::make_unique<JsonDataNode>("b");
+        b->setDouble("intensity", 1.0);
+        fx.ioPublisher->publish("render:bloom", std::move(b));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.bloom.intensity > 0.0f);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);   // inchangé par le bloom
+    }
+}
+
+// ============================================================================
+// Fondus (plan F2, tranche Fa) — `render:fade`, le plus simple des reglages persistants.
+//
+// Meme nature que l'ambiant, le bloom et le tonemapping : etat global qui survit a la frontiere de
+// frame, et `amount == 0` est l'interrupteur autant que la valeur.
+//
+// ⚠️ Mais contrairement aux trois autres, celui-ci N'EXIGE RIEN : ni eclairage, ni cible HDR. C'est un
+//    quad melange par-dessus le resultat, quel qu'il soit. Cote collector ca ne se voit pas ; c'est le
+//    test GPU qui le prouve. Plan : docs/design/lighting-fade.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - fade: absent means OFF", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-regression : un amount non nul par defaut voilerait l'ecran de CHAQUE jeu.
+    REQUIRE_THAT(p.fade.amount, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - fade: couleur + quantite, et ca PERSISTE", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setInt("color", 0xFF2010FFu);        // un flash rouge
+    f->setDouble("amount", 0.4);
+    fx.ioPublisher->publish("render:fade", std::move(f));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.fade.amount, WithinAbs(0.4f, 1e-5f));
+        REQUIRE(p.fade.color == 0xFF2010FFu);
+    }
+
+    // Un reglage, pas une primitive : il survit, sinon un jeu devrait republier son fondu chaque frame
+    // -- ce qu'il fera de toute facon pendant une transition, mais PAS pendant un fondu maintenu.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.fade.amount, WithinAbs(0.4f, 1e-5f));
+    }
+}
+
+TEST_CASE("SceneCollector - fade: la couleur par defaut est le NOIR", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Le cas d'usage de loin le plus courant est la transition au noir : elle doit s'ecrire en un seul
+    // champ. `render:fade {amount: 1}` suffit.
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setDouble("amount", 1.0);
+    fx.ioPublisher->publish("render:fade", std::move(f));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE_THAT(p.fade.amount, WithinAbs(1.0f, 1e-6f));
+    // 0x000000FF : noir opaque. L'octet alpha est ignore par la passe (c'est `amount` qui fait office
+    // d'alpha) mais on le garde a FF pour que la valeur se lise comme une couleur normale du moteur.
+    REQUIRE((p.fade.color >> 8) == 0u);
+}
+
+TEST_CASE("SceneCollector - fade: amount 0 ETEINT", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", 1.0);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).fade.amount > 0.0f);
+        fx.collector.clear();
+    }
+
+    // La fin d'une transition : un jeu rampe `amount` jusqu'a 0 et l'ecran doit redevenir intact. Sans
+    // ce chemin, un fondu serait un aller sans retour.
+    auto off = std::make_unique<JsonDataNode>("f");
+    off->setDouble("amount", 0.0);
+    fx.ioPublisher->publish("render:fade", std::move(off));
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - fade: amount est BORNE a [0,1]", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Au-dela de 1 un `mix` EXTRAPOLE : la couleur depasserait et donnerait des artefacts au lieu d'un
+    // ecran plein. En dessous de 0 il extrapolerait dans l'autre sens.
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", 3.5);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(1.0f, 1e-6f));
+        fx.collector.clear();
+    }
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", -2.0);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(0.0f, 1e-6f));
+    }
+}
+
+// ============================================================================
+// Colorimetrie (plan G, tranche Gb) — `render:grade`.
+//
+// ⚠️ PAS de bouton « luminosite » : il existe deja, c'est `exposure` du tonemapping, et il est du BON
+//    COTE de la courbe. Ces tests verrouillent donc trois champs et pas quatre. Plan : lighting-grade.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - grade: absent means NEUTRAL", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-regression, et elle porte plus loin que les autres : c'est
+    // `gradeIsNeutral` qui decide si la passe de presentation existe.
+    REQUIRE(light::gradeIsNeutral(p.grade));
+    REQUIRE_THAT(p.grade.saturation, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p.grade.contrast, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p.grade.tintR, WithinAbs(1.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - grade: les trois reglages, et ca PERSISTE", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto g = std::make_unique<JsonDataNode>("g");
+    g->setDouble("saturation", 0.2);
+    g->setDouble("contrast", 1.3);
+    g->setInt("tint", 0x8090FFFF);        // une nuit bleutee
+    fx.ioPublisher->publish("render:grade", std::move(g));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(0.2f, 1e-5f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(1.3f, 1e-5f));
+        // La teinte est publiee comme une COULEUR : c'est la convention du moteur, et un auteur pense
+        // « bleu nuit » plutot que « (0.5, 0.56, 1.0) ».
+        REQUIRE_THAT(p.grade.tintR, WithinAbs(0x80 / 255.0f, 1e-4f));
+        REQUIRE_THAT(p.grade.tintB, WithinAbs(1.0f, 1e-4f));
+        REQUIRE_FALSE(light::gradeIsNeutral(p.grade));
+    }
+
+    fx.collector.clear();
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).grade.saturation, WithinAbs(0.2f, 1e-5f));
+}
+
+TEST_CASE("SceneCollector - grade: revenir aux neutres ETEINT", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto g = std::make_unique<JsonDataNode>("g");
+        g->setDouble("saturation", 0.0);
+        fx.ioPublisher->publish("render:grade", std::move(g));
+        fx.pump();
+        REQUIRE_FALSE(light::gradeIsNeutral(fx.collector.finalize(allocator).grade));
+        fx.collector.clear();
+    }
+
+    // Publier un neutre explicite doit rendre la passe de presentation inutile a nouveau -- sinon
+    // l'etalonnage serait allumable et pas eteignable, et un jeu paierait une passe plein ecran a vie
+    // pour avoir desature une fois.
+    auto off = std::make_unique<JsonDataNode>("g");
+    off->setDouble("saturation", 1.0);
+    fx.ioPublisher->publish("render:grade", std::move(off));
+    fx.pump();
+    REQUIRE(light::gradeIsNeutral(fx.collector.finalize(allocator).grade));
+}
+
+TEST_CASE("SceneCollector - grade: valeurs negatives bornees, hautes LIBRES",
+          "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto g = std::make_unique<JsonDataNode>("g");
+    g->setDouble("saturation", -1.0);     // une saturation negative inverserait les couleurs
+    g->setDouble("contrast", -2.0);
+    fx.ioPublisher->publish("render:grade", std::move(g));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(0.0f, 1e-6f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(0.0f, 1e-6f));
+    }
+
+    // En HAUT, rien n'est borne : >1 est un effet legitime (couleurs criardes, contraste extreme), et
+    // c'est la borne finale de sortie de l'oracle qui s'occupe du depassement par canal.
+    fx.collector.clear();
+    auto h = std::make_unique<JsonDataNode>("g");
+    h->setDouble("saturation", 3.0);
+    h->setDouble("contrast", 4.0);
+    fx.ioPublisher->publish("render:grade", std::move(h));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(3.0f, 1e-5f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(4.0f, 1e-5f));
+    }
 }

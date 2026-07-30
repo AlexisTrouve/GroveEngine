@@ -2,8 +2,15 @@
 
 > **Statut** : ✅ **TOUT LIVRÉ** au 2026-07-29 — lampes (L1→L3), socle de transmittance (C1→C2),
 > murs (W), filtres (F), milieux et nébuleuses (A1→A4). Suite complète 194/194.
-> **Suite annoncée** : le post-traitement (bloom, fondus, colorimétrie) — il consommera la même
-> plomberie de cibles de rendu. Les choix ci-dessous en tiennent compte.
+> **Post-traitement** : ✅ **bloom + tonemapping livrés** (2026-07-30, [plan B](lighting-bloom.md)
+> et [plan T](lighting-tonemap.md)) — ils consomment bien la même plomberie de cibles, et le
+> RGBA16F tranché en §8 est ce qui les a rendus possibles. ⚠️ Le tonemapping **ferme une dette de
+> cet arbitrage** : le sur-brillant y était conservé, puis écrêté par le backbuffer 8 bits à la
+> dernière ligne (deux lampes d'intensité 2 et 8 rendaient toutes deux 255 — mesuré). Restent les
+> **fondus** ✅ (mais sur leur PROPRE passe, pas la présentation — [plan F2](lighting-fade.md) §2
+> explique pourquoi) et la **colorimétrie** ✅ ([plan G](lighting-grade.md)).
+> **La queue de post-traitement annoncée en plan B est donc COMPLÈTE** : bloom, tonemapping, fondus,
+> colorimétrie.
 
 ---
 
@@ -18,6 +25,10 @@ vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
 | un **survol rapide** côté module | [README de BgfxRenderer](../../modules/BgfxRenderer/README.md) § Éclairage 2D |
 | **pourquoi murs, filtres et brouillard sont un seul mécanisme** | [socle de transmittance](lighting-transmittance-core.md) ← la pièce centrale |
 | le détail d'une matière | [murs](lighting-walls.md) · [filtres](lighting-filters.md) · [milieux et nébuleuses](lighting-attenuators.md) |
+| le **bloom** (post-traitement) | [plan B](lighting-bloom.md) — ce qui alimente la lueur, et pourquoi ce n'est pas le buffer de lumière |
+| le **tonemapping** | [plan T](lighting-tonemap.md) — comment le sur-brillant conservé ici arrive enfin à l'écran |
+| les **fondus** | [plan F2](lighting-fade.md) — le seul effet de la famille qui n'exige PAS l'éclairage |
+| la **colorimétrie** | [plan G](lighting-grade.md) — et pourquoi il n'y a pas de bouton « luminosité » |
 | **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
 
 **Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un
@@ -134,24 +145,45 @@ point A au point B* — donc ils partagent **un socle** decide une fois pour tou
 - [Plan A — les milieux](lighting-attenuators.md) : Beer-Lambert **+ diffusion**, et les nébuleuses
   à densité radiale (A4) — ✅ **LIVRÉ**
 
-### ⚠️ Le budget de lampes n'est PAS mesuré — et le chiffre du §4 est à ignorer
+### ✅ Le budget de lampes, mesuré (2026-07-29)
 
-Le §4 annonce « des dizaines de lampes ». Ce chiffre est **antérieur à la marche d'occultation** et
-n'a jamais été revérifié depuis. Il n'est pas *à peu près* juste : il décrit un autre moteur.
+Le §4 annonçait « des dizaines de lampes ». Ce chiffre était antérieur à la marche d'occultation : il
+décrivait un autre moteur. Il a été **retiré, puis remplacé par une mesure** —
+`tests/visual/benchmark_lighting.cpp` (RTX 4060 Laptop, 1280×720, vsync off, 60 frames par point).
 
-Ce qu'on sait, en revanche, et qui est plus utile qu'un nombre inventé :
+**Le coût est du fill rate, et rien d'autre.** Il est proportionnel aux **viewports couverts** (les
+surfaces de lampes cumulées divisées par l'écran, le recouvrement comptant double), et le *nombre* de
+lampes n'apparaît pas dans le modèle :
 
-- une lampe coûte surtout du **fill rate**, pas un draw — elle ne paie que les pixels qu'elle couvre ;
-- depuis C2, chaque pixel couvert paie **jusqu'à 64 accès texture** pour parcourir la carte
-  d'occultation, contre un seul avant. Le facteur est donc **par pixel**, pas par lampe ;
-- **une petite lampe est très largement moins chère qu'une grande** : le coût suit la surface, et le
-  nombre d'échantillons de la marche suit la distance parcourue à l'écran.
+| | par viewport couvert | budget 60 fps |
+|---|---|---|
+| aucune matière publiée | **19,5 µs** | ~850 viewports |
+| matière publiée | **355 µs** | **~47 viewports** |
 
-Conséquence pratique : dix petites lampes coûtent moins que deux qui remplissent l'écran. Le seul
-correctif honnête est **un banc** qui monte le nombre de lampes ombrées jusqu'au décrochage, comme
-celui des sprites (`tests/visual/benchmark_render_savage.cpp`). **Tant qu'il n'existe pas, ne
-promettre aucun chiffre au consommateur** — c'est ce que fait la doc actuelle, délibérément.
+Le coût par viewport est constant à ±1 % sur toute la plage mesurée (32 → 128 lampes : 355, 357,
+352 µs). Ce n'est pas une approximation, c'est une droite.
 
+#### Le vrai résultat : **un seul occulteur multiplie tout par 18**
+
+La marche échantillonne alors une vraie carte plein écran au lieu du placeholder 1×1 de vide. Et le
+facteur ne dépend **pas** de la quantité de matière — un mur coûte autant que cinq cents. C'est un
+coût de **présence**, pas de volume.
+
+Corollaire rassurant, et c'était la question qui inquiétait en écrivant le banc : **un jeu sans aucun
+mur ne paie presque rien** (19,5 µs par viewport). Drifterra, DAOS et Fractax ne publient aucun
+occulteur — la marche ne leur facture rien de sensible.
+
+Corollaire actionnable : si un jeu a des murs, c'est **là** que se joue son budget, pas dans le
+nombre de lampes. Réduire les **rayons** est le levier ; réduire le *nombre* ne sert qu'à proportion
+de la surface qu'on retire.
+
+#### ⚠️ Une anomalie non expliquée, signalée plutôt que tue
+
+À rayon 60 px, 1024 lampes coûtent 0,33 ms et 4096 en coûtent **26,6** — un facteur 80 pour un
+facteur 4 en nombre, là où toutes les autres lignes sont linéaires. Ce n'est donc pas du fill rate ;
+ça ressemble à un mur d'appels de dessin ou de changements d'état. **Non diagnostiqué.** Sans portée
+pratique (4096 lampes n'est pas un régime réel), mais c'est une non-linéarité sans explication, et
+la taire coûterait plus cher que l'écrire.
 ## 6bis. À faire plus tard — particules-lumières et le chemin bulk
 
 > **Statut** : dette assumée, pas planifiée. Notée le 2026-07-29 depuis une question terrain

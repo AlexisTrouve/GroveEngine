@@ -351,6 +351,7 @@ final.rgb = scene.rgb × (ambient.rgb + lightAccum.rgb)
 |-------|---------|-------|
 | `render:ambient` | `{color}` | the global term — **the on/off switch for the whole feature** |
 | `render:light` | `{cx, cy, radius, color, intensity?, dirDeg?, spreadDeg?}` | one light, **ephemeral** (re-publish each frame). Omni by default; a cone with `spreadDeg` |
+| `render:bloom` | `{intensity, threshold?, radius?}` | post-processing glow, **persistent**. `intensity 0` = off (the default); needs lighting active |
 
 ##### ⚠️ Nothing is lit until you publish an ambient
 
@@ -394,8 +395,9 @@ io->publish("render:light", std::move(l));
 - **`radius` is in world units**, so a light zooms with everything else.
 - The colour's **alpha byte is ignored** — a light adds, it does not blend. Brightness is `intensity`.
 - **`intensity` above 1 is legal and useful.** The accumulation target is RGBA16F, so overlapping
-  lights overshoot 1.0 instead of clipping. That headroom is what a future bloom pass feeds on; in
-  RGBA8 a bright core would flatten to featureless white.
+  lights overshoot 1.0 instead of clipping. That headroom is what the **bloom** feeds on (see below);
+  in RGBA8 a bright core would flatten to featureless white — and a threshold above 1 would be
+  unreachable, so the default bloom setting would never glow.
 - The falloff is `(1 − d/r)²`, reaching **exactly** zero at `radius`.
 
 ##### Cone lights (spotlights, thrusters)
@@ -575,7 +577,7 @@ of radius 150 at `density: 0.9` absorbs `exp(-135)` through its core — a black
 first instinct here is one to two orders of magnitude too high.
 
 ⚠️ **Overbright is easy to reach.** The scattered term is additive and unclamped (RGBA16F), so a dense
-medium under an intense lamp saturates. That is intended — it is what a bloom pass will feed on — but
+medium under an intense lamp saturates. That is intended — it is what the **bloom** feeds on — but
 it means `scatter` near 1 with `intensity` above 2 will flatten to white.
 
 ##### Asking "is this point lit?" from gameplay
@@ -600,11 +602,28 @@ shadows landed: every covered pixel now marches the occlusion map, up to **64 te
 the sample count follows how far the pixel sits from the lamp *on screen*. Ten small lamps are
 comfortably cheaper than two that fill the viewport.
 
-⚠️ **No lamp budget has been measured since the occlusion march landed.** An earlier version of this
-page promised "tens of lights per frame"; that figure predates shadows entirely and is not a rough
-guide — it describes a different renderer. It has been removed rather than adjusted, because a number
-nobody measured is worse than no number. If your scene is lamp-heavy, profile it; a proper bench (as
-exists for sprites) is named debt in `docs/design/lighting-2d.md`.
+**Measured** (`tests/visual/benchmark_lighting.cpp`, RTX 4060 Laptop, 1280×720). The cost is
+proportional to **covered viewports** — the lamps' areas summed and divided by the screen, with
+overlap counted twice — and to essentially nothing else. Lamp *count* does not appear in the model:
+
+| | per covered viewport | 60 fps budget (16.6 ms) |
+|---|---|---|
+| no matter published | **19.5 µs** | ~850 covered viewports |
+| any matter published | **355 µs** | **~47 covered viewports** |
+
+Read that second row carefully: **publishing a single occluder multiplies the cost of every lamp by
+18**, because the march then samples a real screen-sized map instead of the 1×1 vacuum placeholder.
+It is not proportional to how *much* matter there is — one wall costs the same as five hundred.
+
+Concretely, at 1280×720 with walls in the scene: **~45 lamps of radius 300 px**, or ~700 of radius
+60 px, would consume the entire 60 fps frame. Halve that for a game that also has to draw something.
+Without any matter, lamps are effectively free at any count you are likely to publish.
+
+To convert to your own numbers: one lamp of radius *r* covers `(2r)² / (screenW × screenH)`
+viewports, clipped to the screen.
+
+⚠️ Machine-dependent, obviously — re-run the bench rather than trusting these figures on other
+hardware. The *shape* (fill-rate bound, ×18 for matter, count-independent) is what transfers.
 
 The other limit is unchanged and unrelated to the GPU: publishing lights over IIO costs one message
 each (~5k primitives/frame across all topics), the same wall the bulk sprite path exists to break. If
@@ -617,15 +636,183 @@ What is genuinely missing:
 
 - **No soft shadows.** Edges are hard (and antialiased); there is no penumbra, because there is no
   light *area* in the model. The antialiasing is edge quality, not physics — don't confuse the two.
-- **No post-processing yet.** Bloom is the announced next step and the reason the targets are
-  RGBA16F: the overbright is already being kept for it.
+- **Bloom is here** (`render:bloom`, see below) — this line used to say post-processing was missing.
+  What is *still* missing is the rest of the chain: no tonemapping, no fades, no colour grading. They
+  belong on the present pass the bloom introduced, which exists partly for them.
+- **Bloom `radius` is usable up to ~96 px**, past which it degrades. The blur resolution follows the
+  radius (1/4, 1/8 or 1/16 of the screen) so that a tap's footprint always covers the gap to the next
+  one; without that the glow shows a scalloped hem instead of a gradient. Going further would mean
+  1/32, which trades the hem for visible blocks — so it stops. (The ceiling was 24 px until the
+  resolution became radius-driven, and it was SEEN on a capture; the "~60 px" written before that from
+  theory was wrong.)
 - **No textured or animated density.** A medium is a uniform rect or a radial disc; you cannot hand
   it a noise texture. Overlapping several volumes is the intended way to get an irregular cloud.
 - **Occluders block LIGHT, not SIGHT.** Hiding what is behind a wall is a visibility system and
   belongs in game code.
-- **No measured lamp budget** — see *What it costs* above.
+- ~~No measured lamp budget~~ — it **is** measured now, see *What it costs* above.
 
 Design + slices: `docs/design/lighting-2d.md` (entry point; it links the per-matter plans).
+
+#### Bloom (post-processing)
+
+Adds a glow around what is **over-exposed** — the halo bleeding out of a lamp, an engine trail
+smearing, a stained-glass pane dazzling. One persistent setting, published once:
+
+```cpp
+auto bloom = std::make_unique<JsonDataNode>("bloom");
+bloom->setDouble("intensity", 1.5);     // how much glow is added back. 0 = OFF (the default)
+bloom->setDouble("threshold", 1.0);     // luminance above which a pixel glows (1.0 = only overbright)
+bloom->setDouble("radius", 24.0);       // glow extent in SCREEN PIXELS
+io->publish("render:bloom", std::move(bloom));
+```
+
+**⚠️ Bloom requires lighting to be active.** It feeds on the *composited* frame, and without
+`render:ambient` there is no composite at all — the scene goes straight to the backbuffer, and a
+backbuffer cannot be sampled. If you want post-processing without a lit look, publish a **white
+ambient**: it leaves the scene unchanged by construction.
+
+**Why the composited frame and not the light buffer** — this is the one architectural decision, and it
+has a consequence you can use: because the source is the final image, an **additive sprite**
+(`blend:"additive"`) glows too, not just lamps. That is the engine-plume shape. The alternative would
+have been cheaper by one pass and would have left it dark.
+
+| Knob | Default | What to know |
+|---|---|---|
+| `intensity` | **0 = off** | It is the switch as much as the value. 1–3 is the usual range. |
+| `threshold` | 1.0 | Only what exceeds 1 glows — which is exactly why the targets are RGBA16F. `0` = everything glows (a veil). |
+| `radius` | 16 | **Screen pixels**, so the glow keeps its thickness when the window resizes. |
+
+The threshold has a **soft knee** (half the threshold, not a knob): without it the glow's *slope*
+jumps at the threshold and the halo starts with a visible hem. The curve is plain C++ in
+`grove::light::brightPassFraction` (`include/grove/light/Bloom.h`), so a game can ask "would this
+colour bloom?" without a GPU readback — same contract as the light falloff.
+
+**Cost**: one extra full-screen RGBA16F target plus four full-screen passes (composite→HDR,
+extract, two blurs, present), of which the two blurs and the extract run at **quarter resolution**.
+Paid only while `intensity > 0`; at 0 nothing is built and the composite writes straight to the
+backbuffer, byte for byte as before.
+
+**The HUD does not glow** — it is submitted after the present pass. A sharp interface over a dazzling
+world is the intent, not an oversight.
+
+Plan + measurements: `docs/design/lighting-bloom.md`.
+
+#### Tonemapping (post-processing)
+
+Compresses the HDR range into what a screen can show, so **two overbright values stay different**
+instead of both clipping to white. One persistent setting, independent of bloom:
+
+```cpp
+auto t = std::make_unique<JsonDataNode>("tonemap");
+t->setString("mode", "aces");       // "none" (default = OFF), "reinhard", or "aces"
+t->setDouble("exposure", 1.4);      // multiplies the scene BEFORE the curve
+io->publish("render:tonemap", std::move(t));
+```
+
+**⚠️ Enabling it will DARKEN your scene, and that is not a bug.** `reinhard(1) = 0.5`: a value that
+used to be full white now sits at mid-grey. That is what a compression curve does — it makes room
+above. Raise `exposure` (start around 1.5–2.5) until the midtones sit where you want them.
+
+**Why it matters** — measured on a white surface under a single lamp:
+
+| Lamp intensity | No tonemap | reinhard | aces |
+|---|---|---|---|
+| 2 | **255** | 170 | 233 |
+| 8 | **255** | 226 | 255 |
+
+Without a curve the two are the same white: the overbright the RGBA16F targets exist to preserve was
+being thrown away on the last line of the pipeline.
+
+**Which mode**
+
+- **`reinhard`** — `x/(1+x)`. Gentle, predictable, and it *never reaches 1*, so it keeps separating
+  values however bright they get. Pick it for extreme dynamic range.
+- **`aces`** — filmic: more contrast, a shoulder that rolls into white. ⚠️ **It saturates around 6**,
+  so beyond that it re-clips like before. Pick it for the look, and use `exposure` to keep your
+  brightest content under its white point.
+
+**Ordering, which you cannot change but should know**: the bloom glow is added *before* the curve, so
+it participates in the exposure rather than sitting on top as a white patch. The curve runs **per
+channel**, so a saturated highlight rolls toward white the way film does. And the **HUD is not
+tonemapped** — it is submitted after the present pass, so your interface stays legible whatever the
+scene's exposure.
+
+Plan + measurements: `docs/design/lighting-tonemap.md`.
+
+#### Fades (post-processing)
+
+A full-screen fade — to black for a scene transition, to white for a flash, to red for damage:
+
+```cpp
+auto f = std::make_unique<JsonDataNode>("fade");
+f->setDouble("amount", 1.0);        // 0 = off (default) .. 1 = the screen IS the colour
+// f->setInt("color", 0xFF2010FF);  // optional; BLACK by default
+io->publish("render:fade", std::move(f));
+```
+
+**✅ Unlike bloom and tonemapping, a fade needs NOTHING** — no `render:ambient`, no HDR target. It is
+one blended quad over whatever was drawn, so it works in a game that never lights anything. If you use
+exactly one thing from this whole post-processing family, it can be this.
+
+**It covers the HUD.** The fade is drawn on its own view, submitted *last* — after the interface. That
+is deliberate: a scene transition has to take the UI with it, or your menus float on a black screen.
+(Bloom and tonemapping do the opposite and spare the HUD, so it stays sharp and legible.)
+
+**Ramp `amount` yourself.** There is no duration and no easing: publish a new `amount` each frame for
+as long as the transition lasts. The engine does not own that clock — a built-in duration would have to
+decide whether a paused game freezes the fade, and would take any non-linear curve away from you.
+
+```cpp
+// A one-second fade to black, driven by the game.
+m_fadeT = std::min(1.0f, m_fadeT + dt);          // your own easing goes here
+auto f = std::make_unique<JsonDataNode>("fade");
+f->setDouble("amount", m_fadeT);
+io->publish("render:fade", std::move(f));
+```
+
+`amount` is clamped to [0,1]: past 1 a mix would *extrapolate* and give artefacts instead of a full
+screen. The colour's alpha byte is ignored — `amount` is the alpha.
+
+Plan + measurements: `docs/design/lighting-fade.md`.
+
+#### Colour grading (post-processing)
+
+Retouches the finished image — the same set can be a cold morning, a washed-out memory or a red alert
+without changing a single asset:
+
+```cpp
+auto g = std::make_unique<JsonDataNode>("grade");
+g->setDouble("saturation", 0.3);     // 0 = greyscale, 1 = neutral (default), >1 = garish
+g->setDouble("contrast", 1.2);       // <1 flattens toward mid-grey, >1 pushes away
+g->setInt("tint", 0x8090FFFF);       // white = neutral (default) — a colour, not three floats
+io->publish("render:grade", std::move(g));
+```
+
+**There is no `brightness`, on purpose.** It already exists as the tonemapping's `exposure`, and it sits
+on the *right* side of the curve: a gain applied after compression only clips earlier, undoing what the
+tonemap just saved. If you want a brighter image, raise `exposure`.
+
+Same reason, and worth knowing: **`tint` can only darken a channel** (a colour byte tops out at 1.0).
+That is deliberate — brightening is `exposure`'s job, and a second path to it would be a trap.
+
+**It spares the HUD**, unlike the fade. A desaturated world under an interface that keeps its colours is
+the intent: the HUD is a reading surface, not part of the fiction, and greying a red warning would blind
+the player exactly when it matters. (The fade does the opposite and covers everything — that is why it
+has its own pass.)
+
+**Order inside the grade is fixed**: tint → contrast → saturation, the order a real grade uses. It is
+not commutative — tinting *after* desaturating would give you a sepia wash instead of a balanced,
+desaturated image.
+
+Two details that come from the maths and will save you a puzzled hour:
+
+- **Contrast pivots on 0.5**, not 0.18, because grading runs *after* tonemapping — in display space,
+  where mid-grey is 0.5. A scene-linear pivot would darken every image you added contrast to.
+- **Desaturation follows perceptual luminance** (the same one the bloom threshold uses). Pure red
+  desaturates to 54/255 and pure blue to 18/255, because the eye sees them at very different
+  brightnesses. A naive `(r+g+b)/3` would send both to 85 and flatten your palette.
+
+Plan + measurements: `docs/design/lighting-grade.md`.
 
 #### Bulk Sprite Submission (high throughput)
 
@@ -1809,6 +1996,7 @@ Two modes:
 |-------|---------|-------------|
 | `render:ambient` | `{color}` | Global ambient term. **Absent or 0 = lighting entirely OFF** (no offscreen targets, no composite, output byte-identical to a build without lighting). A **white** ambient leaves the scene unchanged and lets lights only ever brighten it. |
 | `render:light` | `{cx, cy, radius, color, intensity?, dirDeg?, spreadDeg?}` | One light, **ephemeral** (re-publish each frame). `cx,cy` = CENTRE, `radius` in **world units**. `dirDeg`/`spreadDeg` (degrees, `grove::fx::Emitter` convention, 360 = omni **and the default**) turn it into a cone. Colour alpha ignored; `intensity` may exceed 1 (RGBA16F target keeps the overbright for bloom). Falloff `(1 − d/r)²`, exactly 0 at `radius`. |
+| `render:bloom` | `{intensity, threshold?, radius?}` | Post-processing bloom, **PERSISTENT** (a setting, like the ambient — published once, honoured every frame). `intensity` is the switch: **0 = off and that is the default**, so nothing is built and the composite writes straight to the backbuffer. `threshold` (default 1.0) is the luminance above which a pixel glows — only overbright, which is why the targets are RGBA16F; 0 = everything glows. `radius` (default 16) is the glow extent in **screen pixels**. Soft knee at half the threshold (not a knob). ⚠️ **Requires lighting active** (it feeds on the COMPOSITED frame, so a white ambient is the neutral way to get post-processing without a lit look). Additive sprites glow too, not just lamps. The HUD does not glow. |
 
 | `render:occluder` | `{x, y, w, h}` | Opaque rectangle light does not pass through, **ephemeral**. `x,y` = top-left CORNER (a rect's anchor), unlike a light's `cx,cy`. A non-positive extent is dropped. |
 | `render:occluder:add` / `:update` / `:remove` | `{renderId, x?, y?, w?, h?}` | **Retained** occluder — the right form for static level geometry. `:update` merges, so a moving wall need not restate its extent. |

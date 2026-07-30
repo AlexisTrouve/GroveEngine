@@ -113,6 +113,17 @@ private:
     // Global ambient light (lighting L1). 0 = UNSET => lighting inactive => the renderer skips the
     // offscreen targets entirely. Global frame state: survives clear(), like m_clearColor.
     uint32_t m_ambientColor = 0;
+    // Bloom settings (plan B). Global frame state like m_ambientColor: intensity 0 = OFF = the
+    // default, and the whole zero-cost bypass of the post-processing chain hangs off that.
+    FramePacket::BloomSettings m_bloom;
+    // Tonemapping (plan T). Reglage global persistant, INDEPENDANT du bloom : `None` = eteint.
+    FramePacket::TonemapSettings m_tonemap;
+    // Fondu plein écran (plan F2). Réglage global persistant ; `amount 0` = éteint, et cette passe
+    // n'exige NI éclairage NI cible HDR — voir FramePacket::FadeSettings.
+    FramePacket::FadeSettings m_fade;
+    // Colorimetrie (plan G). Reglage global persistant ; les trois neutres = eteint, et c'est
+    // grove::light::gradeIsNeutral qui en decide.
+    light::GradeParams m_grade;
     std::vector<OccluderCommand> m_occluders;   // ephemeral, like m_lights
     // RETAINED occluders, by renderId. The opposite choice to lights, and for the opposite reason:
     // a wall does not move, so re-publishing the level every frame would charge a cost proportional
@@ -178,6 +189,10 @@ private:
     void parseCamera(const IDataNode& data);
     void parseClear(const IDataNode& data);
     void parseAmbient(const IDataNode& data);
+    void parseBloom(const IDataNode& data);   // `render:bloom` — post-processing settings (plan B)
+    void parseTonemap(const IDataNode& data); // `render:tonemap` — courbe + exposition (plan T)
+    void parseFade(const IDataNode& data);    // `render:fade` — fondu plein écran (plan F2)
+    void parseGrade(const IDataNode& data);   // `render:grade` — teinte/contraste/saturation (plan G)
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);

@@ -1,5 +1,9 @@
 # Handoff — sessions des 28 & 29 juillet 2026
 
+> ➡️ **Suite : [l'éclairage 2D, du socle aux nébuleuses (29-30 juillet)](session-handoff-2026-07-30-lumiere.md)**
+> — les plans F et A livrés, le crénelage des ombres corrigé, le budget de lampes enfin mesuré.
+> Les trois chantiers cadrés ci-dessous y sont tous clos.
+
 > **État à la sortie** : `master` = **`15a30ef`**, arbre propre, suite **194/194**.
 > ⚠️ **6 commits NON POUSSÉS** (`914f9ef` → `15a30ef`). Le reste est sur gitea + github.
 > Point de départ : `af4a226`. 28 commits.

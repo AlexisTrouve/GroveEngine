@@ -1414,6 +1414,45 @@ target_link_libraries(test_transmittance PRIVATE
 )
 grove_add_test(TransmittanceUnit test_transmittance ${CMAKE_CURRENT_BINARY_DIR})
 
+# Bloom math (plan B, B0): the bright-pass curve + the blur kernel weights. Header-only, no GPU.
+# ⚠️ Its load-bearing job is the KERNEL: the renderer UPLOADS these weights instead of hardcoding them
+# in the .sc, so this test proves what the GPU actually uses — an unnormalised kernel changes the
+# glow's overall brightness and reads as a wrong `intensity`. See docs/design/lighting-bloom.md.
+add_executable(test_bloom_math
+    unit/test_bloom_math.cpp
+)
+target_link_libraries(test_bloom_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(BloomMathUnit test_bloom_math ${CMAKE_CURRENT_BINARY_DIR})
+
+# Tonemap math (plan T, T0): les deux courbes de compression + l'exposition. Header-only, sans GPU.
+# L'enjeu est net : le tonemapping existe pour que deux valeurs SUR-BRILLANTES restent distinctes, et
+# c'est exactement ce que ce test verifie. Il assertionne des PROPRIETES, pas les constantes d'ACES --
+# les recopier ne prouverait que le copier-coller. Voir docs/design/lighting-tonemap.md.
+add_executable(test_tonemap_math
+    unit/test_tonemap_math.cpp
+)
+target_link_libraries(test_tonemap_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(TonemapMathUnit test_tonemap_math ${CMAKE_CURRENT_BINARY_DIR})
+
+# Colorimetrie (plan G, Ga) : teinte -> contraste -> saturation. Header-only, sans GPU.
+# Cette tranche a un oracle la ou le FONDU n'en a pas eu, et c'est un choix : il y a quatre decisions a
+# verrouiller (la luminance reutilisee, le pivot du contraste, l'ordre non commutatif, et « saturation 0
+# rend un gris de la BONNE luminance »). Voir docs/design/lighting-grade.md.
+add_executable(test_grade_math
+    unit/test_grade_math.cpp
+)
+target_link_libraries(test_grade_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(GradeMathUnit test_grade_math ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.
@@ -3385,6 +3424,21 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(NineSliceGpu test_nine_slice_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # FrameCaptureGpu : la capture headless doit rendre le monde ET le HUD, eclairage allume ou non.
+    # Existe parce que "lier les vues 0 et 1" -- le geste evident -- rend un monde NOIR des que
+    # l'eclairage est actif, PENDANT QUE LE HUD RESTE CORRECT : un test qui ne verifierait que le HUD
+    # passerait au vert en mentant sur la scene. C'est la discrimination qui fait ce test.
+    add_executable(test_frame_capture_gpu unit/test_frame_capture_gpu.cpp)
+    target_include_directories(test_frame_capture_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_frame_capture_gpu PRIVATE
+        SDL2::SDL2 GroveEngine::impl BgfxRenderer_static spdlog::spdlog Catch2::Catch2WithMain)
+    grove_add_test(FrameCaptureGpu test_frame_capture_gpu ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(FrameCaptureGpu PROPERTIES LABELS "gpu")
+
+
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
     target_include_directories(test_text_clip_gpu PRIVATE
@@ -3793,6 +3847,25 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:benchmark_render_savage>")
     endif()
     message(STATUS "Render savage benchmark 'benchmark_render_savage' enabled")
+
+    # BANC DE LAMPES : ce que coute reellement une scene eclairee. Remplace le chiffre
+    # "des dizaines de lampes" qui trainait dans la doc et qui datait d'avant la marche.
+    add_executable(benchmark_lighting visual/benchmark_lighting.cpp)
+    target_include_directories(benchmark_lighting PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+    )
+    target_link_libraries(benchmark_lighting PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET benchmark_lighting POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:benchmark_lighting>")
+    endif()
+    message(STATUS "Lighting benchmark 'benchmark_lighting' enabled")
 
     # INTERACTIVE live demo: stream textures from an ONLINE image bank (picsum.photos) via a demo-side
     # curl-backed IAsyncDecoder — proves the asset pipeline streams from remote sources (network-paced fill).

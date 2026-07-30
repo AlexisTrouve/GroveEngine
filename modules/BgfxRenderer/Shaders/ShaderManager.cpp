@@ -15,6 +15,10 @@
 #include "fs_light.bin.h"
 #include "vs_nebula.bin.h"
 #include "fs_nebula.bin.h"
+#include "fs_bloom_extract.bin.h"
+#include "fs_bloom_blur.bin.h"
+#include "fs_present.bin.h"
+#include "fs_fade.bin.h"
 
 namespace grove {
 
@@ -128,6 +132,9 @@ void ShaderManager::loadBuiltinShaders(rhi::IRHIDevice& device, const std::strin
 
     // Soft radial media (lighting A4).
     loadNebulaShader(device, rendererName);
+
+    // Post-processing (plan B): bloom extraction + blur + present.
+    loadBloomShaders(device, rendererName);
 }
 
 void ShaderManager::loadSpriteShader(rhi::IRHIDevice& device, const std::string& rendererName) {
@@ -242,6 +249,63 @@ void ShaderManager::loadCompositeShader(rhi::IRHIDevice& device, const std::stri
     }
 }
 
+void ShaderManager::loadBloomShaders(rhi::IRHIDevice& device, const std::string& rendererName) {
+    // Trois programmes de post-traitement, et TOUS LES TROIS réutilisent `vs_composite` : le quad
+    // plein écran en espace de clip est exactement le même problème géométrique. Le partage d'un étage
+    // vertex entre programmes est SAIN — la règle inverse, écrite ici pendant la session A4, venait
+    // d'un diagnostic faux (un artefact de build périmé ; cf. known-annoyances §3bis et l'en-tête de
+    // vs_nebula.sc). Dupliquer trois fois le même vertex pour obéir à une règle démentie serait ajouter
+    // de la dette au nom d'une erreur.
+    //
+    // Chargés inconditionnellement, comme le composite et la lampe : quelques Ko une fois, contre la
+    // construction d'un programme GPU au milieu de la première frame post-traitée — un accroc
+    // précisément au moment où l'effet doit apparaître.
+    const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
+    const uint8_t* exData = nullptr; uint32_t exSize = 0;
+    const uint8_t* blData = nullptr; uint32_t blSize = 0;
+    const uint8_t* prData = nullptr; uint32_t prSize = 0;
+
+    if (rendererName == "OpenGL") {
+        vsData = vs_composite_glsl;    vsSize = sizeof(vs_composite_glsl);
+        exData = fs_bloom_extract_glsl; exSize = sizeof(fs_bloom_extract_glsl);
+        blData = fs_bloom_blur_glsl;    blSize = sizeof(fs_bloom_blur_glsl);
+        prData = fs_present_glsl;       prSize = sizeof(fs_present_glsl);
+    } else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12") {
+        vsData = vs_composite_dx11;    vsSize = sizeof(vs_composite_dx11);
+        exData = fs_bloom_extract_dx11; exSize = sizeof(fs_bloom_extract_dx11);
+        blData = fs_bloom_blur_dx11;    blSize = sizeof(fs_bloom_blur_dx11);
+        prData = fs_present_dx11;       prSize = sizeof(fs_present_dx11);
+    } else {
+        // Aucune variante Metal des trois shaders de post-traitement sur cette chaîne (shaderc n'a pas
+        // de backend Metal ici), donc pas de branche "Metal" qui mentirait : SPIR-V est le repli
+        // partout ailleurs, exactement comme pour fs_nebula. Dette nommée dans lighting-bloom.md.
+        vsData = vs_composite_spv;     vsSize = sizeof(vs_composite_spv);
+        exData = fs_bloom_extract_spv;  exSize = sizeof(fs_bloom_extract_spv);
+        blData = fs_bloom_blur_spv;     blSize = sizeof(fs_bloom_blur_spv);
+        prData = fs_present_spv;        prSize = sizeof(fs_present_spv);
+    }
+
+    auto build = [&](const char* name, const uint8_t* fs, uint32_t fsSize) {
+        rhi::ShaderDesc desc;
+        desc.vsData = vsData; desc.vsSize = vsSize;
+        desc.fsData = fs;     desc.fsSize = fsSize;
+        rhi::ShaderHandle program = device.createShader(desc);
+        if (program.isValid()) m_programs[name] = program;
+    };
+
+    build("bloom_extract", exData, exSize);
+    build("bloom_blur",    blData, blSize);
+    build("present",       prData, prSize);
+
+    // Le fondu partage le meme quad en espace de clip. Son fragment est le plus court du moteur : tout
+    // le travail est fait par l'etat de melange (alpha), pas par le shader.
+    const uint8_t* fdData = nullptr; uint32_t fdSize = 0;
+    if (rendererName == "OpenGL")                                            { fdData = fs_fade_glsl; fdSize = sizeof(fs_fade_glsl); }
+    else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12")  { fdData = fs_fade_dx11; fdSize = sizeof(fs_fade_dx11); }
+    else                                                                      { fdData = fs_fade_spv;  fdSize = sizeof(fs_fade_spv); }
+    build("fade", fdData, fdSize);
+}
+
 void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& rendererName) {
     // Same per-renderer mapping as every other program. Loaded unconditionally for the same reason
     // as the composite: a few KB once, versus building a GPU program mid-frame the first time a game
@@ -274,11 +338,10 @@ void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& 
 }
 
 void ShaderManager::loadNebulaShader(rhi::IRHIDevice& device, const std::string& rendererName) {
-    // ⚠️ Its OWN vertex stage, and that is NOT redundancy — it is the fix for a heap corruption.
-    // This program first reused vs_light verbatim (the geometry problem is identical). bgfx dedupes
-    // shaders by bytecode hash and refcounts them, so two programs built on the SAME vertex bytecode,
-    // each created with _destroyShaders = true, unbalance that count and corrupt the heap at
-    // teardown. See the header of vs_nebula.sc for the symptom and how it was localised.
+    // Its own vertex stage — a READABILITY choice, nothing more: `u_nebula` says what it places,
+    // where the shared `u_light` did not. Reusing vs_light works perfectly well, and was measured to
+    // (5/5 on a clean build). An earlier version of this comment claimed the split fixed a heap
+    // corruption; that claim was WRONG — see the header of vs_nebula.sc.
     const uint8_t* vsData = nullptr; uint32_t vsSize = 0;
     const uint8_t* fsData = nullptr; uint32_t fsSize = 0;
 

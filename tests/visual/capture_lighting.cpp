@@ -17,6 +17,7 @@
 
 #include "BgfxRendererModule.h"
 #include "Passes/CompositePass.h"
+#include "Passes/PresentPass.h"
 #include "RHI/RHIDevice.h"
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
@@ -160,6 +161,17 @@ int main(int argc, char** argv) {
         a->setInt("color", static_cast<int>(col));
         gIO->publish("render:ambient", std::move(a));
     };
+    // BLOOM (plan B). ⚠️ Contrairement à tout ce qui précède, c'est un RÉGLAGE PERSISTANT : publié une
+    // fois, il vaut pour toutes les frames suivantes. `shoot` le republie donc à chaque frame depuis
+    // les variables ci-dessous, ce qui garantit que les planches d'avant restent EXPLICITEMENT à
+    // intensité 0 — un réglage laissé allumé aurait contaminé toutes les suivantes en silence.
+    auto bloom = [&](double intensity, double threshold, double radius) {
+        auto b = std::make_unique<JsonDataNode>("d");
+        b->setDouble("intensity", intensity);
+        b->setDouble("threshold", threshold);
+        b->setDouble("radius", radius);
+        gIO->publish("render:bloom", std::move(b));
+    };
 
     // The scene: a tiled stone floor with a few crates and a wall band. Flat tinted quads only — no
     // assets needed, and it keeps the lighting the only variable between shots.
@@ -199,14 +211,24 @@ int main(int argc, char** argv) {
     // a uniform ground is the only way to measure a shadow boundary without the decor confusing it).
     int groundMode = 0;
     bool plainGround = false;
+    // Réglage de bloom courant. 0 = éteint, ce qui est l'état de TOUTES les planches d'éclairage
+    // écrites avant le plan B — et republié à chaque frame, donc elles ne peuvent pas hériter d'un
+    // réglage laissé allumé par une planche de bloom.
+    double bloomI = 0.0, bloomT = 1.0, bloomR = 16.0;
     auto shoot = [&](const char* name, bool lit, void (*setup)(void*), void* ctx) {
         for (int i = 0; i < 5; ++i) {
             if (groundMode == 2) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0xB0B4BCFFu, 1);
             else if (plainGround) sprite(W * 0.5, H * 0.5, static_cast<double>(W), static_cast<double>(H), 0x0a0d14FFu, 1);
             else drawScene();
             if (setup) setup(ctx);
+            bloom(bloomI, bloomT, bloomR);
             if (lit) {
-                dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+                // ⚠️ Avec le bloom, la frame finie n'est PLUS sur la vue du composite : celle-ci part
+                // dans la cible HDR, et c'est la PRÉSENTATION qui écrit l'image. Lire le composite
+                // ici donnerait la frame d'avant la lueur — donc une planche « bloom on » identique à
+                // la planche « bloom off », et on conclurait que le bloom ne marche pas.
+                dev->setViewFramebuffer(bloomI > 0.0 ? PresentPass::kPresentView
+                                                     : CompositePass::kCompositeView, fb);
             } else {
                 dev->setViewFramebuffer(0, fb);
                 dev->setViewFramebuffer(1, fb);
@@ -289,6 +311,49 @@ int main(int argc, char** argv) {
                 (*k->glowFn)(lx, ly, 7.0, 7.0, 0.0, 0xFFF6E4FFu, 31);   // the source, visible
             }, &ctx);
         }
+        renderer->shutdown();
+        mgr.removeInstance("capl_r");
+        mgr.removeInstance("capl_g");
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 0;
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // ANIMATION MODE 4 — `capture_lighting <dir> anim-bloom` : la RAMPE d'intensité.
+    //
+    // Un avant/après en deux images fixes montre que le bloom existe. Il ne montre pas que c'est un
+    // CONTINUUM réglable, ni où se situe le point d'équilibre entre « invisible » et « délavé » — or
+    // c'est exactement la question qu'un auteur se pose devant le bouton. La rampe la répond en une
+    // boucle : la scène ne change pas d'un poil, seule `intensity` monte de 0 à 2 puis redescend.
+    //
+    // Le retour à 0 n'est pas une coquetterie de boucle : il fait passer deux fois par le réglage
+    // ÉTEINT, donc l'œil compare l'état de référence à chaque tour sans avoir à s'en souvenir.
+    // ------------------------------------------------------------------------------------------
+    if (argc > 2 && std::string(argv[2]) == "anim-bloom") {
+        const int FRAMES = 48;
+        for (int i = 0; i < FRAMES; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(FRAMES);
+            // Aller-retour : 0 -> 2 -> 0. Une rampe simple ferait un saut brutal au raccord du GIF.
+            const double tri = (t < 0.5) ? (t * 2.0) : (2.0 - t * 2.0);
+            bloomI = 2.0 * tri;
+            bloomT = 1.0;
+            bloomR = 22.0;
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%03d.png", i);
+            // ⚠️ `bloomI` vaut EXACTEMENT 0 sur la première frame, donc `shoot` lit la vue du
+            //    composite et pas celle de la présentation. C'est le contournement à coût nul qui
+            //    passe dans une animation : la même boucle traverse les deux pipelines.
+            shoot(name, true, [](void* c){
+                Ctx* k = static_cast<Ctx*>(c);
+                (*k->ambFn)(0x141824FFu);
+                (*k->lightFn)(150.0, 120.0, 190.0, 0xFFD9A8FFu, 2.6);
+                (*k->spriteFn)(150.0, 120.0, 9.0, 9.0, 0xFFF4E0FFu, 14);                     // l'ampoule
+                (*k->spriteFn)(300.0, 135.0, 28.0, static_cast<double>(H), 0x2a3040FFu, 9);   // le mur
+                (*k->occFn)(286.0, 0.0, 28.0, static_cast<double>(H));                       // en matière
+            }, &ctx);
+        }
+        bloomI = 0.0;
         renderer->shutdown();
         mgr.removeInstance("capl_r");
         mgr.removeInstance("capl_g");
@@ -540,6 +605,56 @@ int main(int argc, char** argv) {
         (*k->lightFn)(120.0, 135.0, 380.0, 0xFFE9C0FFu, 6.5);
     }, &ctx);
     plainGround = false;
+
+    // ------------------------------------------------------------------------------------------
+    // BLOOM (plan B) — 16/17 forment une PAIRE, 18 montre le cas de la lampe.
+    // ------------------------------------------------------------------------------------------
+
+    // 17 & 18. LA PAIRE, et elle est choisie pour prouver une chose précise : **il n'y a AUCUNE
+    //     LAMPE dans ces deux images**. Deux faisceaux additifs se croisent sur un fond noir, sous un
+    //     ambiant BLANC — qui est neutre par construction (il laisse la scène telle quelle) et qui est
+    //     la façon documentée d'obtenir du post-traitement sans look éclairé.
+    //
+    //     Le buffer de lumière est donc VIDE. Si la lueur apparaît quand même, elle ne peut venir que
+    //     de la frame composée : c'est le choix d'architecture du plan B rendu visible, et la
+    //     démonstration qu'un bloom nourri par les lampes aurait laissé cette image inchangée.
+    plainGround = true;
+    auto crossedBeams = [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0xFFFFFFFFu);                                            // ambiant blanc = neutre
+        // Les deux faisceaux se recouvrent sur une LONGUE portion (centres decales, angle faible) :
+        // c'est la seule zone dont la somme additive depasse 1, et elle est assez grande pour que la
+        // lueur ait de quoi s'alimenter. Un croisement serre donne une lentille minuscule, donc une
+        // lueur juste -- mais trop faible pour montrer quoi que ce soit ; essaye avant de conclure.
+        (*k->glowFn)(200.0, 135.0, 260.0, 26.0,  0.35, 0xFF9840FFu, 40);
+        (*k->glowFn)(280.0, 135.0, 260.0, 26.0, -0.35, 0x50A0FFFFu, 41);
+    };
+    bloomI = 0.0;
+    shoot("17_bloom_off.png", true, crossedBeams, &ctx);
+    // Rayon 20 px : DANS le domaine bien echantillonne du noyau. Au-dela d'environ 24 px l'ecartement
+    // des taps depasse le sigma et la lueur montre un feston -- visible sur une premiere version de
+    // cette planche, prise a 40 px.
+    bloomI = 1.4; bloomT = 1.0; bloomR = 20.0;
+    shoot("18_bloom_on.png", true, crossedBeams, &ctx);
+    bloomI = 0.0;
+    plainGround = false;
+
+    // 19. LE cas canonique : une lampe dans une pièce sombre, et le halo débourre au-delà de son
+    //     rayon — puis s'arrête net sur le mur, parce qu'un occulteur bloque la lumière AVANT que la
+    //     lueur n'existe. Une lampe d'intensité 2,6 et pas 5 : à 5 le cœur sature sur un tiers de
+    //     l'image et on ne voit plus le halo, seulement une tache blanche.
+    // Rayon 56 px : impossible avant la tranche B4 (le facteur de reduction etait fige au quart, et
+    // au-dela de ~24 px la lueur montrait un feston). Le facteur suit maintenant le rayon.
+    bloomI = 1.0; bloomT = 1.0; bloomR = 56.0;
+    shoot("19_bloom_lamp.png", true, [](void* c){
+        Ctx* k = static_cast<Ctx*>(c);
+        (*k->ambFn)(0x141824FFu);
+        (*k->lightFn)(150.0, 120.0, 190.0, 0xFFD9A8FFu, 2.6);
+        (*k->spriteFn)(150.0, 120.0, 9.0, 9.0, 0xFFF4E0FFu, 14);                     // l'ampoule
+        (*k->spriteFn)(300.0, 135.0, 28.0, static_cast<double>(H), 0x2a3040FFu, 9);   // un mur, dessiné
+        (*k->occFn)(286.0, 0.0, 28.0, static_cast<double>(H));                        // le mur, en matière
+    }, &ctx);
+    bloomI = 0.0;
 
     // 90. EDGE PROBE — not a blog plate, a MEASURING INSTRUMENT. A flat ground, one lamp, one block:
     //     the shadow boundary is the only feature in the image, so its shape can be read column by

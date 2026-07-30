@@ -160,6 +160,18 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:ambient") {
             parseAmbient(*msg.data);
         }
+        else if (msg.topic == "render:bloom") {
+            parseBloom(*msg.data);
+        }
+        else if (msg.topic == "render:tonemap") {
+            parseTonemap(*msg.data);
+        }
+        else if (msg.topic == "render:fade") {
+            parseFade(*msg.data);
+        }
+        else if (msg.topic == "render:grade") {
+            parseGrade(*msg.data);
+        }
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
@@ -251,6 +263,10 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.elapsedTime = m_elapsedTime;
     packet.clearColor = m_clearColor;
     packet.ambientColor = m_ambientColor;   // global state, not cleared at the frame boundary
+    packet.bloom = m_bloom;                 // idem: a setting, published once, honoured every frame
+    packet.tonemap = m_tonemap;             // idem — et INDEPENDANT du bloom, voir FramePacket
+    packet.fade = m_fade;                   // idem — et n'exige ni eclairage ni cible HDR
+    packet.grade = m_grade;                 // idem — mais sur la presentation, donc il EPARGNE le HUD
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1513,6 +1529,100 @@ void SceneCollector::parseAmbient(const IDataNode& data) {
     // TURNS LIGHTING OFF again rather than silently picking a value — the topic is the on/off switch
     // as much as it is the value, and a game dimming to black must be able to say so.
     m_ambientColor = static_cast<uint32_t>(data.getInt("color", 0));
+}
+
+void SceneCollector::parseBloom(const IDataNode& data) {
+    // Bloom settings (plan B). Comme l'ambiant : un RÉGLAGE global persistant, et `intensity` est
+    // l'interrupteur autant que la valeur — publier `render:bloom {intensity:0}` doit ÉTEINDRE, sinon
+    // le bloom serait allumable et pas éteignable.
+    //
+    // COMMENT — les trois bornes, et pourquoi on borne au lieu de retomber sur le défaut :
+    //   - intensity < 0 : une lueur négative SOUSTRAIRAIT de la frame. Zéro (éteint) est le seul sens
+    //     qu'on puisse donner à « moins que rien ».
+    //   - threshold < 0 : casse la courbe du genou. Zéro est la valeur limite déjà documentée : tout
+    //     brille, le voile.
+    //   - radius < 0 : donnerait un sigma négatif au noyau. Zéro = aucun étalement, donc une lueur
+    //     nette — explicable et MONOTONE (plus le rayon est petit, plus la lueur est serrée).
+    //
+    // Remettre le défaut à la place d'une borne serait pire qu'un fallback : un rayon de 16 sorti de
+    // nulle part là où l'auteur a écrit -50 masque sa faute de frappe au lieu d'en montrer l'effet.
+    m_bloom.intensity = static_cast<float>(data.getDouble("intensity", 0.0));
+    m_bloom.threshold = static_cast<float>(data.getDouble("threshold", 1.0));
+    m_bloom.radius    = static_cast<float>(data.getDouble("radius", 16.0));
+
+    if (!(m_bloom.intensity > 0.0f)) m_bloom.intensity = 0.0f;   // couvre aussi un NaN entrant
+    if (!(m_bloom.threshold > 0.0f)) m_bloom.threshold = 0.0f;
+    if (!(m_bloom.radius    > 0.0f)) m_bloom.radius    = 0.0f;
+}
+
+void SceneCollector::parseTonemap(const IDataNode& data) {
+    // Tonemapping (plan T). Reglage global persistant, SEPARE du bloom : le tonemapping change
+    // l'image, donc l'agrafer au bloom ferait qu'activer une lueur modifierait l'exposition de tout le
+    // rendu.
+    //
+    // COMMENT: le mode est une CHAINE et pas un nombre, parce que « pas de tonemapping » n'est pas
+    //         « un tonemapping d'intensite nulle » : une courbe n'a pas de reglage continu vers
+    //         l'identite. Deux modes nommes, et un troisieme nom pour l'extinction.
+    //
+    // ⚠️ Un mode INCONNU eteint, il ne retombe pas sur une courbe. Deviner appliquerait au rendu une
+    //    transformation que l'auteur n'a pas demandee -- et il la chercherait dans son propre code. Ca
+    //    couvre aussi bien la faute de frappe que le mode d'une version future lu par un vieux moteur.
+    const std::string mode = data.getString("mode", "none");
+    if (mode == "reinhard")   m_tonemap.mode = light::TonemapMode::Reinhard;
+    else if (mode == "aces")  m_tonemap.mode = light::TonemapMode::ACES;
+    else                      m_tonemap.mode = light::TonemapMode::None;
+
+    // L'exposition est portee par le MESSAGE et pas accumulee : `render:tonemap {mode:"aces"}` remet
+    // l'exposition a 1, comme `render:ambient {}` remet l'ambiant a 0. Le message decrit l'etat complet
+    // du reglage, ce qui evite un etat cache que personne ne peut relire.
+    m_tonemap.exposure = static_cast<float>(data.getDouble("exposure", 1.0));
+    // Une exposition negative inverserait l'image ; 0 est le seul sens qu'on puisse donner a moins que
+    // rien, et il est explicable (noir).
+    if (!(m_tonemap.exposure > 0.0f)) m_tonemap.exposure = 0.0f;
+}
+
+void SceneCollector::parseFade(const IDataNode& data) {
+    // Fondu plein ecran (plan F2). Reglage global persistant, comme l'ambiant et le tonemapping.
+    //
+    // La couleur par defaut est le NOIR : la transition au noir est de loin le cas courant, donc
+    // `render:fade {amount: 1}` doit suffire a l'ecrire.
+    m_fade.color  = static_cast<uint32_t>(data.getInt("color", 0x000000FF));
+    m_fade.amount = static_cast<float>(data.getDouble("amount", 0.0));
+
+    // ⚠️ BORNE a [0,1], et ce n'est pas de la prudence : au-dela de 1 un `mix` EXTRAPOLE, donc la
+    //    couleur depasserait ses propres canaux et produirait des artefacts la ou l'auteur attendait un
+    //    ecran plein. En dessous de 0, il extrapolerait dans l'autre sens.
+    if (!(m_fade.amount > 0.0f)) m_fade.amount = 0.0f;   // couvre aussi un NaN entrant
+    if (m_fade.amount > 1.0f)    m_fade.amount = 1.0f;
+}
+
+void SceneCollector::parseGrade(const IDataNode& data) {
+    // Colorimetrie (plan G). Reglage global persistant, applique a l'image FINIE.
+    //
+    // ⚠️ PAS de bouton « luminosite », et c'est un refus argumente : il existe deja, c'est `exposure`
+    //    du tonemapping, et il est du BON COTE de la courbe. Un gain applique apres la compression ne
+    //    ferait que saturer plus tot, en re-ecretant ce que le tonemapping venait de sauver. Deux
+    //    boutons pour une idee, dont le plus accessible serait le pire.
+    m_grade.saturation = static_cast<float>(data.getDouble("saturation", 1.0));
+    m_grade.contrast   = static_cast<float>(data.getDouble("contrast", 1.0));
+
+    // La teinte est publiee comme une COULEUR (0xRRGGBBAA) et non comme trois flottants : c'est la
+    // convention du moteur pour tout ce qui est une couleur, et un auteur pense « bleu nuit », pas
+    // « (0.5, 0.7, 1.2) ». Le blanc (0xFFFFFF) est donc le neutre, ce qui tombe juste.
+    //
+    // ⚠️ Consequence assumee : une teinte ne peut qu'ASSOMBRIR un canal (un octet vaut au plus 255,
+    //    donc au plus 1.0). Pour eclaircir, on monte `exposure`. C'est coherent avec le refus ci-dessus
+    //    et ca evite un second chemin vers la meme chose.
+    const uint32_t tint = static_cast<uint32_t>(data.getInt("tint", 0xFFFFFFFF));
+    m_grade.tintR = static_cast<float>((tint >> 24) & 0xFF) / 255.0f;
+    m_grade.tintG = static_cast<float>((tint >> 16) & 0xFF) / 255.0f;
+    m_grade.tintB = static_cast<float>((tint >>  8) & 0xFF) / 255.0f;
+
+    // Bornes basses seulement. `saturation` n'est PAS bornee en haut (>1 = couleurs criardes, un effet
+    // legitime) ni `contrast` (un contraste extreme est un effet aussi) : la borne finale de sortie,
+    // dans l'oracle, s'occupe du depassement par canal.
+    if (!(m_grade.saturation > 0.0f)) m_grade.saturation = 0.0f;   // couvre aussi un NaN entrant
+    if (!(m_grade.contrast   > 0.0f)) m_grade.contrast   = 0.0f;
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {
