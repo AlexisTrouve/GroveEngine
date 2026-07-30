@@ -1404,6 +1404,19 @@ target_link_libraries(test_transmittance PRIVATE
 )
 grove_add_test(TransmittanceUnit test_transmittance ${CMAKE_CURRENT_BINARY_DIR})
 
+# Bloom math (plan B, B0): the bright-pass curve + the blur kernel weights. Header-only, no GPU.
+# ⚠️ Its load-bearing job is the KERNEL: the renderer UPLOADS these weights instead of hardcoding them
+# in the .sc, so this test proves what the GPU actually uses — an unnormalised kernel changes the
+# glow's overall brightness and reads as a wrong `intensity`. See docs/design/lighting-bloom.md.
+add_executable(test_bloom_math
+    unit/test_bloom_math.cpp
+)
+target_link_libraries(test_bloom_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(BloomMathUnit test_bloom_math ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.
