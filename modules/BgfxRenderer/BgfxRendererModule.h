@@ -57,6 +57,27 @@ public:
 
     ResourceCache* getResourceCache() const;
     rhi::IRHIDevice* getDevice() const;
+
+    /**
+     * @brief Redirige la SORTIE FINALE du renderer vers `fb` (handle invalide = retour a l'ecran).
+     *
+     * QUOI     : ce que le joueur verrait, dans une cible relisible au CPU -- de quoi asserter des
+     *            pixels sans ecran.
+     * POURQUOI : c'est le module, et lui seul, qui sait quelles vues composent l'image finale. Cet
+     *            ensemble DEPEND des effets actifs : sans eclairage la vue 0 va au backbuffer, avec
+     *            eclairage elle part dans la cible de scene et c'est le composite qui sort, et si le
+     *            post-traitement tourne c'est la presentation. Un appelant qui lierait "les vues 0 et
+     *            1" -- le geste naturel -- capturerait donc un monde NOIR des qu'un jeu allume
+     *            l'eclairage, sans que rien ne le signale : le HUD, lui, resterait correct, donc le
+     *            test passerait pour un HUD en mentant sur la scene. Mesure a l'appui, cf.
+     *            docs/design/frame-capture.md.
+     * COMMENT  : pose une cible ; le module y renvoie ses vues finales a chaque frame, tant qu'elle
+     *            est valide. La cible appartient a l'APPELANT (il la cree et la detruit) -- poser un
+     *            handle invalide rend la main a l'ecran.
+     *
+     * ⚠️ Ne redimensionne rien : une cible plus petite que la fenetre capture une image tronquee.
+     */
+    void setCaptureTarget(rhi::FramebufferHandle fb);
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 
     // BULK sprite submission — direct, IIO/JSON-free. A statically-linked host that already
@@ -100,6 +121,7 @@ private:
     // commentaire au point de création dans initialize().
     rhi::TextureHandle m_blackLightTex;
     rhi::FramebufferHandle m_sceneFB;
+    rhi::FramebufferHandle m_captureTarget{};   // sortie finale detournee (capture headless)
     rhi::FramebufferHandle m_lightFB;
     rhi::FramebufferHandle m_occlusionFB;
     uint16_t m_lightingWidth = 0;      // size the targets were built for (0 = none yet)

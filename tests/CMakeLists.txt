@@ -3414,6 +3414,21 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
         Catch2::Catch2WithMain)
     grove_add_test(NineSliceGpu test_nine_slice_gpu ${CMAKE_CURRENT_BINARY_DIR})
 
+    # FrameCaptureGpu : la capture headless doit rendre le monde ET le HUD, eclairage allume ou non.
+    # Existe parce que "lier les vues 0 et 1" -- le geste evident -- rend un monde NOIR des que
+    # l'eclairage est actif, PENDANT QUE LE HUD RESTE CORRECT : un test qui ne verifierait que le HUD
+    # passerait au vert en mentant sur la scene. C'est la discrimination qui fait ce test.
+    add_executable(test_frame_capture_gpu unit/test_frame_capture_gpu.cpp)
+    target_include_directories(test_frame_capture_gpu PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(test_frame_capture_gpu PRIVATE
+        SDL2::SDL2 GroveEngine::impl BgfxRenderer_static spdlog::spdlog Catch2::Catch2WithMain)
+    grove_add_test(FrameCaptureGpu test_frame_capture_gpu ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(FrameCaptureGpu PROPERTIES LABELS "gpu")
+
+
     # GPU test: TextPass clips text to a TextCommand's scissor rect (UI clipping, slice 2a-2a).
     add_executable(test_text_clip_gpu unit/test_text_clip_gpu.cpp)
     target_include_directories(test_text_clip_gpu PRIVATE

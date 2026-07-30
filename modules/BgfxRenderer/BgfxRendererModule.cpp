@@ -92,6 +92,10 @@ rhi::IRHIDevice* BgfxRendererModule::getDevice() const {
     return m_device.get();
 }
 
+void BgfxRendererModule::setCaptureTarget(rhi::FramebufferHandle fb) {
+    m_captureTarget = fb;
+}
+
 assets::AssetManager* BgfxRendererModule::getAssetManager() const {
     return m_assetManager.get();
 }
@@ -838,6 +842,13 @@ void BgfxRendererModule::process(const IDataNode& input) {
         // no targets are built, view 0 keeps drawing to the backbuffer, no submission order is
         // imposed, and CompositePass returns immediately. That is the whole zero-cost guarantee —
         // Drifterra, DAOS and Fractax must keep paying exactly what they paid before.
+        // QUELLE VUE PRODUIT L'IMAGE FINALE ? La reponse depend des effets actifs, et cette
+        // variable est le seul endroit qui la porte. Elle sert a `setCaptureTarget` : un appelant
+        // exterieur ne peut PAS la deviner, et s'il devine "la vue 0" il capture un monde non
+        // eclaire -- ou noir -- pendant que le HUD, lui, reste correct. Verrouille par
+        // FrameCaptureGpu ; mesures dans docs/design/frame-capture.md.
+        rhi::ViewId finalColourView = 0;   // sans eclairage : la vue monde sort au backbuffer
+
         const bool lightingActive = (packet.ambientColor != 0);
         if (lightingActive) {
             ensureLightingTargets(packet.mainView.viewportW, packet.mainView.viewportH);
@@ -905,6 +916,11 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // bloom ni courbe ne ferait RIEN, et la faute se presenterait comme un bug de shader.
             const bool gradeActive   = !light::gradeIsNeutral(packet.grade);
             const bool postActive    = bloomActive || tonemapActive || gradeActive;
+
+            // Avec l'eclairage, la vue 0 part dans la cible de scene : c'est le COMPOSITE qui ecrit
+            // l'image visible... sauf si le post-traitement tourne, auquel cas le composite alimente
+            // la cible HDR et c'est la PRESENTATION qui sort.
+            finalColourView = postActive ? PresentPass::kPresentView : CompositePass::kCompositeView;
 
             if (postActive) {
                 ensureHdrTarget(m_lightingWidth, m_lightingHeight);
@@ -1053,6 +1069,24 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // hold a texture from a destroyed framebuffer until lighting is switched on again.
             if (m_lightPass) m_lightPass->setOcclusionTexture(m_occlusionTex);
             releaseLightingTargets();
+        }
+
+        // CAPTURE HEADLESS : tout ce qui viserait l'ECRAN va dans la cible de l'appelant.
+        //
+        // Trois vues composent l'image visible, et seule la premiere varie : la vue couleur finale
+        // (monde / composite / presentation selon les effets), puis le HUD -- soumis APRES la
+        // presentation, ce qui est aussi pourquoi il ne recoit pas le bloom -- puis le fondu, qui
+        // passe par-dessus tout. Les deux dernieres visent toujours l'ecran ; les lier quand elles
+        // ne dessinent pas est sans effet.
+        //
+        // Pose ICI, apres toute la configuration conditionnelle : le module vient d'y attacher ses
+        // cibles internes, et ces liaisons-la doivent survivre. Poser la capture plus tot la ferait
+        // ecraser par la configuration ; la poser depuis l'exterieur avant `process()` aussi -- c'est
+        // exactement le piege qui rend une capture "vue 0" muette.
+        if (m_captureTarget.isValid()) {
+            m_device->setViewFramebuffer(finalColourView, m_captureTarget);
+            m_device->setViewFramebuffer(1, m_captureTarget);                      // HUD
+            m_device->setViewFramebuffer(FadePass::kFadeView, m_captureTarget);    // fondu
         }
 
         // Execute render graph with collected scene data

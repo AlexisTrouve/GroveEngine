@@ -1,6 +1,6 @@
 # Plan — capture de frame headless, comme capacité de première classe
 
-> **État** : plan, rien d'implémenté. Écrit le 2026-07-30 sur `a1ecefa`.
+> **État** : **C1 livré** (2026-07-30). C2/C3 ouverts. Plan écrit sur `a1ecefa`.
 > **Origine** : la dette « le rendu HUD/map n'est pas vérifié » de
 > `drifterra/docs/grove_integration.md` §368.
 
@@ -100,7 +100,53 @@ CHECK(shot->at(10, 10).r > 200);   // le panneau de menace est bien là
 
 ---
 
-## 4. ⚠️ La question ouverte qui décide de la forme
+## 4. ✅ TRANCHÉ PAR LA MESURE (2026-07-30) — C1 livré
+
+**Réponse : non, la capture ne peut pas se dire « lier la vue N ».** Mesuré, scène fixe (monde vert
+plein cadre, HUD rouge 16×16) :
+
+| Configuration | HUD (8,8) | Monde (40,40) |
+|---|---|---|
+| Sans éclairage, vues 0+1 | 255,0,0 ✅ | 0,255,0 ✅ |
+| **Avec éclairage, vues 0+1** | 255,0,0 | **0,0,0** ❌ |
+| Avec éclairage, vues 3+1 | 255,0,0 ✅ | 0,255,0 ✅ |
+
+L'ensemble des vues qui écrivent l'écran **dépend des effets actifs** — et seul le module le sait,
+puisque c'est lui qui calcule l'ordre de soumission. D'où l'API retenue : `setCaptureTarget`, *«
+redirige ta sortie finale »*, et non *« je lie la vue 3 »*.
+
+**Les trois vues de l'image visible** : la vue couleur finale (monde **ou** composite **ou**
+présentation, selon `lightingActive` / `postActive`), puis le **HUD**, puis le **fondu**. Les deux
+dernières visent toujours l'écran.
+
+**Le moment de la redirection compte autant que la liste.** Elle est posée *après* toute la
+configuration conditionnelle du pipeline, juste avant l'exécution du graphe. Posée avant — ou depuis
+l'extérieur avant `process()` — elle est écrasée par la configuration du module, et la capture sort
+muette. C'est ce qui rend un helper externe impossible à écrire correctement sans cette API.
+
+### ⚠️ Deux erreurs commises en chemin, gardées parce qu'elles se reproduiront
+
+1. **Mesure faussée par le contrat de `render:ambient`.** J'ai d'abord publié `{r,g,b}` en doubles ;
+   le contrat est **un entier `color`**, dont le défaut 0 signifie *éclairage éteint*. Mon ambiant
+   « blanc » éteignait le système, et les trois lignes du tableau se ressemblaient. Conclure là-dessus
+   m'aurait fait bâtir le helper sur les vues 0+1 — exactement le bug.
+
+2. **Premier test non discriminant.** Je l'avais écrit avec un ambiant **blanc**, choisi pour que la
+   couleur reste prévisible. Or blanc est **neutre par construction** : éclairé et non éclairé rendent
+   le même vert. Le test passait contre l'implémentation fausse. Il a fallu un ambiant **à moitié**
+   pour que seul un chemin traversant réellement le composite puisse rendre un vert assombri.
+
+   > La leçon est plus large que ce test : **le réglage qui rend un résultat facile à prédire est
+   > souvent celui qui le rend indiscriminant.**
+
+**Verrouillé par `FrameCaptureGpu`** — monde ET HUD, dans les deux configurations. Vérifié contre les
+deux modes d'échec : capture liée à la vue 0 (monde vert **plein**, composite sauté) et capture liée à
+une vue jamais finale (monde **noir**). Dans les deux cas **le HUD reste correct** — un test qui ne
+vérifierait que le HUD passerait au vert en mentant sur la scène.
+
+---
+
+## 4bis. La question ouverte, telle qu'elle était posée
 
 **Que capture-t-on exactement : une vue, ou l'image finale ?**
 
@@ -124,7 +170,13 @@ franchement dans l'API plutôt que de laisser croire qu'on capture l'écran.
 
 ## 5. Découpage
 
-### C1 — le helper, et la question de la vue tranchée par la mesure
+### C1 — ✅ FAIT (2026-07-30) : `setCaptureTarget` sur le module + la réponse mesurée (§4)
+
+> Livré : l'API module et son test. **Le helper `FrameCapture` de §3 n'est PAS livré** — la
+> mesure a montré que l'essentiel devait vivre DANS le module (le moment de la redirection),
+> ce qui réduit le helper à une enveloppe de confort. Il se décide avec C2, sur pièces.
+
+### C1 — ce qui était prévu
 
 Écrire `FrameCapture` au niveau module + la commodité de fenêtre cachée côté test. Le livrable de
 C1 n'est pas seulement le code : c'est **la réponse mesurée** à §4, écrite ici.
