@@ -428,7 +428,19 @@ public:
     }
 
     void setViewFramebuffer(ViewId id, FramebufferHandle handle) override {
-        if (handle.id >= m_framebuffers.size()) return;
+        // Un handle INVALIDE veut dire « détache cette vue », pas « ignore l'appel ».
+        //
+        // ⚠️ C'était un no-op silencieux, et ce n'était pas théorique : BgfxRendererModule s'en sert
+        //    pour rendre la vue 0 quand l'éclairage s'éteint, juste avant de DÉTRUIRE la cible — la
+        //    vue restait donc attachée à un framebuffer mort. Invisible jusqu'ici parce qu'aucun
+        //    consommateur n'éteint l'éclairage après l'avoir allumé ; le bloom, qui s'allume et
+        //    s'éteint en cours de partie, l'a exposé. Verrouillé par RhiReadbackGpu [unbind].
+        //
+        // BGFX_INVALID_HANDLE est l'idiome bgfx pour « cette vue rend dans le backbuffer ».
+        if (handle.id >= m_framebuffers.size()) {
+            bgfx::setViewFrameBuffer(id, BGFX_INVALID_HANDLE);
+            return;
+        }
         bgfx::setViewFrameBuffer(id, m_framebuffers[handle.id].fb);
     }
 
