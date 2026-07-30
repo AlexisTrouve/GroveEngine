@@ -31,6 +31,7 @@
 #include "BgfxRendererModule.h"
 #include "Passes/CompositePass.h"
 #include "Passes/PresentPass.h"
+#include "Passes/FadePass.h"
 #include "RHI/RHIDevice.h"
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
@@ -1601,6 +1602,179 @@ TEST_CASE("tonemap: two clipped overbrights become DISTINGUISHABLE (GPU)", "[gpu
     renderer->shutdown();
     mgr.removeInstance("tm_r");
     mgr.removeInstance("tm_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
+
+// ============================================================================
+// Fondus (plan F2) — il couvre TOUT, et il n'exige RIEN.
+//
+// Trois mesures, et la deuxième est celle qui distingue cette conception de celle que j'avais annoncée
+// (« les fondus atterriront sur la passe de présentation »).
+//
+//   1. Le fondu agit **SANS éclairage** — aucun `render:ambient`. Une passe rangée avec le bloom
+//      n'existerait même pas dans ce cas.
+//   2. ⚠️ Le fondu **COUVRE LE HUD**. Un sprite en `space:"screen"` est dessiné sur la vue 1, qui passe
+//      APRÈS la présentation ; un fondu posé là le laisserait intact. C'est LE test qui discrimine, et
+//      il passerait inaperçu si on ne mesurait que la scène.
+//   3. Le fondu agit **AUSSI avec l'éclairage actif**, où le pipeline entier change de forme (vue 0
+//      redirigée vers une cible, ordre de soumission imposé à la main). Ce cas attrape un fondu que le
+//      composite écraserait, ou dont la vue aurait hérité d'une cible ou d'une transformation.
+//      ⚠️ Il n'attrape PAS « la vue du fondu oubliée dans la liste d'ordre » : vérifié par sabotage,
+//         `bgfx::setViewOrder` ne remappe que les places listées et soumet les autres vues ensuite, par
+//         id croissant — donc le fondu reste dernier de toute façon, son id étant le plus haut. Le plan
+//         annonçait l'inverse ; c'est corrigé là-bas aussi.
+//
+// Plan : docs/design/lighting-fade.md
+// ============================================================================
+
+TEST_CASE("fade: covers everything INCLUDING the HUD, with or without lighting (GPU)",
+          "[gpu][fade]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("fade", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("fd_r");
+    auto gIO = mgr.createInstance("fd_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("fd_r"); mgr.removeInstance("fd_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+
+    // Le HUD occupe le QUART SUPÉRIEUR GAUCHE, la scène le reste : on peut donc lire séparément un
+    // pixel de monde et un pixel d'interface sur la même frame.
+    const int hudX = 8,  hudY = 8;
+    const int worldX = W - 12, worldY = H - 12;
+
+    auto render = [&](bool lit, double amount, uint32_t fadeColor) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            // Le monde : plein écran, blanc.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Le HUD : un carré VERT en espace écran, donc sur la vue 1 — celle qui passe après la
+            // présentation. C'est le pixel qui discrimine.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", 16.0); s->setDouble("cy", 16.0);
+              s->setDouble("scaleX", 24.0); s->setDouble("scaleY", 24.0);
+              s->setString("space", "screen");
+              s->setInt("color", static_cast<int>(0x00FF00FFu)); s->setInt("layer", 1000);
+              gIO->publish("render:sprite", std::move(s)); }
+            if (lit) {
+                // Ambiant BLANC : neutre par construction, donc la scène est inchangée et la seule
+                // variable de l'expérience reste le fondu.
+                auto a = std::make_unique<JsonDataNode>("a");
+                a->setInt("color", static_cast<int>(0xFFFFFFFFu));
+                gIO->publish("render:ambient", std::move(a));
+            }
+            { auto f = std::make_unique<JsonDataNode>("f");
+              f->setDouble("amount", amount);
+              f->setInt("color", static_cast<int>(fadeColor));
+              gIO->publish("render:fade", std::move(f)); }
+
+            // ⚠️ La lecture se fait toujours sur la vue du FONDU quand il est actif : c'est la dernière
+            //    à écrire. Sans fondu, la frame finale est sur la vue 0 (non éclairé) ou celle du
+            //    composite (éclairé).
+            if (amount > 0.0) {
+                dev->setViewFramebuffer(FadePass::kFadeView, fb);
+            } else if (lit) {
+                dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            } else {
+                dev->setViewFramebuffer(0, fb);
+                dev->setViewFramebuffer(1, fb);
+            }
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    };
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (static_cast<int>(p[0]) + p[1] + p[2]) / 3;
+    };
+    auto greenAt = [&](int x, int y) {
+        return static_cast<int>(rgba[(static_cast<size_t>(y)*W + x)*4 + 1]);
+    };
+
+    // ---- 1. SANS ÉCLAIRAGE : la référence, puis le fondu -----------------------------------
+    render(false, 0.0, 0x000000FFu);
+    const int refWorld = lumaAt(worldX, worldY);
+    const int refHudG  = greenAt(hudX, hudY);
+    INFO("sans fondu : monde=" << refWorld << " HUD(vert)=" << refHudG);
+    REQUIRE(refWorld > 200);          // le monde est bien blanc
+    REQUIRE(refHudG  > 200);          // et le HUD bien present
+
+    // Fondu au noir a moitie : le monde doit tomber vers le gris.
+    render(false, 0.5, 0x000000FFu);
+    const int halfWorld = lumaAt(worldX, worldY);
+    INFO("fondu 0.5 : monde=" << halfWorld);
+    CHECK(halfWorld < refWorld - 60);
+    CHECK(halfWorld > 40);            // ...sans etre deja noir : c'est un MIX, pas un interrupteur
+
+    // ---- 2. LE DISCRIMINANT : a fond, le HUD disparait AUSSI --------------------------------
+    render(false, 1.0, 0x000000FFu);
+    const int fullWorld = lumaAt(worldX, worldY);
+    const int fullHudG  = greenAt(hudX, hudY);
+    INFO("fondu 1.0 : monde=" << fullWorld << " HUD(vert)=" << fullHudG << " (ref " << refHudG << ")");
+    CHECK(fullWorld < 8);
+    // ⚠️ L'ASSERTION QUI SEPARE CETTE CONCEPTION DE L'AUTRE. Un fondu sur la passe de presentation
+    //    laisserait ce vert intact a 255, tout en passant toutes les autres mesures.
+    CHECK(fullHudG < 8);
+
+    // ---- 3. AVEC ÉCLAIRAGE : le fondu doit toujours agir -----------------------------------
+    // Le pipeline change entierement de forme : la vue 0 part dans une cible, un composite plein ecran
+    // ecrit le resultat, l'ordre est impose a la main. Ce cas attrape un fondu que le composite
+    // ecraserait, ou dont la vue aurait herite d'une cible.
+    // ⚠️ Il n'attrape PAS l'oubli de la vue dans la liste d'ordre — voir l'en-tete de ce test.
+    render(true, 1.0, 0x000000FFu);
+    const int litFadedWorld = lumaAt(worldX, worldY);
+    const int litFadedHudG  = greenAt(hudX, hudY);
+    INFO("eclaire + fondu 1.0 : monde=" << litFadedWorld << " HUD(vert)=" << litFadedHudG);
+    CHECK(litFadedWorld < 8);
+    CHECK(litFadedHudG < 8);
+
+    // ---- 4. Un fondu au BLANC atteint le blanc --------------------------------------------
+    // Il n'y a ici aucun tonemapping, mais c'est la raison pour laquelle le fondu doit passer APRES la
+    // courbe : Reinhard tend vers 1 sans l'atteindre, donc un fondu au blanc applique avant ne
+    // terminerait jamais sa course.
+    render(false, 1.0, 0xFFFFFFFFu);
+    INFO("fondu blanc : monde=" << lumaAt(worldX, worldY));
+    CHECK(lumaAt(worldX, worldY) > 248);
+
+    // ---- 5. Le CONTOURNEMENT : retour a 0, l'image est intacte ----------------------------
+    render(false, 0.0, 0x000000FFu);
+    INFO("retour a 0 : monde=" << lumaAt(worldX, worldY) << " HUD=" << greenAt(hudX, hudY));
+    CHECK(lumaAt(worldX, worldY) > 200);
+    CHECK(greenAt(hudX, hudY) > 200);
+
+    renderer->shutdown();
+    mgr.removeInstance("fd_r");
+    mgr.removeInstance("fd_g");
     dev = nullptr;
     SDL_DestroyWindow(win);
     SDL_Quit();

@@ -7,7 +7,8 @@
 > RGBA16F tranché en §8 est ce qui les a rendus possibles. ⚠️ Le tonemapping **ferme une dette de
 > cet arbitrage** : le sur-brillant y était conservé, puis écrêté par le backbuffer 8 bits à la
 > dernière ligne (deux lampes d'intensité 2 et 8 rendaient toutes deux 255 — mesuré). Restent les
-> **fondus** et la **colorimétrie**, sur la même passe de présentation.
+> **fondus** ✅ (mais sur leur PROPRE passe, pas la présentation — [plan F2](lighting-fade.md) §2
+> explique pourquoi, et corrige au passage une affirmation du plan du bloom) et la **colorimétrie**.
 
 ---
 
@@ -24,6 +25,7 @@ vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
 | le détail d'une matière | [murs](lighting-walls.md) · [filtres](lighting-filters.md) · [milieux et nébuleuses](lighting-attenuators.md) |
 | le **bloom** (post-traitement) | [plan B](lighting-bloom.md) — ce qui alimente la lueur, et pourquoi ce n'est pas le buffer de lumière |
 | le **tonemapping** | [plan T](lighting-tonemap.md) — comment le sur-brillant conservé ici arrive enfin à l'écran |
+| les **fondus** | [plan F2](lighting-fade.md) — le seul effet de la famille qui n'exige PAS l'éclairage |
 | **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
 
 **Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un

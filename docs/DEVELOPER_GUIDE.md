@@ -739,6 +739,42 @@ scene's exposure.
 
 Plan + measurements: `docs/design/lighting-tonemap.md`.
 
+#### Fades (post-processing)
+
+A full-screen fade — to black for a scene transition, to white for a flash, to red for damage:
+
+```cpp
+auto f = std::make_unique<JsonDataNode>("fade");
+f->setDouble("amount", 1.0);        // 0 = off (default) .. 1 = the screen IS the colour
+// f->setInt("color", 0xFF2010FF);  // optional; BLACK by default
+io->publish("render:fade", std::move(f));
+```
+
+**✅ Unlike bloom and tonemapping, a fade needs NOTHING** — no `render:ambient`, no HDR target. It is
+one blended quad over whatever was drawn, so it works in a game that never lights anything. If you use
+exactly one thing from this whole post-processing family, it can be this.
+
+**It covers the HUD.** The fade is drawn on its own view, submitted *last* — after the interface. That
+is deliberate: a scene transition has to take the UI with it, or your menus float on a black screen.
+(Bloom and tonemapping do the opposite and spare the HUD, so it stays sharp and legible.)
+
+**Ramp `amount` yourself.** There is no duration and no easing: publish a new `amount` each frame for
+as long as the transition lasts. The engine does not own that clock — a built-in duration would have to
+decide whether a paused game freezes the fade, and would take any non-linear curve away from you.
+
+```cpp
+// A one-second fade to black, driven by the game.
+m_fadeT = std::min(1.0f, m_fadeT + dt);          // your own easing goes here
+auto f = std::make_unique<JsonDataNode>("fade");
+f->setDouble("amount", m_fadeT);
+io->publish("render:fade", std::move(f));
+```
+
+`amount` is clamped to [0,1]: past 1 a mix would *extrapolate* and give artefacts instead of a full
+screen. The colour's alpha byte is ignored — `amount` is the alpha.
+
+Plan + measurements: `docs/design/lighting-fade.md`.
+
 #### Bulk Sprite Submission (high throughput)
 
 `render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per

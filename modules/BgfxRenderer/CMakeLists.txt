@@ -80,6 +80,7 @@ add_library(BgfxRenderer SHARED
     Passes/NebulaPass.cpp
     Passes/BloomPass.cpp
     Passes/PresentPass.cpp
+    Passes/FadePass.cpp
     Passes/SpritePass.cpp
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp
@@ -183,6 +184,7 @@ add_library(BgfxRenderer_static STATIC
     Passes/NebulaPass.cpp
     Passes/BloomPass.cpp
     Passes/PresentPass.cpp
+    Passes/FadePass.cpp
     Passes/SpritePass.cpp
     Passes/TextPass.cpp
     Passes/ParticlePass.cpp

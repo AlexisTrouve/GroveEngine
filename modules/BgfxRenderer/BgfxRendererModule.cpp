@@ -23,6 +23,7 @@
 #include "Passes/CompositePass.h"
 #include "Passes/BloomPass.h"
 #include "Passes/PresentPass.h"
+#include "Passes/FadePass.h"
 #include <grove/light/Bloom.h>
 #include "Passes/LightPass.h"
 #include "Passes/OcclusionPass.h"
@@ -483,7 +484,11 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         auto presentPass = std::make_unique<PresentPass>(m_shaderManager->getProgram("present"));
         m_presentPass = presentPass.get();
         m_renderGraph->addPass(std::move(presentPass));
-        m_logger->info("Added BloomPass + PresentPass");
+        // Le fondu est enregistre inconditionnellement comme les autres, et sort immediatement quand
+        // `amount == 0`. Mais contrairement a eux, il n'a besoin d'AUCUNE cible : il fonctionne donc
+        // aussi dans un jeu qui n'eclaire pas, ou tout le reste de ce bloc est inerte.
+        m_renderGraph->addPass(std::make_unique<FadePass>(m_shaderManager->getProgram("fade")));
+        m_logger->info("Added BloomPass + PresentPass + FadePass");
     }
 
     m_renderGraph->setup(*m_device);
@@ -821,6 +826,13 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                packet.hudView.viewportW, packet.hudView.viewportH);
         m_device->setViewTransform(1, packet.hudView.viewMatrix, packet.hudView.projMatrix);
 
+        // Le fondu (plan F2) : plein viewport, et pose ICI et pas dans le bloc d'eclairage -- il n'en
+        // depend pas. Aucune transformation n'est posee sur cette vue : son quad est deja en espace de
+        // clip, donc il couvre l'ecran quoi que fasse la camera. Pas de framebuffer non plus : il
+        // dessine sur le backbuffer, par-dessus tout le reste.
+        m_device->setViewRect(FadePass::kFadeView, packet.mainView.viewportX, packet.mainView.viewportY,
+                              packet.mainView.viewportW, packet.mainView.viewportH);
+
         // ---- Lighting (L1) --------------------------------------------------------------------
         // ambientColor == 0 means NO game asked for lighting. Everything below is then skipped:
         // no targets are built, view 0 keeps drawing to the backbuffer, no submission order is
@@ -971,20 +983,32 @@ void BgfxRendererModule::process(const IDataNode& input) {
                 const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
                                               CompositePass::kLightView, CompositePass::kCompositeView,
                                               BloomPass::kExtractView, BloomPass::kBlurHView,
-                                              BloomPass::kBlurVView, PresentPass::kPresentView, 1 };
-                m_device->setViewOrder(order, 9);
+                                              BloomPass::kBlurVView, PresentPass::kPresentView, 1,
+                                              FadePass::kFadeView };
+                m_device->setViewOrder(order, 10);
             } else if (postActive) {
                 // Tonemapping SANS bloom : les trois vues de flou n'ont rien à faire dans l'ordre,
                 // leur passe sortant immédiatement. La présentation, elle, reste indispensable —
                 // c'est elle qui amène la cible HDR à l'écran.
                 const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
                                               CompositePass::kLightView, CompositePass::kCompositeView,
-                                              PresentPass::kPresentView, 1 };
-                m_device->setViewOrder(order, 6);
+                                              PresentPass::kPresentView, 1, FadePass::kFadeView };
+                m_device->setViewOrder(order, 7);
             } else {
+                // Le fondu vient APRES le HUD dans les trois branches : une transition de scene doit
+                // emporter l'interface.
+                //
+                // ⚠️ CE QUI LE GARANTIT n'est PAS cette liste, contrairement a ce que j'avais ecrit.
+                //    `bgfx::setViewOrder(0, count, order)` ne remappe que les `count` PREMIERES places ;
+                //    les vues non listees sont quand meme soumises, ensuite, par id croissant. Verifie
+                //    par sabotage : retirer la vue du fondu de cette liste ne change RIEN au rendu.
+                //    Le fondu est donc dernier parce que son ID EST LE PLUS HAUT (9). La vraie fragilite
+                //    est la : ajouter une vue au-dela de 9 la ferait passer apres le fondu. On la liste
+                //    quand meme, pour que l'intention se lise a l'endroit ou l'ordre est decide.
                 const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
-                                              CompositePass::kLightView, CompositePass::kCompositeView, 1 };
-                m_device->setViewOrder(order, 5);
+                                              CompositePass::kLightView, CompositePass::kCompositeView, 1,
+                                              FadePass::kFadeView };
+                m_device->setViewOrder(order, 6);
             }
 
             // ONE texture, TWO readers: the march samples its RGB (transmittance), the composite

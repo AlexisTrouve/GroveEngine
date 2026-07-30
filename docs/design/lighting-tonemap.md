@@ -1,9 +1,11 @@
 # Plan T — le tonemapping (post-traitement, tranche 2)
 
-> **Statut** : plan écrit le 2026-07-30, avant la première ligne de code.
+> **Statut** : ✅ **LIVRÉ** le 2026-07-30 (T0 → T2). ⚠️ Un arbitrage majeur entre les deux modes a été
+> trouvé **par la mesure et non par ce plan** — §9.
 > **Socle** : la **passe de présentation** introduite par [le bloom](lighting-bloom.md) — elle existe
 > explicitement pour cette queue de post-traitement, ce n'est pas un détournement.
-> **Suite après** : fondus, colorimétrie. Même passe.
+> **Suite** : ✅ [les fondus](lighting-fade.md) — mais sur leur PROPRE passe, et pas celle-ci : elle
+> passe avant le HUD, qu'un fondu doit couvrir. Reste la **colorimétrie**.
 
 ---
 
@@ -129,7 +131,32 @@ se placer **au-dessus de 1**, là où l'information est perdue aujourd'hui.
    les chiffres — un test qui re-écrirait les constantes ne prouverait rien d'autre que le copier-coller.
 4. **Pas de variante Metal**, comme les autres shaders de post-traitement. Dette déjà nommée.
 
-## 8. Hors périmètre, explicitement
+## 8. ⚠️ Ce que la mesure a appris et que ce plan ignorait
+
+**ACES sature vers x ≈ 6, Reinhard jamais.** Mesuré sur le GPU, sur une lampe couvrant la vue :
+
+| Intensité | sans tonemap | reinhard | aces |
+|---|---|---|---|
+| 2 | 255 | 170 | 233 |
+| 8 | 255 | **226** | **255** |
+
+L'épaule de l'ajustement de Narkowicz atteint le blanc, donc au-delà ACES **ré-écrête** — le défaut
+même que cette tranche corrige, repoussé plus loin. Reinhard, dont la formule tend vers 1 sans jamais
+l'atteindre, sépare indéfiniment.
+
+**Ce n'est pas un défaut à corriger** : une courbe filmique a un point blanc, c'est ce qui la rend
+filmique. Mais c'est un **arbitrage que l'auteur doit connaître**, et ce plan ne le mentionnait pas —
+il présentait les deux modes comme deux looks, alors qu'ils diffèrent aussi par leur **plage utile** :
+
+- plage dynamique extrême (une supernova à côté d'une bougie) → **reinhard** ;
+- rendu filmique avec un vrai blanc → **aces**, en réglant `exposure` pour que le contenu le plus
+  lumineux tienne sous son point blanc.
+
+Verrouillé par un cas dédié de `TonemapMathUnit`, qui assertionne les **faits** (reinhard reste
+injectif à 1e6 ; ACES dépasse 0,98 dès 6) et non la limitation elle-même — si l'ajustement était un jour
+remplacé, ce test devrait être relu, pas simplement rendu vert.
+
+## 9. Hors périmètre, explicitement
 
 - **Pas de point blanc** (Reinhard étendu). `exposure` + la courbe simple suffisent à cette tranche.
 - **Pas de LUT ni de colorimétrie** — tranche suivante, même passe.

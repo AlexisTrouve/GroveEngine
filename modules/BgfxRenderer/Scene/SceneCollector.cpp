@@ -166,6 +166,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:tonemap") {
             parseTonemap(*msg.data);
         }
+        else if (msg.topic == "render:fade") {
+            parseFade(*msg.data);
+        }
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
@@ -259,6 +262,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.ambientColor = m_ambientColor;   // global state, not cleared at the frame boundary
     packet.bloom = m_bloom;                 // idem: a setting, published once, honoured every frame
     packet.tonemap = m_tonemap;             // idem — et INDEPENDANT du bloom, voir FramePacket
+    packet.fade = m_fade;                   // idem — et n'exige ni eclairage ni cible HDR
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1571,6 +1575,21 @@ void SceneCollector::parseTonemap(const IDataNode& data) {
     // Une exposition negative inverserait l'image ; 0 est le seul sens qu'on puisse donner a moins que
     // rien, et il est explicable (noir).
     if (!(m_tonemap.exposure > 0.0f)) m_tonemap.exposure = 0.0f;
+}
+
+void SceneCollector::parseFade(const IDataNode& data) {
+    // Fondu plein ecran (plan F2). Reglage global persistant, comme l'ambiant et le tonemapping.
+    //
+    // La couleur par defaut est le NOIR : la transition au noir est de loin le cas courant, donc
+    // `render:fade {amount: 1}` doit suffire a l'ecrire.
+    m_fade.color  = static_cast<uint32_t>(data.getInt("color", 0x000000FF));
+    m_fade.amount = static_cast<float>(data.getDouble("amount", 0.0));
+
+    // ⚠️ BORNE a [0,1], et ce n'est pas de la prudence : au-dela de 1 un `mix` EXTRAPOLE, donc la
+    //    couleur depasserait ses propres canaux et produirait des artefacts la ou l'auteur attendait un
+    //    ecran plein. En dessous de 0, il extrapolerait dans l'autre sens.
+    if (!(m_fade.amount > 0.0f)) m_fade.amount = 0.0f;   // couvre aussi un NaN entrant
+    if (m_fade.amount > 1.0f)    m_fade.amount = 1.0f;
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {

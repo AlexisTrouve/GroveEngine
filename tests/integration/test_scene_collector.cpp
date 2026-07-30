@@ -3207,3 +3207,114 @@ TEST_CASE("SceneCollector - tonemap et bloom sont INDÉPENDANTS",
         REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);   // inchangé par le bloom
     }
 }
+
+// ============================================================================
+// Fondus (plan F2, tranche Fa) — `render:fade`, le plus simple des reglages persistants.
+//
+// Meme nature que l'ambiant, le bloom et le tonemapping : etat global qui survit a la frontiere de
+// frame, et `amount == 0` est l'interrupteur autant que la valeur.
+//
+// ⚠️ Mais contrairement aux trois autres, celui-ci N'EXIGE RIEN : ni eclairage, ni cible HDR. C'est un
+//    quad melange par-dessus le resultat, quel qu'il soit. Cote collector ca ne se voit pas ; c'est le
+//    test GPU qui le prouve. Plan : docs/design/lighting-fade.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - fade: absent means OFF", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-regression : un amount non nul par defaut voilerait l'ecran de CHAQUE jeu.
+    REQUIRE_THAT(p.fade.amount, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - fade: couleur + quantite, et ca PERSISTE", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setInt("color", 0xFF2010FFu);        // un flash rouge
+    f->setDouble("amount", 0.4);
+    fx.ioPublisher->publish("render:fade", std::move(f));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.fade.amount, WithinAbs(0.4f, 1e-5f));
+        REQUIRE(p.fade.color == 0xFF2010FFu);
+    }
+
+    // Un reglage, pas une primitive : il survit, sinon un jeu devrait republier son fondu chaque frame
+    // -- ce qu'il fera de toute facon pendant une transition, mais PAS pendant un fondu maintenu.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.fade.amount, WithinAbs(0.4f, 1e-5f));
+    }
+}
+
+TEST_CASE("SceneCollector - fade: la couleur par defaut est le NOIR", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Le cas d'usage de loin le plus courant est la transition au noir : elle doit s'ecrire en un seul
+    // champ. `render:fade {amount: 1}` suffit.
+    auto f = std::make_unique<JsonDataNode>("f");
+    f->setDouble("amount", 1.0);
+    fx.ioPublisher->publish("render:fade", std::move(f));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE_THAT(p.fade.amount, WithinAbs(1.0f, 1e-6f));
+    // 0x000000FF : noir opaque. L'octet alpha est ignore par la passe (c'est `amount` qui fait office
+    // d'alpha) mais on le garde a FF pour que la valeur se lise comme une couleur normale du moteur.
+    REQUIRE((p.fade.color >> 8) == 0u);
+}
+
+TEST_CASE("SceneCollector - fade: amount 0 ETEINT", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", 1.0);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).fade.amount > 0.0f);
+        fx.collector.clear();
+    }
+
+    // La fin d'une transition : un jeu rampe `amount` jusqu'a 0 et l'ecran doit redevenir intact. Sans
+    // ce chemin, un fondu serait un aller sans retour.
+    auto off = std::make_unique<JsonDataNode>("f");
+    off->setDouble("amount", 0.0);
+    fx.ioPublisher->publish("render:fade", std::move(off));
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - fade: amount est BORNE a [0,1]", "[scene_collector][fade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Au-dela de 1 un `mix` EXTRAPOLE : la couleur depasserait et donnerait des artefacts au lieu d'un
+    // ecran plein. En dessous de 0 il extrapolerait dans l'autre sens.
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", 3.5);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(1.0f, 1e-6f));
+        fx.collector.clear();
+    }
+    {
+        auto f = std::make_unique<JsonDataNode>("f");
+        f->setDouble("amount", -2.0);
+        fx.ioPublisher->publish("render:fade", std::move(f));
+        fx.pump();
+        REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(0.0f, 1e-6f));
+    }
+}

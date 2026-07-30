@@ -18,6 +18,7 @@
 #include "fs_bloom_extract.bin.h"
 #include "fs_bloom_blur.bin.h"
 #include "fs_present.bin.h"
+#include "fs_fade.bin.h"
 
 namespace grove {
 
@@ -295,6 +296,14 @@ void ShaderManager::loadBloomShaders(rhi::IRHIDevice& device, const std::string&
     build("bloom_extract", exData, exSize);
     build("bloom_blur",    blData, blSize);
     build("present",       prData, prSize);
+
+    // Le fondu partage le meme quad en espace de clip. Son fragment est le plus court du moteur : tout
+    // le travail est fait par l'etat de melange (alpha), pas par le shader.
+    const uint8_t* fdData = nullptr; uint32_t fdSize = 0;
+    if (rendererName == "OpenGL")                                            { fdData = fs_fade_glsl; fdSize = sizeof(fs_fade_glsl); }
+    else if (rendererName == "Direct3D 11" || rendererName == "Direct3D 12")  { fdData = fs_fade_dx11; fdSize = sizeof(fs_fade_dx11); }
+    else                                                                      { fdData = fs_fade_spv;  fdSize = sizeof(fs_fade_spv); }
+    build("fade", fdData, fdSize);
 }
 
 void ShaderManager::loadLightShader(rhi::IRHIDevice& device, const std::string& rendererName) {

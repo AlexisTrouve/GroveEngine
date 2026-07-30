@@ -416,6 +416,27 @@ struct FramePacket {
     };
     TonemapSettings tonemap;
 
+    // Post-processing: full-screen FADE (plan F2) — set by `render:fade`. Persistent global state like
+    // the three settings above.
+    //
+    // ⚠️ Contrairement au bloom et au tonemapping, celui-ci N'EXIGE RIEN : ni éclairage, ni cible HDR.
+    //    C'est un quad mélangé par-dessus le résultat, quel qu'il soit — donc il fonctionne dans un jeu
+    //    qui n'éclaire pas, ce qui est le cas des trois consommateurs actuels.
+    //
+    // ⚠️ Et il est dessiné par une passe soumise EN DERNIER, donc il COUVRE LE HUD. C'est le contraire
+    //    du bloom et du tonemapping, qui l'épargnent délibérément : une transition de scène doit
+    //    emporter l'interface, sinon elle flotte sur un écran noir. Voir docs/design/lighting-fade.md §2,
+    //    qui corrige au passage une affirmation du plan du bloom.
+    struct FadeSettings {
+        // 0 = éteint (le défaut), 1 = l'écran EST la couleur. Borné à [0,1] par le collector : un mix
+        // au-delà de 1 EXTRAPOLE, donc donnerait des artefacts au lieu d'un écran plein.
+        float amount = 0.0f;
+        // RGBA, mais l'octet alpha est IGNORÉ — c'est `amount` qui fait office d'alpha. Noir par défaut,
+        // le fondu de transition étant de loin le cas courant.
+        uint32_t color = 0x000000FFu;
+    };
+    FadeSettings fade;
+
     // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
     // published none — no arena slice is claimed for a feature nobody used.
     const LightCommand* lights = nullptr;
