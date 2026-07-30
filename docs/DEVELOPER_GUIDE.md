@@ -1658,6 +1658,48 @@ that makes a module's `setState()` throw is caught + logged per module — it ne
 
 ---
 
+## Headless frame capture — assert what the player would SEE
+
+Your game's HUD is not verified until something asserts its pixels. `BgfxRendererModule::setCaptureTarget`
+redirects the renderer's **final output** into a CPU-readable target, so a test can publish topics,
+step one frame, and check colours — no screen, no human eye.
+
+```cpp
+rhi::FramebufferHandle fb =
+    renderer.getDevice()->createFramebuffer(W, H, rhi::TargetFormat::RGBA8);
+
+publishMyHud();                       // render:rect / render:text with space:"screen"
+renderer.setCaptureTarget(fb);
+renderer.process(input);              // one frame, straight into `fb`
+renderer.setCaptureTarget({});        // release — see the warning below
+
+std::vector<uint8_t> rgba(size_t(W) * H * 4);
+REQUIRE(renderer.getDevice()->readFramebuffer(fb, rgba.data(), uint32_t(rgba.size())));
+// rgba is RGBA8, origin top-left: assert your panel's colour where you drew it.
+```
+
+**Why an API and not just `setViewFramebuffer(0, fb)`.** Because that is wrong, silently. The set of
+views that write the screen **depends on which effects are active**: without lighting the world view
+goes to the screen; with lighting it goes into the scene target and the *composite* comes out; with
+post-processing the *present* pass does. Binding "view 0" therefore captures a **black world** as
+soon as a game turns lighting on — while **the HUD still looks right**, so a HUD test passes and lies
+about the scene. Only the module knows the answer, because it computes the submission order.
+
+> ⚠️ **The redirection is PERSISTENT.** The module re-applies it every frame — that is what makes it
+> survive a target rebuild — so it **overrides any view binding you do by hand** until you release it
+> with an invalid handle. Capturing and then running another render (an export, a poster) without
+> releasing sends the second render into the first target. The only symptom is a uniform image.
+
+> ⚠️ It does not resize anything: a target smaller than the window captures a cropped image.
+> `shutdown()` releases the redirection as a safety net — a view left bound to a destroyed
+> framebuffer corrupts the heap at teardown rather than failing cleanly.
+
+Locked by `FrameCaptureGpu`, which asserts the world **and** the HUD with lighting both off and on —
+the discrimination matters, since the wrong implementations keep the HUD correct. That test also uses
+these exact three calls, so the snippet above cannot rot silently: the API cannot change without
+breaking it. (It is NOT mirrored in `DocExamples` — that guard deliberately excludes renderer APIs,
+which would drag the BgfxRenderer link into a compile-only test.)
+
 ## Diagnostics — crash reports, leaks, profiling
 
 The engine ships a diagnostics layer for finding problems in dev AND in a shipped build. All of it is
