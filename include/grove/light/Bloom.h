@@ -120,5 +120,52 @@ inline void bloomHalfKernel(float sigma, float* out) {
     for (int i = 0; i < 5; ++i) out[i] = w[i] / total;
 }
 
+// De combien réduire la cible de flou, pour un rayon de lueur donné en PIXELS ÉCRAN.
+//
+// QUOI  : le facteur de sous-échantillonnage (4, 8 ou 16). 4 = quart de résolution.
+//
+// POURQUOI cette fonction existe — c'est la correction d'un défaut VU sur une capture, pas déduit.
+//         Le noyau a 9 taps ; leur écartement doit couvrir `radius`, donc il vaut `radius / (4·D)`
+//         texels quand un texel fait `D` pixels. À D fixé, un rayon qui grandit écarte les taps, et
+//         **passé environ 1,5 texel d'écartement la gaussienne est sous-échantillonnée** : chaque tap
+//         imprime sa propre copie de la forme lumineuse au lieu de la lisser, ce qui donne un FESTON.
+//         Mesuré : à D=4 le feston est franc dès 40 px, alors que la doc annonçait « ~60 px » par
+//         raisonnement.
+//
+//         La réponse n'est donc pas un noyau plus large mais un TEXEL plus gros — et le mécanisme
+//         exact vaut d'être dit, parce qu'il n'est pas celui qu'on suppose : **les taps tombent aux
+//         MÊMES positions écran** dans tous les cas (le plus externe doit valoir `radius`, c'est
+//         imposé). Ce qui change est l'EMPREINTE de chaque tap, soit un texel. À D=4 un tap couvre
+//         4 px et laisse 12 px de trou jusqu'à son voisin — ces trous SONT le feston. À D=16 il couvre
+//         16 px et rejoint son voisin. « Écartement ≤ 1,5 texel » dit exactement ça : l'empreinte
+//         couvre le trou. C'est ce que fait une chaîne de mips en choisissant son niveau ; ici on
+//         choisit le niveau directement, sans chaîne.
+//
+// COMMENT: bornes = 24 px à D=4, 48 px à D=8, 96 px à D=16, chacune étant le rayon où l'écartement
+//         atteint 1,5 texel. Les facteurs sont des PUISSANCES DE DEUX et il n'y en a que trois : un
+//         changement de facteur oblige à rebâtir les cibles, donc un jeu qui rampe son rayon (pour un
+//         fondu) ne doit pas provoquer une reconstruction par frame. Trois paliers = au plus deux
+//         reconstructions sur toute la course du bouton.
+//
+// ⚠️ Au-delà de 96 px on reste à 16 et la qualité redégrade — passer à 32 rendrait la cible si petite
+//    (40 px de large en 1280) que la lueur montrerait des BLOCS au lieu d'un feston. On échange un
+//    artefact contre un autre, donc on s'arrête. Limite documentée, pas cachée.
+inline int bloomDownsample(float radiusPx) {
+    if (radiusPx <= 24.0f) return 4;
+    if (radiusPx <= 48.0f) return 8;
+    return 16;
+}
+
+// Écartement d'UN tap, en texels de la cible de flou, pour un rayon écran et un facteur de réduction.
+//
+// Le tap le plus externe est le 4e, donc il tombe à `4 · spacing` texels du centre, soit
+// `4 · spacing · D` pixels écran — et c'est ce qu'on veut égal à `radius`. D'où la division par 4·D.
+// Garder cette formule ici plutôt que dans la passe est ce qui rend la borne ci-dessus vérifiable :
+// les deux se lisent ensemble.
+inline float bloomTapSpacing(float radiusPx, int downsample) {
+    if (downsample <= 0) return 0.0f;
+    return radiusPx / (4.0f * static_cast<float>(downsample));
+}
+
 } // namespace light
 } // namespace grove

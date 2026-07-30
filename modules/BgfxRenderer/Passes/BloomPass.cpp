@@ -64,7 +64,7 @@ void BloomPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
         return;
     }
     // Sans dimensions, un décalage d'UV n'a pas de sens — et une division par zéro suivrait.
-    if (m_quarterW == 0 || m_quarterH == 0 || m_fullW == 0 || m_fullH == 0) {
+    if (m_smallW == 0 || m_smallH == 0 || m_fullW == 0 || m_fullH == 0 || m_downsample <= 0) {
         return;
     }
 
@@ -77,15 +77,22 @@ void BloomPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
     state.depthTest  = false;
     state.depthWrite = false;
 
-    // ---- 1. Extraction : pleine résolution -> quart -------------------------------------------
-    // Le décalage des quatre taps est un DEMI-texel de la source. Un texel entier sauterait le
-    // voisinage immédiat et laisserait des trous d'un pixel sur deux ; un demi-texel place les quatre
-    // taps aux centres des quatre quadrants que ce pixel de sortie recouvre.
+    // ---- 1. Extraction : pleine résolution -> cible réduite -----------------------------------
+    // Les quatre taps se placent aux CENTRES DES QUATRE QUADRANTS du bloc que ce pixel de sortie
+    // recouvre. Un pixel de sortie couvre `downsample` pixels source par axe, donc le décalage vaut un
+    // quart de bloc : `downsample / 4` pixels source.
+    //
+    // ⚠️ C'était écrit en dur à 0,5 pixel source, ce qui plaçait les quatre taps dans le pixel CENTRAL
+    //    du bloc — donc la « moyenne 4×4 » que le commentaire d'origine revendiquait n'existait pas :
+    //    à 1/4 on échantillonnait un carré de 1×1 px sur les 4×4 disponibles. Défaut mineur à 1/4
+    //    (le bilinéaire élargit un peu chaque tap), mais rédhibitoire à 1/16 où il aurait laissé
+    //    l'extraction crénelée pendant que le flou, lui, devenait propre.
+    const float quarterBlock = static_cast<float>(m_downsample) * 0.25f;
     const float extractUniform[4] = {
         frame.bloom.threshold,
         light::bloomKnee(frame.bloom.threshold),
-        0.5f / static_cast<float>(m_fullW),
-        0.5f / static_cast<float>(m_fullH),
+        quarterBlock / static_cast<float>(m_fullW),
+        quarterBlock / static_cast<float>(m_fullH),
     };
 
     cmd.setState(state);
@@ -109,12 +116,13 @@ void BloomPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
     const float weights[8] = { w[0], w[1], w[2], w[3],
                                w[4], 0.0f, 0.0f, 0.0f };
 
-    // Écartement des taps, en texels du quart de résolution. `radius` est en PIXELS ÉCRAN, et le
-    // rayon naturel (écartement 1) vaut 16 px — voir kNaturalRadiusPx.
-    const float spacing = frame.bloom.radius / kNaturalRadiusPx;
+    // Écartement des taps, en texels de la cible réduite. La formule vit dans l'oracle avec la règle
+    // de choix du facteur : les deux se lisent ensemble, et c'est ce qui rend la borne « ≤ 1,5 texel »
+    // vérifiable par un test CPU (BloomMathUnit) au lieu d'être une affirmation dans un shader.
+    const float spacing = light::bloomTapSpacing(frame.bloom.radius, m_downsample);
 
     // ---- 2. Flou horizontal : A -> B ---------------------------------------------------------
-    const float blurH[4] = { spacing / static_cast<float>(m_quarterW), 0.0f, 0.0f, 0.0f };
+    const float blurH[4] = { spacing / static_cast<float>(m_smallW), 0.0f, 0.0f, 0.0f };
     cmd.setState(state);
     cmd.setVertexBuffer(m_quadVB);
     cmd.setIndexBuffer(m_quadIB);
@@ -126,7 +134,7 @@ void BloomPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::
 
     // ---- 3. Flou vertical : B -> A -----------------------------------------------------------
     // Le résultat revient dans A, ce dont la passe de présentation dépend (elle reçoit la texture A).
-    const float blurV[4] = { 0.0f, spacing / static_cast<float>(m_quarterH), 0.0f, 0.0f };
+    const float blurV[4] = { 0.0f, spacing / static_cast<float>(m_smallH), 0.0f, 0.0f };
     cmd.setState(state);
     cmd.setVertexBuffer(m_quadVB);
     cmd.setIndexBuffer(m_quadIB);

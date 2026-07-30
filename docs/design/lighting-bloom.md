@@ -1,6 +1,7 @@
 # Plan B — le bloom (post-traitement, tranche 1)
 
-> **Statut** : ✅ **LIVRÉ** le 2026-07-30 — B0 → B3, plus un défaut RHI trouvé en chemin.
+> **Statut** : ✅ **LIVRÉ** le 2026-07-30 — B0 → B4, plus deux défauts trouvés en chemin (un dans le
+> RHI, un dans l'éclairage lui-même).
 > Écarts et erreurs de ce plan consignés au **§8**, à lire avant de faire confiance au reste.
 > **Socle** : [éclairage 2D](lighting-2d.md) — les cibles sont en RGBA16F **précisément pour ça**
 > ([l'arbitrage d'Alexi](lighting-2d.md#8-arbitrage-tranché--rgba16f-alexi-2026-07-28)).
@@ -88,12 +89,16 @@ Cibles ajoutées, **uniquement quand le bloom est actif** :
 | Cible | Taille | Format | Rôle |
 |---|---|---|---|
 | `m_hdrFB` | plein écran | RGBA16F | ce que le composite écrit désormais |
-| `m_bloomFB[0]`, `[1]` | **quart** de chaque dimension | RGBA16F | extraction + ping-pong du flou séparable |
+| `m_bloomFB[0]`, `[1]` | **1/4, 1/8 ou 1/16** selon le rayon (§9) | RGBA16F | extraction + ping-pong du flou séparable |
 
-Le quart de résolution n'est pas une économie honteuse, c'est **la moitié du flou** : la réduction
-elle-même moyenne 4×4 pixels, donc une partie du travail du noyau est déjà faite par l'échantillonnage
-bilinéaire. Une lueur est basse fréquence par nature ; la résoudre au pixel serait payer pour une
+La résolution réduite n'est pas une économie honteuse, c'est **une partie du flou** : réduire moyenne
+déjà le voisinage. Une lueur est basse fréquence par nature ; la résoudre au pixel serait payer pour une
 information qu'on s'apprête à étaler.
+
+⚠️ Le facteur n'est pas fixe — il **suit le rayon** (tranche B4, §9), parce que c'est l'empreinte d'un
+tap qui doit couvrir le trou jusqu'au tap suivant. Et la réduction elle-même n'est PAS une moyenne
+complète du bloc : quatre taps couvrent quatre quadrants, ce qui suffit à 1/4 et reste partiel à 1/16 —
+dette nommée au §9.
 
 ## 5. Les tranches
 
@@ -103,6 +108,7 @@ information qu'on s'apprête à étaler.
 | **B1** | `render:bloom` → `FramePacket::BloomSettings` (persistant, `intensity 0` = éteint) | `SceneCollectorTest [bloom]` |
 | **B2** | la plomberie : cible HDR + passe de présentation + le détachement de vue | `RhiReadbackGpu [unbind]` + `LightingGpu [bloom]` cas « seuil inatteignable » |
 | **B3** | le bloom : extraction + flou séparable | `LightingGpu [bloom]` |
+| **B4** | la résolution du flou suit le rayon (§9) — plafond 24 px → **96 px** | `BloomMathUnit` + `LightingGpu [profile]` |
 
 ### B0 — pourquoi un oracle C++ pour un effet purement visuel
 
@@ -158,13 +164,11 @@ là où seuiller chaque canal séparément décalerait la couleur d'un pixel don
 3. **Le discriminant du glow** doit être un pixel **hors du rayon de la lampe**. La retombée y vaut
    *exactement* 0 par construction, donc toute lumière mesurée là ne peut venir que du bloom. Mesurer
    au centre de la lampe ne discriminerait rien : il est déjà saturé.
-4. **`radius` grand = feston.** Le noyau est un 9-tap dont on écarte les taps ; passé un certain
-   écartement, chaque tap imprime sa propre copie de la forme lumineuse au lieu de la lisser.
-   ⚠️ **Chiffre CORRIGÉ après mesure** : j'avais écrit « au-delà d'une soixantaine de pixels », par
-   raisonnement. **Une capture à 40 px l'a démenti** — le feston y est franc. La condition réelle est
-   l'écartement (`radius/16` texels) contre le sigma fixé à 2 : au-delà de ~1,5 texel la gaussienne est
-   sous-échantillonnée, donc **le rayon utile s'arrête vers 24 px**. La vraie réponse est **un niveau de
-   réduction en plus** (1/8 au lieu de 1/4), pas un écartement plus grand — ce n'est pas cette tranche.
+4. ~~**`radius` grand = feston.**~~ ✅ **Traité par la tranche B4**, voir §10. Le risque était réel, et
+   il s'est réalisé exactement comme prévu — mais avec un chiffre faux : j'avais écrit « au-delà d'une
+   soixantaine de pixels » par raisonnement, et **une capture à 40 px l'a démenti**. Le plafond réel
+   était **24 px**. La réponse annoncée ici (« un niveau de réduction en plus ») était la bonne ; elle
+   est implémentée, et le rayon utile passe à **~96 px**.
 5. **Redimensionnement** — les cibles bloom sont filles des cibles d'éclairage ; leur libération doit
    être accrochée à celle des cibles d'éclairage, sinon un redimensionnement laisse un HDR à l'ancienne
    taille échantillonné par une présentation à la nouvelle.
@@ -224,7 +228,64 @@ est corrigé côté RHI avec son test rouge (`RhiReadbackGpu [unbind]`), et le r
 recevant `0xEE` après un détachement censé la protéger — le défaut est donc *constaté*, pas seulement
 lu dans le code.
 
-## 9. Hors périmètre, explicitement
+## 9. Tranche B4 — la résolution du flou suit le rayon
+
+**Le déclencheur n'est pas un test, c'est une capture.** Une planche de blog à rayon 40 px montrait un
+feston franc là où la doc annonçait « ~60 px ». Le chiffre était faux et la cause mal comprise.
+
+### Ce que le mécanisme est vraiment
+
+Les 9 taps tombent aux **mêmes positions écran** quel que soit le facteur de réduction — le tap le plus
+externe doit valoir `radius`, c'est imposé par la définition du bouton. **Ce qui change est
+l'EMPREINTE d'un tap : un texel.**
+
+| Facteur | Un texel vaut | Empreinte vs trou à radius 64 |
+|---|---|---|
+| 1/4 | 4 px | 4 px couverts, **12 px de trou** → feston |
+| 1/16 | 16 px | 16 px couverts, **0 de trou** → dégradé |
+
+D'où la règle : le facteur suit le rayon (`grove::light::bloomDownsample` → 4, 8 ou 16), de sorte que
+l'écartement reste sous **1,5 texel**. Bornes : 24 px à 1/4, 48 px à 1/8, **96 px à 1/16**.
+
+**Trois paliers et pas un continuum**, parce qu'un changement de facteur oblige à rebâtir les cibles :
+un jeu qui rampe son rayon pour un fondu paie au pire deux reconstructions sur toute la course, pas une
+par frame.
+
+**On s'arrête à 1/16.** Passer à 1/32 rendrait la cible si petite (40 px de large en 1280) que la lueur
+montrerait des **blocs** — on échangerait un artefact contre un autre.
+
+### La mesure, et pourquoi elle est un profil
+
+C'est la leçon de [la sonde d'arête](lighting-walls.md) : un défaut qu'on ne sait que *voir* se corrige
+au feeling et se re-casse en silence. Un **profil radial** le chiffre — un dégradé décroît, un feston
+remonte :
+
+```
+avant : 19 19 27 32 29 15 13 15 20 20 12 7 7 9 10 7 3 3 3 3 2   → remontée max 8
+après : 21 21 20 19 18 16 15 14 13 11 10 9 8 7 6 5 4 3 3 2 2   → remontée max 0
+```
+
+Sabotage vérifié (facteur figé à 1/4) : l'invariant CPU **et** le profil GPU tombent tous les deux.
+
+⚠️ **Le pic BAISSE en même temps que le feston disparaît** (32 → 21), et c'est normal : les bosses
+ÉTAIENT les pics. Ma sanité de test, calée sur la version défectueuse, refusait donc la version
+correcte — une métrique de proxy qui récompense l'artefact, exactement le piège rencontré pendant la
+chasse à l'escalier des ombres. Corrigée, avec la raison écrite dans le test.
+
+### Un défaut trouvé en écrivant B4
+
+La réduction **sous-échantillonnait déjà**, à tous les facteurs : le décalage des quatre taps
+d'extraction était écrit en dur à **0,5 pixel source**, ce qui les plaçait tous dans le pixel *central*
+du bloc. La « moyenne 4×4 » que le commentaire revendiquait n'existait pas — on échantillonnait 1×1 sur
+les 4×4 disponibles. Mineur à 1/4, rédhibitoire à 1/16 où l'extraction serait restée crénelée pendant
+que le flou, lui, devenait propre. Le décalage vaut maintenant un quart de bloc, donc les quatre taps
+tombent aux centres des quatre quadrants.
+
+⚠️ **Dette restante** : à 1/16, quatre taps ne suffisent pas à couvrir un bloc de 16×16. La réponse
+propre est une réduction **progressive** (1/2 → 1/4 → 1/8 → 1/16), soit une vraie chaîne de mips. Non
+faite, nommée.
+
+## 10. Hors périmètre, explicitement
 
 - **Pas de chaîne de mips** (donc pas de très grands rayons propres) — voir risque 4.
 - **Pas de tonemapping ni de courbe de couleur.** La passe de présentation est l'endroit où ils

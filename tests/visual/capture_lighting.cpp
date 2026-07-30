@@ -643,7 +643,9 @@ int main(int argc, char** argv) {
     //     rayon — puis s'arrête net sur le mur, parce qu'un occulteur bloque la lumière AVANT que la
     //     lueur n'existe. Une lampe d'intensité 2,6 et pas 5 : à 5 le cœur sature sur un tiers de
     //     l'image et on ne voit plus le halo, seulement une tache blanche.
-    bloomI = 1.0; bloomT = 1.0; bloomR = 22.0;
+    // Rayon 56 px : impossible avant la tranche B4 (le facteur de reduction etait fige au quart, et
+    // au-dela de ~24 px la lueur montrait un feston). Le facteur suit maintenant le rayon.
+    bloomI = 1.0; bloomT = 1.0; bloomR = 56.0;
     shoot("19_bloom_lamp.png", true, [](void* c){
         Ctx* k = static_cast<Ctx*>(c);
         (*k->ambFn)(0x141824FFu);

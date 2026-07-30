@@ -199,3 +199,52 @@ TEST_CASE("bloom: a degenerate sigma degrades to a passthrough, not to a NaN", "
     light::bloomHalfKernel(-3.0f, neg);
     CHECK_THAT(neg[0], WithinAbs(1.0f, 1e-5f));
 }
+
+TEST_CASE("bloom: the downsample factor keeps the kernel WELL SAMPLED at every radius", "[bloom]") {
+    // ⚠️ Ce test verrouille la correction d'un défaut VU SUR UNE CAPTURE, pas déduit : à un quart de
+    //    résolution, un rayon de 40 px donnait un FESTON franc (chaque tap imprimant sa copie de la
+    //    forme lumineuse), alors que la doc annonçait « ~60 px » par raisonnement.
+    //
+    // L'INVARIANT est celui-là et pas les paliers : à tout rayon utilisable, l'écartement des taps
+    // reste sous ~1,5 texel. Assertionner les paliers (4/8/16) verrouillerait un choix
+    // d'implémentation ; assertionner l'écartement verrouille la PROPRIÉTÉ qu'ils servent.
+    for (float radius = 1.0f; radius <= 96.0f; radius += 0.5f) {
+        const int d = light::bloomDownsample(radius);
+        const float spacing = light::bloomTapSpacing(radius, d);
+        INFO("radius=" << radius << " downsample=" << d << " spacing=" << spacing);
+        CHECK(spacing <= 1.5f);
+    }
+
+    // ...et l'écartement doit rester UTILE, pas s'effondrer : un facteur trop gros donnerait des taps
+    // qui se superposent, donc un flou plus étroit que demandé pour le prix d'une cible minuscule.
+    for (float radius = 8.0f; radius <= 96.0f; radius += 0.5f) {
+        const int d = light::bloomDownsample(radius);
+        CHECK(light::bloomTapSpacing(radius, d) > 0.15f);
+    }
+
+    // Le rayon PAR DÉFAUT (16) doit rester au quart de résolution : c'est le comportement livré en
+    // B2/B3 et mesuré par LightingGpu [bloom]. Un changement de palier ici changerait l'image d'un jeu
+    // qui n'a rien demandé.
+    CHECK(light::bloomDownsample(16.0f) == 4);
+
+    // Monotone : un rayon plus grand ne peut pas demander une cible plus FINE.
+    int prev = light::bloomDownsample(1.0f);
+    for (float radius = 1.0f; radius <= 200.0f; radius += 1.0f) {
+        const int d = light::bloomDownsample(radius);
+        CHECK(d >= prev);
+        prev = d;
+    }
+
+    // L'étendue promise EST le rayon, quel que soit le palier — sinon `radius` cesserait de vouloir
+    // dire « en pixels écran » au passage d'une frontière, et la lueur sauterait de taille.
+    for (float radius : {6.0f, 16.0f, 24.0f, 25.0f, 40.0f, 48.0f, 49.0f, 64.0f, 96.0f}) {
+        const int d = light::bloomDownsample(radius);
+        const float outermostPx = 4.0f * light::bloomTapSpacing(radius, d) * static_cast<float>(d);
+        INFO("radius=" << radius << " outermost tap=" << outermostPx << "px");
+        CHECK_THAT(outermostPx, WithinRel(radius, 1e-4f));
+    }
+
+    // Entrées dégénérées : pas de division par zéro, pas de NaN.
+    CHECK(light::bloomTapSpacing(32.0f, 0) == 0.0f);
+    CHECK(light::bloomTapSpacing(0.0f, 4) == 0.0f);
+}

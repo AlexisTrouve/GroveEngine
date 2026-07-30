@@ -36,6 +36,8 @@
 #include <grove/IntraIOManager.h>
 #include <grove/IntraIO.h>
 
+#include <string>
+#include <algorithm>
 #include <vector>
 #include <memory>
 
@@ -1306,6 +1308,157 @@ TEST_CASE("lighting: a frame with NO lights shows no residual lamp (GPU)", "[gpu
     renderer->shutdown();
     mgr.removeInstance("st_r");
     mgr.removeInstance("st_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
+
+// ============================================================================
+// Bloom, tranche B4 — le PROFIL de la lueur doit décroître, à tout rayon.
+//
+// ⚠️ Ce test rend MESURABLE un défaut qui a d'abord été vu à l'œil sur une capture de blog : à grand
+//    rayon, la lueur montre un FESTON (des cernes concentriques) au lieu d'un dégradé.
+//
+// LE MÉCANISME. Le noyau a 9 taps dont le plus externe doit tomber à `radius` pixels : leurs positions
+// écran sont donc les mêmes quelle que soit la résolution de la cible de flou. Ce qui change est
+// l'EMPREINTE de chaque tap — un texel. À un quart de résolution un tap couvre 4 px et laisse 12 px de
+// trou entre lui et son voisin ; ces trous sont le feston. À un seizième, il couvre 16 px et rejoint
+// son voisin. D'où la règle `grove::light::bloomDownsample`, verrouillée côté CPU par BloomMathUnit.
+//
+// POURQUOI un profil et pas une inspection visuelle : c'est la leçon de la sonde 90_edge_probe, écrite
+// pendant la chasse à l'escalier des ombres. Un défaut qu'on ne sait que « voir » se corrige au
+// feeling et se re-casse en silence. Un profil radial le chiffre : un dégradé est MONOTONE, un feston
+// remonte. La bosse est l'assertion.
+//
+// ⚠️ Piège que ce test doit éviter : mesurer sur un profil déjà écrasé par le 8 bits. On échantillonne
+//    donc en partant du bord de la source (là où la lueur est forte) et on s'arrête avant le plancher,
+//    sinon la moitié des points seraient à 0 et n'importe quelle courbe passerait.
+// ============================================================================
+
+TEST_CASE("bloom: the glow profile DECREASES monotonically at a large radius (GPU)",
+          "[gpu][light][bloom][profile]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    // 320x240 : il faut ~64 px de lueur d'un côté d'une source compacte, plus de la marge.
+    const int W = 320, H = 240;
+    SDL_Window* win = SDL_CreateWindow("bloomprof", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                       W, H, SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("bp_r");
+    auto gIO = mgr.createInstance("bp_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("bp_r"); mgr.removeInstance("bp_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    const double cx = 100.0, cy = H * 0.5;
+    const double srcHalf = 12.0;                 // une source compacte : 24x24
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    auto render = [&](double radius, double intensity) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            // Fond NOIR : le profil de la lueur est alors la seule chose dans l'image, donc chaque
+            // pixel mesuré est de la lueur et rien d'autre.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0x000000FFu)); s->setInt("layer", 1);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Ambiant BLANC = neutre : la scène passe telle quelle, donc la source garde sa valeur.
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            // La source : deux quads additifs superposés, donc luminance ~2 — franchement au-dessus du
+            // seuil de 1, ce qui donne à l'extraction de quoi travailler. Un seul quad blanc plafonne
+            // à 1 et ne brillerait pas du tout.
+            for (int k = 0; k < 2; ++k) {
+                auto s = std::make_unique<JsonDataNode>("d");
+                s->setDouble("cx", cx); s->setDouble("cy", cy);
+                s->setDouble("scaleX", srcHalf*2.0); s->setDouble("scaleY", srcHalf*2.0);
+                s->setString("blend", "additive");
+                s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 20 + k);
+                gIO->publish("render:sprite", std::move(s));
+            }
+            { auto b = std::make_unique<JsonDataNode>("b");
+              b->setDouble("intensity", intensity);
+              b->setDouble("threshold", 1.0);
+              b->setDouble("radius", radius);
+              gIO->publish("render:bloom", std::move(b)); }
+            dev->setViewFramebuffer(PresentPass::kPresentView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    };
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y)*W + x)*4];
+        return (static_cast<int>(p[0]) + p[1] + p[2]) / 3;
+    };
+
+    // GRAND rayon : c'est le régime où le feston apparaissait. 64 px demande un facteur de réduction
+    // de 16 pour que les empreintes des taps se touchent.
+    render(64.0, 2.0);
+
+    // Profil radial vers la droite, depuis le bord de la source. On note aussi la plus forte REMONTÉE :
+    // c'est elle qui chiffre le feston.
+    std::vector<int> profile;
+    for (int dx = static_cast<int>(srcHalf) + 2; dx <= static_cast<int>(srcHalf) + 62; dx += 3) {
+        profile.push_back(lumaAt(static_cast<int>(cx) + dx, static_cast<int>(cy)));
+    }
+
+    int worstRise = 0;
+    std::string dump;
+    for (size_t i = 0; i < profile.size(); ++i) {
+        dump += std::to_string(profile[i]) + " ";
+        if (i > 0) worstRise = std::max(worstRise, profile[i] - profile[i-1]);
+    }
+    INFO("profil r=64 : " << dump);
+    INFO("plus forte remontee = " << worstRise);
+
+    // Sanité : il y a bien de la lueur à mesurer, sinon la monotonie serait triviale.
+    //
+    // Mesurée sur le MAXIMUM et pas sur le premier point, et c'est une correction que le rouge a
+    // imposée : avec le feston, la valeur au bord de la source (19) est PLUS BASSE qu'à 16 px de là
+    // (32), donc une sanité sur `front()` se déclenchait avant l'assertion utile et masquait le vrai
+    // diagnostic. Une sanité doit vérifier « il y a un signal », pas « il a déjà la bonne forme ».
+    const int peak = *std::max_element(profile.begin(), profile.end());
+
+    // ⚠️ Le seuil est 15 et non 25, et le rouge a impose la correction pour une raison qui EST le
+    // correctif : les bosses du feston ETAIENT les pics. En les supprimant on repartit la meme energie,
+    // donc le maximum BAISSE (32 festonne -> 21 lisse) alors que l'image est meilleure. Un seuil cale
+    // sur la version defectueuse aurait donc refuse la version correcte -- une metrique de proxy qui
+    // recompense l'artefact, exactement le piege rencontre pendant la chasse a l'escalier des ombres.
+    //
+    // 21 reste tres au-dessus du fond (2), donc « il y a un signal a mesurer » est satisfait, et c'est
+    // tout ce que cette sanite doit dire.
+    REQUIRE(peak > 15);
+    REQUIRE(peak > profile.back() + 15);
+
+    // L'ASSERTION. Une lueur gaussienne décroît ; un feston remonte entre deux taps. La tolérance de 2
+    // est celle de l'arrondi 8 bits, pas un confort.
+    CHECK(worstRise <= 2);
+
+    renderer->shutdown();
+    mgr.removeInstance("bp_r");
+    mgr.removeInstance("bp_g");
     dev = nullptr;
     SDL_DestroyWindow(win);
     SDL_Quit();

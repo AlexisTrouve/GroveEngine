@@ -23,6 +23,7 @@
 #include "Passes/CompositePass.h"
 #include "Passes/BloomPass.h"
 #include "Passes/PresentPass.h"
+#include <grove/light/Bloom.h>
 #include "Passes/LightPass.h"
 #include "Passes/OcclusionPass.h"
 #include "Passes/NebulaPass.h"
@@ -881,7 +882,12 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // s'échantillonne pas). D'où la place de ce bloc, à l'intérieur de `lightingActive`.
             const bool bloomActive = (packet.bloom.intensity > 0.0f);
             if (bloomActive) {
-                ensureBloomTargets(m_lightingWidth, m_lightingHeight);
+                // Le facteur de réduction suit le RAYON demandé (tranche B4). La règle vit dans
+                // grove::light pour être testable au CPU : les 9 taps tombent aux mêmes positions
+                // écran quel que soit le facteur, mais l'EMPREINTE d'un tap vaut un texel — trop
+                // petite, elle laisse des trous entre les taps, et ces trous sont un feston.
+                const int bloomDown = light::bloomDownsample(packet.bloom.radius);
+                ensureBloomTargets(m_lightingWidth, m_lightingHeight, bloomDown);
 
                 // LE changement de forme du pipeline : le composite n'écrit plus au backbuffer mais
                 // dans une cible HDR, que l'extraction du bloom pourra échantillonner.
@@ -893,11 +899,11 @@ void BgfxRendererModule::process(const IDataNode& input) {
                 // totale — la remarque inverse de la carte d'occultation, dont la vue est sautée
                 // quand personne ne dessine et qui a donc BESOIN de son effacement.
                 m_device->setViewFramebuffer(BloomPass::kExtractView, m_bloomFB[0]);
-                m_device->setViewRect(BloomPass::kExtractView, 0, 0, m_bloomQuarterW, m_bloomQuarterH);
+                m_device->setViewRect(BloomPass::kExtractView, 0, 0, m_bloomSmallW, m_bloomSmallH);
                 m_device->setViewFramebuffer(BloomPass::kBlurHView, m_bloomFB[1]);
-                m_device->setViewRect(BloomPass::kBlurHView, 0, 0, m_bloomQuarterW, m_bloomQuarterH);
+                m_device->setViewRect(BloomPass::kBlurHView, 0, 0, m_bloomSmallW, m_bloomSmallH);
                 m_device->setViewFramebuffer(BloomPass::kBlurVView, m_bloomFB[0]);
-                m_device->setViewRect(BloomPass::kBlurVView, 0, 0, m_bloomQuarterW, m_bloomQuarterH);
+                m_device->setViewRect(BloomPass::kBlurVView, 0, 0, m_bloomSmallW, m_bloomSmallH);
 
                 // La présentation va au BACKBUFFER (aucun framebuffer attaché), plein viewport.
                 m_device->setViewRect(PresentPass::kPresentView, 0, 0, m_lightingWidth, m_lightingHeight);
@@ -907,7 +913,7 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                             m_device->getFramebufferTexture(m_bloomFB[0]),
                                             m_device->getFramebufferTexture(m_bloomFB[1]));
                     m_bloomPass->setSizes(m_lightingWidth, m_lightingHeight,
-                                          m_bloomQuarterW, m_bloomQuarterH);
+                                          m_bloomSmallW, m_bloomSmallH, m_bloomDownsample);
                 }
                 if (m_presentPass) {
                     // La cible A : le ping-pong est agencé pour que le flou vertical y termine.
@@ -1012,14 +1018,19 @@ void BgfxRendererModule::releaseBloomTargets() {
         m_bloomFB[1] = rhi::FramebufferHandle{};
         m_bloomWidth = 0;
         m_bloomHeight = 0;
-        m_bloomQuarterW = 0;
-        m_bloomQuarterH = 0;
+        m_bloomSmallW = 0;
+        m_bloomSmallH = 0;
+        m_bloomDownsample = 0;
     }
 }
 
-void BgfxRendererModule::ensureBloomTargets(uint16_t width, uint16_t height) {
-    if (width == 0 || height == 0) return;
-    if (m_bloomWidth == width && m_bloomHeight == height) return;   // déjà à la bonne taille
+void BgfxRendererModule::ensureBloomTargets(uint16_t width, uint16_t height, int downsample) {
+    if (width == 0 || height == 0 || downsample <= 0) return;
+    // Le facteur fait partie de l'identité des cibles : un rayon qui change de palier change la TAILLE
+    // des cibles de flou, donc il faut les rebâtir. Trois paliers seulement (4/8/16), et le rayon est un
+    // réglage persistant — un jeu qui rampe son rayon pour un fondu paie au pire deux reconstructions
+    // sur toute la course, pas une par frame. C'est la raison d'être des paliers.
+    if (m_bloomWidth == width && m_bloomHeight == height && m_bloomDownsample == downsample) return;
 
     releaseBloomTargets();
 
@@ -1028,18 +1039,22 @@ void BgfxRendererModule::ensureBloomTargets(uint16_t width, uint16_t height) {
     // inatteignable, donc le réglage par défaut ne produirait jamais aucune lueur.
     m_hdrFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
 
-    // Le QUART de chaque dimension, avec un plancher à 1 : un viewport minuscule donnerait 0 et une
-    // cible de dimension nulle (et une division par zéro dans la conversion pixels -> UV).
-    m_bloomQuarterW = static_cast<uint16_t>(width / 4 > 0 ? width / 4 : 1);
-    m_bloomQuarterH = static_cast<uint16_t>(height / 4 > 0 ? height / 4 : 1);
-    m_bloomFB[0] = m_device->createFramebuffer(m_bloomQuarterW, m_bloomQuarterH, rhi::TargetFormat::RGBA16F);
-    m_bloomFB[1] = m_device->createFramebuffer(m_bloomQuarterW, m_bloomQuarterH, rhi::TargetFormat::RGBA16F);
+    // La cible de flou, réduite du facteur demandé, avec un plancher à 1 : un viewport minuscule
+    // donnerait 0, donc une cible de dimension nulle et une division par zéro dans la conversion
+    // pixels -> UV.
+    const int sw = width / downsample;
+    const int sh = height / downsample;
+    m_bloomSmallW = static_cast<uint16_t>(sw > 0 ? sw : 1);
+    m_bloomSmallH = static_cast<uint16_t>(sh > 0 ? sh : 1);
+    m_bloomFB[0] = m_device->createFramebuffer(m_bloomSmallW, m_bloomSmallH, rhi::TargetFormat::RGBA16F);
+    m_bloomFB[1] = m_device->createFramebuffer(m_bloomSmallW, m_bloomSmallH, rhi::TargetFormat::RGBA16F);
 
     m_bloomWidth = width;
     m_bloomHeight = height;
+    m_bloomDownsample = downsample;
 
-    m_logger->info("Bloom targets built ({}x{} HDR + 2x {}x{} RGBA16F)",
-                   width, height, m_bloomQuarterW, m_bloomQuarterH);
+    m_logger->info("Bloom targets built ({}x{} HDR + 2x {}x{} RGBA16F, 1/{})",
+                   width, height, m_bloomSmallW, m_bloomSmallH, downsample);
 }
 
 void BgfxRendererModule::releaseLightingTargets() {

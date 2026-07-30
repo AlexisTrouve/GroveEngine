@@ -16,10 +16,17 @@ namespace grove {
 //         autres — les séparer donnerait trois fichiers qui doivent être modifiés ensemble. C'est le
 //         même arbitrage que SpritePass, qui soumet dans la vue monde ET la vue HUD.
 //
-// POURQUOI le quart de résolution : la réduction elle-même moyenne 4×4 pixels, donc une partie du
-//         flou est déjà faite par l'échantillonnage bilinéaire — c'est de la qualité gratuite autant
-//         qu'une économie. Une lueur est basse fréquence par nature ; la résoudre au pixel serait
-//         payer pour une information qu'on s'apprête à étaler.
+// POURQUOI une résolution réduite : la réduction est elle-même une partie du flou, donc c'est de la
+//         qualité autant qu'une économie. Une lueur est basse fréquence par nature ; la résoudre au
+//         pixel serait payer pour une information qu'on s'apprête à étaler.
+//
+// POURQUOI le facteur n'est PAS fixé à 4 (tranche B4) : les 9 taps tombent aux mêmes positions écran
+//         quel que soit le facteur (le plus externe vaut `radius`, c'est imposé) — ce qui change est
+//         l'EMPREINTE d'un tap, soit un texel. À 1/4, un tap couvre 4 px et laisse 12 px de trou dès
+//         que le rayon dépasse ~24 px : ces trous sont un FESTON, vu sur une capture de blog. Le
+//         facteur suit donc le rayon (`grove::light::bloomDownsample`), pour que l'empreinte couvre
+//         toujours le trou. La règle est dans l'oracle, verrouillée par BloomMathUnit, et son effet
+//         mesuré par LightingGpu [profile].
 //
 // ⚠️ CONTOURNEMENT À COÛT NUL : `frame.bloom.intensity == 0` (le défaut) ⇒ execute() sort
 //    IMMÉDIATEMENT, sans rien enregistrer. Un jeu qui ne publie pas `render:bloom` paie exactement ce
@@ -36,12 +43,6 @@ public:
     static constexpr rhi::ViewId kExtractView = 5;
     static constexpr rhi::ViewId kBlurHView   = 6;
     static constexpr rhi::ViewId kBlurVView   = 7;
-
-    // Rayon (en pixels écran PLEINE résolution) que couvre le noyau à l'écartement de tap unitaire.
-    // Le noyau fait 9 taps, donc ±4 taps, et un texel du quart de résolution vaut 4 pixels écran :
-    // 4 taps × 4 pixels = 16. C'est ce qui rend `radius: 16` le rayon naturel, celui où l'écartement
-    // vaut exactement un texel.
-    static constexpr float kNaturalRadiusPx = 16.0f;
 
     explicit BloomPass(rhi::ShaderHandle extractShader = {}, rhi::ShaderHandle blurShader = {});
 
@@ -65,9 +66,15 @@ public:
 
     // Dimensions des cibles, nécessaires pour convertir un rayon en PIXELS en un décalage d'UV.
     // Fournies par le module, qui les possède : la passe ne peut pas les déduire d'une texture.
-    void setSizes(uint16_t fullW, uint16_t fullH, uint16_t quarterW, uint16_t quarterH) {
+    //
+    // `downsample` est le facteur choisi par `grove::light::bloomDownsample` d'après le rayon publié
+    // (4, 8 ou 16). Il est passé EXPLICITEMENT plutôt que déduit de `fullW / smallW` : la division
+    // entière d'une largeur impaire donnerait un facteur faux d'un cran, et ce facteur pilote à la fois
+    // l'étendue de la lueur et le pas de la réduction — une erreur y serait invisible et diffuse.
+    void setSizes(uint16_t fullW, uint16_t fullH, uint16_t smallW, uint16_t smallH, int downsample) {
         m_fullW = fullW; m_fullH = fullH;
-        m_quarterW = quarterW; m_quarterH = quarterH;
+        m_smallW = smallW; m_smallH = smallH;
+        m_downsample = downsample;
     }
 
 private:
@@ -83,7 +90,8 @@ private:
     rhi::TextureHandle m_bloomATex;
     rhi::TextureHandle m_bloomBTex;
     uint16_t m_fullW = 0, m_fullH = 0;
-    uint16_t m_quarterW = 0, m_quarterH = 0;
+    uint16_t m_smallW = 0, m_smallH = 0;   // la cible de flou réduite (1/4, 1/8 ou 1/16)
+    int m_downsample = 4;
 };
 
 } // namespace grove

@@ -284,12 +284,15 @@ relecture GPU, comme pour la retombée des lampes.
 de la résolution. Payé seulement tant que `intensity > 0`. **Le HUD ne brille pas** — il est soumis
 après la présentation ; interface nette au-dessus d'un monde qui éblouit, c'est voulu.
 
-⚠️ **Le rayon utile s'arrête vers 24 px.** Au-delà, les taps du noyau se séparent et la lueur montre un
-**feston** au lieu d'un dégradé : chaque tap imprime sa propre copie de la forme lumineuse. L'écartement
-vaut `radius/16` texels contre un sigma fixé à 2, donc la gaussienne est sous-échantillonnée passé ~1,5
-texel. Pour aller plus loin il faut **un niveau de réduction en plus**, pas un écartement plus grand —
-ce n'est pas fait. ⚠️ Ce chiffre a d'abord été écrit « ~60 px » par raisonnement ; **une capture à 40 px
-l'a démenti**.
+**La résolution du flou suit le rayon** (`grove::light::bloomDownsample` → 1/4, 1/8 ou 1/16), et c'est ce
+qui rend une lueur large possible. Les 9 taps tombent aux **mêmes positions écran** quel que soit le
+facteur — le plus externe doit valoir `radius`, c'est imposé — donc ce qui change est l'**empreinte** d'un
+tap, soit un texel. À 1/4 un tap couvre 4 px et laisse 12 px de trou dès que le rayon dépasse ~24 px : ces
+trous sont un **feston**. Rayon utile **jusqu'à ~96 px**.
+
+⚠️ Au-delà, ça redégrade : passer à 1/32 échangerait le feston contre des **blocs** visibles, donc on
+s'arrête à 1/16. Et le plafond de 24 px a été **vu sur une capture** à 40 px — le « ~60 px » écrit avant
+lui par raisonnement était faux.
 
 Conception : [`docs/design/lighting-bloom.md`](../../docs/design/lighting-bloom.md).
 

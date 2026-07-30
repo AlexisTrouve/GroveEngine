@@ -127,10 +127,14 @@ private:
     rhi::FramebufferHandle m_bloomFB[2];
     uint16_t m_bloomWidth = 0;    // taille PLEINE pour laquelle les cibles ont été bâties (0 = aucune)
     uint16_t m_bloomHeight = 0;
-    uint16_t m_bloomQuarterW = 0;
-    uint16_t m_bloomQuarterH = 0;
+    uint16_t m_bloomSmallW = 0;   // la cible de flou réduite
+    uint16_t m_bloomSmallH = 0;
+    // Facteur de réduction en cours (4, 8 ou 16), choisi d'après le RAYON par
+    // grove::light::bloomDownsample — voir tranche B4. Il fait partie de l'identité des cibles : un
+    // rayon qui change de palier change leur taille, donc il faut les rebâtir.
+    int m_bloomDownsample = 0;
 
-    void ensureBloomTargets(uint16_t width, uint16_t height);
+    void ensureBloomTargets(uint16_t width, uint16_t height, int downsample);
     void releaseBloomTargets();
     std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
