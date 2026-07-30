@@ -245,6 +245,51 @@ lumineuse. Déplacer la source règle la question : un halo suivrait la lampe, u
 est et change seulement de côté éclairé. À utiliser pour : la même famille de sujets que 15, et
 partout où il faut prouver qu'un volume est **de la matière éclairée**, pas un sprite peint.
 
+### Bloom — le post-traitement (plan B)
+
+> **Ce que ces images doivent faire comprendre.** Le bloom ne se nourrit **pas** du buffer de lumière
+> mais de la **frame composée**. C'est le seul choix d'architecture du plan B, et la paire 17/18 le
+> prouve d'une façon qu'aucun texte ne remplace : **il n'y a aucune lampe dans ces deux images.** Un
+> bloom alimenté par les lampes les aurait laissées identiques.
+
+#### `blog/17_bloom_off.png`
+**La référence : deux faisceaux additifs, sans bloom (2026-07-30).** *(Fond noir. Un faisceau orange
+et un faisceau bleu se croisent en X ; leur zone de recouvrement forme un losange BLANC à bords
+francs.)* Aucune lampe, un ambiant **blanc** — qui est neutre par construction et la façon documentée
+d'obtenir du post-traitement sans look éclairé. Le losange blanc est la seule zone dont la somme
+additive dépasse 1 : c'est le **sur-brillant**, et c'est exactement ce que le seuil va isoler. À
+utiliser pour : le membre « avant » de la paire, une explication du mélange additif, ou « qu'est-ce
+qu'un pixel sur-exposé ».
+
+#### `blog/18_bloom_on.png`
+**La même image, bloom activé (2026-07-30).** *(Strictement la même scène ; le losange du croisement
+irradie maintenant une lueur douce qui débourre sur les faisceaux et sur le fond noir, tandis que les
+bras non recouverts restent nets.)* **Seul le losange brille** — les bras, sous le seuil, ne
+contribuent rien. C'est la preuve visuelle des deux décisions du plan : la source est la frame
+composée (aucune lampe ici), et le seuil n'extrait que ce qui dépasse 1. À utiliser pour : le membre
+« après » de la paire, un article sur le **seuil et le sur-brillant**, ou pourquoi une cible RGBA16F
+était le prérequis.
+
+#### `blog/19_bloom_lamp.png`
+**Le cas canonique : un halo qu'un mur arrête (2026-07-30).** *(Une pièce sombre au sol dallé, une
+ampoule au centre gauche entourée d'un halo chaud qui déborde bien au-delà du disque de la lampe, une
+caisse orange éclairée, et sur la droite un mur vertical derrière lequel tout est noir.)* Deux choses
+dans une seule image : la lueur **déborde** du rayon de la lampe, et elle **s'arrête net** au mur —
+parce qu'un occulteur bloque la lumière **avant** que la lueur n'existe, le bloom ne pouvant pas
+éclairer ce que l'ombre a déjà éteint. À utiliser pour : l'illustration par défaut du bloom, un
+article sur l'**ordre des passes** (« pourquoi le bloom ne traverse pas un mur »), ou la composition
+éclairage + post-traitement.
+
+#### `blog/20_bloom_ramp.gif`
+**La rampe d'intensité, aller-retour (2026-07-30).** *(La scène de la lampe, immobile ; seule
+l'intensité du bloom monte de 0 à 2 puis redescend, si bien que le halo enfle et se rétracte en
+boucle.)* **Un avant/après montre que le bloom existe ; il ne montre pas où se situe le point
+d'équilibre** entre « invisible » et « délavé » — or c'est la seule question qu'un auteur se pose
+devant ce bouton. Le retour à 0 n'est pas une coquetterie de boucle : il fait repasser par l'état
+**éteint** à chaque tour, donc l'œil compare à la référence sans avoir à s'en souvenir. À utiliser
+pour : un article sur le **réglage** d'un effet, la démonstration qu'un paramètre est un continuum et
+non un interrupteur, ou l'illustration animée principale du bloom.
+
 ### Instrument de mesure
 
 #### `blog/90_edge_probe.png`

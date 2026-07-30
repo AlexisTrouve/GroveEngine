@@ -284,8 +284,12 @@ relecture GPU, comme pour la retombée des lampes.
 de la résolution. Payé seulement tant que `intensity > 0`. **Le HUD ne brille pas** — il est soumis
 après la présentation ; interface nette au-dessus d'un monde qui éblouit, c'est voulu.
 
-⚠️ Au-delà d'un rayon de ~60 px, les taps du noyau se séparent visiblement et la lueur montre des
-cernes : il faudrait une chaîne de mips, qui n'est pas faite.
+⚠️ **Le rayon utile s'arrête vers 24 px.** Au-delà, les taps du noyau se séparent et la lueur montre un
+**feston** au lieu d'un dégradé : chaque tap imprime sa propre copie de la forme lumineuse. L'écartement
+vaut `radius/16` texels contre un sigma fixé à 2, donc la gaussienne est sous-échantillonnée passé ~1,5
+texel. Pour aller plus loin il faut **un niveau de réduction en plus**, pas un écartement plus grand —
+ce n'est pas fait. ⚠️ Ce chiffre a d'abord été écrit « ~60 px » par raisonnement ; **une capture à 40 px
+l'a démenti**.
 
 Conception : [`docs/design/lighting-bloom.md`](../../docs/design/lighting-bloom.md).
 

@@ -639,8 +639,11 @@ What is genuinely missing:
 - **Bloom is here** (`render:bloom`, see below) — this line used to say post-processing was missing.
   What is *still* missing is the rest of the chain: no tonemapping, no fades, no colour grading. They
   belong on the present pass the bloom introduced, which exists partly for them.
-- **No bloom mip chain.** The blur is one 9-tap kernel whose taps spread with `radius`; past ~60 px
-  the taps separate visibly and the glow shows rings instead of a gradient.
+- **No bloom mip chain, so the usable `radius` stops around 24 px.** The blur is one 9-tap kernel whose
+  tap SPACING grows with `radius` (`radius/16` texels) against a fixed sigma of 2 texels. Past ~1.5
+  texels of spacing the Gaussian is undersampled and each tap prints its own copy of the bright shape —
+  a scalloped hem instead of a gradient. Bigger radii need one more downsample level. (This limit was
+  first written as "~60 px" from theory; a capture at 40 px disproved it.)
 - **No textured or animated density.** A medium is a uniform rect or a radial disc; you cannot hand
   it a noise texture. Overlapping several volumes is the intended way to get an irregular cloud.
 - **Occluders block LIGHT, not SIGHT.** Hiding what is behind a wall is a visibility system and

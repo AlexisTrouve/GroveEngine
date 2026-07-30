@@ -158,10 +158,13 @@ là où seuiller chaque canal séparément décalerait la couleur d'un pixel don
 3. **Le discriminant du glow** doit être un pixel **hors du rayon de la lampe**. La retombée y vaut
    *exactement* 0 par construction, donc toute lumière mesurée là ne peut venir que du bloom. Mesurer
    au centre de la lampe ne discriminerait rien : il est déjà saturé.
-4. **`radius` grand = anneaux.** Le noyau est un 9-tap dont on écarte les taps ; au-delà d'une
-   soixantaine de pixels, les taps se séparent visiblement et la lueur montre des cernes au lieu d'un
-   dégradé. La vraie réponse serait une chaîne de mips ; ce n'est pas cette tranche. À documenter comme
-   limite, pas à cacher.
+4. **`radius` grand = feston.** Le noyau est un 9-tap dont on écarte les taps ; passé un certain
+   écartement, chaque tap imprime sa propre copie de la forme lumineuse au lieu de la lisser.
+   ⚠️ **Chiffre CORRIGÉ après mesure** : j'avais écrit « au-delà d'une soixantaine de pixels », par
+   raisonnement. **Une capture à 40 px l'a démenti** — le feston y est franc. La condition réelle est
+   l'écartement (`radius/16` texels) contre le sigma fixé à 2 : au-delà de ~1,5 texel la gaussienne est
+   sous-échantillonnée, donc **le rayon utile s'arrête vers 24 px**. La vraie réponse est **un niveau de
+   réduction en plus** (1/8 au lieu de 1/4), pas un écartement plus grand — ce n'est pas cette tranche.
 5. **Redimensionnement** — les cibles bloom sont filles des cibles d'éclairage ; leur libération doit
    être accrochée à celle des cibles d'éclairage, sinon un redimensionnement laisse un HDR à l'ancienne
    taille échantillonné par une présentation à la nouvelle.
