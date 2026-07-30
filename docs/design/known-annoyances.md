@@ -33,6 +33,21 @@ Pistes : `RUN_SERIAL` sur ces trois cibles (CTest sait le faire), ou des budgets
 corrigée le 2026-07-28 (`docs/design/iosystemstress-heap-corruption-handoff.md`). Ne pas le ranger avec
 les autres sous prétexte qu'il est lourd — l'erreur a déjà été faite une fois.
 
+### 2bis. `ProductionHotReload` a un budget en temps d'horloge, franchi de 1 %
+
+Observé le 2026-07-30 sur un run complet : **échec sur `Reload time should be < 1000ms`, mesuré
+1009,72 ms**. Lancé seul juste après : **passe en 31 s**, avec un rechargement très en dessous du
+budget. L'état était préservé, la recompilation avait réussi — seul le chronomètre a parlé.
+
+**Ce que ça vaut** : le test contient une assertion sur un temps d'horloge **absolu**, et ce temps
+inclut une **recompilation de module** — donc il dépend de la charge de la machine et du cache disque,
+pas du code testé. À 1 % de dépassement, la bonne lecture est « la machine était occupée », et le
+réflexe est de **relancer seul avant de chercher une régression**.
+
+**Piège** : ce dépassement se présente comme un échec fonctionnel dans le résumé de `ctest` (`Failed`,
+pas `Timeout`), au milieu d'un run de 200 tests. Il ressemble donc davantage à un vrai bug que les
+échecs de famine du §2, alors qu'il en est le cousin.
+
 ## 3bis. ⚠️ Un artefact périmé se déguise en CORRUPTION DE TAS
 
 **Symptôme** : un test `[gpu]` meurt en `0xC0000374` (corruption de tas) *après* son dernier assert,
