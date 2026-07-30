@@ -116,6 +116,8 @@ private:
     // Bloom settings (plan B). Global frame state like m_ambientColor: intensity 0 = OFF = the
     // default, and the whole zero-cost bypass of the post-processing chain hangs off that.
     FramePacket::BloomSettings m_bloom;
+    // Tonemapping (plan T). Reglage global persistant, INDEPENDANT du bloom : `None` = eteint.
+    FramePacket::TonemapSettings m_tonemap;
     std::vector<OccluderCommand> m_occluders;   // ephemeral, like m_lights
     // RETAINED occluders, by renderId. The opposite choice to lights, and for the opposite reason:
     // a wall does not move, so re-publishing the level every frame would charge a cost proportional
@@ -182,6 +184,7 @@ private:
     void parseClear(const IDataNode& data);
     void parseAmbient(const IDataNode& data);
     void parseBloom(const IDataNode& data);   // `render:bloom` — post-processing settings (plan B)
+    void parseTonemap(const IDataNode& data); // `render:tonemap` — courbe + exposition (plan T)
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);

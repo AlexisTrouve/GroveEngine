@@ -697,6 +697,48 @@ world is the intent, not an oversight.
 
 Plan + measurements: `docs/design/lighting-bloom.md`.
 
+#### Tonemapping (post-processing)
+
+Compresses the HDR range into what a screen can show, so **two overbright values stay different**
+instead of both clipping to white. One persistent setting, independent of bloom:
+
+```cpp
+auto t = std::make_unique<JsonDataNode>("tonemap");
+t->setString("mode", "aces");       // "none" (default = OFF), "reinhard", or "aces"
+t->setDouble("exposure", 1.4);      // multiplies the scene BEFORE the curve
+io->publish("render:tonemap", std::move(t));
+```
+
+**⚠️ Enabling it will DARKEN your scene, and that is not a bug.** `reinhard(1) = 0.5`: a value that
+used to be full white now sits at mid-grey. That is what a compression curve does — it makes room
+above. Raise `exposure` (start around 1.5–2.5) until the midtones sit where you want them.
+
+**Why it matters** — measured on a white surface under a single lamp:
+
+| Lamp intensity | No tonemap | reinhard | aces |
+|---|---|---|---|
+| 2 | **255** | 170 | 233 |
+| 8 | **255** | 226 | 255 |
+
+Without a curve the two are the same white: the overbright the RGBA16F targets exist to preserve was
+being thrown away on the last line of the pipeline.
+
+**Which mode**
+
+- **`reinhard`** — `x/(1+x)`. Gentle, predictable, and it *never reaches 1*, so it keeps separating
+  values however bright they get. Pick it for extreme dynamic range.
+- **`aces`** — filmic: more contrast, a shoulder that rolls into white. ⚠️ **It saturates around 6**,
+  so beyond that it re-clips like before. Pick it for the look, and use `exposure` to keep your
+  brightest content under its white point.
+
+**Ordering, which you cannot change but should know**: the bloom glow is added *before* the curve, so
+it participates in the exposure rather than sitting on top as a white patch. The curve runs **per
+channel**, so a saturated highlight rolls toward white the way film does. And the **HUD is not
+tonemapped** — it is submitted after the present pass, so your interface stays legible whatever the
+scene's exposure.
+
+Plan + measurements: `docs/design/lighting-tonemap.md`.
+
 #### Bulk Sprite Submission (high throughput)
 
 `render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per

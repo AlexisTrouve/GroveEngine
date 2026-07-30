@@ -2,6 +2,8 @@
 #include "../RHI/RHIDevice.h"
 #include "../RHI/RHICommandBuffer.h"
 
+#include <grove/light/Tonemap.h>
+
 namespace grove {
 
 PresentPass::PresentPass(rhi::ShaderHandle shader)
@@ -50,12 +52,25 @@ void PresentPass::shutdown(rhi::IRHIDevice& device) {
 void PresentPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
     (void)device;
 
-    // Le contournement, identique aux deux autres passes de la chaîne.
-    if (!(frame.bloom.intensity > 0.0f)) {
+    // Le contournement — mais sur DEUX réglages désormais (plan T). Le bloom et le tonemapping
+    // activent la même plomberie sans dépendre l'un de l'autre : un jeu peut vouloir une courbe
+    // d'exposition sans aucune lueur, et l'inverse. Ne tester que le bloom rendrait le tonemapping
+    // inatteignable, ce qui est exactement le genre de chaînon jamais câblé qu'on prend ensuite pour
+    // un bug de shader.
+    const bool tonemapActive = (frame.tonemap.mode != light::TonemapMode::None);
+    if (!(frame.bloom.intensity > 0.0f) && !tonemapActive) {
         return;
     }
 
-    const float present[4] = { frame.bloom.intensity, 0.0f, 0.0f, 0.0f };
+    // (intensité de lueur, exposition, mode) — le mode voyage en float parce qu'un uniform vec4 est ce
+    // que le RHI expose ; l'énumération reste l'unique source de vérité, et la conversion est ici, à
+    // un seul endroit.
+    const float present[4] = {
+        frame.bloom.intensity,
+        frame.tonemap.exposure,
+        static_cast<float>(static_cast<int>(frame.tonemap.mode)),
+        0.0f,
+    };
 
     // Opaque : cette passe produit la couleur finale du monde, elle ne se mélange à rien. Le HUD, lui,
     // se mélangera par-dessus — il est soumis après.

@@ -762,7 +762,10 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     }
 
     // Load additional textures (texture1, texture2, etc.)
-    for (int i = 1; i <= 10; ++i) {
+    // NOTE (Drifterra tile system, 2026-07-30) : releve de 10 -> 128. Un ship rendu par TUILES peut referer beaucoup
+    //   d'atomes (module/composant) -> >10 textures ; a 10 les ids au-dela ne chargeaient pas -> sprites BLANCS. Les
+    //   cles absentes sont ignorees (getString defaut ""), donc sans surcout pour les scenes a peu de textures.
+    for (int i = 1; i <= 128; ++i) {
         std::string key = "texture" + std::to_string(i);
         std::string path = config.getString(key, "");
         if (!path.empty()) {
@@ -880,57 +883,79 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // Le bloom EXIGE l'éclairage, et c'est structurel : sa source est la frame COMPOSÉE, or
             // sans éclairage il n'y a pas de composite (la scène va au backbuffer, qui ne
             // s'échantillonne pas). D'où la place de ce bloc, à l'intérieur de `lightingActive`.
-            const bool bloomActive = (packet.bloom.intensity > 0.0f);
-            if (bloomActive) {
-                // Le facteur de réduction suit le RAYON demandé (tranche B4). La règle vit dans
-                // grove::light pour être testable au CPU : les 9 taps tombent aux mêmes positions
-                // écran quel que soit le facteur, mais l'EMPREINTE d'un tap vaut un texel — trop
-                // petite, elle laisse des trous entre les taps, et ces trous sont un feston.
-                const int bloomDown = light::bloomDownsample(packet.bloom.radius);
-                ensureBloomTargets(m_lightingWidth, m_lightingHeight, bloomDown);
+            // DEUX réglages indépendants activent cette chaîne, et ils ne demandent pas la même
+            // chose : le bloom a besoin des cibles de flou, le tonemapping seulement de la cible HDR
+            // et de la passe de présentation. Les traiter en bloc ferait payer deux cibles réduites à
+            // un jeu qui ne veut qu'une courbe d'exposition.
+            const bool bloomActive   = (packet.bloom.intensity > 0.0f);
+            const bool tonemapActive = (packet.tonemap.mode != light::TonemapMode::None);
+            const bool postActive    = bloomActive || tonemapActive;
+
+            if (postActive) {
+                ensureHdrTarget(m_lightingWidth, m_lightingHeight);
 
                 // LE changement de forme du pipeline : le composite n'écrit plus au backbuffer mais
-                // dans une cible HDR, que l'extraction du bloom pourra échantillonner.
+                // dans une cible HDR, que l'extraction du bloom et la présentation échantillonnent.
                 m_device->setViewFramebuffer(CompositePass::kCompositeView, m_hdrFB);
-
-                // Les deux cibles au quart. Pas de setViewClear : chaque étape REMPLACE toute sa
-                // cible (blend None sur un quad plein écran), donc un effacement serait un
-                // remplissage payé pour rien. ⚠️ Ça vaut UNIQUEMENT parce que la couverture est
-                // totale — la remarque inverse de la carte d'occultation, dont la vue est sautée
-                // quand personne ne dessine et qui a donc BESOIN de son effacement.
-                m_device->setViewFramebuffer(BloomPass::kExtractView, m_bloomFB[0]);
-                m_device->setViewRect(BloomPass::kExtractView, 0, 0, m_bloomSmallW, m_bloomSmallH);
-                m_device->setViewFramebuffer(BloomPass::kBlurHView, m_bloomFB[1]);
-                m_device->setViewRect(BloomPass::kBlurHView, 0, 0, m_bloomSmallW, m_bloomSmallH);
-                m_device->setViewFramebuffer(BloomPass::kBlurVView, m_bloomFB[0]);
-                m_device->setViewRect(BloomPass::kBlurVView, 0, 0, m_bloomSmallW, m_bloomSmallH);
 
                 // La présentation va au BACKBUFFER (aucun framebuffer attaché), plein viewport.
                 m_device->setViewRect(PresentPass::kPresentView, 0, 0, m_lightingWidth, m_lightingHeight);
 
-                if (m_bloomPass) {
-                    m_bloomPass->setTargets(m_device->getFramebufferTexture(m_hdrFB),
-                                            m_device->getFramebufferTexture(m_bloomFB[0]),
-                                            m_device->getFramebufferTexture(m_bloomFB[1]));
-                    m_bloomPass->setSizes(m_lightingWidth, m_lightingHeight,
-                                          m_bloomSmallW, m_bloomSmallH, m_bloomDownsample);
-                }
-                if (m_presentPass) {
+                // La lueur à ajouter : la cible de flou si le bloom tourne, sinon le placeholder 1x1
+                // NOIR — celui-là même que le correctif de la lampe fantôme a introduit. Ajouter zéro
+                // est un no-op, et on ne consulte pas une cible que personne n'a écrite.
+                rhi::TextureHandle bloomTex = m_blackLightTex;
+
+                if (bloomActive) {
+                    // Le facteur de réduction suit le RAYON demandé (tranche B4). La règle vit dans
+                    // grove::light pour être testable au CPU : les 9 taps tombent aux mêmes positions
+                    // écran quel que soit le facteur, mais l'EMPREINTE d'un tap vaut un texel — trop
+                    // petite, elle laisse des trous entre les taps, et ces trous sont un feston.
+                    const int bloomDown = light::bloomDownsample(packet.bloom.radius);
+                    ensureBloomTargets(m_lightingWidth, m_lightingHeight, bloomDown);
+
+                    // Pas de setViewClear : chaque étape REMPLACE toute sa cible (blend None sur un
+                    // quad plein écran), donc un effacement serait un remplissage payé pour rien.
+                    // ⚠️ Ça vaut UNIQUEMENT parce que la couverture est totale — la remarque inverse
+                    // de la carte d'occultation, dont la vue est sautée quand personne ne dessine et
+                    // qui a donc BESOIN de son effacement.
+                    m_device->setViewFramebuffer(BloomPass::kExtractView, m_bloomFB[0]);
+                    m_device->setViewRect(BloomPass::kExtractView, 0, 0, m_bloomSmallW, m_bloomSmallH);
+                    m_device->setViewFramebuffer(BloomPass::kBlurHView, m_bloomFB[1]);
+                    m_device->setViewRect(BloomPass::kBlurHView, 0, 0, m_bloomSmallW, m_bloomSmallH);
+                    m_device->setViewFramebuffer(BloomPass::kBlurVView, m_bloomFB[0]);
+                    m_device->setViewRect(BloomPass::kBlurVView, 0, 0, m_bloomSmallW, m_bloomSmallH);
+
+                    if (m_bloomPass) {
+                        m_bloomPass->setTargets(m_device->getFramebufferTexture(m_hdrFB),
+                                                m_device->getFramebufferTexture(m_bloomFB[0]),
+                                                m_device->getFramebufferTexture(m_bloomFB[1]));
+                        m_bloomPass->setSizes(m_lightingWidth, m_lightingHeight,
+                                              m_bloomSmallW, m_bloomSmallH, m_bloomDownsample);
+                    }
                     // La cible A : le ping-pong est agencé pour que le flou vertical y termine.
-                    m_presentPass->setTargets(m_device->getFramebufferTexture(m_hdrFB),
-                                              m_device->getFramebufferTexture(m_bloomFB[0]));
+                    bloomTex = m_device->getFramebufferTexture(m_bloomFB[0]);
+                } else if (m_bloomWidth != 0) {
+                    // Le bloom seul s'est éteint, le tonemapping reste : on rend les cibles de flou
+                    // sans toucher à la cible HDR, que la présentation utilise encore.
+                    releaseBloomTargets();
                 }
-            } else if (m_bloomWidth != 0) {
-                // Le bloom vient d'être ÉTEINT (il était allumé). Il faut rendre la vue du composite
-                // au backbuffer AVANT de détruire la cible HDR, sinon la vue reste attachée à un
-                // framebuffer mort.
+
+                if (m_presentPass) {
+                    m_presentPass->setTargets(m_device->getFramebufferTexture(m_hdrFB), bloomTex);
+                }
+            } else if (m_hdrWidth != 0) {
+                // Tout le post-traitement vient d'être ÉTEINT (il était allumé). Il faut rendre la vue
+                // du composite au backbuffer AVANT de détruire la cible HDR, sinon la vue reste
+                // attachée à un framebuffer mort.
                 //
                 // ⚠️ C'est précisément ce chemin qui a exposé le défaut de `setViewFramebuffer` : sur
                 //    un handle invalide, il ne détachait RIEN. Corrigé côté RHI, verrouillé par
-                //    RhiReadbackGpu [unbind]. Sans ce correctif, éteindre le bloom laissait la frame
-                //    composée dans une cible que plus personne ne présentait — un écran noir.
+                //    RhiReadbackGpu [unbind]. Sans ce correctif, éteindre le post-traitement laissait
+                //    la frame composée dans une cible que plus personne ne présentait — un écran noir.
                 m_device->setViewFramebuffer(CompositePass::kCompositeView, rhi::FramebufferHandle{});
                 releaseBloomTargets();
+                releaseHdrTarget();
             }
 
             // Submission order. The occlusion map must be FILLED before the lights march through it
@@ -948,6 +973,14 @@ void BgfxRendererModule::process(const IDataNode& input) {
                                               BloomPass::kExtractView, BloomPass::kBlurHView,
                                               BloomPass::kBlurVView, PresentPass::kPresentView, 1 };
                 m_device->setViewOrder(order, 9);
+            } else if (postActive) {
+                // Tonemapping SANS bloom : les trois vues de flou n'ont rien à faire dans l'ordre,
+                // leur passe sortant immédiatement. La présentation, elle, reste indispensable —
+                // c'est elle qui amène la cible HDR à l'écran.
+                const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
+                                              CompositePass::kLightView, CompositePass::kCompositeView,
+                                              PresentPass::kPresentView, 1 };
+                m_device->setViewOrder(order, 6);
             } else {
                 const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
                                               CompositePass::kLightView, CompositePass::kCompositeView, 1 };
@@ -1010,10 +1043,10 @@ void BgfxRendererModule::process(const IDataNode& input) {
 void BgfxRendererModule::releaseBloomTargets() {
     if (!m_device) return;
     if (m_bloomWidth != 0) {
-        m_device->destroy(m_hdrFB);
+        // ⚠️ La cible HDR n'est PAS libérée ici : elle appartient au post-traitement en général, pas au
+        //    bloom. Le tonemapping seul continue de s'en servir quand le bloom s'éteint.
         m_device->destroy(m_bloomFB[0]);
         m_device->destroy(m_bloomFB[1]);
-        m_hdrFB = rhi::FramebufferHandle{};
         m_bloomFB[0] = rhi::FramebufferHandle{};
         m_bloomFB[1] = rhi::FramebufferHandle{};
         m_bloomWidth = 0;
@@ -1034,11 +1067,6 @@ void BgfxRendererModule::ensureBloomTargets(uint16_t width, uint16_t height, int
 
     releaseBloomTargets();
 
-    // La cible HDR est en RGBA16F comme celles de l'éclairage, et pour la même raison : l'extraction
-    // travaille sur ce qui DÉPASSE 1. Écrêter ici en RGBA8 rendrait un seuil au-dessus de 1
-    // inatteignable, donc le réglage par défaut ne produirait jamais aucune lueur.
-    m_hdrFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
-
     // La cible de flou, réduite du facteur demandé, avec un plancher à 1 : un viewport minuscule
     // donnerait 0, donc une cible de dimension nulle et une division par zéro dans la conversion
     // pixels -> UV.
@@ -1053,8 +1081,35 @@ void BgfxRendererModule::ensureBloomTargets(uint16_t width, uint16_t height, int
     m_bloomHeight = height;
     m_bloomDownsample = downsample;
 
-    m_logger->info("Bloom targets built ({}x{} HDR + 2x {}x{} RGBA16F, 1/{})",
-                   width, height, m_bloomSmallW, m_bloomSmallH, downsample);
+    m_logger->info("Bloom blur targets built (2x {}x{} RGBA16F, 1/{})",
+                   m_bloomSmallW, m_bloomSmallH, downsample);
+}
+
+void BgfxRendererModule::releaseHdrTarget() {
+    if (!m_device) return;
+    if (m_hdrWidth != 0) {
+        m_device->destroy(m_hdrFB);
+        m_hdrFB = rhi::FramebufferHandle{};
+        m_hdrWidth = 0;
+        m_hdrHeight = 0;
+    }
+}
+
+void BgfxRendererModule::ensureHdrTarget(uint16_t width, uint16_t height) {
+    if (width == 0 || height == 0) return;
+    if (m_hdrWidth == width && m_hdrHeight == height) return;
+
+    releaseHdrTarget();
+
+    // RGBA16F comme les cibles d'éclairage, et pour la même raison : tout le post-traitement travaille
+    // sur ce qui DÉPASSE 1. Écrêter ici en RGBA8 rendrait un seuil de bloom au-dessus de 1
+    // inatteignable ET priverait le tonemapping de la plage dynamique qu'il existe pour comprimer —
+    // deux effets réduits à néant par un choix de format.
+    m_hdrFB = m_device->createFramebuffer(width, height, rhi::TargetFormat::RGBA16F);
+    m_hdrWidth = width;
+    m_hdrHeight = height;
+
+    m_logger->info("HDR present target built ({}x{} RGBA16F)", width, height);
 }
 
 void BgfxRendererModule::releaseLightingTargets() {
@@ -1063,6 +1118,7 @@ void BgfxRendererModule::releaseLightingTargets() {
     // changement de taille les invalide ensemble. Les libérer ici évite qu'un redimensionnement laisse
     // une cible HDR à l'ancienne taille échantillonnée par une présentation à la nouvelle.
     releaseBloomTargets();
+    releaseHdrTarget();
     if (m_lightingWidth != 0) {
         m_device->destroy(m_sceneFB);
         m_device->destroy(m_lightFB);

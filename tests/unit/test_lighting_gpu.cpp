@@ -1463,3 +1463,145 @@ TEST_CASE("bloom: the glow profile DECREASES monotonically at a large radius (GP
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+// ============================================================================
+// Tonemapping (plan T) — deux SUR-BRILLANCES différentes doivent rester différentes.
+//
+// LE DISCRIMINANT, écrit au plan avant le code : deux lampes d'intensités **toutes deux au-dessus de
+// 1**, donc toutes deux écrêtées aujourd'hui.
+//
+//   - sans tonemapping : les deux rendent 255. Indistinguables — c'est le défaut lui-même, et c'est
+//     exactement la situation que l'arbitrage RGBA16F voulait éviter, déplacée d'un cran jusqu'à la
+//     dernière ligne du pipeline.
+//   - avec tonemapping : la plus intense est MESURABLEMENT plus claire, et les deux sont SOUS 255.
+//
+// ⚠️ Piège que ce test évite : mesurer 0,5 contre 0,8 ne discriminerait RIEN — ces valeurs ne sont pas
+//    écrêtées, donc elles diffèrent déjà sans tonemapping. Il faut se placer là où l'information est
+//    perdue.
+//
+// ⚠️ Et une courbe qui se contenterait d'assombrir passerait « les deux sous 255 » tout en échouant sur
+//    « la plus intense reste plus claire » — les deux moitiés de l'assertion sont nécessaires.
+//
+// Plan : docs/design/lighting-tonemap.md
+// ============================================================================
+
+TEST_CASE("tonemap: two clipped overbrights become DISTINGUISHABLE (GPU)", "[gpu][light][tonemap]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("tonemap", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("tm_r");
+    auto gIO = mgr.createInstance("tm_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("tm_r"); mgr.removeInstance("tm_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+
+    // Une lampe d'intensité `lampIntensity` couvrant toute la vue, sur une scène BLANCHE : le terme de
+    // scène vaut 1 partout, donc la sortie EST le terme d'éclairage. `mode` vide = pas de tonemapping.
+    auto render = [&](double lampIntensity, const char* mode, double exposure) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Ambiant NOIR-ish : ce qui sort vient de la lampe, pas de l'ambiant. Non nul, sinon
+            // l'éclairage entier serait désactivé (0 = l'interrupteur).
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x010101FFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            { auto l = std::make_unique<JsonDataNode>("l");
+              l->setDouble("cx", W*0.5); l->setDouble("cy", H*0.5);
+              l->setDouble("radius", W * 3.0);          // très large : le centre est loin du bord
+              l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              l->setDouble("intensity", lampIntensity);
+              gIO->publish("render:light", std::move(l)); }
+            { auto t = std::make_unique<JsonDataNode>("t");
+              t->setString("mode", mode);
+              t->setDouble("exposure", exposure);
+              gIO->publish("render:tonemap", std::move(t)); }
+
+            // Sans tonemapping l'image finale sort du COMPOSITE ; avec, de la PRÉSENTATION. Lire la
+            // mauvaise vue mesurerait la frame d'avant la courbe et le test serait vert sans rien
+            // prouver — le même piège qu'en L1, deux crans plus loin.
+            const bool post = (std::string(mode) != "none");
+            dev->setViewFramebuffer(post ? PresentPass::kPresentView : CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+        const uint8_t* p = &rgba[(static_cast<size_t>(H/2)*W + (W/2))*4];
+        return (static_cast<int>(p[0]) + p[1] + p[2]) / 3;
+    };
+
+    // ---- 1. LE DÉFAUT : sans tonemapping, 2 et 8 sont le même blanc ------------------------
+    const int clipped2 = render(2.0, "none", 1.0);
+    const int clipped8 = render(8.0, "none", 1.0);
+    INFO("sans tonemap : i=2 -> " << clipped2 << " | i=8 -> " << clipped8);
+    REQUIRE(clipped2 == 255);
+    REQUIRE(clipped8 == 255);          // l'information est perdue, et c'est prouvé et non supposé
+
+    // ---- 2. REINHARD les sépare -----------------------------------------------------------
+    const int rein2 = render(2.0, "reinhard", 1.0);
+    const int rein8 = render(8.0, "reinhard", 1.0);
+    INFO("reinhard : i=2 -> " << rein2 << " | i=8 -> " << rein8);
+    CHECK(rein8 > rein2 + 5);          // ~5 niveaux : un écart qu'un œil voit
+    CHECK(rein2 < 255);
+    CHECK(rein8 < 255);
+
+    // ---- 3. ACES aussi, et différemment ---------------------------------------------------
+    const int aces2 = render(2.0, "aces", 1.0);
+    const int aces8 = render(8.0, "aces", 1.0);
+    INFO("aces : i=2 -> " << aces2 << " | i=8 -> " << aces8);
+    CHECK(aces8 > aces2 + 5);
+    CHECK(aces2 < 255);
+
+    // Les deux modes doivent donner des rendus DIFFÉRENTS, sinon en proposer deux est un mensonge.
+    // (ACES tient les tons moyens plus haut — c'est sa signature filmique.)
+    CHECK(aces2 != rein2);
+
+    // ---- 4. L'EXPOSITION agit -------------------------------------------------------------
+    // Elle multiplie AVANT la courbe : à intensité identique, doubler l'exposition doit éclaircir.
+    const int dark   = render(2.0, "reinhard", 0.4);
+    const int bright = render(2.0, "reinhard", 2.5);
+    INFO("exposition : 0.4 -> " << dark << " | 2.5 -> " << bright);
+    CHECK(bright > dark + 20);
+
+    // ---- 5. LE CONTOURNEMENT : revenir à "none" restaure l'image d'origine -----------------
+    // C'est le chemin qui a exposé le défaut de setViewFramebuffer : éteindre le post-traitement doit
+    // rendre la vue du composite au backbuffer. Si ce n'était pas fait, la frame resterait dans la
+    // cible HDR et cette lecture verrait n'importe quoi.
+    const int backToNone = render(2.0, "none", 1.0);
+    INFO("retour a none : " << backToNone);
+    CHECK(backToNone == 255);
+
+    renderer->shutdown();
+    mgr.removeInstance("tm_r");
+    mgr.removeInstance("tm_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

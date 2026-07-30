@@ -296,6 +296,44 @@ lui par raisonnement était faux.
 
 Conception : [`docs/design/lighting-bloom.md`](../../docs/design/lighting-bloom.md).
 
+### Tonemapping (post-traitement)
+
+Comprime la plage HDR pour que **deux sur-brillances restent différentes** au lieu de devenir le même
+blanc. Réglage persistant, **indépendant du bloom** :
+
+```cpp
+auto t = std::make_unique<JsonDataNode>("t");
+t->setString("mode", "aces");     // "none" (défaut = ÉTEINT), "reinhard" ou "aces"
+t->setDouble("exposure", 1.4);    // multiplie la scène AVANT la courbe
+io->publish("render:tonemap", std::move(t));
+```
+
+**⚠️ L'activer ASSOMBRIT la scène, et ce n'est pas un bug.** `reinhard(1) = 0,5` : ce qui était blanc
+plein devient un gris moyen. C'est ce que fait une courbe de compression — elle fait de la place
+au-dessus. Monter `exposure` (démarrer vers 1,5–2,5) jusqu'à replacer les tons moyens.
+
+Mesuré, sur une surface blanche sous une lampe :
+
+| Intensité | sans tonemap | reinhard | aces |
+|---|---|---|---|
+| 2 | **255** | 170 | 233 |
+| 8 | **255** | 226 | 255 |
+
+Sans courbe, les deux sont le même blanc : le sur-brillant que les cibles RGBA16F existent pour
+conserver était jeté à la dernière ligne du pipeline.
+
+| Mode | Ce que ça donne |
+|---|---|
+| `reinhard` | doux et prévisible ; **n'atteint jamais 1**, donc sépare indéfiniment. Pour une plage dynamique extrême. |
+| `aces` | filmique, contrasté. ⚠️ **Sature vers 6** et ré-écrête au-delà — régler `exposure` pour tenir sous son point blanc. |
+
+La lueur du bloom est ajoutée **avant** la courbe (sinon elle ressortirait au-dessus de 1 et
+ré-écrêterait, donnant un aplat blanc collé sur l'image), la courbe s'applique **par canal** (sur la
+luminance seule, on obtiendrait des halos fluo), et **le HUD n'est pas tonemappé** — il passe après la
+présentation, donc l'interface reste lisible quelle que soit l'exposition.
+
+Conception : [`docs/design/lighting-tonemap.md`](../../docs/design/lighting-tonemap.md).
+
 ### Topics complets
 
 | Topic | Description |

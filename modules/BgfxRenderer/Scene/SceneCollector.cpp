@@ -163,6 +163,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:bloom") {
             parseBloom(*msg.data);
         }
+        else if (msg.topic == "render:tonemap") {
+            parseTonemap(*msg.data);
+        }
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
@@ -255,6 +258,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.clearColor = m_clearColor;
     packet.ambientColor = m_ambientColor;   // global state, not cleared at the frame boundary
     packet.bloom = m_bloom;                 // idem: a setting, published once, honoured every frame
+    packet.tonemap = m_tonemap;             // idem — et INDEPENDANT du bloom, voir FramePacket
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1541,6 +1545,32 @@ void SceneCollector::parseBloom(const IDataNode& data) {
     if (!(m_bloom.intensity > 0.0f)) m_bloom.intensity = 0.0f;   // couvre aussi un NaN entrant
     if (!(m_bloom.threshold > 0.0f)) m_bloom.threshold = 0.0f;
     if (!(m_bloom.radius    > 0.0f)) m_bloom.radius    = 0.0f;
+}
+
+void SceneCollector::parseTonemap(const IDataNode& data) {
+    // Tonemapping (plan T). Reglage global persistant, SEPARE du bloom : le tonemapping change
+    // l'image, donc l'agrafer au bloom ferait qu'activer une lueur modifierait l'exposition de tout le
+    // rendu.
+    //
+    // COMMENT: le mode est une CHAINE et pas un nombre, parce que « pas de tonemapping » n'est pas
+    //         « un tonemapping d'intensite nulle » : une courbe n'a pas de reglage continu vers
+    //         l'identite. Deux modes nommes, et un troisieme nom pour l'extinction.
+    //
+    // ⚠️ Un mode INCONNU eteint, il ne retombe pas sur une courbe. Deviner appliquerait au rendu une
+    //    transformation que l'auteur n'a pas demandee -- et il la chercherait dans son propre code. Ca
+    //    couvre aussi bien la faute de frappe que le mode d'une version future lu par un vieux moteur.
+    const std::string mode = data.getString("mode", "none");
+    if (mode == "reinhard")   m_tonemap.mode = light::TonemapMode::Reinhard;
+    else if (mode == "aces")  m_tonemap.mode = light::TonemapMode::ACES;
+    else                      m_tonemap.mode = light::TonemapMode::None;
+
+    // L'exposition est portee par le MESSAGE et pas accumulee : `render:tonemap {mode:"aces"}` remet
+    // l'exposition a 1, comme `render:ambient {}` remet l'ambiant a 0. Le message decrit l'etat complet
+    // du reglage, ce qui evite un etat cache que personne ne peut relire.
+    m_tonemap.exposure = static_cast<float>(data.getDouble("exposure", 1.0));
+    // Une exposition negative inverserait l'image ; 0 est le seul sens qu'on puisse donner a moins que
+    // rien, et il est explicable (noir).
+    if (!(m_tonemap.exposure > 0.0f)) m_tonemap.exposure = 0.0f;
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {

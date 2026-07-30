@@ -5,7 +5,8 @@
 > Écarts et erreurs de ce plan consignés au **§8**, à lire avant de faire confiance au reste.
 > **Socle** : [éclairage 2D](lighting-2d.md) — les cibles sont en RGBA16F **précisément pour ça**
 > ([l'arbitrage d'Alexi](lighting-2d.md#8-arbitrage-tranché--rgba16f-alexi-2026-07-28)).
-> **Suite annoncée après** : fondus et colorimétrie, sur la même passe de présentation.
+> **Suite** : ✅ [le tonemapping](lighting-tonemap.md) est livré sur cette même passe de présentation —
+> elle a donc bien servi à ce qu'elle annonçait. Restent les fondus et la colorimétrie.
 
 ---
 

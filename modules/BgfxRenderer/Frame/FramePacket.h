@@ -3,6 +3,10 @@
 #include <cstdint>
 #include <cstddef>
 
+// Le mode de tonemapping est defini par l'oracle (grove::light) : la meme enumeration sert au parsing,
+// au packet et au shader, donc il n'existe qu'UNE liste de modes.
+#include <grove/light/Tonemap.h>
+
 namespace grove {
 
 class FrameAllocator;
@@ -389,6 +393,28 @@ struct FramePacket {
         float radius = 16.0f;
     };
     BloomSettings bloom;
+
+    // Post-processing: tonemapping (plan T) — set by `render:tonemap`. GLOBAL FRAME STATE, persistent,
+    // exactly like the ambient and the bloom above.
+    //
+    // ⚠️ SÉPARÉ du bloom, délibérément. Le tonemapping CHANGE l'image : l'agrafer au bloom ferait
+    //    qu'activer une lueur modifierait au passage l'exposition de tout le rendu. Les deux réglages
+    //    partagent la PLOMBERIE (cible HDR + passe de présentation), pas l'interrupteur.
+    //
+    // ⚠️ `mode == None` est le défaut, et c'est une IDENTITÉ EXACTE, pas « un tonemapping neutre » :
+    //    l'un des deux réglages suffit à faire exister la passe de présentation, aucun ne la fait
+    //    exister à moitié. Le contournement à coût nul tient à ce que les deux soient éteints.
+    //
+    // POURQUOI un mode et pas un nombre : « pas de tonemapping » n'est pas « un tonemapping d'intensité
+    //    nulle ». Une courbe n'a pas de réglage continu vers l'identité — Reinhard à faible exposition
+    //    reste une courbe, elle assombrit.
+    struct TonemapSettings {
+        light::TonemapMode mode = light::TonemapMode::None;
+        // Multiplie la scène AVANT la courbe : c'est ce qui place la scène sur la courbe, et sans quoi
+        // le tonemapping est subi. 1 = neutre.
+        float exposure = 1.0f;
+    };
+    TonemapSettings tonemap;
 
     // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
     // published none — no arena slice is claimed for a feature nobody used.

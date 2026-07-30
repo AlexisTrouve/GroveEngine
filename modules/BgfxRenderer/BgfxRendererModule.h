@@ -121,8 +121,14 @@ private:
     //    s'échantillonne pas). Un jeu qui ne veut que du post-traitement publie un ambiant BLANC.
     class BloomPass*   m_bloomPass = nullptr;     // owned by the render graph, borrowed here
     class PresentPass* m_presentPass = nullptr;   // idem
-    // La cible HDR où le composite écrit quand le bloom est actif (au lieu du backbuffer).
+    // La cible HDR où le composite écrit dès qu'un post-traitement est actif (au lieu du backbuffer).
+    //
+    // ⚠️ Elle a sa PROPRE taille, distincte de celle des cibles de flou, parce que deux réglages
+    //    indépendants l'activent : le bloom ET le tonemapping. Un jeu qui ne veut qu'une courbe
+    //    d'exposition doit obtenir cette cible SANS payer les deux cibles de flou.
     rhi::FramebufferHandle m_hdrFB;
+    uint16_t m_hdrWidth = 0;    // taille pour laquelle la cible HDR a été bâtie (0 = aucune)
+    uint16_t m_hdrHeight = 0;
     // Les deux cibles au QUART de la résolution : extraction -> A, flou H -> B, flou V -> A.
     rhi::FramebufferHandle m_bloomFB[2];
     uint16_t m_bloomWidth = 0;    // taille PLEINE pour laquelle les cibles ont été bâties (0 = aucune)
@@ -136,6 +142,9 @@ private:
 
     void ensureBloomTargets(uint16_t width, uint16_t height, int downsample);
     void releaseBloomTargets();
+    // La cible HDR, séparément : le tonemapping seul en a besoin, les cibles de flou non.
+    void ensureHdrTarget(uint16_t width, uint16_t height);
+    void releaseHdrTarget();
     std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;

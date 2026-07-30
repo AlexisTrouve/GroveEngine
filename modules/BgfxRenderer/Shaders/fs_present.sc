@@ -2,41 +2,74 @@ $input v_texcoord0
 
 #include <bgfx_shader.sh>
 
-// La frame composée en HDR (ce que le composite a écrit) et la lueur floutée au quart de résolution.
+// La frame composée en HDR (ce que le composite a écrit) et la lueur floutée, réduite.
 SAMPLER2D(s_scene, 0);
 SAMPLER2D(s_bloom, 1);
 
-// u_present = (bloomIntensity, 0, 0, 0)
+// u_present = (bloomIntensity, exposure, tonemapMode, 0)
+//   tonemapMode : 0 = aucun, 1 = reinhard, 2 = aces — même énumération que grove::light::TonemapMode.
 uniform vec4 u_present;
 
-// Présentation (plan B, tranche B2) — étage fragment.
+// Présentation (plans B puis T) — étage fragment. La QUEUE du post-traitement.
 //
-// QUOI  : `backbuffer = frame_composée + lueur × intensité`. C'est la dernière passe du monde ; le HUD
-//         est soumis APRÈS elle et ne brille donc pas.
+// QUOI  : `backbuffer = tonemap( (frame_composée + lueur × intensité) × exposition )`.
+//         C'est la dernière passe du monde ; le HUD est soumis APRÈS elle et ne brille donc pas, et ne
+//         subit pas non plus la courbe — une interface doit rester lisible quelle que soit l'exposition
+//         de la scène.
 //
-// POURQUOI une passe à part alors qu'elle ne fait qu'une addition : parce que le bloom a besoin de
-//         lire la frame composée, et qu'un backbuffer ne s'échantillonne pas. Le composite doit donc
-//         écrire dans une cible, et il faut ensuite quelqu'un pour amener cette cible à l'écran.
-//         C'est aussi, et ce n'est pas un hasard, l'endroit exact où atterriront le tonemapping, les
-//         fondus et la colorimétrie annoncés avec le bloom — la passe existe pour la queue de
-//         post-traitement, pas seulement pour cette addition.
+// POURQUOI une passe à part : le bloom a besoin de lire la frame composée, et un backbuffer ne
+//         s'échantillonne pas. Le composite doit donc écrire dans une cible, et il faut ensuite
+//         quelqu'un pour l'amener à l'écran. Cette passe a été écrite en annonçant qu'elle
+//         accueillerait le tonemapping, les fondus et la colorimétrie ; le tonemapping y est.
 //
-// COMMENT: la lueur est ADDITIVE, comme la lumière elle-même. Un mélange (mix) l'imposerait au prix
-//         de la scène : une lueur blanche DÉLAVERAIT ce qu'elle entoure au lieu de l'auréoler, et un
-//         halo dans le vide — où la scène est noire — n'existerait pas du tout. C'est le même
-//         raisonnement que le terme de diffusion du composite (plan A2), pour la même raison.
+// ⚠️ L'ORDRE EST LOAD-BEARING : la lueur est ajoutée AVANT la courbe, jamais après. La lueur est faite
+//    du sur-brillant ; l'ajouter à une image déjà comprimée dans [0,1] la ferait ressortir au-dessus
+//    de 1, donc réécrêter — et le halo serait un aplat blanc collé sur l'image au lieu de participer à
+//    l'exposition. C'est la différence entre « une tache » et « une source lumineuse ».
 //
-// L'échantillonnage de `s_bloom` est BILINÉAIRE et depuis le quart de résolution : c'est la remontée
-// en échelle, et elle est gratuite (le filtrage matériel fait le travail). Une lueur est basse
-// fréquence par nature ; la résoudre au pixel serait payer pour une information qu'on vient d'étaler.
+// COMMENT la lueur : ADDITIVE, comme la lumière elle-même. Un mélange l'imposerait au prix de la
+//         scène — une lueur blanche DÉLAVERAIT ce qu'elle entoure, et un halo dans le vide (où la
+//         scène est noire) n'existerait pas du tout. Même raisonnement que le terme de diffusion du
+//         composite (plan A2).
 //
-// ⚠️ Pas d'écrêtage ici non plus. La sortie va au backbuffer, qui écrête lui-même en 8 bits ; borner
-//    ici en plus ne changerait rien à l'image et ferait perdre le sur-brillant à un futur tonemap qui
-//    voudra le lire.
+// COMMENT le tonemap : PAR CANAL, et pas sur la luminance. Comprimer la luminance puis rééchelonner le
+//         RGB préserverait la saturation des hautes lumières et donnerait des halos fluo. Par canal,
+//         une couleur saturée roule vers le blanc en saturant — ce que fait un film, et ce qu'on veut :
+//         un cœur de lampe DOIT blanchir en son centre tout en gardant sa teinte sur les bords.
+//
+// Les courbes miment grove::light::tonemapReinhard / tonemapACES, dont l'oracle CPU est la source de
+// vérité (TonemapMathUnit). Plans : lighting-bloom.md, lighting-tonemap.md.
 void main()
 {
 	vec3 scene = texture2D(s_scene, v_texcoord0).rgb;
 	vec3 bloom = texture2D(s_bloom, v_texcoord0).rgb;
 
-	gl_FragColor = vec4(scene + bloom * u_present.x, 1.0);
+	vec3 c = scene + bloom * u_present.x;
+
+	float mode = u_present.z;
+
+	// Mode 0 = IDENTITÉ EXACTE, exposition comprise. C'est le contournement à coût nul jusque dans le
+	// shader : un jeu qui n'a pas demandé de courbe ne doit pas voir son image bouger d'un LSB, et
+	// l'exposition elle-même n'a aucun sens sans courbe pour la recevoir (elle ne ferait que saturer
+	// plus tôt).
+	if (mode > 0.5)
+	{
+		c = max(c * u_present.y, vec3_splat(0.0));
+
+		if (mode > 1.5)
+		{
+			// ACES, approximation de Narkowicz. Constantes reproduites depuis l'oracle : ce sont un
+			// ajustement empirique, pas une dérivation.
+			vec3 num = c * (2.51 * c + 0.03);
+			vec3 den = c * (2.43 * c + 0.59) + 0.14;
+			c = clamp(num / den, 0.0, 1.0);
+		}
+		else
+		{
+			// Reinhard : x / (1 + x). Tend vers 1 sans jamais l'atteindre, donc aucun réécrêtage.
+			c = c / (1.0 + c);
+		}
+	}
+
+	gl_FragColor = vec4(c, 1.0);
 }

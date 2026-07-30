@@ -19,6 +19,7 @@
 #include "grove/IntraIO.h"
 #include "grove/IntraIOManager.h"
 #include "grove/JsonDataNode.h"
+#include <grove/light/Tonemap.h>
 #include <nlohmann/json.hpp>
 
 #include <memory>
@@ -3052,4 +3053,157 @@ TEST_CASE("SceneCollector - bloom: nonsense values are clamped, not propagated",
     // Rayon 0 = aucune étalement, donc une lueur nette. Explicable et monotone (plus petit rayon =
     // lueur plus serrée), là où remettre le défaut ferait un rayon de 16 sorti de nulle part.
     REQUIRE_THAT(p.bloom.radius, WithinAbs(0.0f, 1e-6f));
+}
+
+// ============================================================================
+// Tonemapping (plan T, tranche T1) — `render:tonemap`, un réglage SÉPARÉ du bloom.
+//
+// Même nature persistante que `render:ambient` et `render:bloom`. Mais son interrupteur est un MODE et
+// non un nombre, parce que « pas de tonemapping » n'est pas « un tonemapping d'intensité nulle » : la
+// courbe n'a pas de réglage continu vers l'identité.
+//
+// ⚠️ SÉPARÉ du bloom, et c'est délibéré : le tonemapping CHANGE l'image. L'agrafer au bloom ferait
+//    qu'activer une lueur modifierait au passage l'exposition de tout le rendu — une surprise que
+//    personne n'a demandée. Les deux partagent la plomberie, pas l'interrupteur.
+//
+// Plan : docs/design/lighting-tonemap.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - tonemap: absent means NONE", "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-régression. Un mode non-None par défaut changerait l'image de CHAQUE jeu
+    // existant — et pas subtilement : Reinhard divise par deux ce qui vaut 1.
+    REQUIRE(p.tonemap.mode == light::TonemapMode::None);
+    REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - tonemap: les deux modes se nomment, et persistent",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "reinhard");
+        t->setDouble("exposure", 1.8);
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.8f, 1e-5f));
+    }
+
+    // Un réglage, pas une primitive : il survit à la frontière de frame.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.8f, 1e-5f));
+    }
+
+    // ...et il se change.
+    fx.collector.clear();
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);
+        // Exposition absente => 1.0, le neutre. PAS la valeur précédente : le message porte l'état
+        // complet du réglage, comme `render:ambient` porte sa couleur.
+        REQUIRE_THAT(p.tonemap.exposure, WithinAbs(1.0f, 1e-6f));
+    }
+}
+
+TEST_CASE("SceneCollector - tonemap: \"none\" ÉTEINT", "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).tonemap.mode != light::TonemapMode::None);
+        fx.collector.clear();
+    }
+
+    // Le sujet est l'EXTINCTION, et elle a une conséquence côté renderer : la passe de présentation
+    // doit rendre la vue du composite au backbuffer. Sans ce chemin, la frame resterait dans une cible
+    // que plus personne ne présente — un écran noir.
+    auto off = std::make_unique<JsonDataNode>("t");
+    off->setString("mode", "none");
+    fx.ioPublisher->publish("render:tonemap", std::move(off));
+    fx.pump();
+    REQUIRE(fx.collector.finalize(allocator).tonemap.mode == light::TonemapMode::None);
+}
+
+TEST_CASE("SceneCollector - tonemap: un mode inconnu ÉTEINT au lieu d'en deviner un",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto t = std::make_unique<JsonDataNode>("t");
+    t->setString("mode", "filmic-deluxe");     // faute de frappe, ou un mode d'une version future
+    t->setDouble("exposure", 2.0);
+    fx.ioPublisher->publish("render:tonemap", std::move(t));
+    fx.pump();
+
+    // Retomber sur une courbe arbitraire appliquerait au rendu une transformation que l'auteur n'a pas
+    // demandée, et il la chercherait dans son propre code. Éteint est le seul défaut honnête.
+    REQUIRE(fx.collector.finalize(allocator).tonemap.mode == light::TonemapMode::None);
+}
+
+TEST_CASE("SceneCollector - tonemap: une exposition absurde est bornée",
+          "[scene_collector][light][tonemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto t = std::make_unique<JsonDataNode>("t");
+    t->setString("mode", "reinhard");
+    t->setDouble("exposure", -4.0);            // une exposition négative inverserait l'image
+    fx.ioPublisher->publish("render:tonemap", std::move(t));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.tonemap.mode == light::TonemapMode::Reinhard);
+    REQUIRE_THAT(p.tonemap.exposure, WithinAbs(0.0f, 1e-6f));   // 0 = noir, explicable
+}
+
+TEST_CASE("SceneCollector - tonemap et bloom sont INDÉPENDANTS",
+          "[scene_collector][light][tonemap][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Le tonemapping seul, sans aucun bloom : c'est un cas que le renderer doit savoir servir (cible
+    // HDR + présentation, mais PAS les cibles de flou).
+    {
+        auto t = std::make_unique<JsonDataNode>("t");
+        t->setString("mode", "aces");
+        fx.ioPublisher->publish("render:tonemap", std::move(t));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+        fx.collector.clear();
+    }
+
+    // Et le bloom seul ne doit PAS allumer le tonemapping — sinon activer une lueur changerait
+    // l'exposition de tout le rendu.
+    {
+        auto b = std::make_unique<JsonDataNode>("b");
+        b->setDouble("intensity", 1.0);
+        fx.ioPublisher->publish("render:bloom", std::move(b));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.bloom.intensity > 0.0f);
+        REQUIRE(p.tonemap.mode == light::TonemapMode::ACES);   // inchangé par le bloom
+    }
 }

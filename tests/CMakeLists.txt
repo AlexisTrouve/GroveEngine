@@ -1417,6 +1417,19 @@ target_link_libraries(test_bloom_math PRIVATE
 )
 grove_add_test(BloomMathUnit test_bloom_math ${CMAKE_CURRENT_BINARY_DIR})
 
+# Tonemap math (plan T, T0): les deux courbes de compression + l'exposition. Header-only, sans GPU.
+# L'enjeu est net : le tonemapping existe pour que deux valeurs SUR-BRILLANTES restent distinctes, et
+# c'est exactement ce que ce test verifie. Il assertionne des PROPRIETES, pas les constantes d'ACES --
+# les recopier ne prouverait que le copier-coller. Voir docs/design/lighting-tonemap.md.
+add_executable(test_tonemap_math
+    unit/test_tonemap_math.cpp
+)
+target_link_libraries(test_tonemap_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(TonemapMathUnit test_tonemap_math ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.

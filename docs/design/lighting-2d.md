@@ -2,10 +2,12 @@
 
 > **Statut** : ✅ **TOUT LIVRÉ** au 2026-07-29 — lampes (L1→L3), socle de transmittance (C1→C2),
 > murs (W), filtres (F), milieux et nébuleuses (A1→A4). Suite complète 194/194.
-> **Post-traitement** : ✅ **le bloom est livré** (2026-07-30, [plan B](lighting-bloom.md)) — il
-> consomme bien la même plomberie de cibles, et le RGBA16F tranché en §8 est ce qui l'a rendu
-> possible. La passe de **présentation** qu'il introduit est l'accroche des **fondus et de la
-> colorimétrie**, qui restent à faire.
+> **Post-traitement** : ✅ **bloom + tonemapping livrés** (2026-07-30, [plan B](lighting-bloom.md)
+> et [plan T](lighting-tonemap.md)) — ils consomment bien la même plomberie de cibles, et le
+> RGBA16F tranché en §8 est ce qui les a rendus possibles. ⚠️ Le tonemapping **ferme une dette de
+> cet arbitrage** : le sur-brillant y était conservé, puis écrêté par le backbuffer 8 bits à la
+> dernière ligne (deux lampes d'intensité 2 et 8 rendaient toutes deux 255 — mesuré). Restent les
+> **fondus** et la **colorimétrie**, sur la même passe de présentation.
 
 ---
 
@@ -21,6 +23,7 @@ vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
 | **pourquoi murs, filtres et brouillard sont un seul mécanisme** | [socle de transmittance](lighting-transmittance-core.md) ← la pièce centrale |
 | le détail d'une matière | [murs](lighting-walls.md) · [filtres](lighting-filters.md) · [milieux et nébuleuses](lighting-attenuators.md) |
 | le **bloom** (post-traitement) | [plan B](lighting-bloom.md) — ce qui alimente la lueur, et pourquoi ce n'est pas le buffer de lumière |
+| le **tonemapping** | [plan T](lighting-tonemap.md) — comment le sur-brillant conservé ici arrive enfin à l'écran |
 | **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
 
 **Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un
