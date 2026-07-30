@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIWindow.h"
 #include "../Core/UIContext.h"
 #include "../Core/UILayout.h"   // responsive content: lay out children against the content box on resize
@@ -195,6 +196,39 @@ void UIWindow::releaseRenderEntries(UIRenderer& renderer) {
     if (m_resizeGripId != 0) { renderer.unregisterEntry(m_resizeGripId); m_resizeGripId = 0; }
     if (m_frameId != 0)      { renderer.unregisterEntry(m_frameId);      m_frameId = 0; }
     UIWidget::releaseRenderEntries(renderer);
+}
+
+
+// Fenetre applicative (tranche 3b). Les enfants sont ajoutes par le loader et rendus dans
+// la zone de contenu decoupee, sous la barre de titre.
+std::unique_ptr<UIWidget> UIWindow::fromNode(const IDataNode& node) {
+    auto win = std::make_unique<UIWindow>();
+    win->title = node.getString("title", "");
+    win->titleBarHeight = static_cast<float>(node.getDouble("titleBarHeight", 28.0));
+    win->closable = node.getBool("closable", true);
+    win->draggable = node.getBool("draggable", true);
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+            std::string v = s->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return def;
+        };
+        win->bgColor = hexColor(style, "bgColor", win->bgColor);
+        win->titleBarColor = hexColor(style, "titleBarColor", win->titleBarColor);
+        win->titleColor = hexColor(style, "titleColor", win->titleColor);
+        win->closeColor = hexColor(style, "closeColor", win->closeColor);
+        win->fontSize = static_cast<float>(style->getDouble("fontSize", win->fontSize));
+    }
+
+    // 9-slice FRAME (optional `frame` block): a composed border texture giving the window a continuous,
+    // crisp border at any size (replaces the solid bg). `inset` sets all four margins; per-side overrides;
+    // `asset` = streamed border art id, `srcW/srcH` its native px dims. Absent -> the solid-bg look.
+    if (auto* frame = mutableNode.getChildReadOnly("frame")) win->frame.parse(*frame);
+    return win;
 }
 
 } // namespace grove

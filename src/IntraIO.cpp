@@ -73,7 +73,7 @@ void IntraIO::publish(const std::string& topic, std::unique_ptr<IDataNode> messa
     // (heap corruption in release) — the guard logs it loudly + counts it. It does NOT serialize
     // (no lock), so it can't mask the flaw or reintroduce the ABBA deadlock handled below. Held for
     // the whole call so it spans the racy region. Fix a hit by giving each thread its OWN instance.
-    grove::detail::ScopedAccessGuard _publishGuard(m_activeCallers, "publish", instanceId);
+    grove::detail::ScopedAccessGuard _publishGuard(m_accessState, "publish", instanceId);
 
     // DEADLOCK PREVENTION — do NOT hold operationMutex while calling routeMessage().
     //
@@ -251,9 +251,9 @@ void IntraIO::pullAndDispatch() {
     // as publish(). Draining ONE instance from >=2 threads runs the dispatched callbacks CONCURRENTLY
     // (phase 2 below is intentionally OUTSIDE operationMutex to avoid the ABBA deadlock), so the
     // callbacks race on whatever state they touch (TSan-confirmed: ConsumerModule.cpp:40 via 3 consumer
-    // threads on one instance). The guard shares m_activeCallers with publish() — one thread at a time,
+    // threads on one instance). The guard shares m_accessState with publish() — one thread at a time,
     // across ALL ops on this instance. Detect-only (no lock): can't mask the flaw or deadlock.
-    grove::detail::ScopedAccessGuard _pullGuard(m_activeCallers, "pullAndDispatch", instanceId);
+    grove::detail::ScopedAccessGuard _pullGuard(m_accessState, "pullAndDispatch", instanceId);
 
     // DEADLOCK PREVENTION — do NOT hold operationMutex while invoking user callbacks.
     //

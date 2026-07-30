@@ -223,7 +223,27 @@ saisie — un futur widget focusable (liste éditable, console) marchera sans to
 
 **Gate** : IT_062→IT_066 (saisie, sélection, presse-papiers, multiligne) couvrent déjà ces chemins.
 
-### S2 — sortir les fabriques
+### S2 — sortir les fabriques — ✅ FAIT (2026-07-30)
+
+Les **dix-sept** fabriques (pas seize — le plan comptait mal) sont devenues des `UIX::fromNode`
+statiques dans le fichier de leur widget. `UITree::registerDefaultWidgets` passe de **621 lignes à une
+table de 17 lignes**, et `UITree.cpp` de **873 à 325 lignes**.
+
+Les commentaires explicatifs qui décrivaient une fabrique (flipbook, radial, tabs, modal, list,
+window, textarea) sont partis **avec le code qu'ils décrivent** — les laisser dans la table aurait
+raté le but du chantier. Au passage, un commentaire mal placé de longue date a été corrigé :
+`// Register textinput factory` coiffait le bloc *textarea*.
+
+Déplacement pur, aucun changement de comportement — et c'est vérifié plutôt que supposé : les corps
+sont ceux d'origine, et une fabrique sabotée (le champ `action` du radial vidé) fait bien tomber
+`IT_020`. Sans cette vérification, « 206/206 » ne prouverait pas que le filet couvre le code déplacé.
+
+Reste hors périmètre, inchangé : `parseCommonProperties` et `parseWidgetBindings` restent chez
+`UITree` — ils sont communs à tous les widgets, c'est leur place.
+
+---
+
+### S2 — ce qui était prévu
 
 Chaque widget expose `static std::unique_ptr<UIWidget> fromNode(const IDataNode&)` **dans son propre
 fichier** ; `registerDefaultWidgets` devient une table de seize lignes. Purement mécanique, se fait

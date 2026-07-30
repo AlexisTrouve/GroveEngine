@@ -2884,6 +2884,17 @@ if(GROVE_BUILD_UI_MODULE)
         test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
     grove_add_test(UIRepeaterE2E IT_039_ui_repeater_e2e ${CMAKE_CURRENT_BINARY_DIR})
 
+    # IT_068: an UNCHANGED ui:data push must rebuild nothing. expandRepeaters() had no gate — every
+    # push purged all instances, re-parsed the template PER ITEM and rebuilt each widget, even when
+    # nothing moved. Measured before the fix on 30 rows: 180 :remove + 180 :add and 15.8 ms for an
+    # identical push, against a 16.6 ms frame budget at 60 fps. Also asserts a CHANGED push still
+    # rebuilds — without that case, a gate degenerated into "never rebuild" would pass and silently
+    # break the repeater.
+    add_executable(IT_068_ui_repeater_idle_e2e integration/IT_068_ui_repeater_idle_e2e.cpp)
+    target_link_libraries(IT_068_ui_repeater_idle_e2e PRIVATE
+        test_helpers GroveEngine::core GroveEngine::impl Catch2::Catch2WithMain)
+    grove_add_test(UIRepeaterIdleE2E IT_068_ui_repeater_idle_e2e ${CMAKE_CURRENT_BINARY_DIR})
+
     # IT_040: JSON-UI conditional `if` — data-driven show/hide that purges retained entries, step 5.
     add_executable(IT_040_ui_if_e2e integration/IT_040_ui_if_e2e.cpp)
     target_link_libraries(IT_040_ui_if_e2e PRIVATE

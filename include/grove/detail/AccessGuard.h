@@ -32,28 +32,36 @@ namespace detail {
 // Process-wide count of detected concurrency-invariant violations (single instance across TUs).
 std::atomic<std::uint64_t>& accessViolationCount();
 
+// Per-guarded-object state: how many frames are inside, and WHICH thread owns them.
+// `owner` holds a hash of the thread id currently inside (0 = nobody). Declared in both builds
+// because guarded objects hold it as a member; in shipping nothing ever reads it.
+struct AccessState {
+    std::atomic<int> active{0};
+    std::atomic<std::size_t> owner{0};
+};
+
 #if GROVE_DEBUG
 
-// RAII tripwire. `active` is a per-guarded-object atomic counter of threads currently inside the
-// section. On construction, if another thread is already inside (prev != 0) the invariant is broken:
-// log + bump accessViolationCount(). On destruction, leave the section.
+// RAII tripwire. On construction: if the section was empty, claim it for this thread. If it was
+// already occupied BY ANOTHER thread, the invariant is broken (log + bump accessViolationCount()).
+// If it was occupied by THIS thread, it is a legitimate re-entrance and nothing is reported.
 class ScopedAccessGuard {
 public:
-    ScopedAccessGuard(std::atomic<int>& active, const char* op, const std::string& instanceId);
+    ScopedAccessGuard(AccessState& state, const char* op, const std::string& instanceId);
     ~ScopedAccessGuard();
 
     ScopedAccessGuard(const ScopedAccessGuard&)            = delete;
     ScopedAccessGuard& operator=(const ScopedAccessGuard&) = delete;
 
 private:
-    std::atomic<int>& active_;
+    AccessState& state_;
 };
 
 #else  // shipping: the guard is an empty no-op (zero cost, zero footprint).
 
 class ScopedAccessGuard {
 public:
-    ScopedAccessGuard(std::atomic<int>& /*active*/, const char* /*op*/, const std::string& /*id*/) {}
+    ScopedAccessGuard(AccessState& /*state*/, const char* /*op*/, const std::string& /*id*/) {}
 };
 
 #endif // GROVE_DEBUG

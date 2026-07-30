@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UICheckbox.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -145,6 +146,38 @@ void UICheckbox::releaseRenderEntries(UIRenderer& renderer) {
     if (m_checkRenderId != 0) { renderer.unregisterEntry(m_checkRenderId); m_checkRenderId = 0; }
     if (m_textRenderId != 0)  { renderer.unregisterEntry(m_textRenderId);  m_textRenderId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // boîte (m_renderId) + drapeaux + enfants
+}
+
+
+std::unique_ptr<UIWidget> UICheckbox::fromNode(const IDataNode& node) {
+    auto checkbox = std::make_unique<UICheckbox>();
+    checkbox->checked = node.getBool("checked", false);
+    checkbox->text = node.getString("text", "");
+    checkbox->onChange = node.getString("onChange", "");
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string boxColorStr = style->getString("boxColor", "0x34495eFF");
+        if (boxColorStr.size() >= 2 && (boxColorStr.substr(0, 2) == "0x" || boxColorStr.substr(0, 2) == "0X")) {
+            checkbox->boxColor = static_cast<uint32_t>(std::stoul(boxColorStr, nullptr, 16));
+        }
+        std::string checkColorStr = style->getString("checkColor", "0x2ecc71FF");
+        if (checkColorStr.size() >= 2 && (checkColorStr.substr(0, 2) == "0x" || checkColorStr.substr(0, 2) == "0X")) {
+            checkbox->checkColor = static_cast<uint32_t>(std::stoul(checkColorStr, nullptr, 16));
+        }
+        std::string textColorStr = style->getString("textColor", "0xecf0f1FF");
+        if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
+            checkbox->textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
+        }
+        checkbox->boxSize = static_cast<float>(style->getDouble("boxSize", 24.0));
+        checkbox->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
+        checkbox->spacing = static_cast<float>(style->getDouble("spacing", 8.0));
+    }
+
+    // 9-slice FRAME (optional) — dresses the box.
+    if (auto* f = mutableNode.getChildReadOnly("frame")) checkbox->frame.parse(*f);
+
+    return checkbox;
 }
 
 } // namespace grove

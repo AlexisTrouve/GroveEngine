@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIScrollPanel.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -352,6 +353,43 @@ void UIScrollPanel::renderChrome(UIRenderer& renderer) {
     if (m_frameRegistered) {
         UIFrame::collapse(renderer, m_frameId, renderer.nextLayer());
     }
+}
+
+
+std::unique_ptr<UIWidget> UIScrollPanel::fromNode(const IDataNode& node) {
+    auto scrollPanel = std::make_unique<UIScrollPanel>();
+
+    scrollPanel->scrollVertical = node.getBool("scrollVertical", true);
+    scrollPanel->scrollHorizontal = node.getBool("scrollHorizontal", false);
+    scrollPanel->showScrollbar = node.getBool("showScrollbar", true);
+    scrollPanel->dragToScroll = node.getBool("dragToScroll", true);
+
+    // Parse style
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string bgColorStr = style->getString("bgColor", "0x2a2a2aFF");
+        if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
+            scrollPanel->bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
+        }
+
+        std::string borderColorStr = style->getString("borderColor", "0x444444FF");
+        if (borderColorStr.size() >= 2 && (borderColorStr.substr(0, 2) == "0x" || borderColorStr.substr(0, 2) == "0X")) {
+            scrollPanel->borderColor = static_cast<uint32_t>(std::stoul(borderColorStr, nullptr, 16));
+        }
+
+        std::string scrollbarColorStr = style->getString("scrollbarColor", "0x666666FF");
+        if (scrollbarColorStr.size() >= 2 && (scrollbarColorStr.substr(0, 2) == "0x" || scrollbarColorStr.substr(0, 2) == "0X")) {
+            scrollPanel->scrollbarColor = static_cast<uint32_t>(std::stoul(scrollbarColorStr, nullptr, 16));
+        }
+
+        scrollPanel->borderWidth = static_cast<float>(style->getDouble("borderWidth", 1.0));
+        scrollPanel->scrollbarWidth = static_cast<float>(style->getDouble("scrollbarWidth", 8.0));
+    }
+
+    // 9-slice FRAME (optional `frame` block) — replaces the bg AND the four border strips.
+    if (auto* frame = mutableNode.getChildReadOnly("frame")) scrollPanel->frame.parse(*frame);
+
+    return scrollPanel;
 }
 
 } // namespace grove

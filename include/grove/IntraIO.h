@@ -11,6 +11,7 @@
 #include <mutex>
 #include <chrono>
 #include <atomic>
+#include <grove/detail/AccessGuard.h>   // AccessState : compteur + fil proprietaire du tripwire
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
@@ -86,7 +87,7 @@ private:
     // used by publish()). Counts threads currently inside the guarded section; a concurrent OVERLAP
     // is a contract violation (a data race). It only DETECTS (logs loudly) — it never serializes, so
     // it can't mask the flaw or reintroduce the ABBA deadlock the publish path was fixed for.
-    std::atomic<int> m_activeCallers{0};
+    grove::detail::AccessState m_accessState;   // compteur + fil proprietaire (tripwire)
 
     // Instance identification for routing
     std::string instanceId;

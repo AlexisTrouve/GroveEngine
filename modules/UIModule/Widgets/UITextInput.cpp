@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UITextInput.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -532,6 +533,64 @@ void UITextInput::releaseRenderEntries(UIRenderer& renderer) {
     if (m_cursorRenderId != 0)      { renderer.unregisterEntry(m_cursorRenderId);      m_cursorRenderId = 0; }
     if (m_selectionRenderId != 0)   { renderer.unregisterEntry(m_selectionRenderId);   m_selectionRenderId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // fond (m_renderId) + drapeaux + enfants
+}
+
+
+std::unique_ptr<UIWidget> UITextInput::fromNode(const IDataNode& node) {
+    auto textInput = std::make_unique<UITextInput>();
+    textInput->setText(node.getString("text", ""));
+    textInput->placeholder = node.getString("placeholder", "Enter text...");
+    textInput->edit.maxLength = node.getInt("maxLength", 256);
+    textInput->passwordMode = node.getBool("passwordMode", false);
+    textInput->onSubmit = node.getString("onSubmit", "");
+
+    // Parse filter type
+    std::string filterStr = node.getString("filter", "none");
+    if (filterStr == "alphanumeric") {
+        textInput->filter = TextInputFilter::Alphanumeric;
+    } else if (filterStr == "numeric") {
+        textInput->filter = TextInputFilter::Numeric;
+    } else if (filterStr == "float") {
+        textInput->filter = TextInputFilter::Float;
+    } else if (filterStr == "nospaces") {
+        textInput->filter = TextInputFilter::NoSpaces;
+    } else {
+        textInput->filter = TextInputFilter::None;
+    }
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        // Normal style
+        std::string bgColorStr = style->getString("bgColor", "0x222222FF");
+        if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
+            textInput->normalStyle.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
+        }
+        std::string textColorStr = style->getString("textColor", "0xFFFFFFFF");
+        if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
+            textInput->normalStyle.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
+        }
+        std::string borderColorStr = style->getString("borderColor", "0x666666FF");
+        if (borderColorStr.size() >= 2 && (borderColorStr.substr(0, 2) == "0x" || borderColorStr.substr(0, 2) == "0X")) {
+            textInput->normalStyle.borderColor = static_cast<uint32_t>(std::stoul(borderColorStr, nullptr, 16));
+        }
+        std::string focusBorderColorStr = style->getString("focusBorderColor", "0x4488FFFF");
+        if (focusBorderColorStr.size() >= 2 && (focusBorderColorStr.substr(0, 2) == "0x" || focusBorderColorStr.substr(0, 2) == "0X")) {
+            textInput->normalStyle.focusBorderColor = static_cast<uint32_t>(std::stoul(focusBorderColorStr, nullptr, 16));
+        }
+
+        // Copy normal style to focused and disabled
+        textInput->focusedStyle = textInput->normalStyle;
+        textInput->disabledStyle = textInput->normalStyle;
+        textInput->disabledStyle.bgColor = 0x111111FF;
+        textInput->disabledStyle.textColor = 0x666666FF;
+
+        textInput->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
+    }
+
+    // 9-slice FRAME (optional `frame` block) — see UIFrame.
+    if (auto* f = mutableNode.getChildReadOnly("frame")) textInput->frame.parse(*f);
+
+    return textInput;
 }
 
 } // namespace grove

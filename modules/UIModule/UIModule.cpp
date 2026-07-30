@@ -419,7 +419,17 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
         m_io->subscribe("ui:data", [this](const Message& msg) {
             if (!msg.data) return;
             if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
-                m_uiData = jn->getJsonData();
+                const auto& incoming = jn->getJsonData();
+                // Modele IDENTIQUE -> il n'y a rien a faire, et surtout rien a defaire.
+                //
+                // POURQUOI ici, en plus de la garde par repeteur : republier le meme modele est le
+                // geste normal d'un HUD (il pousse son etat chaque frame, qu'il ait bouge ou non).
+                // Sortir ici epargne aussi la RE-RESOLUTION de tous les bindings -- chacun resolvant
+                // son chemin TROIS fois (interpolate + resolveNumber + resolveBool) dont deux
+                // resultats jetes, cf. P2 de l'audit. La garde par repeteur seule laisserait ce
+                // travail-la se faire pour rien.
+                if (incoming == m_uiData) return;
+                m_uiData = incoming;
             }
             ++m_dataVersion;
             refreshDataDriven();
@@ -427,6 +437,12 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
 
         // Partial update — set ONE deep path: ui:data:set {path, value}. The game updates a single field
         // (e.g. a ship's hp) without re-sending the whole model; only the bindings re-resolve.
+        //
+        // NB : pas de comparaison avant/apres ici, contrairement a `ui:data`. Detecter un patch sans
+        // effet exigerait de COPIER tout le modele pour le comparer ensuite -- un cout nouveau a
+        // chaque appel, pour attraper un cas qui n'existe pas : un `set`/`merge` est par construction
+        // l'intention de changer quelque chose. Le cas pathologique mesure etait la republication du
+        // modele ENTIER, qu'un HUD fait par frame ; c'est celui-la qui est garde.
         m_io->subscribe("ui:data:set", [this](const Message& msg) {
             if (!msg.data) return;
             const std::string path = msg.data->getString("path", "");
@@ -626,17 +642,45 @@ void UIModule::expandRepeaters() {
     collectRepeaters(m_root.get(), hosts);
 
     for (UIWidget* host : hosts) {
+        const uibind::json* arr = uibind::resolvePath(root, host->repeatPath);
+
+        // GARDE D'INACTIVITE. Ce que ce repeteur devrait afficher, compare a ce qu'il affiche deja.
+        //
+        // POURQUOI : sans elle, chaque poussee de donnees purgeait et reconstruisait TOUTES les
+        //   instances, meme identiques -- 180 `:remove` + 180 `:add` et 15,8 ms sur 30 lignes, pour
+        //   un budget de frame de 16,6 ms a 60 fps. Un HUD qui rafraichit ses donnees par frame ne
+        //   tenait donc pas la frame a lui seul, et le trafic retombait sur le chemin IIO+JSON deja
+        //   documente comme le mur de debit du moteur.
+        //
+        // COMMENT : comparaison EXACTE du tableau serialise. Ce n'est PAS une garde par
+        //   `m_dataVersion` : celle-ci s'incremente a chaque poussee, identique ou non, donc elle
+        //   n'aurait rien filtre ici. La garde par version existe deja pour les listes virtualisees
+        //   (`windowDirty`) -- c'est le repeteur qui n'en avait aucune.
+        //
+        // ⚠️ Ne saute QUE la destruction/reconstruction. La re-resolution des bindings tourne juste
+        //   apres (`resolveAllBindings`) sur les instances conservees, donc les valeurs affichees
+        //   restent fraiches : un HUD qui pousse {hp, fleet} voit `hp` bouger sans que `fleet` soit
+        //   refait. C'est precisement le cas que cette garde sert.
+        const std::string snapshot = (arr && arr->is_array()) ? arr->dump() : std::string();
+        if (snapshot == host->repeatDataSnapshot) {
+            continue;   // rien n'a bouge pour CE repeteur
+        }
+        host->repeatDataSnapshot = snapshot;
+
         // Purge + drop the previous instances (release publishes render:*:remove -> no ghosts).
         if (m_renderer) for (auto& c : host->children) c->releaseRenderEntries(*m_renderer);
         host->children.clear();
 
-        const uibind::json* arr = uibind::resolvePath(root, host->repeatPath);
         if (!arr || !arr->is_array()) continue;
 
+        // Le gabarit est parse UNE FOIS par hote, plus une fois PAR ELEMENT : il ne change jamais a
+        // l'execution, donc N-1 parses JSON etaient du travail pur perdu. Chaque instance recoit une
+        // COPIE du json (bien moins cher qu'un reparse depuis le texte) -- parseWidget fabrique des
+        // widgets neufs, mais on ne partage pas le noeud source par prudence.
+        const uibind::json templateJson = uibind::json::parse(host->repeatTemplateJson);
+
         for (size_t i = 0; i < arr->size(); ++i) {
-            // Re-parse the template per item (factory + bindings + events recorded on the instance).
-            uibind::json tj = uibind::json::parse(host->repeatTemplateJson);
-            JsonDataNode tnode("tpl", tj);
+            JsonDataNode tnode("tpl", templateJson);
             auto inst = m_tree->parseWidget(tnode);
             if (!inst) continue;
             setScopePathRecursive(inst.get(), host->repeatPath + "." + std::to_string(i));

@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIDrawer.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -84,6 +85,31 @@ void UIDrawer::releaseRenderEntries(UIRenderer& renderer) {
     if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
     m_frameRegistered = false;
     UIWidget::releaseRenderEntries(renderer);   // fond (m_renderId) + drapeaux + enfants
+}
+
+
+std::unique_ptr<UIWidget> UIDrawer::fromNode(const IDataNode& node) {
+    auto drawer = std::make_unique<UIDrawer>();
+    std::string edgeStr = node.getString("edge", "left");
+    if (edgeStr == "right")       drawer->edge = UIDrawer::Edge::Right;
+    else if (edgeStr == "top")    drawer->edge = UIDrawer::Edge::Top;
+    else if (edgeStr == "bottom") drawer->edge = UIDrawer::Edge::Bottom;
+    else                          drawer->edge = UIDrawer::Edge::Left;
+    drawer->openExtent = static_cast<float>(node.getDouble("openExtent", 250.0));
+    drawer->slideDuration = static_cast<float>(node.getDouble("slideDuration", 0.22));
+    drawer->setOpen(node.getBool("open", false));
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string v = style->getString("bgColor", "");
+        if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+            drawer->bgColor = static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+        }
+    }
+    // 9-slice FRAME (optional `frame` block) — see UIFrame.
+    if (auto* f = mutableNode.getChildReadOnly("frame")) drawer->frame.parse(*f);
+
+    return drawer;
 }
 
 } // namespace grove

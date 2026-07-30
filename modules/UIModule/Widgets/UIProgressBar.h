@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief Progress bar widget for displaying progress
@@ -21,6 +24,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "progressbar"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
     // Libère le remplissage + le texte + les DEUX chromes 9-slice (piste et remplissage), que la base
     // ignore. Verrouillé par IT_067.
     void releaseRenderEntries(UIRenderer& renderer) override;

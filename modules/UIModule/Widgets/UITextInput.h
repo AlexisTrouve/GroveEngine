@@ -9,6 +9,8 @@
 
 namespace grove {
 
+class IDataNode;
+
 /**
  * @brief Text input filter types
  */
@@ -69,6 +71,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "textinput"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
     // Libère les SIX entrées supplémentaires (la base ne lâche que le fond + les enfants) : sans ça,
     // cacher un champ laisse son texte, son curseur et son surlignage affichés. Verrouillé par IT_067.
     void releaseRenderEntries(UIRenderer& renderer) override;

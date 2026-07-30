@@ -117,3 +117,46 @@ TEST_CASE("UIBindingUnit: scope chain — local / $parent / $root", "[ui][bindin
     REQUIRE(interpolate(item, "{{$parent.activeFleet}}") == "alpha");
     REQUIRE(interpolate(item, "{{name}} of {{$root.activeFleet}}") == "Aurora of alpha");
 }
+
+// ============================================================================
+// resolveNumber — la conversion texte→nombre ne doit plus passer par une EXCEPTION,
+// et sa sémantique doit rester celle de std::stod, au cas limite près.
+// ============================================================================
+
+TEST_CASE("resolveNumber: conversion sans exception, semantique de stod preservee",
+          "[ui][unit][binding]") {
+    // POURQUOI ce test : `resolveWidgetBindings` résout CHAQUE binding des trois façons (chaîne,
+    // nombre, booléen) et le widget n'en garde qu'une. La résolution numérique d'un binding TEXTUEL
+    // — `text: "{{name}}"`, le plus courant qui soit — tombait donc dans un `try { std::stod } catch`
+    // à chaque poussée de données. Mesuré : 104 ns sur une valeur numérique contre 3508 ns sur une
+    // chaîne, facteur 34, l'écart étant le coût de lever puis attraper l'exception.
+    //
+    // Le remplacement par `strtod` doit être un changement de COÛT, pas de comportement — d'où ces
+    // cas limites, qui sont exactement ceux où stod et un parseur naïf divergent.
+    const json data = json{
+        {"name", "Aurora"}, {"partial", "12abc"}, {"blank", ""}, {"spaced", "  7  "},
+        {"huge", "1e400"}, {"neg", "-3.5"}, {"flag", true},
+    };
+    Scope s{ &data, nullptr };
+
+    // Conversion PARTIELLE acceptée : stod lisait "12abc" comme 12. Un parseur qui exigerait la
+    // chaîne entière renverrait le défaut — ce serait une régression silencieuse.
+    CHECK(resolveNumber(s, "{{partial}}", -1.0) == 12.0);
+    CHECK(resolveNumber(s, "12abc", -1.0) == 12.0);
+
+    // Rien de convertible -> le défaut (stod levait invalid_argument).
+    CHECK(resolveNumber(s, "{{name}}", -1.0) == -1.0);
+    CHECK(resolveNumber(s, "{{blank}}", -1.0) == -1.0);
+    CHECK(resolveNumber(s, "abc", -1.0) == -1.0);
+
+    // Espaces de tete tolerees, comme stod.
+    CHECK(resolveNumber(s, "{{spaced}}", -1.0) == 7.0);
+
+    // Depassement de plage -> le défaut (stod levait out_of_range).
+    CHECK(resolveNumber(s, "{{huge}}", -1.0) == -1.0);
+
+    // Les cas deja couverts plus haut ne doivent pas bouger.
+    CHECK(resolveNumber(s, "{{neg}}", 0.0) == -3.5);
+    CHECK(resolveNumber(s, "{{flag}}", 0.0) == 1.0);   // bool -> 1
+    CHECK(resolveNumber(s, "{{absent}}", 42.0) == 42.0);
+}

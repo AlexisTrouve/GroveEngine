@@ -110,6 +110,22 @@ TEST_CASE("InputModule (static host): feedEvent -> input:* topics", "[input][sta
 TEST_CASE("InputModule: aller-retour presse-papiers via IIO", "[input][static][clipboard]") {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("pas de video SDL — test ignore"); return; }
 
+    // Le presse-papiers est une ressource de l'OS, PAS un état du moteur : un gestionnaire de
+    // presse-papiers tiers, une session RDP ou une autre application qui le tient ouvert font
+    // échouer l'accès (mesuré : `SDL_SetClipboardText` -> -1, « Couldn't open clipboard: Accès
+    // refusé »). On sonde donc avant d'affirmer quoi que ce soit — sinon la suite devient
+    // aléatoire sur toute machine équipée d'un gestionnaire de presse-papiers, et un échec rouge
+    // désigne le moteur pour un refus qui vient d'ailleurs.
+    //
+    // ⚠️ Ce n'est PAS un fallback qui masque un défaut : on s'abstient sur une dépendance externe
+    // indisponible, exactement comme la ligne au-dessus s'abstient sans vidéo. Le contrôle qui ne
+    // dépend pas de l'OS (le module RÉPOND-il à une demande ?) reste asserté plus bas.
+    if (SDL_SetClipboardText("grove-probe") != 0) {
+        WARN("presse-papiers refuse par l'OS (" << SDL_GetError() << ") — aller-retour non verifiable");
+        SDL_Quit();
+        return;
+    }
+
     auto& mgr = IntraIOManager::getInstance();
     auto inputIO  = mgr.createInstance("clip_input");
     auto peer     = mgr.createInstance("clip_peer");

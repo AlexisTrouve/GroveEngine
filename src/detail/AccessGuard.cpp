@@ -10,6 +10,7 @@
 #include <atomic>
 
 #if GROVE_DEBUG
+#include <functional>
 #include <sstream>
 #include <thread>
 #include <logger/Logger.h>
@@ -34,10 +35,32 @@ std::string threadIdStr() {
 }
 } // namespace
 
-ScopedAccessGuard::ScopedAccessGuard(std::atomic<int>& active, const char* op, const std::string& instanceId)
-    : active_(active) {
-    const int prev = active_.fetch_add(1, std::memory_order_acq_rel);
-    if (prev != 0) {
+// Identifiant de fil ramene a un entier comparable atomiquement. 0 est reserve a "personne", donc un
+// hachage qui vaudrait 0 est remonte a 1 -- sinon un fil malchanceux passerait pour absent.
+static std::size_t currentThreadKey() {
+    const std::size_t h = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    return h == 0 ? 1u : h;
+}
+
+ScopedAccessGuard::ScopedAccessGuard(AccessState& state, const char* op, const std::string& instanceId)
+    : state_(state) {
+    const std::size_t me = currentThreadKey();
+    const int prev = state_.active.fetch_add(1, std::memory_order_acq_rel);
+
+    if (prev == 0) {
+        // Section vide : ce fil la revendique.
+        state_.owner.store(me, std::memory_order_release);
+        return;
+    }
+
+    // Deja occupee. Par NOUS ? Alors c'est une re-entrance legitime (un handler qui republie), pas
+    // une course -- on ne signale rien. Si deux fils entrent vraiment de front, celui qui lit un
+    // `owner` pas encore publie (0) le voit different de `me` et signale : le bon verdict.
+    if (state_.owner.load(std::memory_order_acquire) == me) {
+        return;
+    }
+
+    {
         // Concurrent OVERLAP: a second thread entered while the first is still inside.
         accessViolationCount().fetch_add(1, std::memory_order_relaxed);
         static auto logger = stillhammer::createDomainLogger("IIOGuard", "engine");
@@ -51,7 +74,11 @@ ScopedAccessGuard::ScopedAccessGuard(std::atomic<int>& active, const char* op, c
 }
 
 ScopedAccessGuard::~ScopedAccessGuard() {
-    active_.fetch_sub(1, std::memory_order_acq_rel);
+    // Le dernier a sortir libere la propriete, pour que le fil suivant puisse revendiquer la section
+    // (passation sequentielle) sans etre pris pour un intrus.
+    if (state_.active.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        state_.owner.store(0, std::memory_order_release);
+    }
 }
 
 #endif // GROVE_DEBUG

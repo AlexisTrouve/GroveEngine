@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIRadial.h"
 #include "RadialMath.h"
 #include "../Core/UIContext.h"
@@ -127,6 +128,54 @@ void UIRadial::releaseRenderEntries(UIRenderer& renderer) {
     m_itemTextIds.clear();
     m_entriesRegistered = false;
     UIWidget::releaseRenderEntries(renderer);   // bg (m_renderId) + reset + recurse
+}
+
+
+// Roue d'action (menu radial).
+// QUOI : instancie une roue depuis le JSON (rayons, items[], style).
+// POURQUOI : menu input-agnostique (cf. l'en-tete de ce fichier). Le radial est CENTRE sur (x,y) --
+//   parseCommonProperties pose x,y comme centre ; pas de width/height requis.
+// COMMENT : items[] est itere par INDEX numerique ("0","1",...) pour garantir que l'ordre du
+//   tableau JSON EST l'ordre des segments (index -> action).
+std::unique_ptr<UIWidget> UIRadial::fromNode(const IDataNode& node) {
+    auto radial = std::make_unique<UIRadial>();
+    radial->innerRadius = static_cast<float>(node.getDouble("innerRadius", 40.0));
+    radial->outerRadius = static_cast<float>(node.getDouble("outerRadius", 160.0));
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+
+    // items[] : tableau de { action, text, textureId? } — itéré dans l'ordre.
+    if (auto* itemsNode = mutableNode.getChildReadOnly("items")) {
+        int i = 0;
+        while (auto* it = itemsNode->getChildReadOnly(std::to_string(i))) {
+            RadialItem item;
+            item.action    = it->getString("action", "");
+            item.text      = it->getString("text", "");
+            item.textureId = it->getInt("textureId", 0);
+            radial->items.push_back(std::move(item));
+            ++i;
+        }
+    }
+
+    // style : couleurs hex "0xRRGGBBAA" + fontSize (défauts = ceux de RadialStyle).
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto hex = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+            std::string v = s->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return def;
+        };
+        radial->style.bgColor    = hex(style, "bgColor",    radial->style.bgColor);
+        radial->style.itemColor  = hex(style, "itemColor",  radial->style.itemColor);
+        radial->style.hoverColor = hex(style, "hoverColor", radial->style.hoverColor);
+        radial->style.textColor  = hex(style, "textColor",  radial->style.textColor);
+        radial->style.fontSize   = static_cast<float>(style->getDouble("fontSize", radial->style.fontSize));
+        radial->style.gap        = static_cast<float>(style->getDouble("gap",    radial->style.gap));
+        radial->style.margin     = static_cast<float>(style->getDouble("margin", radial->style.margin));
+    }
+
+    return radial;
 }
 
 } // namespace grove

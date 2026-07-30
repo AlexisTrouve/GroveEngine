@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UITabs.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -171,6 +172,44 @@ void UITabs::releaseRenderEntries(UIRenderer& renderer) {
     m_entriesRegistered = false;
     m_lastRenderedActive = -1;
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId + recurses to children
+}
+
+
+// Conteneur a onglets (tranche 5c). Les pages SONT les enfants (un seul montre a la fois) ;
+// "tabs":[{label}] donne les libelles de la barre, dans l'ordre. Meme motif tableau-d'objets
+// que le radial.
+std::unique_ptr<UIWidget> UITabs::fromNode(const IDataNode& node) {
+    auto tabs = std::make_unique<UITabs>();
+    tabs->tabBarHeight = static_cast<float>(node.getDouble("tabBarHeight", 30.0));
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* tabsNode = mutableNode.getChildReadOnly("tabs")) {
+        int i = 0;
+        while (auto* t = tabsNode->getChildReadOnly(std::to_string(i))) {
+            tabs->tabLabels.push_back(t->getString("label", std::to_string(i + 1)));
+            ++i;
+        }
+    }
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+            std::string v = s->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return def;
+        };
+        tabs->bgColor = hexColor(style, "bgColor", tabs->bgColor);
+        tabs->activeTabColor = hexColor(style, "activeTabColor", tabs->activeTabColor);
+        tabs->inactiveTabColor = hexColor(style, "inactiveTabColor", tabs->inactiveTabColor);
+        tabs->labelColor = hexColor(style, "labelColor", tabs->labelColor);
+        tabs->fontSize = static_cast<float>(style->getDouble("fontSize", tabs->fontSize));
+    }
+    // 9-slice FRAMES: `frame` dresses the content background, `tabFrame` dresses EACH TAB in the
+    // strip (tinted by activeTabColor/inactiveTabColor, so one asset covers both states).
+    if (auto* f = mutableNode.getChildReadOnly("frame")) tabs->frame.parse(*f);
+    if (auto* tf = mutableNode.getChildReadOnly("tabFrame")) tabs->tabFrame.parse(*tf);
+
+    return tabs;
 }
 
 } // namespace grove
