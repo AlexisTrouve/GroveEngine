@@ -3,6 +3,23 @@
 > Portée : moteur complet (`src/`, `modules/`), lu à `9ba4404`. Chaque constat de perf est **mesuré**
 > ou dit explicitement qu'il ne l'est pas. Aucun correctif appliqué — c'est un état des lieux.
 
+> ## Bilan (2026-07-30) — audit entièrement traité
+>
+> | | Verdict | Ce que ça a donné |
+> |---|---|---|
+> | **P1** | ✅ corrigé | poussée `ui:data` identique : 15,8 ms → **0,09 ms** |
+> | **P2** | ✅ mesuré → corrigé, puis **clos** | la cause n'était pas la redondance mais une **exception** par binding textuel : 2031 → **630 ns** |
+> | **P3** | ✅ traité sur son point coûteux | `registerDefaultWidgets` 621 lignes → **table de 17** |
+> | **P4** | ✅ mesuré → **écarté** | 0,5 % d'une frame au pire ; restructurer ne se justifie pas |
+> | **P5** | dette assumée | inchangée, rouverte seulement si un 3e cas apparaît |
+>
+> **Ce que l'exercice a appris, et qui vaut plus que les correctifs** : deux des cinq lignes
+> désignaient la bonne cible pour la mauvaise raison. P2 blâmait une redondance visible à l'œil nu
+> alors que le coût réel était une exception invisible — un gros refactor pour 0,4 % au lieu de
+> trois lignes pour 3,2×. P4 semblait « gratuit à corriger » et s'est révélé sans objet. **Un
+> raisonnement de FORME identifie où regarder ; il ne dit pas quoi faire.** Mesurer avant de
+> restructurer, y compris quand le défaut saute aux yeux.
+
 **Méthode.** Les affirmations non mesurées ne comptent pas. Le constat P1 a été prouvé par une sonde
 jetable (compilée, exécutée, puis supprimée) ; les tailles sont comptées par un script à suivi de
 profondeur d'accolades. **Ma première passe de mesure était fausse** — une heuristique appariait mal
@@ -174,7 +191,34 @@ un widget à la fois, sans big-bang.
 
 ---
 
-## P4 — 🟡 Dispatch par chaîne de 31 comparaisons, l'usage le plus fréquent en dernier
+## P4 — ✅ MESURÉ puis ÉCARTÉ (2026-07-30) — le coût ne justifie pas le travail
+
+> **Mesuré, pas estimé** (cascade seule, reproduite à l'identique) :
+>
+> | Position | Coût par message |
+> |---|---|
+> | 1re branche | 6,8 ns |
+> | 17e (`render:text`) | 13 ns |
+> | **42e (`render:rect`)** | **42,5 ns** |
+>
+> À **2000 rects par frame** — un écran d'UI très dense qui change entièrement — la cascade coûte
+> **0,085 ms, soit 0,5 % d'une frame**. Rapportée au coût d'un message sur le chemin IIO+JSON
+> (~3 µs), elle en represente **1,4 %**.
+>
+> **Décision : ne rien restructurer.** Un dispatch par table de hachage ajouterait de la machinerie
+> pour un gain sous le bruit ; et réordonner la cascade par fréquence d'usage installerait une règle
+> d'ordre que personne ne tiendra — la preuve est déjà là : la chaîne est passée de **31 à 42
+> branches en une semaine** (le travail lumière a ajouté filtres, brouillards et nébuleuses), sans
+> que l'ordre soit jamais considéré. Une convention qui se dégrade toute seule n'est pas une
+> convention.
+>
+> Le constat d'origine disait déjà « le coût réel est faible et je ne le vends pas plus cher ». La
+> mesure le confirme et le chiffre : la ligne est **close**, pas reportée. Si un jour la cascade
+> devient un vrai coût, ce sera visible dans un profil — pas dans une intuition de forme.
+
+### Le constat d'origine
+
+## P4 (constat initial) — 🟡 Dispatch par cascade de comparaisons, l'usage le plus fréquent en dernier
 
 `SceneCollector::processMessage` compare `msg.topic` à 31 littéraux dans un `else if` linéaire
 (`SceneCollector.cpp:91` à 193). **`render:rect` est la 31ᵉ et dernière branche** — or c'est ce que
@@ -218,6 +262,6 @@ un chemin que le reste du code avait déjà appris à protéger ailleurs.
 
 1. ~~**P1**~~ — ✅ fait le 2026-07-30 (voir l'encadré en tête de P1).
 2. ~~**P3** sur `registerDefaultWidgets`~~ — ✅ fait le 2026-07-30. Les quatre autres fonctions longues restent.
-3. **P4** — cosmétique mais gratuit.
+3. ~~**P4**~~ — ✅ mesuré puis écarté le 2026-07-30 : 0,5 % d'une frame au pire, la restructuration ne se justifie pas.
 4. ~~**P2**~~ — ✅ mesuré puis clos le 2026-07-30 : la vraie cause était une exception, pas la redondance.
 5. **P5** — ne rien faire pour l'instant.
