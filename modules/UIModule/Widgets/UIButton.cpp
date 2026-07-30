@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIButton.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -218,6 +219,88 @@ const ButtonStyle& UIButton::getCurrentStyle() const {
         default:
             return normalStyle;
     }
+}
+
+
+std::unique_ptr<UIWidget> UIButton::fromNode(const IDataNode& node) {
+    auto button = std::make_unique<UIButton>();
+    button->text = node.getString("text", "");
+    button->onClick = node.getString("onClick", "");
+    button->enabled = node.getBool("enabled", true);
+    // Streamed asset id (literal). A "{{...}}" value is left to the binding engine (applyBoundProp);
+    // a literal id is rendered directly as the button's sprite, resolved by the AssetManager.
+    button->assetId = node.getString("asset", "");
+
+    // Helper lambda to parse a button style
+    auto parseButtonStyle = [](IDataNode* styleNode, ButtonStyle& style) {
+        if (!styleNode) return;
+
+        std::string bgColorStr = styleNode->getString("bgColor", "");
+        if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
+            style.bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
+        }
+        std::string textColorStr = styleNode->getString("textColor", "");
+        if (textColorStr.size() >= 2 && (textColorStr.substr(0, 2) == "0x" || textColorStr.substr(0, 2) == "0X")) {
+            style.textColor = static_cast<uint32_t>(std::stoul(textColorStr, nullptr, 16));
+        }
+        std::string borderColorStr = styleNode->getString("borderColor", "");
+        if (borderColorStr.size() >= 2 && (borderColorStr.substr(0, 2) == "0x" || borderColorStr.substr(0, 2) == "0X")) {
+            style.borderColor = static_cast<uint32_t>(std::stoul(borderColorStr, nullptr, 16));
+        }
+        style.borderWidth = static_cast<float>(styleNode->getDouble("borderWidth", style.borderWidth));
+        style.borderRadius = static_cast<float>(styleNode->getDouble("borderRadius", style.borderRadius));
+        style.textureId = styleNode->getInt("textureId", 0);
+        style.useTexture = style.textureId > 0;
+        if (style.textureId > 0) {
+            spdlog::info("UIButton style parsed: textureId={}, useTexture={}", style.textureId, style.useTexture);
+        }
+    };
+
+    // Parse style (const_cast safe for read-only operations)
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        // Normal style
+        if (auto* normalStyle = style->getChildReadOnly("normal")) {
+            parseButtonStyle(normalStyle, button->normalStyle);
+        }
+
+        // Hover style
+        if (auto* hoverStyle = style->getChildReadOnly("hover")) {
+            parseButtonStyle(hoverStyle, button->hoverStyle);
+            button->hoverStyleSet = true;
+        }
+
+        // Pressed style
+        if (auto* pressedStyle = style->getChildReadOnly("pressed")) {
+            parseButtonStyle(pressedStyle, button->pressedStyle);
+            button->pressedStyleSet = true;
+        }
+
+        // Disabled style
+        if (auto* disabledStyle = style->getChildReadOnly("disabled")) {
+            parseButtonStyle(disabledStyle, button->disabledStyle);
+        }
+
+        // Font size from style root
+        button->fontSize = static_cast<float>(style->getDouble("fontSize", 16.0));
+        // Text handling (button-level, not per state): align "left"/"center"/"right" -> 0/1/2 (default
+        // center), bold, and padding (px the text is kept off the edges — matters for left/right align
+        // and for keeping the label off a 9-slice border).
+        const std::string al = style->getString("align", "");
+        button->textAlign = (al == "left") ? 0 : (al == "right") ? 2 : (al == "center") ? 1 : button->textAlign;
+        button->bold = style->getBool("bold", button->bold);
+        button->padding = static_cast<float>(style->getDouble("padding", button->padding));
+    }
+
+    // 9-slice FRAME (optional `frame` block): a composed border texture giving a continuous, crisp border
+    // at any size. `inset` sets all four margins; per-side left/right/top/bottom override it. `asset` is a
+    // streamed border art id; `srcW/srcH` its native px dims. Absent -> the flat border-rect look, unchanged.
+    if (auto* frame = mutableNode.getChildReadOnly("frame")) button->frame.parse(*frame);
+
+    // Auto-generate hover/pressed styles if not explicitly set
+    button->generateDefaultStyles();
+
+    return button;
 }
 
 } // namespace grove

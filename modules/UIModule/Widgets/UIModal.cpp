@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIModal.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -88,6 +89,32 @@ void UIModal::render(UIRenderer& renderer) {
 void UIModal::releaseRenderEntries(UIRenderer& renderer) {
     if (m_dialogBgId != 0) { renderer.unregisterEntry(m_dialogBgId); m_dialogBgId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId + recurses to children
+}
+
+
+// Dialogue centre + piege de focus assombri (tranche 5a). L'etat ouvert = le drapeau `visible`
+// (lu par parseCommonProperties) ; une modale fermee pose "visible": false.
+std::unique_ptr<UIWidget> UIModal::fromNode(const IDataNode& node) {
+    auto modal = std::make_unique<UIModal>();
+    modal->dialogWidth = static_cast<float>(node.getDouble("dialogWidth", 400.0));
+    modal->dialogHeight = static_cast<float>(node.getDouble("dialogHeight", 250.0));
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+            std::string v = s->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return def;
+        };
+        modal->dimColor = hexColor(style, "dimColor", modal->dimColor);
+        modal->dialogColor = hexColor(style, "dialogColor", modal->dialogColor);
+    }
+    // 9-slice FRAME (optional `frame` block) — see UIFrame.
+    if (auto* f = mutableNode.getChildReadOnly("frame")) modal->frame.parse(*f);
+
+    return modal;
 }
 
 } // namespace grove

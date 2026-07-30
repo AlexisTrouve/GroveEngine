@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UITextArea.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -466,6 +467,48 @@ void UITextArea::render(UIRenderer& renderer) {
 
     renderChildren(renderer);
     renderer.popClip();
+}
+
+
+// Champ de saisie MULTILIGNE. Partage le modele d'edition et les styles du champ monoligne ; ce
+// qui change est la VUE (une entree de rendu par ligne visible) et la semantique d'Entree (elle
+// insere un saut de ligne, donc la soumission passe a Ctrl+Entree).
+std::unique_ptr<UIWidget> UITextArea::fromNode(const IDataNode& node) {
+    auto area = std::make_unique<UITextArea>();
+    area->setText(node.getString("text", ""));
+    area->placeholder = node.getString("placeholder", "");
+    area->edit.maxLength = node.getInt("maxLength", 4096);   // une zone de texte est plus longue
+    area->onSubmit = node.getString("onSubmit", "");
+    area->wrap = node.getBool("wrap", true);   // repli automatique par defaut
+
+    const std::string filterStr = node.getString("filter", "none");
+    if (filterStr == "alphanumeric")   area->filter = TextInputFilter::Alphanumeric;
+    else if (filterStr == "numeric")   area->filter = TextInputFilter::Numeric;
+    else if (filterStr == "float")     area->filter = TextInputFilter::Float;
+    else if (filterStr == "nospaces")  area->filter = TextInputFilter::NoSpaces;
+    else                               area->filter = TextInputFilter::None;
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto colour = [&](const char* key, uint32_t fallback) -> uint32_t {
+            const std::string v = style->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return fallback;
+        };
+        area->normalStyle.bgColor        = colour("bgColor", area->normalStyle.bgColor);
+        area->normalStyle.textColor      = colour("textColor", area->normalStyle.textColor);
+        area->normalStyle.selectionColor = colour("selectionColor", area->normalStyle.selectionColor);
+        area->normalStyle.cursorColor    = colour("cursorColor", area->normalStyle.cursorColor);
+        area->fontSize   = static_cast<float>(style->getDouble("fontSize", 16.0));
+        area->lineHeight = static_cast<float>(style->getDouble("lineHeight", area->fontSize + 4.0));
+    }
+    // Les états focalisé/désactivé héritent du normal, sauf mention contraire — un textarea sans
+    // styles explicites reste lisible plutôt que noir sur noir.
+    area->focusedStyle = area->normalStyle;
+    area->disabledStyle = area->normalStyle;
+    return area;
 }
 
 }  // namespace grove

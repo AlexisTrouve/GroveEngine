@@ -1,12 +1,15 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include <grove/anim/Flipbook.h>
 #include <grove/anim/SpriteSheet.h>
 #include <cstdint>
 #include <string>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief Animated sprite-sheet (flipbook) panel widget — UI framework slice 6a.
@@ -32,6 +35,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "flipbook"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
 
     // Texture source: numeric id (une texture-sheet dédiée). MVP = numérique seulement ; une sheet en
     // `asset` streamé demanderait de composer cell-UV × atlas-UV — reporté.

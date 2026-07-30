@@ -41,6 +41,8 @@
 
 namespace grove {
 
+class IDataNode;
+
 class UITextArea : public UITextEditWidget {
 public:
     UITextArea() = default;
@@ -49,6 +51,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "textarea"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
 
     // Le contenu clippe ses enfants : un textarea est un conteneur au sens du hit-test (§3.1 du
     // handoff UI), pour qu'un clic hors de sa boîte ne descende pas dedans.

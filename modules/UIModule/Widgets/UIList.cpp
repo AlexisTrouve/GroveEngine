@@ -612,4 +612,53 @@ void UIList::emitRowBg(UIRenderer& renderer, int slot, float x, float y, float w
     if (slot < frames) UIFrame::collapse(renderer, m_rowFrameIds[slot], bgLayer);
 }
 
+
+// Barre laterale pilotee par donnees : repeteur defilant, decoupe, selectionnable. Les props de
+// geometrie (rowHeight) + un tableau items[] {id,label,subtitle?,icon?} passent par le parseur
+// PARTAGE UIList::parseItems -- le meme que le topic ui:list:set_items a l'execution, pour que le
+// chargement JSON et la mise a jour a chaud ne puissent pas diverger.
+std::unique_ptr<UIWidget> UIList::fromNode(const IDataNode& node) {
+    auto list = std::make_unique<UIList>();
+    list->rowHeight = static_cast<float>(node.getDouble("rowHeight", list->rowHeight));
+    list->padding   = static_cast<float>(node.getDouble("padding", list->padding));
+    list->iconSize  = static_cast<float>(node.getDouble("iconSize", list->iconSize));
+
+    // TREE (N-level, slice 5d) if a `nodes` array is present; else GROUPED (wings) if `groups`; else FLAT.
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (mutableNode.getChildReadOnly("nodes")) {
+        list->setTree(UIList::parseTree(mutableNode));
+    } else if (mutableNode.getChildReadOnly("groups")) {
+        list->setGroups(UIList::parseGroups(mutableNode));
+    } else {
+        list->setItems(UIList::parseItems(mutableNode));
+    }
+
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        auto hexColor = [](IDataNode* s, const char* key, uint32_t def) -> uint32_t {
+            std::string v = s->getString(key, "");
+            if (v.size() >= 2 && (v.substr(0, 2) == "0x" || v.substr(0, 2) == "0X")) {
+                return static_cast<uint32_t>(std::stoul(v, nullptr, 16));
+            }
+            return def;
+        };
+        list->bgColor       = hexColor(style, "bgColor", list->bgColor);
+        list->rowColor      = hexColor(style, "rowColor", list->rowColor);
+        list->rowAltColor   = hexColor(style, "rowAltColor", list->rowAltColor);
+        list->hoverColor    = hexColor(style, "hoverColor", list->hoverColor);
+        list->selectedColor = hexColor(style, "selectedColor", list->selectedColor);
+        list->labelColor    = hexColor(style, "labelColor", list->labelColor);
+        list->subtitleColor = hexColor(style, "subtitleColor", list->subtitleColor);
+        list->headerColor   = hexColor(style, "headerColor", list->headerColor);
+        list->headerLabelColor = hexColor(style, "headerLabelColor", list->headerLabelColor);
+        list->fontSize      = static_cast<float>(style->getDouble("fontSize", list->fontSize));
+        list->subtitleFontSize = static_cast<float>(style->getDouble("subtitleFontSize", list->subtitleFontSize));
+    }
+    // 9-slice FRAMES: `frame` dresses the list's own background, `rowFrame` dresses each row (tinted
+    // by the row's selected/hovered/zebra colour, so the feedback survives the art).
+    if (auto* f = mutableNode.getChildReadOnly("frame"))    list->frame.parse(*f);
+    if (auto* rf = mutableNode.getChildReadOnly("rowFrame")) list->rowFrame.parse(*rf);
+
+    return list;
+}
+
 } // namespace grove

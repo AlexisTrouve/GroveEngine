@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIPanel.h"
 #include "../Core/UIContext.h"
 #include "../Core/UILayout.h"
@@ -86,6 +87,26 @@ void UIPanel::releaseRenderEntries(UIRenderer& renderer) {
     if (m_frameId != 0) { renderer.unregisterEntry(m_frameId); m_frameId = 0; }
     m_frameRegistered = false;   // lazily re-registered on the next render that needs it
     UIWidget::releaseRenderEntries(renderer);   // drops m_renderId (bg) + recurses to children
+}
+
+
+std::unique_ptr<UIWidget> UIPanel::fromNode(const IDataNode& node) {
+    auto panel = std::make_unique<UIPanel>();
+
+    // Parse style (const_cast safe for read-only operations)
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string bgColorStr = style->getString("bgColor", "0x333333FF");
+        if (bgColorStr.size() >= 2 && (bgColorStr.substr(0, 2) == "0x" || bgColorStr.substr(0, 2) == "0X")) {
+            panel->bgColor = static_cast<uint32_t>(std::stoul(bgColorStr, nullptr, 16));
+        }
+        panel->borderRadius = static_cast<float>(style->getDouble("borderRadius", 0.0));
+    }
+
+    // 9-slice FRAME (optional `frame` block) — same authoring as button/window, see UIFrame.
+    if (auto* frame = mutableNode.getChildReadOnly("frame")) panel->frame.parse(*frame);
+
+    return panel;
 }
 
 } // namespace grove

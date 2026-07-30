@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UISlider.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -167,6 +168,36 @@ void UISlider::releaseRenderEntries(UIRenderer& renderer) {
     if (m_fillRenderId != 0)   { renderer.unregisterEntry(m_fillRenderId);   m_fillRenderId = 0; }
     if (m_handleRenderId != 0) { renderer.unregisterEntry(m_handleRenderId); m_handleRenderId = 0; }
     UIWidget::releaseRenderEntries(renderer);   // piste (m_renderId) + drapeaux + enfants
+}
+
+
+std::unique_ptr<UIWidget> UISlider::fromNode(const IDataNode& node) {
+    auto slider = std::make_unique<UISlider>();
+    slider->minValue = static_cast<float>(node.getDouble("min", 0.0));
+    slider->maxValue = static_cast<float>(node.getDouble("max", 100.0));
+    slider->value = static_cast<float>(node.getDouble("value", 50.0));
+    slider->step = static_cast<float>(node.getDouble("step", 0.0));
+    slider->horizontal = node.getBool("horizontal", true);
+    slider->onChange = node.getString("onChange", "");
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string trackColorStr = style->getString("trackColor", "0x34495eFF");
+        if (trackColorStr.size() >= 2 && (trackColorStr.substr(0, 2) == "0x" || trackColorStr.substr(0, 2) == "0X")) {
+            slider->trackColor = static_cast<uint32_t>(std::stoul(trackColorStr, nullptr, 16));
+        }
+        std::string fillColorStr = style->getString("fillColor", "0x3498dbFF");
+        if (fillColorStr.size() >= 2 && (fillColorStr.substr(0, 2) == "0x" || fillColorStr.substr(0, 2) == "0X")) {
+            slider->fillColor = static_cast<uint32_t>(std::stoul(fillColorStr, nullptr, 16));
+        }
+        std::string handleColorStr = style->getString("handleColor", "0xecf0f1FF");
+        if (handleColorStr.size() >= 2 && (handleColorStr.substr(0, 2) == "0x" || handleColorStr.substr(0, 2) == "0X")) {
+            slider->handleColor = static_cast<uint32_t>(std::stoul(handleColorStr, nullptr, 16));
+        }
+        slider->handleSize = static_cast<float>(style->getDouble("handleSize", 16.0));
+    }
+
+    return slider;
 }
 
 } // namespace grove

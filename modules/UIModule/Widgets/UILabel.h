@@ -1,10 +1,13 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include <string>
 #include <cstdint>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief Text display widget
@@ -19,6 +22,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "label"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
 
     // Data-binding: the label's text is the bindable prop ("text":"{{...}}"); colour falls through to base.
     void applyBoundProp(const std::string& prop, const std::string& s, double n, bool b) override {

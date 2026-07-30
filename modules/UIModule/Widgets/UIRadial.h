@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace grove {
+
+class IDataNode;
 
 // ============================================================================
 // UIRadial — action-wheel / radial menu widget.
@@ -52,6 +55,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "radial"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
 
     // Release the bg + per-item retained entries on hide (so the wheel can auto-close without leaving
     // ghost rects); resets so a re-show re-registers. Overrides the base to drop the item ids too.

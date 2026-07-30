@@ -1,10 +1,13 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include "UIFrame.h"
 #include <cstdint>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief Scrollable container widget with clipping
@@ -24,6 +27,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "scrollpanel"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
     // Release our EXTRA entries (borders + scrollbar) so closing/hiding a window that contains a scrollpanel
     // doesn't leave its scroll area as a ghost in the viewport. The base drops the bg + recurses to children.
     void releaseRenderEntries(UIRenderer& renderer) override;

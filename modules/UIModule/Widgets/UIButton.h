@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include "UIFrame.h"
 #include <cstdint>
 #include <string>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief Button state enumeration
@@ -44,6 +47,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "button"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
     // Release the EXTRA text entry too (the base only drops the bg + children), so hiding/closing a window
     // with buttons doesn't leave their text as a ghost.
     void releaseRenderEntries(UIRenderer& renderer) override;

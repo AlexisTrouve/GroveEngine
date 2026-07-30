@@ -110,7 +110,12 @@ gratuit en lisibilité. À ne faire que si la mesure le réclame après P1.
 
 ---
 
-## P3 — 🟠 Cinq fonctions au-delà de 350 lignes
+## P3 — 🟡 Cinq fonctions au-delà de 350 lignes — la plus coûteuse traitée (2026-07-30)
+
+> `UITree::registerDefaultWidgets` (621 lignes, dix-sept fabriques inline) est **résorbée** : chaque
+> fabrique vit chez son widget, la fonction est une table de 17 lignes, `UITree.cpp` passe de 873 à
+> 325 lignes. Détail et vérification : [ui-widget-interface.md](ui-widget-interface.md) §S2.
+> Les quatre autres restent.
 
 | Lignes | Fonction |
 |---|---|
@@ -175,7 +180,7 @@ un chemin que le reste du code avait déjà appris à protéger ailleurs.
 ## Ordre recommandé
 
 1. ~~**P1**~~ — ✅ fait le 2026-07-30 (voir l'encadré en tête de P1).
-2. **P3** sur `registerDefaultWidgets` — incrémental, un widget à la fois, réduit les collisions.
+2. ~~**P3** sur `registerDefaultWidgets`~~ — ✅ fait le 2026-07-30. Les quatre autres fonctions longues restent.
 3. **P4** — cosmétique mais gratuit.
 4. **P2** — à re-mesurer *après* P1, pas avant.
 5. **P5** — ne rien faire pour l'instant.

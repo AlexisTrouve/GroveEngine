@@ -1,11 +1,14 @@
 #pragma once
 
 #include "../Core/UIWidget.h"
+#include <memory>
 #include "UIFrame.h"
 #include <string>
 #include <cstdint>
 
 namespace grove {
+
+class IDataNode;
 
 /**
  * @brief In-app window — a draggable, stackable, titled container rendered INSIDE the app's single
@@ -24,6 +27,12 @@ public:
     void update(UIContext& ctx, float deltaTime) override;
     void render(UIRenderer& renderer) override;
     std::string getType() const override { return "window"; }
+
+    // Fabrique JSON de CE widget (enregistree par UITree::registerDefaultWidgets).
+    // Vit ici, avec le widget, et non dans une fonction centrale de 600 lignes : ajouter
+    // un widget ne doit pas obliger a editer un fichier partage. Deplacement pur -- le
+    // corps est celui d'origine, au caractere pres.
+    static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
 
     // Opaque au clic : delegue au predicat deja present sur ce widget.
     bool absorbsPoint(float x, float y) const override { return pointInWindow(x, y); }

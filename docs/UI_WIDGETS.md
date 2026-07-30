@@ -690,17 +690,34 @@ public:
 > that really clicks it, and with the routing contract test
 > (`tests/unit/test_ui_widget_contract.cpp`) if its surfacing rule is not the default.
 
-4. Register the factory in `UITree::registerDefaultWidgets()` (`Core/UITree.cpp`):
+4. Write the JSON factory **in your own file** (`MyWidget.cpp`), as a static member:
 
 ```cpp
-registerWidget("mywidget", [](const IDataNode& node) -> std::unique_ptr<UIWidget> {
+std::unique_ptr<UIWidget> MyWidget::fromNode(const IDataNode& node) {
     auto widget = std::make_unique<MyWidget>();
-    // ... configure from JSON (parseCommonProperties covers x/y/width/height/visible/bindings)
+    // ... configure from JSON. x/y/width/height/visible/bindings are already handled for you by
+    // UITree::parseCommonProperties — parse only what is specific to THIS widget.
     return widget;
-});
+}
 ```
 
-5. Use in JSON layouts:
+...declared in `MyWidget.h`:
+
+```cpp
+static std::unique_ptr<UIWidget> fromNode(const IDataNode& node);
+```
+
+5. Add **one line** to the table in `UITree::registerDefaultWidgets()` (`Core/UITree.cpp`):
+
+```cpp
+registerWidget("mywidget", &MyWidget::fromNode);
+```
+
+> That table used to hold all seventeen factories inline, 621 lines of them — adding a widget meant
+> editing a giant function in a shared file while every other part of the widget lived in its own.
+> Keep it a table: the factory belongs next to the widget it builds.
+
+6. Use in JSON layouts:
 
 ```json
 {

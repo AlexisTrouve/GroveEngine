@@ -1,3 +1,4 @@
+#include <grove/IDataNode.h>
 #include "UIImage.h"
 #include "../Core/UIContext.h"
 #include "../Rendering/UIRenderer.h"
@@ -35,6 +36,24 @@ void UIImage::render(UIRenderer& renderer) {
 
     // Render children on top
     renderChildren(renderer);
+}
+
+
+std::unique_ptr<UIWidget> UIImage::fromNode(const IDataNode& node) {
+    auto image = std::make_unique<UIImage>();
+    image->textureId = node.getInt("textureId", 0);
+    image->texturePath = node.getString("texturePath", "");
+    image->assetId = node.getString("asset", "");   // streamed asset id (wins over textureId)
+
+    auto& mutableNode = const_cast<IDataNode&>(node);
+    if (auto* style = mutableNode.getChildReadOnly("style")) {
+        std::string tintStr = style->getString("tintColor", "0xFFFFFFFF");
+        if (tintStr.size() >= 2 && (tintStr.substr(0, 2) == "0x" || tintStr.substr(0, 2) == "0X")) {
+            image->tintColor = static_cast<uint32_t>(std::stoul(tintStr, nullptr, 16));
+        }
+    }
+
+    return image;
 }
 
 } // namespace grove
