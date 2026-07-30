@@ -79,6 +79,34 @@ cmake -B build-shipping -DGROVE_DEBUG=OFF
 cmake --build build-shipping -j4
 ```
 
+### ⚠️ Où compiler : local ou ferme distante ? (règle pour TOUT agent)
+
+Le poste sature thermiquement sous compilation ; une **ferme de build distante** existe
+(`tools/remote-build.sh`). Elle ne remplace PAS le build local — les deux ont un domaine, et se
+tromper de domaine coûte cher dans les deux sens.
+
+| Situation | Où | Pourquoi |
+|---|---|---|
+| Boucle TDD serrée : j'édite 1 fichier, je rebuild 1 cible, je lance 1 test | **LOCAL** | ccache rend un rebuild identique quasi gratuit (1,5 s mesuré). Passer par la ferme paierait la synchro + la file pour rien. |
+| **Lancer la suite COMPLÈTE** (`ctest` sans `-R`) | **FERME** | c'est là qu'est la chaleur : ~200 s de CPU à fond. `tools/remote-build.sh --test` |
+| Build propre / `--clean` / après changement de flags CMake | **FERME** | plusieurs minutes de CPU local évitées |
+| Vérifier que la cible **Windows** compile depuis autre chose que le poste | **FERME** | `tools/remote-build.sh --mingw` |
+| Lancer un test **visuel/GPU** (`test_ui_showcase`, `*_gpu`) | **LOCAL** | la ferme n'a ni écran ni GPU utilisable |
+
+**Règle courte : itère en local, valide sur la ferme.**
+
+Pièges à connaître avant de s'en servir :
+- La ferme construit ton **arbre de travail**, fichiers neufs non commités inclus (`git ls-files -c -o
+  --exclude-standard`). En revanche tout ce qui est **gitignoré** est exclu : un fichier déposé dans
+  `build/` ou `deps/` n'arrivera jamais.
+- `--test` lance la suite **entière**, pas un test. Pour un seul test, reste en local.
+- Le serveur héberge aussi la PROD (`ai.etheryale.com`) : un `flock` sérialise les builds, un appel
+  peut donc attendre son tour. C'est voulu.
+- Les binaires `--mingw` sont des PE Windows : ils ne s'exécutent pas sur le serveur. Pour les
+  lancer, `--fetch <dir>` puis exécution locale (les DLL de runtime sont rapatriées avec).
+
+Détail complet, mesures et pièges : **[docs/design/build-speed.md](docs/design/build-speed.md)**.
+
 ### Debug vs Shipping build (`GROVE_DEBUG`)
 **Debug and prod are ONE engine, two builds — NOT two engine classes.** `DebugEngine` IS the engine (its threaded/pool hosting, authoritative clock, asset streaming and save/load are the prod core). The `GROVE_DEBUG` CMake flag (default **ON**; `include/grove/BuildConfig.h` → `GROVE_DEBUG` macro + `constexpr grove::kDebugBuild` + `GROVE_DEBUG_ONLY(...)`) gates only the **debug skin**, compiled OUT of a shipping build (`-DGROVE_DEBUG=OFF`):
 - **Stripped in shipping**: `step()`'s per-frame logging + frame-timing; `getDetailedStatus()` (→ minimal marker node); `dumpModuleState`/`dumpAllModulesState`/`stepSingleFrame` (→ no-op, symbols kept).

@@ -347,3 +347,34 @@ Actions). Le workflow ne s'arme qu'au premier push.
   moteur qui bouge souvent invalide le PCH, donc toute la suite, à chaque édition.
 - **La synchro coûte ~9-26 s** même quand rien n'a changé (tar + rsync + nettoyage du dossier
   d'étape). Optimisable si ça devient gênant sur une boucle courte.
+
+---
+
+## 9. Comment les agents s'en servent (et le faux vert qu'on a failli livrer)
+
+Le mécanisme de routage, ce n'est pas un outil : c'est **`CLAUDE.md`**. Un agent applique ce qui y
+est écrit ; sans règle explicite, il compile en local et la ferme ne sert à personne. La règle vit
+donc dans CLAUDE.md § « Où compiler », et tient en une phrase : **itère en local, valide sur la
+ferme**.
+
+Le partage n'est pas arbitraire, il suit la mesure : un rebuild identique local coûte **1,5 s**
+(ccache), donc router une boucle TDD serrée vers la ferme paierait synchro + file d'attente pour
+rien. À l'inverse la suite complète, c'est **~200 s de CPU à fond** — précisément la chaleur qu'on
+voulait sortir du bureau.
+
+### ⚠️ Le faux vert
+
+La première version de `remote-build.sh` n'envoyait que `git ls-files` — les fichiers **suivis**.
+Or le cycle TDD de la doctrine commence par **écrire un test rouge neuf**, donc non commité : il ne
+partait pas, la ferme compilait sans lui et répondait **vert**. Un faux vert sur un cycle TDD est
+strictement pire que pas de ferme du tout, parce qu'il valide un fix jamais testé.
+
+Corrigé par `git ls-files -c -o --exclude-standard` (suivis **et** neufs non ignorés).
+`--exclude-standard` applique `.gitignore`, donc `build/`, `_deps/` et `deps/` restent hors charge
+utile — le correctif ne la fait pas gonfler.
+
+**Vérifié sur le scénario exact** : un `test_farm_tdd_probe.cpp` neuf, jamais `git add`é, contenant
+`REQUIRE(1 == 2)` → la ferme est passée de 103 à **104 tests** et a rapporté
+`FarmTddProbe (Failed)`. Le fichier arrive, et le verdict est honnête.
+
+Ne jamais « optimiser » la synchro en revenant aux seuls fichiers suivis.

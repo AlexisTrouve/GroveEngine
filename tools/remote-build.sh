@@ -144,7 +144,19 @@ for i in "${!ALL_ROOTS[@]}"; do
     name="${ALL_NAMES[$i]}"
     echo "==> sync $name"
     check_case "$root" "$name"
-    ( cd "$root" && git ls-files -z | tar --null -czf - -T - ) | ssh "$HOST" "
+    # -c (suivis) ET -o --exclude-standard (neufs, non ignorés).
+    #
+    # ⚠️ Le -o n'est PAS un confort, c'est une question de correction. Avec les seuls
+    # fichiers suivis, un test rouge fraîchement écrit et pas encore `git add`é ne
+    # partait pas : la ferme compilait sans lui et répondait « vert ». Un faux vert
+    # sur un cycle TDD est pire que pas de ferme du tout.
+    # --exclude-standard applique .gitignore, donc build/, _deps/ et deps/ restent
+    # exclus — la charge utile ne gonfle pas.
+    # --ignore-failed-read : un fichier suivi mais supprimé localement est listé par
+    # git et absent du disque ; sans ça tar avorterait. Sa suppression est de toute
+    # façon propagée par le rsync --delete ci-dessous.
+    ( cd "$root" && git ls-files -z -c -o --exclude-standard \
+        | tar --null -czf - --ignore-failed-read -T - 2>/dev/null ) | ssh "$HOST" "
         set -e
         rm -rf ~/$FARM/.stage && mkdir -p ~/$FARM/.stage ~/$FARM/$name
         tar xzf - -C ~/$FARM/.stage
