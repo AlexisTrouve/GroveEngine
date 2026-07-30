@@ -20,6 +20,7 @@
 #include "grove/IntraIOManager.h"
 #include "grove/JsonDataNode.h"
 #include <grove/light/Tonemap.h>
+#include <grove/light/Grade.h>
 #include <nlohmann/json.hpp>
 
 #include <memory>
@@ -3316,5 +3317,108 @@ TEST_CASE("SceneCollector - fade: amount est BORNE a [0,1]", "[scene_collector][
         fx.ioPublisher->publish("render:fade", std::move(f));
         fx.pump();
         REQUIRE_THAT(fx.collector.finalize(allocator).fade.amount, WithinAbs(0.0f, 1e-6f));
+    }
+}
+
+// ============================================================================
+// Colorimetrie (plan G, tranche Gb) — `render:grade`.
+//
+// ⚠️ PAS de bouton « luminosite » : il existe deja, c'est `exposure` du tonemapping, et il est du BON
+//    COTE de la courbe. Ces tests verrouillent donc trois champs et pas quatre. Plan : lighting-grade.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - grade: absent means NEUTRAL", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-regression, et elle porte plus loin que les autres : c'est
+    // `gradeIsNeutral` qui decide si la passe de presentation existe.
+    REQUIRE(light::gradeIsNeutral(p.grade));
+    REQUIRE_THAT(p.grade.saturation, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p.grade.contrast, WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(p.grade.tintR, WithinAbs(1.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - grade: les trois reglages, et ca PERSISTE", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto g = std::make_unique<JsonDataNode>("g");
+    g->setDouble("saturation", 0.2);
+    g->setDouble("contrast", 1.3);
+    g->setInt("tint", 0x8090FFFF);        // une nuit bleutee
+    fx.ioPublisher->publish("render:grade", std::move(g));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(0.2f, 1e-5f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(1.3f, 1e-5f));
+        // La teinte est publiee comme une COULEUR : c'est la convention du moteur, et un auteur pense
+        // « bleu nuit » plutot que « (0.5, 0.56, 1.0) ».
+        REQUIRE_THAT(p.grade.tintR, WithinAbs(0x80 / 255.0f, 1e-4f));
+        REQUIRE_THAT(p.grade.tintB, WithinAbs(1.0f, 1e-4f));
+        REQUIRE_FALSE(light::gradeIsNeutral(p.grade));
+    }
+
+    fx.collector.clear();
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).grade.saturation, WithinAbs(0.2f, 1e-5f));
+}
+
+TEST_CASE("SceneCollector - grade: revenir aux neutres ETEINT", "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto g = std::make_unique<JsonDataNode>("g");
+        g->setDouble("saturation", 0.0);
+        fx.ioPublisher->publish("render:grade", std::move(g));
+        fx.pump();
+        REQUIRE_FALSE(light::gradeIsNeutral(fx.collector.finalize(allocator).grade));
+        fx.collector.clear();
+    }
+
+    // Publier un neutre explicite doit rendre la passe de presentation inutile a nouveau -- sinon
+    // l'etalonnage serait allumable et pas eteignable, et un jeu paierait une passe plein ecran a vie
+    // pour avoir desature une fois.
+    auto off = std::make_unique<JsonDataNode>("g");
+    off->setDouble("saturation", 1.0);
+    fx.ioPublisher->publish("render:grade", std::move(off));
+    fx.pump();
+    REQUIRE(light::gradeIsNeutral(fx.collector.finalize(allocator).grade));
+}
+
+TEST_CASE("SceneCollector - grade: valeurs negatives bornees, hautes LIBRES",
+          "[scene_collector][grade]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto g = std::make_unique<JsonDataNode>("g");
+    g->setDouble("saturation", -1.0);     // une saturation negative inverserait les couleurs
+    g->setDouble("contrast", -2.0);
+    fx.ioPublisher->publish("render:grade", std::move(g));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(0.0f, 1e-6f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(0.0f, 1e-6f));
+    }
+
+    // En HAUT, rien n'est borne : >1 est un effet legitime (couleurs criardes, contraste extreme), et
+    // c'est la borne finale de sortie de l'oracle qui s'occupe du depassement par canal.
+    fx.collector.clear();
+    auto h = std::make_unique<JsonDataNode>("g");
+    h->setDouble("saturation", 3.0);
+    h->setDouble("contrast", 4.0);
+    fx.ioPublisher->publish("render:grade", std::move(h));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.grade.saturation, WithinAbs(3.0f, 1e-5f));
+        REQUIRE_THAT(p.grade.contrast, WithinAbs(4.0f, 1e-5f));
     }
 }

@@ -901,7 +901,10 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // un jeu qui ne veut qu'une courbe d'exposition.
             const bool bloomActive   = (packet.bloom.intensity > 0.0f);
             const bool tonemapActive = (packet.tonemap.mode != light::TonemapMode::None);
-            const bool postActive    = bloomActive || tonemapActive;
+            // L'etalonnage active la passe comme le tonemapping : sans ca, publier `render:grade` sans
+            // bloom ni courbe ne ferait RIEN, et la faute se presenterait comme un bug de shader.
+            const bool gradeActive   = !light::gradeIsNeutral(packet.grade);
+            const bool postActive    = bloomActive || tonemapActive || gradeActive;
 
             if (postActive) {
                 ensureHdrTarget(m_lightingWidth, m_lightingHeight);
@@ -979,37 +982,37 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // présentation lit le résultat des flous, et le HUD passe EN DERNIER — donc il ne brille
             // pas et n'est pas écrasé par la frame présentée. Interface nette au-dessus d'un monde qui
             // éblouit : un choix, pas un oubli.
-            if (bloomActive) {
-                const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
-                                              CompositePass::kLightView, CompositePass::kCompositeView,
-                                              BloomPass::kExtractView, BloomPass::kBlurHView,
-                                              BloomPass::kBlurVView, PresentPass::kPresentView, 1,
-                                              FadePass::kFadeView };
-                m_device->setViewOrder(order, 10);
-            } else if (postActive) {
-                // Tonemapping SANS bloom : les trois vues de flou n'ont rien à faire dans l'ordre,
-                // leur passe sortant immédiatement. La présentation, elle, reste indispensable —
-                // c'est elle qui amène la cible HDR à l'écran.
-                const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
-                                              CompositePass::kLightView, CompositePass::kCompositeView,
-                                              PresentPass::kPresentView, 1, FadePass::kFadeView };
-                m_device->setViewOrder(order, 7);
-            } else {
-                // Le fondu vient APRES le HUD dans les trois branches : une transition de scene doit
-                // emporter l'interface.
-                //
-                // ⚠️ CE QUI LE GARANTIT n'est PAS cette liste, contrairement a ce que j'avais ecrit.
-                //    `bgfx::setViewOrder(0, count, order)` ne remappe que les `count` PREMIERES places ;
-                //    les vues non listees sont quand meme soumises, ensuite, par id croissant. Verifie
-                //    par sabotage : retirer la vue du fondu de cette liste ne change RIEN au rendu.
-                //    Le fondu est donc dernier parce que son ID EST LE PLUS HAUT (9). La vraie fragilite
-                //    est la : ajouter une vue au-dela de 9 la ferait passer apres le fondu. On la liste
-                //    quand meme, pour que l'intention se lise a l'endroit ou l'ordre est decide.
-                const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
-                                              CompositePass::kLightView, CompositePass::kCompositeView, 1,
-                                              FadePass::kFadeView };
-                m_device->setViewOrder(order, 6);
-            }
+            // ⚠️ UNE SEULE liste, et c'est un CORRECTIF DE BUG autant qu'une simplification.
+            //
+            //    Il y en avait trois, une par configuration, et deux étaient FAUSSES. `setViewOrder`
+            //    remplit une table *position → vue* : passer 7 entrées ne remappe que les positions
+            //    0 à 6, et les positions 7-8-9 gardent leurs valeurs par défaut — 7, 8 et 9. Les vues
+            //    8 (présentation) et 9 (fondu) étaient donc listées DEUX FOIS, et leur seconde
+            //    soumission tombait APRÈS le HUD : la présentation l'écrasait purement et simplement.
+            //
+            //    Trouvé par le test de colorimétrie, dont le HUD lisait la couleur d'effacement au lieu
+            //    de son vert. ⚠️ Le test du FONDU n'avait rien vu, et c'est instructif : sa mesure à
+            //    mi-course était sur le chemin non éclairé (aucun ordre imposé) et sa mesure éclairée
+            //    était à `amount 1`, où dessiner deux fois est idempotent. Deux angles morts qui se
+            //    complétaient.
+            //
+            //    Le remède est d'énumérer TOUTES les vues, donc une permutation complète de 0 à 9 : il
+            //    ne reste alors aucune position par défaut, donc aucun doublon possible. Les vues sans
+            //    draw sont sautées par bgfx, ce qui rend cette liste unique valable dans les trois
+            //    configurations — le bloom éteint ne coûte rien à ses trois vues.
+            //
+            // L'ordre lui-même : l'occultation doit être REMPLIE avant que les lampes la parcourent
+            // (avec des ids croissants elle serait écrite après avoir été lue, et les ombres auraient
+            // une frame de retard sur les murs). Puis extraction et flous lisent ce que le composite
+            // vient d'écrire, la présentation lit le résultat des flous, le HUD passe après elle — donc
+            // il ne brille pas, n'est pas tonemappé et n'est pas étalonné — et le FONDU passe en
+            // dernier, donc il couvre tout, HUD compris.
+            const rhi::ViewId order[] = { OcclusionPass::kOcclusionView, 0,
+                                          CompositePass::kLightView, CompositePass::kCompositeView,
+                                          BloomPass::kExtractView, BloomPass::kBlurHView,
+                                          BloomPass::kBlurVView, PresentPass::kPresentView, 1,
+                                          FadePass::kFadeView };
+            m_device->setViewOrder(order, 10);
 
             // ONE texture, TWO readers: the march samples its RGB (transmittance), the composite
             // samples its ALPHA (scattering). Resolved once here so the two can never disagree about

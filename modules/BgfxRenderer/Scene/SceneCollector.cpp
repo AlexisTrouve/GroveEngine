@@ -169,6 +169,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:fade") {
             parseFade(*msg.data);
         }
+        else if (msg.topic == "render:grade") {
+            parseGrade(*msg.data);
+        }
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
@@ -263,6 +266,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.bloom = m_bloom;                 // idem: a setting, published once, honoured every frame
     packet.tonemap = m_tonemap;             // idem — et INDEPENDANT du bloom, voir FramePacket
     packet.fade = m_fade;                   // idem — et n'exige ni eclairage ni cible HDR
+    packet.grade = m_grade;                 // idem — mais sur la presentation, donc il EPARGNE le HUD
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1590,6 +1594,35 @@ void SceneCollector::parseFade(const IDataNode& data) {
     //    ecran plein. En dessous de 0, il extrapolerait dans l'autre sens.
     if (!(m_fade.amount > 0.0f)) m_fade.amount = 0.0f;   // couvre aussi un NaN entrant
     if (m_fade.amount > 1.0f)    m_fade.amount = 1.0f;
+}
+
+void SceneCollector::parseGrade(const IDataNode& data) {
+    // Colorimetrie (plan G). Reglage global persistant, applique a l'image FINIE.
+    //
+    // ⚠️ PAS de bouton « luminosite », et c'est un refus argumente : il existe deja, c'est `exposure`
+    //    du tonemapping, et il est du BON COTE de la courbe. Un gain applique apres la compression ne
+    //    ferait que saturer plus tot, en re-ecretant ce que le tonemapping venait de sauver. Deux
+    //    boutons pour une idee, dont le plus accessible serait le pire.
+    m_grade.saturation = static_cast<float>(data.getDouble("saturation", 1.0));
+    m_grade.contrast   = static_cast<float>(data.getDouble("contrast", 1.0));
+
+    // La teinte est publiee comme une COULEUR (0xRRGGBBAA) et non comme trois flottants : c'est la
+    // convention du moteur pour tout ce qui est une couleur, et un auteur pense « bleu nuit », pas
+    // « (0.5, 0.7, 1.2) ». Le blanc (0xFFFFFF) est donc le neutre, ce qui tombe juste.
+    //
+    // ⚠️ Consequence assumee : une teinte ne peut qu'ASSOMBRIR un canal (un octet vaut au plus 255,
+    //    donc au plus 1.0). Pour eclaircir, on monte `exposure`. C'est coherent avec le refus ci-dessus
+    //    et ca evite un second chemin vers la meme chose.
+    const uint32_t tint = static_cast<uint32_t>(data.getInt("tint", 0xFFFFFFFF));
+    m_grade.tintR = static_cast<float>((tint >> 24) & 0xFF) / 255.0f;
+    m_grade.tintG = static_cast<float>((tint >> 16) & 0xFF) / 255.0f;
+    m_grade.tintB = static_cast<float>((tint >>  8) & 0xFF) / 255.0f;
+
+    // Bornes basses seulement. `saturation` n'est PAS bornee en haut (>1 = couleurs criardes, un effet
+    // legitime) ni `contrast` (un contraste extreme est un effet aussi) : la borne finale de sortie,
+    // dans l'oracle, s'occupe du depassement par canal.
+    if (!(m_grade.saturation > 0.0f)) m_grade.saturation = 0.0f;   // couvre aussi un NaN entrant
+    if (!(m_grade.contrast   > 0.0f)) m_grade.contrast   = 0.0f;
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {

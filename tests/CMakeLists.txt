@@ -1430,6 +1430,19 @@ target_link_libraries(test_tonemap_math PRIVATE
 )
 grove_add_test(TonemapMathUnit test_tonemap_math ${CMAKE_CURRENT_BINARY_DIR})
 
+# Colorimetrie (plan G, Ga) : teinte -> contraste -> saturation. Header-only, sans GPU.
+# Cette tranche a un oracle la ou le FONDU n'en a pas eu, et c'est un choix : il y a quatre decisions a
+# verrouiller (la luminance reutilisee, le pivot du contraste, l'ordre non commutatif, et « saturation 0
+# rend un gris de la BONNE luminance »). Voir docs/design/lighting-grade.md.
+add_executable(test_grade_math
+    unit/test_grade_math.cpp
+)
+target_link_libraries(test_grade_math PRIVATE
+    GroveEngine::core
+    Catch2::Catch2WithMain
+)
+grove_add_test(GradeMathUnit test_grade_math ${CMAKE_CURRENT_BINARY_DIR})
+
 # Doc-example COMPILE CHECK (quality Phase 4): mirrors the docs' load-bearing C++ API snippets (IIO, engine
 # hosting, IModule, JsonDataNode, grove::fx authoring) so the COMPILER keeps the docs honest — if a documented
 # API is renamed/removed this file stops compiling. The value is that it BUILDS; it need not run.

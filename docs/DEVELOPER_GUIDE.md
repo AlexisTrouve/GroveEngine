@@ -775,6 +775,45 @@ screen. The colour's alpha byte is ignored — `amount` is the alpha.
 
 Plan + measurements: `docs/design/lighting-fade.md`.
 
+#### Colour grading (post-processing)
+
+Retouches the finished image — the same set can be a cold morning, a washed-out memory or a red alert
+without changing a single asset:
+
+```cpp
+auto g = std::make_unique<JsonDataNode>("grade");
+g->setDouble("saturation", 0.3);     // 0 = greyscale, 1 = neutral (default), >1 = garish
+g->setDouble("contrast", 1.2);       // <1 flattens toward mid-grey, >1 pushes away
+g->setInt("tint", 0x8090FFFF);       // white = neutral (default) — a colour, not three floats
+io->publish("render:grade", std::move(g));
+```
+
+**There is no `brightness`, on purpose.** It already exists as the tonemapping's `exposure`, and it sits
+on the *right* side of the curve: a gain applied after compression only clips earlier, undoing what the
+tonemap just saved. If you want a brighter image, raise `exposure`.
+
+Same reason, and worth knowing: **`tint` can only darken a channel** (a colour byte tops out at 1.0).
+That is deliberate — brightening is `exposure`'s job, and a second path to it would be a trap.
+
+**It spares the HUD**, unlike the fade. A desaturated world under an interface that keeps its colours is
+the intent: the HUD is a reading surface, not part of the fiction, and greying a red warning would blind
+the player exactly when it matters. (The fade does the opposite and covers everything — that is why it
+has its own pass.)
+
+**Order inside the grade is fixed**: tint → contrast → saturation, the order a real grade uses. It is
+not commutative — tinting *after* desaturating would give you a sepia wash instead of a balanced,
+desaturated image.
+
+Two details that come from the maths and will save you a puzzled hour:
+
+- **Contrast pivots on 0.5**, not 0.18, because grading runs *after* tonemapping — in display space,
+  where mid-grey is 0.5. A scene-linear pivot would darken every image you added contrast to.
+- **Desaturation follows perceptual luminance** (the same one the bloom threshold uses). Pure red
+  desaturates to 54/255 and pure blue to 18/255, because the eye sees them at very different
+  brightnesses. A naive `(r+g+b)/3` would send both to 85 and flatten your palette.
+
+Plan + measurements: `docs/design/lighting-grade.md`.
+
 #### Bulk Sprite Submission (high throughput)
 
 `render:sprite` is **one IIO message per sprite**. The bus no longer deep-copies the payload per

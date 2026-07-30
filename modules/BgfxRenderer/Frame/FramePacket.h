@@ -6,6 +6,9 @@
 // Le mode de tonemapping est defini par l'oracle (grove::light) : la meme enumeration sert au parsing,
 // au packet et au shader, donc il n'existe qu'UNE liste de modes.
 #include <grove/light/Tonemap.h>
+// Idem pour l'etalonnage : GradeParams est defini par l'oracle, donc le parsing, le packet et le shader
+// partagent une seule description des trois reglages.
+#include <grove/light/Grade.h>
 
 namespace grove {
 
@@ -436,6 +439,19 @@ struct FramePacket {
         uint32_t color = 0x000000FFu;
     };
     FadeSettings fade;
+
+    // Post-processing: COLOUR GRADING (plan G) — set by `render:grade`. Persistent global state like the
+    // three settings above. Les paramètres eux-mêmes vivent dans l'oracle : il n'existe qu'UNE
+    // définition de cet étalonnage, partagée par le parsing, le packet et le shader.
+    //
+    // ⚠️ Place : la passe de PRÉSENTATION, après la courbe de tonemapping. Donc elle **épargne le HUD**
+    //    — exactement l'inverse du fondu, qui le couvre. Un monde désaturé sous une interface qui garde
+    //    ses couleurs est le comportement voulu : le HUD est un objet de lecture, pas un élément de la
+    //    fiction, et le désaturer rendrait un texte d'alerte rouge illisible au moment où il compte.
+    //
+    // ⚠️ Les trois neutres (saturation 1, contrast 1, teinte blanche) ⇒ INERTE, et surtout n'activent
+    //    PAS la passe de présentation. Voir grove::light::gradeIsNeutral.
+    light::GradeParams grade;
 
     // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
     // published none — no arena slice is claimed for a feature nobody used.

@@ -121,6 +121,9 @@ private:
     // Fondu plein écran (plan F2). Réglage global persistant ; `amount 0` = éteint, et cette passe
     // n'exige NI éclairage NI cible HDR — voir FramePacket::FadeSettings.
     FramePacket::FadeSettings m_fade;
+    // Colorimetrie (plan G). Reglage global persistant ; les trois neutres = eteint, et c'est
+    // grove::light::gradeIsNeutral qui en decide.
+    light::GradeParams m_grade;
     std::vector<OccluderCommand> m_occluders;   // ephemeral, like m_lights
     // RETAINED occluders, by renderId. The opposite choice to lights, and for the opposite reason:
     // a wall does not move, so re-publishing the level every frame would charge a cost proportional
@@ -189,6 +192,7 @@ private:
     void parseBloom(const IDataNode& data);   // `render:bloom` — post-processing settings (plan B)
     void parseTonemap(const IDataNode& data); // `render:tonemap` — courbe + exposition (plan T)
     void parseFade(const IDataNode& data);    // `render:fade` — fondu plein écran (plan F2)
+    void parseGrade(const IDataNode& data);   // `render:grade` — teinte/contraste/saturation (plan G)
     void parseLight(const IDataNode& data);
     void parseOccluder(const IDataNode& data);
     void parseFilter(const IDataNode& data);

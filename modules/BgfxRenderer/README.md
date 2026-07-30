@@ -334,6 +334,67 @@ présentation, donc l'interface reste lisible quelle que soit l'exposition.
 
 Conception : [`docs/design/lighting-tonemap.md`](../../docs/design/lighting-tonemap.md).
 
+### Fondus (post-traitement)
+
+```cpp
+auto f = std::make_unique<JsonDataNode>("f");
+f->setDouble("amount", 1.0);        // 0 = éteint (défaut) .. 1 = l'écran EST la couleur
+// f->setInt("color", 0xFF2010FF);  // facultatif ; NOIR par défaut
+io->publish("render:fade", std::move(f));
+```
+
+**✅ Contrairement au bloom et au tonemapping, un fondu n'exige RIEN** — ni `render:ambient`, ni cible
+HDR. C'est un quad mélangé par-dessus le résultat, donc il fonctionne dans un jeu qui n'éclaire pas.
+C'est le seul effet de cette famille utilisable tel quel par les trois consommateurs actuels.
+
+**Il couvre le HUD**, parce qu'il est dessiné sur sa propre vue soumise **en dernier** — après
+l'interface. C'est voulu : une transition de scène doit emporter l'UI, sinon les menus flottent sur un
+écran noir. (Le bloom et le tonemapping font l'inverse et épargnent le HUD.)
+
+**C'est au jeu de ramper `amount`** : pas de durée, pas d'easing. Le moteur ne possède pas cette
+horloge — une durée intégrée devrait décider si une pause gèle le fondu, et retirerait toute courbe
+non linéaire à l'auteur.
+
+`amount` est borné à [0,1] : au-delà, un mix **extrapole** et donne des artefacts au lieu d'un écran
+plein. L'octet alpha de la couleur est ignoré — c'est `amount` qui fait office d'alpha.
+
+Conception : [`docs/design/lighting-fade.md`](../../docs/design/lighting-fade.md).
+
+### Colorimétrie (post-traitement)
+
+Retouche l'image **finie** : le même décor devient un matin froid, un souvenir délavé ou une alerte
+rouge sans qu'un asset change.
+
+```cpp
+auto g = std::make_unique<JsonDataNode>("g");
+g->setDouble("saturation", 0.3);   // 0 = noir et blanc, 1 = neutre (défaut), >1 = criard
+g->setDouble("contrast", 1.2);     // <1 rapproche du gris moyen, >1 en écarte
+g->setInt("tint", 0x8090FFFF);     // blanc = neutre (défaut) — une COULEUR, pas trois flottants
+io->publish("render:grade", std::move(g));
+```
+
+**Il n'y a pas de bouton « luminosité », volontairement.** Il existe déjà : c'est `exposure` du
+tonemapping, et il est du **bon côté de la courbe**. Un gain après la compression ne ferait que saturer
+plus tôt, en annulant ce que le tonemapping venait de sauver. Même raison : **la teinte ne peut
+qu'assombrir** un canal (un octet plafonne à 1,0) — pour éclaircir, on monte `exposure`.
+
+**Elle épargne le HUD**, contrairement au fondu : un monde désaturé sous une interface qui garde ses
+couleurs est le comportement voulu, le HUD étant un objet de lecture et non un élément de la fiction.
+Désaturer un texte d'alerte rouge l'effacerait au moment précis où il compte.
+
+**L'ordre est fixe** : teinte → contraste → saturation, celui d'un étalonnage réel, et il n'est pas
+commutatif — teinter après avoir désaturé donnerait un virage sépia.
+
+Deux détails qui viennent de la math et évitent une heure de perplexité :
+
+- **le contraste pivote sur 0,5** et pas 0,18, parce qu'on opère *après* le tonemapping, dans un espace
+  d'affichage où le gris moyen est à 0,5. Un pivot linéaire assombrirait toute image contrastée ;
+- **la désaturation suit la luminance perceptuelle** (celle du seuil du bloom) : un rouge pur donne
+  54/255 et un bleu pur 18/255, parce que l'œil les voit à des clartés très différentes. Une moyenne
+  `(r+g+b)/3` les enverrait tous deux à 85 et aplatirait la palette.
+
+Conception : [`docs/design/lighting-grade.md`](../../docs/design/lighting-grade.md).
+
 ### Topics complets
 
 | Topic | Description |

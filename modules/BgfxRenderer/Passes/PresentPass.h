@@ -54,7 +54,9 @@ private:
     rhi::BufferHandle  m_quadIB;
     rhi::UniformHandle m_sceneSampler;
     rhi::UniformHandle m_bloomSampler;
-    rhi::UniformHandle m_presentUniform;   // (intensity, 0, 0, 0)
+    rhi::UniformHandle m_presentUniform;   // (bloomIntensity, exposure, tonemapMode, 0)
+    rhi::UniformHandle m_grade0Uniform;    // (tintR, tintG, tintB, contrast)   — plan G
+    rhi::UniformHandle m_grade1Uniform;    // (saturation, 0, 0, 0)
     rhi::TextureHandle m_hdrTex;
     rhi::TextureHandle m_bloomTex;
 };

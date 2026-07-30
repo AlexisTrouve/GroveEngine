@@ -10,35 +10,29 @@ SAMPLER2D(s_bloom, 1);
 //   tonemapMode : 0 = aucun, 1 = reinhard, 2 = aces — même énumération que grove::light::TonemapMode.
 uniform vec4 u_present;
 
-// Présentation (plans B puis T) — étage fragment. La QUEUE du post-traitement.
+// u_grade0 = (tintR, tintG, tintB, contrast)
+// u_grade1 = (saturation, 0, 0, 0)
+uniform vec4 u_grade0;
+uniform vec4 u_grade1;
+
+// Présentation (plans B, T puis G) — étage fragment. LA QUEUE du post-traitement, au complet.
 //
-// QUOI  : `backbuffer = tonemap( (frame_composée + lueur × intensité) × exposition )`.
-//         C'est la dernière passe du monde ; le HUD est soumis APRÈS elle et ne brille donc pas, et ne
-//         subit pas non plus la courbe — une interface doit rester lisible quelle que soit l'exposition
-//         de la scène.
+// QUOI  : `backbuffer = grade( tonemap( (composée + lueur × intensité) × exposition ) )`.
+//         C'est la dernière passe du MONDE ; le HUD est soumis après elle, donc il ne brille pas, ne
+//         subit pas la courbe et n'est pas étalonné. Le FONDU, lui, passe encore après et recouvre
+//         tout — les deux comportements sont opposés et chacun est juste pour son effet.
 //
-// POURQUOI une passe à part : le bloom a besoin de lire la frame composée, et un backbuffer ne
-//         s'échantillonne pas. Le composite doit donc écrire dans une cible, et il faut ensuite
-//         quelqu'un pour l'amener à l'écran. Cette passe a été écrite en annonçant qu'elle
-//         accueillerait le tonemapping, les fondus et la colorimétrie ; le tonemapping y est.
+// ⚠️ L'ORDRE EST LOAD-BEARING de bout en bout :
+//    - la lueur AVANT la courbe : sinon elle ressortirait au-dessus de 1 et réécrêterait, donnant un
+//      aplat blanc collé sur l'image au lieu d'une source lumineuse ;
+//    - l'étalonnage APRÈS la courbe : il opère dans un espace d'affichage borné à [0,1], ce qui est la
+//      raison pour laquelle son pivot de contraste est 0,5 et non 0,18 ;
+//    - et dans l'étalonnage : teinte → contraste → saturation, l'ordre d'un étalonnage réel. Teinter
+//      après avoir désaturé donnerait un virage sépia au lieu d'une image équilibrée puis désaturée.
 //
-// ⚠️ L'ORDRE EST LOAD-BEARING : la lueur est ajoutée AVANT la courbe, jamais après. La lueur est faite
-//    du sur-brillant ; l'ajouter à une image déjà comprimée dans [0,1] la ferait ressortir au-dessus
-//    de 1, donc réécrêter — et le halo serait un aplat blanc collé sur l'image au lieu de participer à
-//    l'exposition. C'est la différence entre « une tache » et « une source lumineuse ».
-//
-// COMMENT la lueur : ADDITIVE, comme la lumière elle-même. Un mélange l'imposerait au prix de la
-//         scène — une lueur blanche DÉLAVERAIT ce qu'elle entoure, et un halo dans le vide (où la
-//         scène est noire) n'existerait pas du tout. Même raisonnement que le terme de diffusion du
-//         composite (plan A2).
-//
-// COMMENT le tonemap : PAR CANAL, et pas sur la luminance. Comprimer la luminance puis rééchelonner le
-//         RGB préserverait la saturation des hautes lumières et donnerait des halos fluo. Par canal,
-//         une couleur saturée roule vers le blanc en saturant — ce que fait un film, et ce qu'on veut :
-//         un cœur de lampe DOIT blanchir en son centre tout en gardant sa teinte sur les bords.
-//
-// Les courbes miment grove::light::tonemapReinhard / tonemapACES, dont l'oracle CPU est la source de
-// vérité (TonemapMathUnit). Plans : lighting-bloom.md, lighting-tonemap.md.
+// Les courbes miment grove::light::tonemapReinhard/tonemapACES et grove::light::gradeColor, dont les
+// oracles CPU sont la source de vérité (TonemapMathUnit, GradeMathUnit).
+// Plans : lighting-bloom.md, lighting-tonemap.md, lighting-grade.md.
 void main()
 {
 	vec3 scene = texture2D(s_scene, v_texcoord0).rgb;
@@ -48,18 +42,15 @@ void main()
 
 	float mode = u_present.z;
 
-	// Mode 0 = IDENTITÉ EXACTE, exposition comprise. C'est le contournement à coût nul jusque dans le
-	// shader : un jeu qui n'a pas demandé de courbe ne doit pas voir son image bouger d'un LSB, et
-	// l'exposition elle-même n'a aucun sens sans courbe pour la recevoir (elle ne ferait que saturer
-	// plus tôt).
+	// Mode 0 = IDENTITÉ EXACTE, exposition comprise. Le contournement à coût nul jusque dans le shader.
 	if (mode > 0.5)
 	{
 		c = max(c * u_present.y, vec3_splat(0.0));
 
 		if (mode > 1.5)
 		{
-			// ACES, approximation de Narkowicz. Constantes reproduites depuis l'oracle : ce sont un
-			// ajustement empirique, pas une dérivation.
+			// ACES, approximation de Narkowicz. Constantes reproduites depuis l'oracle : un ajustement
+			// empirique, pas une dérivation.
 			vec3 num = c * (2.51 * c + 0.03);
 			vec3 den = c * (2.43 * c + 0.59) + 0.14;
 			c = clamp(num / den, 0.0, 1.0);
@@ -71,5 +62,15 @@ void main()
 		}
 	}
 
-	gl_FragColor = vec4(c, 1.0);
+	// ---- Colorimétrie (plan G) ---------------------------------------------------------------
+	// 1. teinte, 2. contraste autour du gris moyen, 3. saturation vers la LUMINANCE (celle du bloom,
+	// pas une moyenne plate : un rouge pur et un bleu pur doivent donner des gris DIFFÉRENTS).
+	c *= u_grade0.rgb;
+	c = (c - vec3_splat(0.5)) * u_grade0.w + vec3_splat(0.5);
+	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+	c = vec3_splat(luma) + (c - vec3_splat(luma)) * u_grade1.x;
+
+	// Borne finale, UNE SEULE FOIS : le contraste peut sortir de la plage — (0 − 0,5)·2 + 0,5 = −0,5.
+	// Écrêter entre chaque étape détruirait un intermédiaire hors plage que la suite ramène dedans.
+	gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }

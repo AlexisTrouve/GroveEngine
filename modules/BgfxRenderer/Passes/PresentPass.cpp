@@ -3,6 +3,7 @@
 #include "../RHI/RHICommandBuffer.h"
 
 #include <grove/light/Tonemap.h>
+#include <grove/light/Grade.h>
 
 namespace grove {
 
@@ -39,6 +40,8 @@ void PresentPass::setup(rhi::IRHIDevice& device) {
     m_sceneSampler   = device.createUniform("s_scene", 1);
     m_bloomSampler   = device.createUniform("s_bloom", 1);
     m_presentUniform = device.createUniform("u_present", 1);
+    m_grade0Uniform  = device.createUniform("u_grade0", 1);
+    m_grade1Uniform  = device.createUniform("u_grade1", 1);
 }
 
 void PresentPass::shutdown(rhi::IRHIDevice& device) {
@@ -47,6 +50,8 @@ void PresentPass::shutdown(rhi::IRHIDevice& device) {
     device.destroy(m_sceneSampler);
     device.destroy(m_bloomSampler);
     device.destroy(m_presentUniform);
+    device.destroy(m_grade0Uniform);
+    device.destroy(m_grade1Uniform);
 }
 
 void PresentPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi::RHICommandBuffer& cmd) {
@@ -57,8 +62,12 @@ void PresentPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
     // d'exposition sans aucune lueur, et l'inverse. Ne tester que le bloom rendrait le tonemapping
     // inatteignable, ce qui est exactement le genre de chaînon jamais câblé qu'on prend ensuite pour
     // un bug de shader.
+    // TROIS reglages activent desormais cette passe, et aucun ne depend des autres : une lueur, une
+    // courbe d'exposition, un etalonnage. Oublier l'un d'eux le rendrait INATTEIGNABLE -- le « chainon
+    // jamais cable », deja rencontre au plan T et attrape par sabotage.
     const bool tonemapActive = (frame.tonemap.mode != light::TonemapMode::None);
-    if (!(frame.bloom.intensity > 0.0f) && !tonemapActive) {
+    const bool gradeActive   = !light::gradeIsNeutral(frame.grade);
+    if (!(frame.bloom.intensity > 0.0f) && !tonemapActive && !gradeActive) {
         return;
     }
 
@@ -85,7 +94,16 @@ void PresentPass::execute(const FramePacket& frame, rhi::IRHIDevice& device, rhi
     cmd.setIndexBuffer(m_quadIB);
     cmd.setTexture(0, m_hdrTex, m_sceneSampler);
     cmd.setTexture(1, m_bloomTex, m_bloomSampler);
+    // L'etalonnage (plan G). Les neutres traversent le shader sans rien changer : teinte blanche =
+    // multiplication par 1, contraste 1 = pivot inchange, saturation 1 = interpolation nulle. Il n'y a
+    // donc pas de branche a ecrire pour le cas neutre -- la formule EST l'identite.
+    const float grade0[4] = { frame.grade.tintR, frame.grade.tintG, frame.grade.tintB,
+                              frame.grade.contrast };
+    const float grade1[4] = { frame.grade.saturation, 0.0f, 0.0f, 0.0f };
+
     cmd.setUniform(m_presentUniform, present, 1);
+    cmd.setUniform(m_grade0Uniform, grade0, 1);
+    cmd.setUniform(m_grade1Uniform, grade1, 1);
     cmd.drawIndexed(6, 0);
     cmd.submit(kPresentView, m_shader, 0);
 }

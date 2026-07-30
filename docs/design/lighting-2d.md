@@ -8,7 +8,9 @@
 > cet arbitrage** : le sur-brillant y était conservé, puis écrêté par le backbuffer 8 bits à la
 > dernière ligne (deux lampes d'intensité 2 et 8 rendaient toutes deux 255 — mesuré). Restent les
 > **fondus** ✅ (mais sur leur PROPRE passe, pas la présentation — [plan F2](lighting-fade.md) §2
-> explique pourquoi, et corrige au passage une affirmation du plan du bloom) et la **colorimétrie**.
+> explique pourquoi) et la **colorimétrie** ✅ ([plan G](lighting-grade.md)).
+> **La queue de post-traitement annoncée en plan B est donc COMPLÈTE** : bloom, tonemapping, fondus,
+> colorimétrie.
 
 ---
 
@@ -26,6 +28,7 @@ vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
 | le **bloom** (post-traitement) | [plan B](lighting-bloom.md) — ce qui alimente la lueur, et pourquoi ce n'est pas le buffer de lumière |
 | le **tonemapping** | [plan T](lighting-tonemap.md) — comment le sur-brillant conservé ici arrive enfin à l'écran |
 | les **fondus** | [plan F2](lighting-fade.md) — le seul effet de la famille qui n'exige PAS l'éclairage |
+| la **colorimétrie** | [plan G](lighting-grade.md) — et pourquoi il n'y a pas de bouton « luminosité » |
 | **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
 
 **Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un

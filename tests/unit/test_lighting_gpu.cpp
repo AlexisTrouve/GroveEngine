@@ -1779,3 +1779,183 @@ TEST_CASE("fade: covers everything INCLUDING the HUD, with or without lighting (
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+// ============================================================================
+// Colorimétrie (plan G) — la désaturation respecte la LUMINANCE, et le HUD est épargné.
+//
+// Scène de DEUX couleurs franches (un carré rouge, un carré bleu) plus un carré HUD vert.
+//
+//   1. `saturation 0` → les deux carrés deviennent gris, et de gris **DIFFÉRENTS** : le rouge pèse
+//      0,2126 en Rec. 709 et le bleu 0,0722, donc le gris du rouge doit être ~3× plus clair.
+//      ⚠️ C'est ce qui discrimine une vraie désaturation d'une moyenne (r+g+b)/3, laquelle rendrait les
+//         deux au même gris. Une assertion « c'est devenu gris » passerait avec la mauvaise formule.
+//   2. `tint` bleu → le canal rouge chute, le bleu non.
+//   3. `contrast 2` → le sombre s'assombrit ET le clair s'éclaircit. Une assertion sur un seul des deux
+//      passerait avec un simple gain, qui n'est pas un contraste.
+//   4. ⚠️ Le HUD ne bouge PAS. C'est l'assertion qui verrouille la PLACE choisie : un étalonnage posé
+//      sur la passe du fondu désaturerait aussi l'interface, en passant les trois premières mesures.
+//   5. Neutres ⇒ image inchangée.
+//
+// Plan : docs/design/lighting-grade.md
+// ============================================================================
+
+TEST_CASE("grade: desaturation respects LUMINANCE and spares the HUD (GPU)", "[gpu][grade]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("grade", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("gr_r");
+    auto gIO = mgr.createInstance("gr_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("gr_r"); mgr.removeInstance("gr_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    // Rouge en haut, bleu en bas, HUD vert au milieu à droite.
+    const int redX = 20,      redY = 14;
+    const int blueX = 20,     blueY = 50;
+    const int hudX = 50,      hudY = 32;
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    auto render = [&](double saturation, double contrast, uint32_t tint) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            // Deux bandes de couleur franche : rouge pur et bleu pur.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", 14.0);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", 24.0);
+              s->setInt("color", static_cast<int>(0xFF0000FFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", 50.0);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", 24.0);
+              s->setInt("color", static_cast<int>(0x0000FFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Le HUD : vert, en espace écran, donc sur la vue 1 — soumise APRÈS la présentation.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", 50.0); s->setDouble("cy", 32.0);
+              s->setDouble("scaleX", 20.0); s->setDouble("scaleY", 20.0);
+              s->setString("space", "screen");
+              s->setInt("color", static_cast<int>(0x00FF00FFu)); s->setInt("layer", 1000);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Ambiant BLANC : neutre par construction, donc la scène traverse le composite inchangée et
+            // la seule variable de l'expérience reste l'étalonnage.
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0xFFFFFFFFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            { auto g = std::make_unique<JsonDataNode>("g");
+              g->setDouble("saturation", saturation);
+              g->setDouble("contrast", contrast);
+              g->setInt("tint", static_cast<int>(tint));
+              gIO->publish("render:grade", std::move(g)); }
+
+            // ⚠️ Avec l'étalonnage actif la frame du monde sort de la PRÉSENTATION. Mais le HUD est
+            //    dessiné après, sur la vue 1 : pour lire les deux sur une même image, on attache la
+            //    cible aux DEUX vues. Sans le HUD lié, la mesure 4 ne verrait rien.
+            const bool post = (saturation != 1.0 || contrast != 1.0 || tint != 0xFFFFFFFFu);
+            if (post) {
+                dev->setViewFramebuffer(PresentPass::kPresentView, fb);
+            } else {
+                dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            }
+            dev->setViewFramebuffer(1, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    };
+    auto chan = [&](int x, int y, int c) {
+        return static_cast<int>(rgba[(static_cast<size_t>(y)*W + x)*4 + c]);
+    };
+
+    // ---- 0. Neutres : la référence ----------------------------------------------------------
+    render(1.0, 1.0, 0xFFFFFFFFu);
+    const int refRedR  = chan(redX, redY, 0);
+    const int refBlueB = chan(blueX, blueY, 2);
+    const int refHudG  = chan(hudX, hudY, 1);
+    INFO("neutre : rouge.R=" << refRedR << " bleu.B=" << refBlueB << " HUD.G=" << refHudG);
+    REQUIRE(refRedR > 200);
+    REQUIRE(refBlueB > 200);
+    REQUIRE(refHudG > 200);
+
+    // ---- 1. LE DISCRIMINANT : saturation 0 -> des gris DIFFÉRENTS ---------------------------
+    render(0.0, 1.0, 0xFFFFFFFFu);
+    const int greyRed  = chan(redX, redY, 0);
+    const int greyBlue = chan(blueX, blueY, 2);
+    INFO("satur. 0 : gris(rouge)=" << greyRed << " gris(bleu)=" << greyBlue);
+
+    // Gris = les trois canaux egaux, sur chaque bande.
+    CHECK(std::abs(chan(redX, redY, 0) - chan(redX, redY, 1)) <= 2);
+    CHECK(std::abs(chan(redX, redY, 1) - chan(redX, redY, 2)) <= 2);
+    CHECK(std::abs(chan(blueX, blueY, 0) - chan(blueX, blueY, 2)) <= 2);
+
+    // ...et le gris du ROUGE est ~3x celui du BLEU. Une moyenne (r+g+b)/3 les rendrait EGAUX -- c'est
+    // la seule assertion de ce test qu'une mauvaise formule ne peut pas satisfaire.
+    CHECK(greyRed > greyBlue * 2.0);
+    // Valeurs attendues : 0,2126*255 = 54 et 0,0722*255 = 18.
+    CHECK(greyRed > 40);
+    CHECK(greyRed < 70);
+    CHECK(greyBlue < 30);
+
+    // ---- 2. ⚠️ LE HUD N'A PAS BOUGÉ ---------------------------------------------------------
+    // L'assertion qui verrouille la place : un étalonnage sur la passe du fondu aurait desature ce vert
+    // aussi, en passant tout le reste.
+    INFO("satur. 0 : HUD.G=" << chan(hudX, hudY, 1) << " (ref " << refHudG << ")");
+    CHECK(chan(hudX, hudY, 1) > 200);
+    CHECK(chan(hudX, hudY, 0) < 60);      // et il est toujours VERT, pas gris
+
+    // ---- 3. La teinte agit par canal ------------------------------------------------------
+    render(1.0, 1.0, 0x4040FFFFu);        // rouge et vert divises par ~4, bleu intact
+    INFO("teinte bleue : rouge.R=" << chan(redX, redY, 0) << " bleu.B=" << chan(blueX, blueY, 2));
+    CHECK(chan(redX, redY, 0) < refRedR / 2);
+    CHECK(chan(blueX, blueY, 2) > 200);   // le bleu passe
+
+    // ---- 4. Le contraste écarte du gris moyen, DANS LES DEUX SENS -------------------------
+    // Le rouge pur est a (255,0,0) : son canal R est au-dessus du pivot, ses canaux G/B en dessous. Un
+    // contraste eleve doit donc pousser R vers le haut ET G/B vers le bas -- un simple gain ne ferait
+    // que la premiere moitie.
+    render(1.0, 2.0, 0xFFFFFFFFu);
+    INFO("contraste 2 : rouge.R=" << chan(redX, redY, 0) << " rouge.G=" << chan(redX, redY, 1));
+    CHECK(chan(redX, redY, 0) >= 250);    // deja sature, il y reste
+    CHECK(chan(redX, redY, 1) <= 2);      // et le vert du rouge est ecrase vers 0
+
+    // Un contraste FAIBLE rapproche du gris : le test symetrique, sans lequel « contraste » pourrait
+    // n'etre qu'un gain.
+    render(1.0, 0.25, 0xFFFFFFFFu);
+    INFO("contraste 0.25 : rouge.R=" << chan(redX, redY, 0) << " rouge.G=" << chan(redX, redY, 1));
+    CHECK(chan(redX, redY, 0) < 200);     // le clair redescend
+    CHECK(chan(redX, redY, 1) > 60);      // le sombre remonte
+
+    // ---- 5. Retour aux neutres : l'image est celle du depart ------------------------------
+    render(1.0, 1.0, 0xFFFFFFFFu);
+    INFO("retour neutre : rouge.R=" << chan(redX, redY, 0) << " HUD.G=" << chan(hudX, hudY, 1));
+    CHECK(chan(redX, redY, 0) > 200);
+    CHECK(chan(blueX, blueY, 2) > 200);
+    CHECK(chan(hudX, hudY, 1) > 200);
+
+    renderer->shutdown();
+    mgr.removeInstance("gr_r");
+    mgr.removeInstance("gr_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

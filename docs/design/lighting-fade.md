@@ -2,7 +2,10 @@
 
 > **Statut** : ✅ **LIVRÉ** le 2026-07-30. ⚠️ **Le risque n°1 de ce plan était FAUX** — corrigé au §7
 > après sabotage, à lire avant de se fier au reste.
-> **Famille** : [bloom](lighting-bloom.md) → [tonemapping](lighting-tonemap.md) → **fondus**.
+> **Famille** : [bloom](lighting-bloom.md) → [tonemapping](lighting-tonemap.md) → **fondus** →
+> [colorimétrie](lighting-grade.md).
+> ⚠️ **Cette tranche a introduit un bug d'ordre de soumission** que la colorimétrie a trouvé, et que le
+> test de fondu ne pouvait pas voir : [plan G](lighting-grade.md) §9.
 > ⚠️ Mais **pas au même endroit**, et c'est la décision de cette tranche — voir §2.
 
 ---
