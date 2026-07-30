@@ -421,3 +421,63 @@ Le matériel n'est pas le seul verrou, et l'OS de la future ferme change tout :
   provisionner MinGW + ccache comme sur le poste.
 
 À trancher le jour où la machine existe ; le côté logiciel est prêt dans les deux cas.
+
+---
+
+## 11. Le GPU n'est peut-être pas nécessaire du tout — un diagnostic périmé
+
+En préparant la « ferme à GPU », j'ai re-prouvé la cause documentée plutôt que de bâtir dessus.
+**Elle est fausse.**
+
+### Ce que disait le dossier
+
+La dette « port Linux » est parkée avec cette raison : *bgfx n'obtient qu'un contexte OpenGL 2.1
+sous llvmpipe, insuffisant pour les shaders GLSL 1.30+*.
+
+### Ce que dit la mesure (2026-07-30, VPS142)
+
+```
+OpenGL renderer string:                    llvmpipe (LLVM 19.1.7, 256 bits)
+OpenGL core profile version string:        4.5 (Core Profile) Mesa 25.0.7
+OpenGL core profile shading language:      4.50
+```
+
+**OpenGL 4.5, GLSL 4.50.** Mesa 25 fait tourner llvmpipe très au-delà de 2.1 ; le diagnostic datait
+d'un Mesa plus ancien, ou confondait « pas de display » avec « pas de version de GL ». Le serveur
+n'a d'ailleurs qu'une Matrox G200e de BMC, inutilisable en 3D : c'est bien du rendu **logiciel**.
+`Xvfb` était déjà installé.
+
+### Les vrais verrous, tous logiciels
+
+1. **Une garde `WIN32`.** `tests/CMakeLists.txt:3171` :
+   `if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)`. Les 16 tests `gpu` ne sont **jamais
+   déclarés** sous Linux, quelle que soit la machine. Aucun GPU n'y changerait rien.
+2. **Collision de macros X11.** `SDL_syswm.h` tire `X11/Xlib.h`, qui `#define None 0L` — ce qui
+   casse `enum class BlendMode { None, … }` de `RHI/RHITypes.h`. Un `#undef None/Status/Bool/
+   Success/Always` après l'include suffit (vérifié sur 55 fichiers de test).
+3. **Du code réellement spécifique Windows.** Quelques cibles lisent `info.info.win` (le `HWND`) —
+   `test_renderer_showcase`, `test_video_demo`. Ce sont des **démos visuelles**, pas des tests `gpu`.
+
+### Preuve obtenue
+
+Garde levée et macros neutralisées **côté serveur uniquement** (le dépôt n'a pas été touché) :
+
+| | |
+|---|---|
+| Tests `gpu` ayant compilé et tourné | **3** |
+| …dont passés sous `xvfb-run` + llvmpipe, **sans GPU** | **3 / 3** |
+| Tests `gpu` bloqués à la **compilation** Linux | 13 |
+
+Parmi les réussites, `RhiReadbackGpu` — rendu offscreen, `readPixels`, assertions sur les pixels.
+C'est-à-dire exactement la classe de test qu'on croyait exiger du matériel.
+
+### Ce que ça change
+
+**Une machine à GPU n'est peut-être pas nécessaire pour faire tourner la suite `gpu`.** Les 13
+restants échouent à la **compilation**, pas à l'exécution : ce sont des problèmes de portabilité
+bornés et de nature connue, pas un mur matériel.
+
+⚠️ Ceci n'est **pas** une proposition de reprendre le port Linux — il est parké, c'est une décision
+d'Alexi. C'est le constat que **la raison écrite du parking n'est plus vraie**, et qu'une ferme à
+GPU pourrait résoudre un problème qui n'existe déjà plus. À rouvrir ou non ; mais à ne pas rouvrir
+sur la foi de l'ancienne raison.
