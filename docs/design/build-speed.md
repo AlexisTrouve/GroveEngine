@@ -231,7 +231,76 @@ est exactement le genre de signal qu'on ne veut pas classer sans regarder.
 
 ---
 
-## 6. Ce qui reste sur la table
+## 6. La ferme multi-projets (cross-compilation Windows)
+
+`tools/remote-build.sh` a été généralisé : plusieurs dépôts, file d'attente, et production de
+binaires **Windows** par cross-compilation mingw-w64 depuis le serveur Linux.
+
+### Pourquoi cross-compiler plutôt que compiler nativement
+
+Un build natif Linux produit des ELF inexécutables sur le poste, et exige que tout le parc compile
+sous Linux — ce que la dette « port Linux » (parkée) empêche. **Cross-compiler contourne les deux** :
+c'est la même famille de toolchain que le MinGW du poste, donc le même code, la même cible. Le
+blocage GL 2.1 sous llvmpipe et le segfault Linux de `RaceConditionHunter` sortent du chemin critique.
+
+Prérequis installés sur le serveur : `g++-mingw-w64-x86-64` (14.2), `ccache`, et **SDL2 mingw**
+(Debian ne le package pas — tarball officiel `SDL2-devel-2.30.9-mingw` déployé dans
+`/usr/x86_64-w64-mingw32/`).
+
+### ⚠️ Les deux pièges de la cross-compilation
+
+1. **La variante de threading.** Debian installe `-g++`, `-g++-win32` et `-g++-posix`, et le défaut
+   pointe sur **win32**, dont la libstdc++ n'implémente NI `std::thread` NI `std::mutex` : le moteur
+   ne compile pas du tout. Le fichier de toolchain force explicitement `-posix`, qui correspond
+   aussi au MinGW du poste (`x86_64-posix-seh-rev0`).
+2. **Les DLL de runtime.** Le serveur croise en GCC 14, le poste a MinGW GCC 15. Les binaires
+   produits dépendent des DLL de GCC 14 : il faut rapatrier celles **du serveur** (variante posix),
+   pas réutiliser celles du poste. `--fetch` s'en charge.
+
+### Résultats
+
+| | |
+|---|---|
+| Cross-build complet du moteur (1543 cibles, bgfx + UI + SDL2), cache froid | **612 s**, 0 erreur |
+| Le même, ccache chaud, depuis un dossier vide | **26 s** (×23) |
+| Binaires rapatriés et **exécutés sur Windows** | `test_access_guard`, `test_save_file`, `test_fx_world`, `test_nine_slice` — **tous verts** |
+
+Le ccache serveur (`base_dir=/home/debian/grovefarm`) est ce qui rend la ferme viable à plusieurs
+dépôts : les trois jeux font `add_subdirectory(../groveengine)` et **recompilent chacun bgfx +
+glslang + spirv-cross depuis zéro** (3 715 s CPU × 4). Le cache partagé annule cette redondance.
+
+### La file d'attente
+
+Un `flock` sur `~/grovefarm/.build.lock` sérialise les builds. Ce n'est pas du confort : le serveur
+n'a que 8 threads **et héberge la prod** `ai.etheryale.com`. D'où aussi `nice -n 19` et `-j6`.
+Un appel qui trouve la ferme occupée l'annonce et attend son tour (`GROVE_REMOTE_LOCK_WAIT`).
+
+### État par projet
+
+| Projet | Cross-build Windows | Blocage |
+|---|---|---|
+| **groveengine** | ✅ complet, binaires exécutés et verts | — |
+| **DAOS** | 🟡 82 % (moteur + bgfx OK) | deux défauts DE SON dépôt, voir ci-dessous |
+| drifterra, fractax | non tenté | probablement les mêmes classes de défaut |
+
+**Deux défauts trouvés dans DAOS — ce sont des bugs latents, pas des limites de la ferme :**
+
+1. **Casse de fichier.** `CMakeLists.txt` est suivi par git sous le nom `cmakelists.txt`. Windows
+   étant insensible à la casse, ça marche depuis toujours ; sous Linux, CMake ne trouve rien et dit
+   « does not appear to contain CMakeLists.txt », message qui n'évoque pas la casse. Le script
+   détecte désormais ce cas AVANT d'envoyer.
+2. **Dépendance vers un répertoire ignoré.** DAOS compile avec
+   `-I../groveengine/deps/nlohmann_json/single_include`, or `deps/` est **gitignored** dans
+   groveengine (`.gitignore:50`). Ça ne fonctionne que parce que ce dossier existe sur le poste :
+   **un clone frais de DAOS + groveengine ne compilerait pas non plus.** Le vrai correctif est
+   côté DAOS — lier la cible `nlohmann_json::nlohmann_json` que groveengine expose déjà, au lieu de
+   pointer un chemin vendu.
+
+Aucun de ces deux points n'a été corrigé ici : ce sont d'autres dépôts, avec leur propre suivi.
+
+---
+
+## 7. Ce qui reste sur la table
 
 - **`RaceConditionHunter` segfaute sous Linux** — non diagnostiqué. Peut être un artefact du port
   parké, peut être une vraie race que Windows masque.
