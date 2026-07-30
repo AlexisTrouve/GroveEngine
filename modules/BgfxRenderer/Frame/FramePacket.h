@@ -365,6 +365,31 @@ struct FramePacket {
     //          survives SceneCollector::clear().
     uint32_t ambientColor = 0;
 
+    // Post-processing: bloom settings (plan B) — set by `render:bloom`. GLOBAL FRAME STATE like the
+    // ambient above, not an ephemeral primitive: a reading, published once, that governs every later
+    // frame and survives SceneCollector::clear().
+    //
+    // ⚠️ `intensity == 0` IS THE SWITCH, and it is the default. Zero means no HDR composite target is
+    //    built, no bloom pass is recorded, and the composite writes to the backbuffer exactly as it
+    //    does without this feature — byte for byte. Same contract as `ambientColor == 0`, and it
+    //    protects the same consumers.
+    //
+    // ⚠️ Le bloom EXIGE que l'éclairage soit actif (ambientColor != 0) : sans lui la scène va
+    //    directement au backbuffer, et un backbuffer ne s'échantillonne pas. Un jeu qui ne veut que
+    //    du post-traitement publie un ambiant BLANC, neutre par construction.
+    struct BloomSettings {
+        // Combien de lueur est rajoutée à la frame composée. 0 = éteint.
+        float intensity = 0.0f;
+        // Luminance au-delà de laquelle un pixel brille. 1.0 = « seulement le sur-brillant », ce qui
+        // est la justification même du choix RGBA16F pour les cibles.
+        float threshold = 1.0f;
+        // Étendue de la lueur, en PIXELS ÉCRAN — pas en fraction de l'écran, sinon l'épaisseur de la
+        // lueur changerait au redimensionnement de la fenêtre. Même leçon que le pas de la marche
+        // d'occultation, qui était une fraction de distance et produisait un escalier variable.
+        float radius = 16.0f;
+    };
+    BloomSettings bloom;
+
     // Radial lights for THIS frame (ephemeral, like sprites and particles). Null + 0 when the game
     // published none — no arena slice is claimed for a feature nobody used.
     const LightCommand* lights = nullptr;

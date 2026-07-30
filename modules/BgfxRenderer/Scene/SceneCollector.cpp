@@ -160,6 +160,9 @@ void SceneCollector::setup(IIO* io, uint16_t width, uint16_t height) {
         else if (msg.topic == "render:ambient") {
             parseAmbient(*msg.data);
         }
+        else if (msg.topic == "render:bloom") {
+            parseBloom(*msg.data);
+        }
         else if (msg.topic == "render:light") {
             parseLight(*msg.data);
         }
@@ -251,6 +254,7 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     packet.elapsedTime = m_elapsedTime;
     packet.clearColor = m_clearColor;
     packet.ambientColor = m_ambientColor;   // global state, not cleared at the frame boundary
+    packet.bloom = m_bloom;                 // idem: a setting, published once, honoured every frame
     packet.mainView = m_mainView;
     packet.allocator = &allocator;
 
@@ -1513,6 +1517,30 @@ void SceneCollector::parseAmbient(const IDataNode& data) {
     // TURNS LIGHTING OFF again rather than silently picking a value — the topic is the on/off switch
     // as much as it is the value, and a game dimming to black must be able to say so.
     m_ambientColor = static_cast<uint32_t>(data.getInt("color", 0));
+}
+
+void SceneCollector::parseBloom(const IDataNode& data) {
+    // Bloom settings (plan B). Comme l'ambiant : un RÉGLAGE global persistant, et `intensity` est
+    // l'interrupteur autant que la valeur — publier `render:bloom {intensity:0}` doit ÉTEINDRE, sinon
+    // le bloom serait allumable et pas éteignable.
+    //
+    // COMMENT — les trois bornes, et pourquoi on borne au lieu de retomber sur le défaut :
+    //   - intensity < 0 : une lueur négative SOUSTRAIRAIT de la frame. Zéro (éteint) est le seul sens
+    //     qu'on puisse donner à « moins que rien ».
+    //   - threshold < 0 : casse la courbe du genou. Zéro est la valeur limite déjà documentée : tout
+    //     brille, le voile.
+    //   - radius < 0 : donnerait un sigma négatif au noyau. Zéro = aucun étalement, donc une lueur
+    //     nette — explicable et MONOTONE (plus le rayon est petit, plus la lueur est serrée).
+    //
+    // Remettre le défaut à la place d'une borne serait pire qu'un fallback : un rayon de 16 sorti de
+    // nulle part là où l'auteur a écrit -50 masque sa faute de frappe au lieu d'en montrer l'effet.
+    m_bloom.intensity = static_cast<float>(data.getDouble("intensity", 0.0));
+    m_bloom.threshold = static_cast<float>(data.getDouble("threshold", 1.0));
+    m_bloom.radius    = static_cast<float>(data.getDouble("radius", 16.0));
+
+    if (!(m_bloom.intensity > 0.0f)) m_bloom.intensity = 0.0f;   // couvre aussi un NaN entrant
+    if (!(m_bloom.threshold > 0.0f)) m_bloom.threshold = 0.0f;
+    if (!(m_bloom.radius    > 0.0f)) m_bloom.radius    = 0.0f;
 }
 
 void SceneCollector::parseDebugLine(const IDataNode& data) {

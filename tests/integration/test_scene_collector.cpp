@@ -2935,3 +2935,121 @@ TEST_CASE("SceneCollector - nebula retained and ephemeral COEXIST",
     fx.pump();
     REQUIRE(fx.collector.finalize(allocator).nebulaCount == 3);
 }
+
+// ============================================================================
+// Bloom (plan B, tranche B1) — `render:bloom`, un RÉGLAGE et pas une donnée de frame.
+//
+// Même nature que `render:ambient` : état global persistant, et `intensity == 0` est l'interrupteur
+// autant que la valeur. Tout le contournement à coût nul du bloom (aucune cible HDR, aucune passe,
+// composite au backbuffer à l'octet près) tient à ce que ce défaut soit 0.
+//
+// Plan : docs/design/lighting-bloom.md
+// ============================================================================
+
+TEST_CASE("SceneCollector - bloom: absent means OFF", "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+
+    // L'assertion de non-régression. Une intensité non nulle par défaut ferait basculer chaque jeu
+    // existant sur le chemin post-traité — une cible plein écran RGBA16F et quatre passes que
+    // personne n'a demandées.
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - bloom: intensity alone is enough, the rest has defaults",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", 0.6);
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.6f, 1e-5f));
+    // Seuil 1.0 = « seulement le sur-brillant », qui est la justification même du RGBA16F.
+    REQUIRE_THAT(p.bloom.threshold, WithinAbs(1.0f, 1e-5f));
+    // Rayon en PIXELS ÉCRAN — pas en fraction d'écran, sinon la lueur changerait d'épaisseur au
+    // redimensionnement de la fenêtre (la leçon de la marche d'occultation, plan W risque 2).
+    REQUIRE_THAT(p.bloom.radius, WithinAbs(16.0f, 1e-5f));
+}
+
+TEST_CASE("SceneCollector - bloom: it PERSISTS across the frame boundary",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", 0.8);
+    b->setDouble("threshold", 2.5);
+    b->setDouble("radius", 40.0);
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.8f, 1e-5f));
+        REQUIRE_THAT(p.bloom.threshold, WithinAbs(2.5f, 1e-5f));
+        REQUIRE_THAT(p.bloom.radius, WithinAbs(40.0f, 1e-5f));
+    }
+
+    // Un réglage, pas une primitive : il doit survivre, ou un jeu devrait le republier chaque frame.
+    fx.collector.clear();
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.8f, 1e-5f));
+        REQUIRE_THAT(p.bloom.threshold, WithinAbs(2.5f, 1e-5f));
+    }
+}
+
+TEST_CASE("SceneCollector - bloom: intensity 0 turns it back OFF",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    {
+        auto b = std::make_unique<JsonDataNode>("b");
+        b->setDouble("intensity", 0.7);
+        fx.ioPublisher->publish("render:bloom", std::move(b));
+        fx.pump();
+        REQUIRE(fx.collector.finalize(allocator).bloom.intensity > 0.0f);
+        fx.collector.clear();
+    }
+
+    // Le sujet est l'EXTINCTION. Comme pour l'ambiant, le topic est l'interrupteur autant que la
+    // valeur : un jeu qui coupe son post-traitement doit pouvoir le dire, et le renderer doit alors
+    // rendre ses cibles. Sans ce chemin, le bloom serait allumable et pas éteignable.
+    auto off = std::make_unique<JsonDataNode>("b");
+    off->setDouble("intensity", 0.0);
+    fx.ioPublisher->publish("render:bloom", std::move(off));
+    fx.pump();
+    REQUIRE_THAT(fx.collector.finalize(allocator).bloom.intensity, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("SceneCollector - bloom: nonsense values are clamped, not propagated",
+          "[scene_collector][light][bloom]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto b = std::make_unique<JsonDataNode>("b");
+    b->setDouble("intensity", -3.0);      // une intensité négative SOUSTRAIRAIT de la lueur
+    b->setDouble("threshold", -1.0);      // un seuil négatif casse la courbe du genou
+    b->setDouble("radius", -50.0);        // un rayon négatif donnerait un sigma négatif
+    fx.ioPublisher->publish("render:bloom", std::move(b));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    // Intensité négative = éteint, pas « lueur inversée » : rien à ajouter est le seul sens qu'on
+    // puisse donner à moins que rien.
+    REQUIRE_THAT(p.bloom.intensity, WithinAbs(0.0f, 1e-6f));
+    // Seuil 0 = tout brille, qui est la valeur limite documentée (le voile).
+    REQUIRE_THAT(p.bloom.threshold, WithinAbs(0.0f, 1e-6f));
+    // Rayon 0 = aucune étalement, donc une lueur nette. Explicable et monotone (plus petit rayon =
+    // lueur plus serrée), là où remettre le défaut ferait un rayon de 16 sorti de nulle part.
+    REQUIRE_THAT(p.bloom.radius, WithinAbs(0.0f, 1e-6f));
+}
