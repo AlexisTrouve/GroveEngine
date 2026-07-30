@@ -4174,3 +4174,109 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND SDL2_AVAILABLE)
     endif()
     message(STATUS "FX demo 'test_fx_demo' enabled")
 endif()
+
+
+# ============================================================================
+# En-tête précompilé partagé (PCH)
+# ----------------------------------------------------------------------------
+# QUOI    : compile une fois les en-têtes lourds communs (grove_test_pch.h) et fait
+#           réutiliser ce .gch par toutes les cibles de test liées à Catch2.
+# POURQUOI: ~62 % du coût d'une TU de test mesuré est le parsing de ses en-têtes.
+#           Complémentaire de ccache (voir CMakeLists.txt racine) : ccache annule le
+#           coût des recompilations IDENTIQUES, le PCH réduit celui des NEUVES.
+# COMMENT : 1. une cible fournisseur porte le seul vrai PCH,
+#           2. on énumère les cibles de CE répertoire (BUILDSYSTEM_TARGETS) et on
+#              branche chaque EXECUTABLE liant Catch2 dessus via REUSE_FROM.
+#              REUSE_FROM est obligatoire, pas cosmétique : sans lui CMake cuirait un
+#              PCH de 130 Mo PAR cible, soit ~166 cuissons — bien plus cher que le
+#              parsing qu'on cherche à éviter.
+#           3. une cible mal appariée (défines bgfx/SDL différents) voit son PCH
+#              rejeté par GCC, qui retombe sur le texte de l'en-tête : correct, sans
+#              gain. C'est pourquoi on peut se permettre un filtre simple.
+# SORTIE DE SECOURS : -DGROVE_USE_PCH=OFF rétablit exactement le build d'avant.
+# ============================================================================
+option(GROVE_USE_PCH "Share one precompiled header across the Catch2 test targets" ON)
+
+if(GROVE_USE_PCH)
+    add_library(grove_test_pch STATIC ${CMAKE_CURRENT_SOURCE_DIR}/grove_test_pch.cpp)
+
+    # Le fournisseur doit voir EXACTEMENT les mêmes en-têtes et défines que ses
+    # consommateurs, sinon le .gch produit leur est inutilisable. Ces trois cibles
+    # portent le jeu de défines dominant de la suite (mesuré : 213 TU sur -DGROVE_
+    # DEBUG_BUILD=1 -DGROVE_USE_OPENSSL=0 -DSPDLOG_COMPILED_LIB).
+    target_link_libraries(grove_test_pch PUBLIC
+        GroveEngine::impl
+        Catch2::Catch2WithMain
+        spdlog::spdlog
+    )
+
+    target_precompile_headers(grove_test_pch PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/grove_test_pch.h
+    )
+
+    # Énumération des cibles déclarées plus haut dans CE fichier.
+    get_property(_grove_test_targets DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                 PROPERTY BUILDSYSTEM_TARGETS)
+
+    set(_grove_pch_count 0)
+    foreach(_grove_tgt IN LISTS _grove_test_targets)
+        if(_grove_tgt STREQUAL "grove_test_pch")
+            continue()
+        endif()
+
+        get_target_property(_grove_type ${_grove_tgt} TYPE)
+        if(NOT _grove_type STREQUAL "EXECUTABLE")
+            continue()
+        endif()
+
+        # Une cible mêlant des sources C (ex. le compresseur miniz vendé de mapview)
+        # est exclue : REUSE_FROM s'applique à TOUTES les langues de la cible, or le
+        # fournisseur ne produit qu'un PCH C++ — CMake échoue alors au generate avec
+        # "Unable to resolve full path of PCH-header". Un PCH C n'aurait aucun sens
+        # ici (Catch2 et nlohmann sont du C++), donc on renonce au gain sur ces rares
+        # cibles plutôt que de compliquer le fournisseur.
+        get_target_property(_grove_srcs ${_grove_tgt} SOURCES)
+        if(_grove_srcs MATCHES "\\.c(;|$)")
+            continue()
+        endif()
+
+        # Filtre : Catch2 ET le moteur. Les DEUX conditions sont nécessaires.
+        #
+        # Catch2, parce que c'est le gros du contenu du PCH — le forcer sur une démo
+        # visuelle lui ferait parser des en-têtes dont elle n'a pas besoin.
+        #
+        # GroveEngine::impl, parce qu'un PCH rejeté n'est PAS inoffensif. CMake force
+        # l'inclusion du PCH en ligne de commande ; si GCC juge le .gch inutilisable
+        # (défines différentes), il retombe sur le TEXTE de l'en-tête — qui doit alors
+        # compiler dans l'environnement de la cible. Or grove_test_pch.h inclut
+        # grove/JsonDataNode.h, lequel tire nlohmann/json.hpp de façon TRANSITIVE :
+        # une garde __has_include ne peut rien pour ça. Constaté en dur sur
+        # test_transform2d (Catch2 sans le moteur) : "fatal error: nlohmann/json.hpp:
+        # No such file or directory". Exiger le moteur aligne à la fois les includes
+        # et les défines (GROVE_USE_OPENSSL, SPDLOG_COMPILED_LIB via spdlog PUBLIC)
+        # sur ceux du fournisseur, donc le PCH est réellement UTILISÉ, pas juste toléré.
+        #
+        # Vérification : CMake passe -Winvalid-pch, donc tout appariement raté se voit
+        # dans le log de build ("not used because ... not defined"). Il ne doit pas y
+        # en avoir.
+        get_target_property(_grove_libs ${_grove_tgt} LINK_LIBRARIES)
+
+        # Les cibles liant BgfxRenderer héritent des défines bgfx (__STDC_CONSTANT_MACROS
+        # & co) : leur jeu ne correspond plus à celui du fournisseur, GCC rejette donc le
+        # .gch (mesuré : 16 cibles, toutes les *_gpu). Elles compilent — elles ont les
+        # includes qu'il faut — mais paient le parsing sans le gain, et noient le log sous
+        # des -Winvalid-pch qui masqueraient un vrai désappariement. On les écarte.
+        # Leur donner un second fournisseur aux défines bgfx est une suite possible
+        # (voir docs/design/build-speed.md).
+        if(_grove_libs MATCHES "BgfxRenderer")
+            continue()
+        endif()
+
+        if(_grove_libs MATCHES "Catch2" AND _grove_libs MATCHES "GroveEngine::impl|grove_impl")
+            target_precompile_headers(${_grove_tgt} REUSE_FROM grove_test_pch)
+            math(EXPR _grove_pch_count "${_grove_pch_count} + 1")
+        endif()
+    endforeach()
+
+    message(STATUS "Shared test PCH: reused by ${_grove_pch_count} test targets")
+endif()
