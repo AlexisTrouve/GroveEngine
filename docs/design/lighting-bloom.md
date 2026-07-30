@@ -1,6 +1,7 @@
 # Plan B — le bloom (post-traitement, tranche 1)
 
-> **Statut** : plan écrit le 2026-07-30, avant la première ligne de code.
+> **Statut** : ✅ **LIVRÉ** le 2026-07-30 — B0 → B3, plus un défaut RHI trouvé en chemin.
+> Écarts et erreurs de ce plan consignés au **§8**, à lire avant de faire confiance au reste.
 > **Socle** : [éclairage 2D](lighting-2d.md) — les cibles sont en RGBA16F **précisément pour ça**
 > ([l'arbitrage d'Alexi](lighting-2d.md#8-arbitrage-tranché--rgba16f-alexi-2026-07-28)).
 > **Suite annoncée après** : fondus et colorimétrie, sur la même passe de présentation.
@@ -165,7 +166,62 @@ là où seuiller chaque canal séparément décalerait la couleur d'un pixel don
    être accrochée à celle des cibles d'éclairage, sinon un redimensionnement laisse un HDR à l'ancienne
    taille échantillonné par une présentation à la nouvelle.
 
-## 7. Hors périmètre, explicitement
+## 7. Ce qui a été mesuré
+
+`LightingGpu [bloom]`, lampe r=30 i=4 sur une scène blanche, ambiant à 4 %, bloom `intensity 2`,
+`radius 40` :
+
+| Mesure | Bloom éteint | Bloom allumé | Ce que ça prouve |
+|---|---|---|---|
+| **plomberie** (seuil inatteignable) | 10 / 255 | **10 / 255** | le trajet HDR ne déforme rien, à l'octet près |
+| **lueur**, hors du rayon de la lampe | 10 | **40** | de la lumière là où la retombée vaut *exactement* 0 |
+| **localité**, dans le coin | 10 | **10** | la lueur est locale, pas un éclaircissement global |
+
+**Sabotages** (chacun n'a fait tomber que ce qu'il devait) :
+
+- écartement du flou forcé à 0 → la lueur ne sort plus de la lampe (10, inchangé) ;
+- présentation échantillonnant la cible HDR au lieu de la lueur floutée → la plomberie **et** la
+  localité tombent. ⚠️ **La mesure de LUEUR passait encore** : sans le contrôle de localité, cette
+  faute traversait le test. C'était sa raison d'être, écrite au §6.3 avant le code — et c'est la
+  meilleure preuve que cette section valait la peine d'être écrite.
+
+## 8. ⚠️ Écarts et erreurs de ce plan
+
+**La justification du genou doux était fausse** (corrigée au §5, en place). J'avais écrit que le seuil
+net produisait une *discontinuité de valeur* qui scintille ; il n'en produit pas. Le test que ce plan
+appelait aurait donc passé au vert avec un seuil net. C'est la troisième occurrence de la semaine du
+« discriminant qui ne discrimine pas », et la seule chose qui l'a attrapée est d'avoir saboté le code
+pour vérifier ce que le test attrapait vraiment.
+
+**Ma marge de test était devinée deux fois.**
+1. Sur la courbe : j'avais écrit « la fraction reste sous 0,10 à 95 % du seuil ». La vraie valeur est
+   0,1066, et l'échec n'apprenait rien. La borne est maintenant **calculée** et écrite dans le test.
+2. Sur le GPU : le premier point d'échantillonnage était à 15 px hors du bord de la lampe et donnait
+   **+5 sur 255** — réel, mais faible, et pour une raison physique (seule la partie du disque dont la
+   luminance dépasse le seuil brille, et le flou dilue cette petite tache d'un facteur ~13). En
+   mesurant 5 px hors du bord, l'effet est de **+30** pour un discriminant identique. Ce n'est pas un
+   réglage pour passer : le plancher de bruit est mesuré à 0 par le contrôle de localité.
+
+**B2 et B3 sont un seul commit.** Les séparer aurait livré une passe de présentation qui ne fait
+qu'une copie — un état intermédiaire sans valeur propre. Le test de plomberie, lui, a bien été écrit
+séparément, ce qui donne le bénéfice qu'on cherchait à la découpe.
+
+**Pas de branche Metal, au lieu d'une branche Metal.** Le plan disait « placeholder » ; en pratique
+la branche a été **retirée**, comme pour `fs_nebula`, parce qu'une branche `Metal` pointant vers des
+symboles inexistants ne compile pas — et qu'en écrire une qui retombe sur SPIR-V déguiserait le trou.
+Le repli SPIR-V est explicite et commenté.
+
+**Trois programmes réutilisent `vs_composite`** — délibérément l'inverse de la règle « deux programmes
+ne partagent pas un étage » écrite pendant la session A4. Cette règle venait d'un diagnostic faux
+(un artefact de build périmé, [known-annoyances §3bis](known-annoyances.md)). Dupliquer trois fois un
+vertex pour obéir à une règle démentie aurait été ajouter de la dette au nom d'une erreur.
+
+**Le risque n°1 s'est réalisé, et plus tôt que prévu** : le détachement de vue était bien cassé. Il
+est corrigé côté RHI avec son test rouge (`RhiReadbackGpu [unbind]`), et le rouge a montré la cible
+recevant `0xEE` après un détachement censé la protéger — le défaut est donc *constaté*, pas seulement
+lu dans le code.
+
+## 9. Hors périmètre, explicitement
 
 - **Pas de chaîne de mips** (donc pas de très grands rayons propres) — voir risque 4.
 - **Pas de tonemapping ni de courbe de couleur.** La passe de présentation est l'endroit où ils

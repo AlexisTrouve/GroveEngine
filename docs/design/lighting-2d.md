@@ -2,8 +2,10 @@
 
 > **Statut** : ✅ **TOUT LIVRÉ** au 2026-07-29 — lampes (L1→L3), socle de transmittance (C1→C2),
 > murs (W), filtres (F), milieux et nébuleuses (A1→A4). Suite complète 194/194.
-> **Suite annoncée** : le post-traitement (bloom, fondus, colorimétrie) — il consommera la même
-> plomberie de cibles de rendu. Les choix ci-dessous en tiennent compte.
+> **Post-traitement** : ✅ **le bloom est livré** (2026-07-30, [plan B](lighting-bloom.md)) — il
+> consomme bien la même plomberie de cibles, et le RGBA16F tranché en §8 est ce qui l'a rendu
+> possible. La passe de **présentation** qu'il introduit est l'accroche des **fondus et de la
+> colorimétrie**, qui restent à faire.
 
 ---
 
@@ -18,6 +20,7 @@ vues a été le vrai obstacle. Il n'est pas le mode d'emploi.
 | un **survol rapide** côté module | [README de BgfxRenderer](../../modules/BgfxRenderer/README.md) § Éclairage 2D |
 | **pourquoi murs, filtres et brouillard sont un seul mécanisme** | [socle de transmittance](lighting-transmittance-core.md) ← la pièce centrale |
 | le détail d'une matière | [murs](lighting-walls.md) · [filtres](lighting-filters.md) · [milieux et nébuleuses](lighting-attenuators.md) |
+| le **bloom** (post-traitement) | [plan B](lighting-bloom.md) — ce qui alimente la lueur, et pourquoi ce n'est pas le buffer de lumière |
 | **à quoi ça ressemble** | `blog/` + [`IMAGES.md`](../../IMAGES.md) — 14 captures et 3 GIF |
 
 **Ce que la campagne a livré, en une phrase** : la matière a cessé d'être binaire. Un mur, un

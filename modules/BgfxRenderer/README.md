@@ -254,6 +254,41 @@ sert qu'à proportion de la surface retirée.
 Conception : [`docs/design/lighting-2d.md`](../../docs/design/lighting-2d.md) (point d'entrée).
 Guide consommateur détaillé : [DEVELOPER_GUIDE](../../docs/DEVELOPER_GUIDE.md).
 
+### Bloom (post-traitement)
+
+Une lueur autour de ce qui est **sur-exposé**. Un seul réglage, persistant :
+
+```cpp
+auto b = std::make_unique<JsonDataNode>("b");
+b->setDouble("intensity", 1.5);      // 0 = ÉTEINT (le défaut). C'est l'interrupteur.
+b->setDouble("threshold", 1.0);      // luminance au-delà de laquelle un pixel brille
+b->setDouble("radius", 24.0);        // étendue, en PIXELS ÉCRAN
+io->publish("render:bloom", std::move(b));
+```
+
+**⚠️ Le bloom exige l'éclairage actif.** Il se nourrit de la frame *composée*, et sans `render:ambient`
+il n'y a pas de composite du tout — la scène va au backbuffer, qui ne s'échantillonne pas. Pour du
+post-traitement sans look éclairé : un **ambiant blanc**, neutre par construction.
+
+**Pourquoi la frame composée et pas le buffer de lumière** — c'est le seul choix d'architecture, et il
+a une conséquence exploitable : la source étant l'image finale, un **sprite additif**
+(`blend:"additive"`) brille aussi, pas seulement les lampes. C'est la forme du panache de moteur.
+L'autre option coûtait une passe de moins et le laissait éteint.
+
+Le seuil a un **genou doux** (la moitié du seuil, pas un bouton) : sans lui la *pente* de la lueur
+saute au franchissement et le halo démarre par un ourlet visible. La courbe est en C++ dans
+`grove::light::brightPassFraction` — un jeu peut demander « cette couleur brillerait-elle ? » sans
+relecture GPU, comme pour la retombée des lampes.
+
+**Coût** : une cible RGBA16F plein écran de plus et quatre passes plein écran, dont trois au **quart**
+de la résolution. Payé seulement tant que `intensity > 0`. **Le HUD ne brille pas** — il est soumis
+après la présentation ; interface nette au-dessus d'un monde qui éblouit, c'est voulu.
+
+⚠️ Au-delà d'un rayon de ~60 px, les taps du noyau se séparent visiblement et la lueur montre des
+cernes : il faudrait une chaîne de mips, qui n'est pas faite.
+
+Conception : [`docs/design/lighting-bloom.md`](../../docs/design/lighting-bloom.md).
+
 ### Topics complets
 
 | Topic | Description |
@@ -343,12 +378,13 @@ int main() {
 *(Tout ce que cette liste réclamait autrefois — textures, shaders, tilemap, texte, particules,
 cibles de rendu, multi-vues — est livré. Une TODO qui ment coûte plus cher qu'une TODO absente.)*
 
-- [ ] **Mesurer le budget de lampes.** Chaque lampe est un quad coûtant jusqu'à 64 accès texture par
-      pixel couvert ; le chiffre « des dizaines » qui circulait est antérieur à la marche
-      d'occultation et n'a pas été revérifié depuis.
-- [ ] **Post-traitement** (bloom en premier) — la cible RGBA16F conserve déjà le sur-brillant pour ça
-- [ ] **Variantes Metal des shaders** : `fs_light`/`fs_nebula` n'ont pas de bloc Metal réel
-      (placeholder), faute de backend Metal sur la chaîne de build
+- [x] ~~**Mesurer le budget de lampes.**~~ Fait (`tests/visual/benchmark_lighting.cpp`) : 19,5 µs par
+      viewport couvert sans matière, 355 µs avec. Voir § Éclairage 2D.
+- [x] ~~**Post-traitement (bloom)**~~ Fait — `render:bloom`, voir § Bloom. Restent le **tonemapping**,
+      les **fondus** et la **colorimétrie**, qui iront sur la passe de présentation qu'il a introduite.
+- [ ] **Chaîne de mips pour le bloom** — sans elle, un rayon au-delà de ~60 px montre des cernes
+- [ ] **Variantes Metal des shaders** : `fs_light`/`fs_nebula`/`vs_nebula` et les trois shaders de
+      post-traitement n'ont pas de bloc Metal réel (placeholder), faute de backend Metal sur la chaîne
 - [ ] `flipX`/`flipY` sur `render:sprite:update` (délibérément non supporté : double-flip)
 
 ## Dépendances
