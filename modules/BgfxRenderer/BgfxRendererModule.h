@@ -94,6 +94,11 @@ private:
     // clamp so the march reads white wherever it looks. Nothing writes occluders yet; plan W
     // replaces this with a real screen-space target. Created once, destroyed at shutdown.
     rhi::TextureHandle m_occlusionTex;
+    // Placeholder d'accumulation de lumière : 1×1 NOIR = aucune lumière. Servi au composite quand la
+    // frame ne publie AUCUNE lampe — sans quoi la cible, jamais effacée (une vue sans draw est sautée
+    // par bgfx, donc son clear ne tourne pas), rejouerait la dernière frame éclairée. Voir le
+    // commentaire au point de création dans initialize().
+    rhi::TextureHandle m_blackLightTex;
     rhi::FramebufferHandle m_sceneFB;
     rhi::FramebufferHandle m_lightFB;
     rhi::FramebufferHandle m_occlusionFB;

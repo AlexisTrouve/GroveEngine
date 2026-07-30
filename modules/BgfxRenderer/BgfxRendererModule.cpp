@@ -433,6 +433,28 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         od.dataSize = sizeof(whitePixel);
         m_occlusionTex = m_device->createTexture(od);
 
+        // ...et son PENDANT pour l'accumulation de lumière : BLACK = aucune lumière ajoutée.
+        //
+        // ⚠️ Même piège, même remède, et il a fallu une capture pour le voir. Une vue qui ne reçoit
+        //    AUCUN draw est sautée par bgfx, et une vue sautée n'exécute jamais son effacement. Une
+        //    frame qui ne publie aucune lampe laissait donc la cible d'accumulation garder le contenu
+        //    de la dernière frame qui en avait — et le composite l'ajoutait à l'ambiant. Symptôme : un
+        //    fantôme de lumière FIGÉ, qu'un jeu chercherait dans son propre code.
+        //
+        //    C'est un état parfaitement légitime : toutes les lampes cullées hors écran, une
+        //    transition de scène, un interrupteur coupé. Personne ne l'avait vu parce que tous les
+        //    tests et toutes les planches publiaient au moins une lampe par frame.
+        //
+        //    Comme pour l'occultation, on ne CONSULTE pas la cible quand personne n'a rien écrit,
+        //    plutôt que de compter sur une sémantique d'effacement-au-toucher. Verrouillé par
+        //    LightingGpu [stale].
+        rhi::TextureDesc bd;
+        bd.width = 1; bd.height = 1; bd.format = rhi::TextureDesc::RGBA8;
+        const uint8_t blackPixel[4] = { 0, 0, 0, 255 };
+        bd.data = blackPixel;
+        bd.dataSize = sizeof(blackPixel);
+        m_blackLightTex = m_device->createTexture(bd);
+
         auto lightPass = std::make_unique<LightPass>(m_shaderManager->getProgram("light"));
         lightPass->setOcclusionTexture(m_occlusionTex);
         m_lightPass = lightPass.get();
@@ -932,9 +954,21 @@ void BgfxRendererModule::process(const IDataNode& input) {
             // placeholder, which reads as vacuum and as zero scattering.
             const rhi::TextureHandle occlusionTex =
                 hasOccluders ? m_device->getFramebufferTexture(m_occlusionFB) : m_occlusionTex;
+
+            // MÊME raisonnement pour l'accumulation de lumière, et le même piège : une frame sans
+            // aucune lampe ne fait dessiner personne dans cette vue, bgfx la SAUTE, son effacement ne
+            // tourne pas — et la cible rejouerait la dernière frame éclairée. On sert donc le
+            // placeholder 1×1 NOIR au lieu de consulter une cible que personne n'a écrite.
+            //
+            // ⚠️ Trouvé sur une CAPTURE (une planche sans lampe montrait le halo de la planche
+            //    précédente), pas en relisant le code — et le défaut est antérieur au bloom.
+            //    Verrouillé par LightingGpu [stale].
+            const bool hasLights = (packet.lights != nullptr && packet.lightCount > 0);
+            const rhi::TextureHandle lightTex =
+                hasLights ? m_device->getFramebufferTexture(m_lightFB) : m_blackLightTex;
             if (m_compositePass) {
                 m_compositePass->setTargets(m_device->getFramebufferTexture(m_sceneFB),
-                                            m_device->getFramebufferTexture(m_lightFB),
+                                            lightTex,
                                             occlusionTex);
             }
             if (m_lightPass) {
@@ -1056,6 +1090,10 @@ void BgfxRendererModule::shutdown() {
     // pass that borrows their textures. Releasing them after would leave the pass holding handles to
     // freed targets for the length of the teardown.
     releaseLightingTargets();
+    if (m_device && m_blackLightTex.isValid()) {
+        m_device->destroy(m_blackLightTex);
+        m_blackLightTex = rhi::TextureHandle{};
+    }
     if (m_device && m_occlusionTex.isValid()) {
         m_device->destroy(m_occlusionTex);
         m_occlusionTex = rhi::TextureHandle{};

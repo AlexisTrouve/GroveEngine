@@ -1204,3 +1204,109 @@ TEST_CASE("bloom: the glow reaches OUTSIDE the lamp radius, and only nearby (GPU
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+// ============================================================================
+// Une frame SANS lampe ne doit pas montrer la lampe de la frame précédente.
+//
+// ⚠️ Trouvé le 2026-07-30 en regardant une CAPTURE, pas en lisant du code. Une planche de blog qui ne
+//    publiait aucune lampe (deux faisceaux additifs sous un ambiant blanc) montrait un halo bleuté
+//    dans le coin gauche, centré exactement là où la planche PRÉCÉDENTE posait sa lampe.
+//
+// LE MÉCANISME, et c'est un piège déjà connu du module pour une AUTRE cible : bgfx **saute une vue
+// qui ne reçoit aucun draw**, et une vue sautée n'exécute jamais son effacement. Aucune lampe publiée
+// ⇒ LightPass n'enregistre rien ⇒ la vue d'accumulation est sautée ⇒ la cible garde le contenu de la
+// dernière frame qui, elle, avait des lampes. Le composite l'échantillonne et l'ajoute à l'ambiant.
+//
+// La même remarque est écrite depuis W dans BgfxRendererModule au sujet de la carte d'occultation, où
+// elle a été résolue par un PLACEHOLDER (une texture 1×1) au lieu d'une confiance dans l'effacement.
+// Le buffer de lumière avait le même défaut et personne ne l'avait vu, parce que tous les tests et
+// toutes les planches publient au moins une lampe à chaque frame.
+//
+// ⚠️ C'est un état parfaitement légitime pour un jeu : toutes les lampes hors écran (cull), une
+//    transition de scène, un interrupteur coupé. Le symptôme serait « un fantôme de lumière figé »,
+//    qu'on chercherait dans son propre code de gameplay.
+// ============================================================================
+
+TEST_CASE("lighting: a frame with NO lights shows no residual lamp (GPU)", "[gpu][light][stale]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    const int W = 64, H = 64;
+    SDL_Window* win = SDL_CreateWindow("stale", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("st_r");
+    auto gIO = mgr.createInstance("st_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("st_r"); mgr.removeInstance("st_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    // `withLamp` décide si la frame publie une lampe. Tout le reste est identique — c'est la seule
+    // variable de l'expérience.
+    auto render = [&](bool withLamp) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            // Scène blanche pleine vue : le terme de scène vaut 1, donc la sortie EST le terme
+            // d'éclairage — ce qui rend les deux lectures directement comparables.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x404040FFu));      // ambiant 0,25
+              gIO->publish("render:ambient", std::move(a)); }
+            if (withLamp) {
+                auto l = std::make_unique<JsonDataNode>("l");
+                l->setDouble("cx", W*0.5); l->setDouble("cy", H*0.5);
+                l->setDouble("radius", W * 1.5);                       // couvre toute la vue
+                l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+                l->setDouble("intensity", 3.0);
+                gIO->publish("render:light", std::move(l));
+            }
+            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+        const uint8_t* p = &rgba[(static_cast<size_t>(H/2)*W + (W/2))*4];
+        return (static_cast<int>(p[0]) + p[1] + p[2]) / 3;
+    };
+
+    const int withLamp = render(true);
+    const int noLamp    = render(false);
+
+    INFO("centre avec lampe=" << withLamp << " sans lampe=" << noLamp);
+
+    REQUIRE(withLamp > 200);     // sanité : la lampe éclaire vraiment
+
+    // L'ASSERTION. Sans lampe, la sortie doit être la scène × l'ambiant seul, soit 0,25 -> ~64.
+    // Avec le buffer de lumière périmé, elle reste proche de la valeur éclairée.
+    CHECK(noLamp < 100);
+    CHECK(noLamp > 40);          // ...et pas noir non plus : l'ambiant, lui, doit rester
+
+    renderer->shutdown();
+    mgr.removeInstance("st_r");
+    mgr.removeInstance("st_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
