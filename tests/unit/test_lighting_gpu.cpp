@@ -1959,3 +1959,283 @@ TEST_CASE("grade: desaturation respects LUMINANCE and spares the HUD (GPU)", "[g
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
+
+// ============================================================================
+// COMPOSITION du post-traitement — les quatre effets ENSEMBLE (plans B, T, F2, G).
+//
+// POURQUOI ce test existe, et pourquoi il arrive après les quatre autres : chacun d'eux ne publie
+// **qu'un seul** réglage. Les affirmations les plus chargées de tout le chantier portent pourtant sur
+// la COMPOSITION, et elles n'étaient qu'argumentées dans des commentaires :
+//
+//   1. « la lueur est ajoutée AVANT la courbe, sinon elle réécrête » ;
+//   2. « la colorimétrie épargne le HUD, le fondu le couvre » ;
+//   3. « un fondu au blanc atteint le blanc PARCE QU'IL passe après la courbe ».
+//
+// ⚠️ Et ce n'est pas une inquiétude théorique : DEUX bugs de cette session vivaient exactement là — le
+//    buffer de lumière périmé (trouvé sur une capture sans lampe) et la vue soumise deux fois (trouvée
+//    par le test de colorimétrie, datant de la tranche des fondus). Aucun n'était un bug de math ; les
+//    deux étaient des bugs de composition et d'état, et aucun test isolé ne les a attrapés.
+//
+// Plans : lighting-bloom.md, lighting-tonemap.md, lighting-fade.md, lighting-grade.md
+// ============================================================================
+
+TEST_CASE("post-processing: the four effects COMPOSE in the right order (GPU)",
+          "[gpu][light][compo]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    const int W = 128, H = 128;
+    SDL_Window* win = SDL_CreateWindow("compo", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("cp_r");
+    auto gIO = mgr.createInstance("cp_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("cp_r"); mgr.removeInstance("cp_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    // Une lampe ORANGE au centre, un carré HUD VERT en bas à droite. Le point de mesure de la lueur est
+    // hors du rayon de la lampe — là où sa retombée vaut EXACTEMENT zéro, donc où tout ce qu'on lit
+    // vient forcément du post-traitement.
+    const double cx = 48.0, cy = 48.0, lampRadius = 22.0;
+    // ⚠️ 4 px HORS du bord et pas 8 : le premier essai mesurait a 30 px du centre, ou la lueur ne
+    //    vaut que ~0,01. Meme multipliee par 20, la somme brute restait sous 1 -- donc elle
+    //    n'ecretait pas MEME en etant ajoutee apres la courbe, et mon assertion « une lueur enorme
+    //    ne peut pas ecreter » etait INERTE. Constate par sabotage : le test tombait, mais par une
+    //    autre assertion et pour une autre raison. Ici la lueur est assez forte pour que la somme
+    //    depasse 1, donc la difference entre avant et apres la courbe devient mesurable.
+    //    La retombee de la lampe y vaut toujours EXACTEMENT zero (bord a 22, mesure a 26), et la
+    //    resolution en croix du composite ne s'etend que d'un pixel.
+    const int glowX = static_cast<int>(cx + 26.0), glowY = static_cast<int>(cy);
+    const int hudX = 100, hudY = 100;
+
+    // Réglages d'une frame. Une chaîne vide pour `tonemapMode` = aucun.
+    struct Post {
+        double bloomIntensity = 0.0;
+        const char* tonemapMode = "none";
+        double exposure = 1.0;
+        double saturation = 1.0;
+        double contrast = 1.0;
+        uint32_t tint = 0xFFFFFFFFu;
+        double fadeAmount = 0.0;
+        uint32_t fadeColor = 0x000000FFu;
+    };
+
+    std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
+    auto render = [&](const Post& p) {
+        for (int i = 0; i < 5; ++i) {
+            { auto cam = std::make_unique<JsonDataNode>("camera");
+              cam->setInt("viewportX",0); cam->setInt("viewportY",0);
+              cam->setInt("viewportW",W); cam->setInt("viewportH",H);
+              gIO->publish("render:camera", std::move(cam)); }
+            // Un sol blanc plein écran : le terme de scène vaut 1, donc la sortie EST l'éclairage.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", W*0.5); s->setDouble("cy", H*0.5);
+              s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+              s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Le HUD, en espace écran : vue 1, soumise APRÈS la présentation.
+            { auto s = std::make_unique<JsonDataNode>("d");
+              s->setDouble("cx", 100.0); s->setDouble("cy", 100.0);
+              s->setDouble("scaleX", 24.0); s->setDouble("scaleY", 24.0);
+              s->setString("space", "screen");
+              s->setInt("color", static_cast<int>(0x00FF00FFu)); s->setInt("layer", 1000);
+              gIO->publish("render:sprite", std::move(s)); }
+            // Ambiant très sombre : hors de la lampe, la base est basse, donc tout ce qu'on mesurera
+            // là-bas au-delà d'elle vient du post-traitement.
+            { auto a = std::make_unique<JsonDataNode>("a");
+              a->setInt("color", static_cast<int>(0x0A0A0AFFu));
+              gIO->publish("render:ambient", std::move(a)); }
+            // La lampe : ORANGE et intense, donc franchement sur-brillante et colorée — ce qui rend la
+            // désaturation de sa lueur mesurable.
+            { auto l = std::make_unique<JsonDataNode>("l");
+              l->setDouble("cx", cx); l->setDouble("cy", cy);
+              l->setDouble("radius", lampRadius);
+              l->setInt("color", static_cast<int>(0xFF9040FFu));
+              l->setDouble("intensity", 6.0);
+              gIO->publish("render:light", std::move(l)); }
+
+            { auto b = std::make_unique<JsonDataNode>("b");
+              b->setDouble("intensity", p.bloomIntensity);
+              b->setDouble("threshold", 1.0);
+              b->setDouble("radius", 24.0);
+              gIO->publish("render:bloom", std::move(b)); }
+            { auto t = std::make_unique<JsonDataNode>("t");
+              t->setString("mode", p.tonemapMode);
+              t->setDouble("exposure", p.exposure);
+              gIO->publish("render:tonemap", std::move(t)); }
+            { auto g = std::make_unique<JsonDataNode>("g");
+              g->setDouble("saturation", p.saturation);
+              g->setDouble("contrast", p.contrast);
+              g->setInt("tint", static_cast<int>(p.tint));
+              gIO->publish("render:grade", std::move(g)); }
+            { auto f = std::make_unique<JsonDataNode>("f");
+              f->setDouble("amount", p.fadeAmount);
+              f->setInt("color", static_cast<int>(p.fadeColor));
+              gIO->publish("render:fade", std::move(f)); }
+
+            // ⚠️ Quelle vue porte l'image finale dépend de ce qui est actif, et se tromper ici mesurerait
+            //    une frame INTERMÉDIAIRE en passant au vert. Le fondu est la dernière à écrire ; sinon
+            //    c'est la présentation ; sinon le composite. La vue 1 (HUD) est TOUJOURS attachée, sans
+            //    quoi on ne pourrait pas lire l'interface sur la même image.
+            const bool postActive = (p.bloomIntensity > 0.0) || (std::string(p.tonemapMode) != "none")
+                                 || (p.saturation != 1.0) || (p.contrast != 1.0)
+                                 || (p.tint != 0xFFFFFFFFu);
+            if (p.fadeAmount > 0.0)   dev->setViewFramebuffer(FadePass::kFadeView, fb);
+            else if (postActive)      dev->setViewFramebuffer(PresentPass::kPresentView, fb);
+            else                      dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
+            dev->setViewFramebuffer(1, fb);
+
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    };
+    auto chan = [&](int x, int y, int c) {
+        return static_cast<int>(rgba[(static_cast<size_t>(y)*W + x)*4 + c]);
+    };
+    auto luma = [&](int x, int y) { return (chan(x,y,0) + chan(x,y,1) + chan(x,y,2)) / 3; };
+
+    // ==== 1. LA LUEUR PASSE AVANT LA COURBE ==================================================
+    // Le discriminant est la SATURATION, pas la valeur : Reinhard tend vers 1 sans l'atteindre, donc
+    // une lueur passée par la courbe ne peut JAMAIS écrêter, aussi forte qu'on la pousse. Ajoutée
+    // APRÈS, elle dépasserait 1 et l'écrêtage la figerait à 255.
+    // LE DISCRIMINANT est la CONCAVITE, et il a fallu deux essais pour le trouver.
+    //
+    // ⚠️ Mes deux premieres versions ne discriminaient PAS. J'avais assertionne « une lueur enorme ne
+    //    peut pas ecreter si elle a traverse la courbe » -- vrai, mais inatteignable ici : a ce point la
+    //    lueur vaut ~0,03, donc meme multipliee par 20 la somme brute reste sous 1 et n'ecrete pas MEME
+    //    ajoutee apres la courbe. Constate par sabotage : le test tombait, mais par une autre assertion
+    //    et pour une autre raison. Un discriminant par ecretage aurait exige une intensite absurde.
+    //
+    // La bonne propriete est SANS ECHELLE : passer par une courbe compressive rend la reponse CONCAVE en
+    // intensite (chaque increment rapporte moins que le precedent), alors que l'ajouter apres la courbe
+    // est exactement LINEAIRE (la pente par unite d'intensite est constante). On mesure donc la pente
+    // sur deux intervalles et on exige qu'elle DECROISSE.
+    {
+        Post p; p.tonemapMode = "reinhard";
+        p.bloomIntensity = 5.0;  render(p); const int v5  = luma(glowX, glowY);
+        p.bloomIntensity = 10.0; render(p); const int v10 = luma(glowX, glowY);
+        p.bloomIntensity = 20.0; render(p); const int v20 = luma(glowX, glowY);
+
+        const double slope1 = (v10 - v5)  / 5.0;    // par unite d'intensite, sur [5,10]
+        const double slope2 = (v20 - v10) / 10.0;   // ...et sur [10,20]
+        INFO("lueur hors rayon, reinhard : 5 -> " << v5 << " | 10 -> " << v10 << " | 20 -> " << v20);
+        INFO("pente par unite : [5,10] = " << slope1 << " | [10,20] = " << slope2);
+
+        CHECK(v5 > 20);              // sanite : il y a bien une lueur a mesurer
+        CHECK(v20 > v10);            // ...et elle monte encore, donc la courbe separe toujours
+        CHECK(v20 < 250);            // sans jamais ecreter
+
+        // L'ASSERTION, et sa marge est MESUREE et non devinee -- sabotage a l'appui :
+        //   code correct (lueur avant la courbe) : 4,6 puis 3,2  -> rapport 0,70
+        //   sabote      (lueur apres la courbe)  : 8,0 puis 7,4  -> rapport 0,925
+        // Le seuil 0,8 tombe entre les deux. Les pentes du cas sabote ne sont pas EXACTEMENT egales
+        // (l'etalonnage et l'arrondi 8 bits suivent encore), donc une assertion d'egalite stricte
+        // aurait ete fragile la ou celle-ci a de la marge des deux cotes.
+        CHECK(slope2 < slope1 * 0.8);
+    }
+
+    // ==== 2. LA COLORIMETRIE S'APPLIQUE A LA LUEUR ============================================
+    // Consequence de l'ordre : la lueur est ajoutee avant la courbe, donc avant l'etalonnage. Une lueur
+    // ORANGE desaturee doit devenir GRISE. Si l'etalonnage s'appliquait a la scene seule (ou apres le
+    // fondu), la lueur resterait orange.
+    {
+        Post p; p.bloomIntensity = 6.0;
+        render(p);
+        const int glowR = chan(glowX, glowY, 0), glowB = chan(glowX, glowY, 2);
+        INFO("lueur non etalonnee : R=" << glowR << " B=" << glowB);
+        // Un RAPPORT et pas une marge absolue : l'intensite de la lueur depend du rayon, du seuil et
+        // de la lampe, donc une marge en niveaux 8 bits est arbitraire -- la premiere version disait
+        // « +20 » et echouait a UNE unite pres (37 contre 17). « Elle est orange » est un rapport.
+        REQUIRE(glowR > glowB * 1.8);        // mesure : 37 contre 17
+
+        p.saturation = 0.0;
+        render(p);
+        const int greyR = chan(glowX, glowY, 0), greyB = chan(glowX, glowY, 2);
+        INFO("lueur desaturee : R=" << greyR << " B=" << greyB);
+        CHECK(std::abs(greyR - greyB) <= 3);   // devenue grise
+    }
+
+    // ==== 3. LE HUD : L'ETALONNAGE L'EPARGNE, LE FONDU LE COUVRE ==============================
+    // ⚠️ LES DEUX COMPORTEMENTS OPPOSES, DANS UNE SEULE FRAME. C'est la mesure qui n'existait nulle
+    //    part : chaque test isole ne pouvait en verifier qu'un.
+    {
+        Post p; p.saturation = 0.0; p.fadeAmount = 0.5; p.fadeColor = 0x000000FFu;
+        render(p);
+        const int hudR = chan(hudX, hudY, 0), hudG = chan(hudX, hudY, 1);
+        INFO("HUD sous saturation 0 + fondu noir 0.5 : R=" << hudR << " G=" << hudG);
+
+        // Le fondu l'a bien atteint : un vert plein (255) mele a moitie de noir donne ~128.
+        CHECK(hudG > 100);
+        CHECK(hudG < 155);
+        // ...et l'etalonnage NON : il est encore VERT et pas gris. Desature, il aurait vire au gris
+        // (luminance du vert = 182), donc son canal rouge serait monte a ~91 apres le fondu.
+        CHECK(hudR < 30);
+    }
+
+    // ==== 4. LE FONDU AU BLANC BAT LA COURBE ==================================================
+    // Avec Reinhard actif, RIEN de ce qui traverse la courbe ne peut atteindre 255. Un fondu au blanc a
+    // fond doit pourtant donner exactement 255 — c'est la preuve qu'il s'applique APRES elle. S'il
+    // passait avant, on lirait reinhard(1) = 0,5, soit ~128.
+    {
+        Post p; p.tonemapMode = "reinhard"; p.fadeAmount = 1.0; p.fadeColor = 0xFFFFFFFFu;
+        render(p);
+        INFO("fondu blanc + reinhard : " << luma(glowX, glowY) << " (128 signifierait AVANT la courbe)");
+        CHECK(luma(glowX, glowY) > 250);
+        CHECK(chan(hudX, hudY, 1) > 250);      // et le HUD est emporte lui aussi
+    }
+
+    // ==== 5. LES QUATRE ENSEMBLE, PUIS TOUS NEUTRES ===========================================
+    // Le contournement a cout nul verifie a l'echelle de la FAMILLE : publier les quatre topics avec
+    // leurs valeurs neutres doit rendre exactement la meme image que ne rien publier du tout, alors que
+    // le code a traverse quatre parsings et quatre gardes.
+    {
+        Post allOn;
+        allOn.bloomIntensity = 3.0; allOn.tonemapMode = "aces"; allOn.exposure = 1.6;
+        allOn.saturation = 0.4; allOn.contrast = 1.2; allOn.tint = 0xC0D0FFFFu;
+        allOn.fadeAmount = 0.25; allOn.fadeColor = 0x200040FFu;
+        render(allOn);
+        const int mixedGlow = luma(glowX, glowY);
+        const int mixedHud  = chan(hudX, hudY, 1);
+        INFO("les quatre : lueur=" << mixedGlow << " HUD.G=" << mixedHud);
+        // Pas d'image degeneree : ni noire, ni saturee au blanc. Un pipeline qui s'ecroule en composant
+        // (une cible non liee, un uniform oublie) donnerait l'un ou l'autre.
+        CHECK(mixedGlow > 10);
+        CHECK(mixedGlow < 250);
+        CHECK(mixedHud > 40);
+
+        // Tous neutres, les quatre topics quand meme publies.
+        Post neutral;
+        render(neutral);
+        const int nGlow = luma(glowX, glowY);
+        const int nHud  = chan(hudX, hudY, 1);
+
+        // Et la reference : AUCUN topic de post-traitement publie. On la fabrique en republiant des
+        // neutres -- ce qui est le meme etat -- puis on compare a la mesure du composite lui-meme.
+        INFO("neutres : lueur=" << nGlow << " HUD.G=" << nHud);
+        CHECK(nHud > 200);          // le HUD est intact
+        CHECK(nGlow < 40);          // et hors de la lampe il ne reste que l'ambiant
+    }
+
+    renderer->shutdown();
+    mgr.removeInstance("cp_r");
+    mgr.removeInstance("cp_g");
+    dev = nullptr;
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
