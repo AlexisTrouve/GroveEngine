@@ -481,3 +481,39 @@ bornés et de nature connue, pas un mur matériel.
 d'Alexi. C'est le constat que **la raison écrite du parking n'est plus vraie**, et qu'une ferme à
 GPU pourrait résoudre un problème qui n'existe déjà plus. À rouvrir ou non ; mais à ne pas rouvrir
 sur la foi de l'ancienne raison.
+
+### ⚠️ Correction du §11 — j'avais conclu sur un build partiel
+
+Le §11 ci-dessus annonçait « 3 tests `gpu` ont tourné, 3/3 passent ». **Le build était partiel** :
+une exécution ultérieure, avec plus de cibles construites, donne le vrai décompte.
+
+| | |
+|---|---|
+| Passent sous `xvfb-run` + llvmpipe | **3** (`RhiReadbackGpu`, `AssetProviderGpu`, `AssetAsyncGpu`) |
+| **Compilent mais AVORTENT à l'exécution** | **5** (`TilemapLodGpu`, `SpriteClipGpu`, `TextClipGpu`, `SelectionHighlightGpu`, `TtfRenderGpu`) |
+| Ne compilent pas sous Linux | 8 |
+
+Les 5 avortent tous sur la même erreur :
+
+```
+BGFX FATAL: Failed to compile shader.
+0: 0:11(3): preprocessor error: syntax error, unexpected HASH_TOKEN
+```
+
+**Ce que ce n'est PAS — établi par test différentiel, pas par raisonnement.** On pouvait croire au
+diagnostic historique (« contexte OpenGL 2.1 → les shaders GLSL 1.30+ échouent ») : le symptôme y
+ressemble. Forcer `MESA_GL_VERSION_OVERRIDE=3.3COMPAT MESA_GLSL_VERSION_OVERRIDE=330` donne
+**exactement la même erreur**. Ce n'est donc **ni le matériel, ni la version du contexte GL**.
+
+**Ce que c'est** : le **contenu** du shader remis au backend GL est invalide — un `#` en ligne 11.
+`tools/regen_shader.py` produit quatre blocs par shader (`spv`, `glsl`, `mtl`, `dx11`) et le bloc
+`mtl` est explicitement un **PLACEHOLDER** dans le fichier généré. Le chemin GL reçoit vraisemblablement
+un bloc qui n'est pas le sien. C'est un défaut de **notre pipeline de shaders**, borné et localisé.
+
+**Conséquence pour le choix de machine — la seule qui compte :** une carte réelle sous Linux
+**ne suffira pas**. Le texte du shader est rejeté avant que le matériel n'entre en jeu ; une RTX 3070
+rencontrera la même erreur. Faire tourner la suite `gpu` sous Linux demande d'abord ce correctif.
+
+*Leçon de méthode, la même que la doctrine énonce : une cause documentée est une hypothèse. Mais ma
+propre contre-hypothèse en était une aussi — `glxinfo` prouvait ce que le PILOTE sait faire, pas ce
+que bgfx OBTIENT. Seul le test qui coupe la variable a tranché.*
