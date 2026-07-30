@@ -29,7 +29,7 @@
 //        monoligne, lui, ne bouge pas : Entrée y soumet toujours.
 // ============================================================================
 
-#include "../Core/UIWidget.h"
+#include "../Core/UITextEditWidget.h"
 #include "UITextInput.h"   // TextInputStyle / TextInputFilter — partagés avec le champ monoligne
 #include <grove/text/TextEdit.h>
 #include <grove/text/TextMetrics.h>
@@ -41,7 +41,7 @@
 
 namespace grove {
 
-class UITextArea : public UIWidget {
+class UITextArea : public UITextEditWidget {
 public:
     UITextArea() = default;
     ~UITextArea() override = default;
@@ -68,20 +68,33 @@ public:
      *        plus Haut=38 / Bas=40 qui n'ont de sens qu'ici.
      * @return true si l'événement a été consommé.
      */
-    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false);
+    bool onKeyInput(int keyCode, uint32_t character, bool ctrl, bool shift = false) override;
 
     /** @brief Insère une chaîne en respectant le filtre du champ. */
-    bool insertFilteredText(const std::string& str);
+    bool insertFilteredText(const std::string& str) override;
 
-    void gainFocus();
-    void loseFocus();
+    void gainFocus() override;
+    void loseFocus() override;
 
     // ------------------------------------------------------------------
     // Le modèle partagé — même source de vérité que UITextInput.
     // ------------------------------------------------------------------
     text::EditModel edit;
 
-    const std::string& text() const { return edit.text(); }
+    const std::string& text() const override { return edit.text(); }
+
+    // Selection : relais directs vers le modele partage (le champ monoligne a les siens).
+    std::string selectedText() const override { return edit.selectedText(); }
+    bool deleteSelection() override { return edit.deleteSelection(); }
+
+    // Contrat de saisie : Entree seule insere un saut de ligne, donc c'est CTRL+Entree qui
+    // soumet. C'est l'unique divergence de comportement avec le champ monoligne.
+    const std::string& submitAction() const override { return onSubmit; }
+    // Ctrl+Entree est avalee, sinon elle inserait un saut de ligne en plus de soumettre.
+    bool swallowsSubmitKey() const override { return true; }
+    bool submitsOn(int keyCode, bool ctrl) const override {
+        return ctrl && (keyCode == 13 || keyCode == 10);
+    }
     void setText(const std::string& value) { edit.setText(value); }
 
     /**

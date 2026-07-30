@@ -127,7 +127,8 @@ public:
     // --- Geometry / interaction (used by the hit-test absorb + UIModule). ---
     bool pointInBounds(float x, float y) const;
     int  rowAt(float screenY) const;          // item index at screen y (within bounds + range), or -1
-    void handleMouseWheel(float wheelDelta);  // wheel scroll (routed by UIModule, like UIScrollPanel)
+    // Hote de defilement : renvoie toujours true pour arreter la remontee (cf. UIWidget).
+    bool handleMouseWheel(float wheelDelta) override;
 
     // --- Scrollbar + drag-to-scroll. ---
     bool isScrollable() const { return contentHeight() > height; }   // content taller than the viewport

@@ -49,10 +49,14 @@ void UIList::visibleRange(int& firstItem, int& count) const {
     count = c;
 }
 
-void UIList::handleMouseWheel(float wheelDelta) {
+bool UIList::handleMouseWheel(float wheelDelta) {
     // Same convention/speed as UIScrollPanel: a positive wheel scrolls UP (offset decreases).
     scrollOffsetY -= wheelDelta * 20.0f;
     clampScroll();
+    // true = "je suis un hote de defilement, arrete de remonter" -- PAS "j'ai defile". Une liste en
+    // butee retient quand meme la molette, ce qui est le comportement d'origine (la remontee
+    // s'arretait au premier hote trouve, sans regarder s'il avait bouge).
+    return true;
 }
 
 void UIList::clampScroll() {

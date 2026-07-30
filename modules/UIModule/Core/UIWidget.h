@@ -108,6 +108,35 @@ public:
     virtual bool surfacesClick(bool /*pressed*/, bool handled) const { return handled; }
 
     /**
+     * @brief Ce widget héberge-t-il un défilement à la molette ? Retourne true pour ARRÊTER la
+     *        remontée vers les ancêtres.
+     *
+     * QUOI     : le routeur part du widget survolé et remonte jusqu'au premier hôte de défilement.
+     * POURQUOI : il énumérait `scrollpanel` et `list`, les deux seuls à savoir défiler. Un troisième
+     *            (une zone de texte défilante, un panneau de code) aurait exigé une 3e branche ici.
+     * COMMENT  : défaut `false` = « je ne défile pas, continue de remonter ».
+     *
+     * ⚠️ Un hôte de défilement renvoie true MÊME s'il n'a rien pu défiler (contenu plus court que sa
+     *    boîte). C'est le comportement d'origine — la remontée s'arrêtait au premier hôte trouvé,
+     *    sans regarder s'il avait bougé. Renvoyer « ai-je vraiment défilé ? » ferait fuiter la
+     *    molette vers l'ancêtre quand une liste est en butée, ce qui est un AUTRE comportement.
+     */
+    virtual bool handleMouseWheel(float /*delta*/) { return false; }
+
+    /**
+     * @brief Ce widget prend-il le focus clavier au clic ?
+     *
+     * POURQUOI : la gestion du focus énumérait `textinput` et `textarea` en clair, à plusieurs
+     *            endroits. Un futur widget focusable (console, liste éditable) devait donc être
+     *            ajouté à chacun de ces endroits pour exister.
+     */
+    virtual bool acceptsFocus() const { return false; }
+
+    /** @brief Prend / perd le focus clavier. Défauts inertes pour un widget non focusable. */
+    virtual void gainFocus() {}
+    virtual void loseFocus() {}
+
+    /**
      * @brief The rect (screen px) a clipping widget clips its CHILDREN's hit-test to.
      *
      * WHY: a scroll panel clips to its full bounds, but a window clips to the area BELOW its

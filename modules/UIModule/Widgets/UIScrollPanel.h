@@ -79,7 +79,8 @@ public:
     /**
      * @brief Handle mouse wheel scrolling
      */
-    void handleMouseWheel(float wheelDelta);
+    // Hote de defilement : renvoie toujours true pour arreter la remontee (cf. UIWidget).
+    bool handleMouseWheel(float wheelDelta) override;
 
     /**
      * @brief Compute content bounds from children

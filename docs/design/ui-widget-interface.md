@@ -174,7 +174,45 @@ en ont une.
 > que l'auteur voulait ; une sortie de secours en fin de fonction décrit ce qui se passe. Ici les
 > deux divergeaient depuis longtemps sans que rien ne le signale.
 
-### S1b — routage clavier + focus
+### S1b — routage clavier + focus — ✅ FAIT (2026-07-29)
+
+Trois virtuels de plus sur `UIWidget` (`handleMouseWheel`, `acceptsFocus`, `gainFocus`/`loseFocus`)
+et **une classe intermédiaire**, `UITextEditWidget`.
+
+**Pourquoi une classe intermédiaire plutôt que des virtuels sur la base** : le routage clavier
+s'appuie sur `selectedText`, `deleteSelection`, `insertFilteredText`, `onKeyInput`, `text()`,
+`onSubmit`. Poser ça sur `UIWidget` violerait la règle que ce plan s'est donnée (§5) — `selectedText()`
+ne veut rien dire pour un libellé. La classe intermédiaire la respecte : le module caste **une** fois
+vers un contrat au lieu de deux fois vers des types concrets, et les deux blocs clavier d'environ 90
+lignes n'en font plus qu'un. Le collage (`input:clipboard:text`) tombe sur le même contrat.
+
+**Deux pièges rencontrés, tous deux du même genre que celui de S1a :**
+
+1. **Les deux flux clavier divergent réellement**, ce que les commentaires ne disaient pas. Le champ
+   monoligne soumet **après** la frappe et seulement si le widget l'a traitée (il publie donc
+   `ui:text_changed` *puis* `ui:text_submit`). La zone multiligne soumet **avant** et **avale** la
+   touche — sinon Ctrl+Entrée insérerait un saut de ligne en plus de soumettre. Ma première fusion
+   n'était fidèle à aucun des deux. D'où un second prédicat, `swallowsSubmitKey()`, qui rend la
+   divergence explicite au lieu de la laisser dépendre de l'ordre des lignes dans le module.
+
+2. **Une asymétrie de l'ancien code, corrigée au passage.** La branche `textinput` ne retirait le
+   focus au précédent QUE s'il était lui-même un `textinput` — elle ignorait le cas `textarea`, que
+   la branche jumelle traitait pourtant. Cliquer d'une zone multiligne vers un champ laissait donc la
+   zone focalisée en interne : deux curseurs clignotants à l'écran, alors que les touches ne partaient
+   qu'à un seul widget. Unifier le corps supprime l'asymétrie — c'était un défaut **de la duplication
+   elle-même**.
+
+   ⚠️ **Non verrouillé par un test, et je le dis plutôt que de le maquiller** : l'écart n'est pas
+   observable depuis l'IIO (`ui:focus_lost` était publié dans les deux cas ; seul l'état interne du
+   widget différait, visible uniquement au rendu du curseur). C'est précisément pourquoi il a survécu
+   si longtemps.
+
+**Bilan chiffré** (`UIModule.cpp`) : comparaisons de type **30 → 21**, casts vers un type concret
+**30 → 21**. Le reste est le hors-périmètre assumé ci-dessous (handlers de topics) plus les fenêtres.
+
+---
+
+### S1b — le détail de ce qui était prévu
 
 `onKeyInput` et `handleMouseWheel` deviennent virtuels avec défaut neutre ; `gainFocus`/`loseFocus`
 aussi, plus un `virtual bool acceptsFocus() const { return false; }` qui remplace le

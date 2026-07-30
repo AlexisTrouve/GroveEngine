@@ -128,11 +128,14 @@ void UIScrollPanel::releaseRenderEntries(UIRenderer& renderer) {
     UIWidget::releaseRenderEntries(renderer);
 }
 
-void UIScrollPanel::handleMouseWheel(float wheelDelta) {
+bool UIScrollPanel::handleMouseWheel(float wheelDelta) {
     if (scrollVertical) {
         scrollOffsetY -= wheelDelta * 20.0f; // Scroll speed
         clampScrollOffset();
     }
+    // true meme si scrollVertical est faux : on retient la molette parce qu'on EST l'hote de
+    // defilement, pas parce qu'on a bouge. C'est le comportement d'origine (cf. UIWidget).
+    return true;
 }
 
 void UIScrollPanel::computeContentSize() {

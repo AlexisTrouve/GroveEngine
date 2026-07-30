@@ -1,9 +1,9 @@
 /**
- * Unit Tests — le CONTRAT de routage souris de UIWidget (`absorbsPoint` / `surfacesClick`).
+ * Unit Tests — le CONTRAT de routage d'ENTRÉE de UIWidget (souris, molette, focus, saisie).
  *
- * QUOI     : deux prédicats que le routeur (`hitTest` / `dispatchMouseButton`) interroge à la place
- *            d'énumérer les types concrets : « ce widget absorbe-t-il un clic ici ? » et « le module
- *            doit-il être saisi de ce clic ? ».
+ * QUOI     : les prédicats que le routeur interroge à la place d'énumérer les types concrets —
+ *            `absorbsPoint` / `surfacesClick` (souris, S1a), `handleMouseWheel` / `acceptsFocus`
+ *            (molette et focus, S1b), `submitsOn` / `swallowsSubmitKey` (contrat de saisie, S1b).
  *
  * POURQUOI : ce test existe à cause d'un défaut RÉEL, introduit puis rattrapé pendant S1a.
  *            L'ancienne fonction finissait par `return handled ? target : nullptr;`, ce qui rendait
@@ -34,6 +34,8 @@
 #include "Widgets/UIRadial.h"
 #include "Widgets/UISlider.h"
 #include "Widgets/UITabs.h"
+#include "Widgets/UIScrollPanel.h"
+#include "Widgets/UITextArea.h"
 #include "Widgets/UITextInput.h"
 
 using namespace grove;
@@ -151,4 +153,75 @@ TEST_CASE("Contrat: la ROUE absorbe sur un DISQUE, pas sur un rectangle", "[ui][
     CHECK(wheel.absorbsPoint(400 + 100, 300));          // dans la couronne
     CHECK_FALSE(wheel.absorbsPoint(400 + 200, 300));    // au-dela du rayon exterieur
     CHECK_FALSE(wheel.absorbsPoint(400 + 150, 300 + 150));  // coin de la boite englobante
+}
+
+// ============================================================================
+// S1b — molette, focus, et le contrat de SOUMISSION des widgets de saisie
+// ============================================================================
+
+TEST_CASE("Contrat: seuls les hotes de defilement retiennent la molette", "[ui][unit][contract]") {
+    // `true` = "je suis l'hote, arrete de remonter" -- PAS "j'ai defile". Une liste en butee retient
+    // quand meme la molette : c'est le comportement d'origine (la remontee s'arretait au premier
+    // hote trouve sans regarder s'il avait bouge), et le rendre conditionnel serait un AUTRE
+    // comportement, pas une correction.
+    UIList list;
+    UIScrollPanel scroll;
+    UIPanel panel;
+    UIButton btn;
+
+    CHECK(list.handleMouseWheel(1.0f));
+    CHECK(scroll.handleMouseWheel(1.0f));
+    CHECK_FALSE(panel.handleMouseWheel(1.0f));
+    CHECK_FALSE(btn.handleMouseWheel(1.0f));
+
+    // Une liste vide n'a rien a faire defiler -- elle retient la molette malgre tout.
+    UIList empty;
+    CHECK(empty.handleMouseWheel(-1.0f));
+}
+
+TEST_CASE("Contrat: seuls les widgets de saisie prennent le focus clavier", "[ui][unit][contract]") {
+    UITextInput input;
+    UITextArea area;
+    UIButton btn;
+    UIPanel panel;
+
+    CHECK(input.acceptsFocus());
+    CHECK(area.acceptsFocus());
+    CHECK_FALSE(btn.acceptsFocus());
+    CHECK_FALSE(panel.acceptsFocus());
+}
+
+TEST_CASE("Contrat: le champ soumet sur ENTREE, la zone sur CTRL+ENTREE",
+          "[ui][unit][contract]") {
+    UITextInput input;
+    UITextArea area;
+
+    constexpr int kEnter = 13, kReturn = 10, kLetterA = 65;
+
+    // Champ monoligne : Entree soumet, avec ou sans Ctrl (le comportement d'origine ne regardait
+    // pas le modificateur).
+    CHECK(input.submitsOn(kEnter,  false));
+    CHECK(input.submitsOn(kReturn, false));
+    CHECK(input.submitsOn(kEnter,  true));
+    CHECK_FALSE(input.submitsOn(kLetterA, false));
+
+    // Zone multiligne : Entree SEULE insere un saut de ligne, donc elle ne soumet pas.
+    CHECK_FALSE(area.submitsOn(kEnter, false));
+    CHECK(area.submitsOn(kEnter,  true));
+    CHECK(area.submitsOn(kReturn, true));
+    CHECK_FALSE(area.submitsOn(kLetterA, true));
+}
+
+TEST_CASE("Contrat: seule la ZONE avale sa touche de soumission", "[ui][unit][contract]") {
+    // LE garde-fou du second piege de S1b. Les deux widgets ne soumettent pas au meme MOMENT :
+    //   - la zone avale Ctrl+Entree AVANT que la touche atteigne le widget (sinon elle inserait un
+    //     saut de ligne EN PLUS de soumettre) ;
+    //   - le champ laisse Entree traverser, et soumet APRES la frappe -- il publie donc
+    //     ui:text_changed PUIS ui:text_submit.
+    // Aligner les deux "pour simplifier" casse silencieusement l'un des deux.
+    UITextInput input;
+    UITextArea area;
+
+    CHECK_FALSE(input.swallowsSubmitKey());
+    CHECK(area.swallowsSubmitKey());
 }
