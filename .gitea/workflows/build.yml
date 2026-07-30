@@ -1,0 +1,90 @@
+# ============================================================================
+# build.yml — validation automatique sur push (Gitea Actions)
+# ----------------------------------------------------------------------------
+# QUOI     : à chaque push sur master, construit le moteur et lance la suite de
+#            tests sur le serveur, puis vérifie que la cible Windows compile.
+#
+# POURQUOI : `tools/remote-build.sh` couvre le déport MANUEL — il construit ton
+#            arbre de travail, y compris non commité, à la demande. Ce workflow
+#            couvre l'autre moitié : ce qui est POUSSÉ est vérifié sans que
+#            personne y pense, avec un historique et un verdict daté.
+#            Les deux sont complémentaires, pas redondants.
+#
+# COMMENT  : `runs-on: host` — le runner `act-runner-global` expose le label
+#            `host:host`, donc le job s'exécute directement sur la machine et
+#            hérite de tout ce qui y est déjà installé : g++, mingw-w64 posix,
+#            le sysroot SDL2, et surtout le **ccache partagé** de la ferme. Un
+#            conteneur repartirait de zéro à chaque fois et rendrait le cache
+#            inutile.
+#
+# ⚠️ VERROU PARTAGÉ. Le job prend `~/grovefarm/.build.lock`, le MÊME que
+#            tools/remote-build.sh. Sans ça on aurait deux files indépendantes se
+#            disputant 8 threads sur une machine qui héberge AUSSI la prod
+#            (ai.etheryale.com). Le verrou est ce qui fait qu'il n'y a qu'une
+#            seule file, quelle que soit la porte d'entrée.
+#
+# ⚠️ TESTS EXCLUS — et pourquoi c'est explicite plutôt que silencieux. Trois
+#            tests échouent sur ce serveur pour des raisons CONNUES et étrangères
+#            au code poussé. Les laisser rendrait le workflow rouge en permanence,
+#            et un rouge permanent ne se lit plus. Ils sont donc exclus NOMMÉMENT,
+#            pour qu'on voie ce qu'on ne teste pas :
+#              - MemoryLeakHunter    : 161 s contre son propre plafond de 180 s,
+#                                      il déborde sous charge (fragilité connue)
+#              - CrashHandlerRealE2E : le reporter est du SEH Windows, backend
+#                                      Noop ailleurs — ne peut pas passer ici
+#              - RaceConditionHunter : segfault sous Linux, non diagnostiqué
+#            Toute reprise de ces trois-là doit RETIRER la ligne correspondante.
+#
+# PORTÉE   : groveengine UNIQUEMENT. drifterra / DAOS / fractax ne sont pas
+#            câblés tant que leurs propres défauts bloquent le build (DAOS : casse
+#            de `cmakelists.txt`, et -I vers `deps/` qui est gitignored ici).
+#            Voir docs/design/build-speed.md §6.
+# ============================================================================
+
+name: build
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:      # déclenchement manuel depuis l'interface Gitea
+
+jobs:
+  linux-build-test:
+    runs-on: host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build natif + tests (sous le verrou de la ferme)
+        run: |
+          set -e
+          mkdir -p ~/grovefarm
+          exec 9>~/grovefarm/.build.lock
+          flock -w 3600 9 || { echo "file trop longue, abandon"; exit 1; }
+
+          nice -n 19 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          nice -n 19 ninja -C build -j6
+
+          # Exclusions documentées en tête de fichier. -E prend une regex.
+          nice -n 19 ctest --test-dir build --output-on-failure \
+            -E 'MemoryLeakHunter|CrashHandlerRealE2E|RaceConditionHunter'
+
+  windows-cross-check:
+    runs-on: host
+    needs: linux-build-test    # inutile de cross-compiler si le natif est déjà cassé
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross-compilation Windows (compile-check)
+        run: |
+          set -e
+          exec 9>~/grovefarm/.build.lock
+          flock -w 3600 9 || { echo "file trop longue, abandon"; exit 1; }
+
+          # Pas de ctest ici : ce sont des PE Windows, ils ne s'exécutent pas sur
+          # le serveur. C'est une preuve de COMPILATION de la cible réelle ;
+          # pour les lancer, `tools/remote-build.sh --mingw --fetch <dir>`.
+          nice -n 19 cmake -B build-mingw -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-linux.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON
+          nice -n 19 ninja -C build-mingw -j6

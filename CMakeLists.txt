@@ -9,6 +9,37 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================================
+# Compiler cache (ccache / sccache)
+# ----------------------------------------------------------------------------
+# QUOI    : interpose un cache de compilation devant le compilateur C et C++.
+# POURQUOI: le build à froid coûte ~2h50 CPU, dont 37% de tiers (bgfx/glslang) et
+#           81% du code projet en TESTS. Or on recompile SANS CESSE les mêmes TU :
+#           un changement de branche, et surtout un nouveau git worktree (voir
+#           .claude/worktrees/) repart de zéro sur du code strictement identique.
+#           Un hit de cache, c'est une copie de fichier : ~0 CPU, donc ~0 chaleur.
+# COMMENT : 1. on cherche ccache puis sccache (premier trouvé gagne),
+#           2. on le pose en CMAKE_<LANG>_COMPILER_LAUNCHER **avant** FetchContent,
+#              pour que les dépendances tierces en profitent aussi,
+#           3. rien trouvé => on ne définit rien, le build est inchangé.
+# NOTE    : les réglages MACHINE (taille du cache, base_dir pour partager entre
+#           worktrees) vivent dans la conf globale de ccache, PAS ici — un chemin
+#           utilisateur n'a rien à faire dans un fichier commité. Voir
+#           docs/design/build-speed.md pour la commande d'amorçage.
+# ============================================================================
+option(GROVE_USE_CCACHE "Use ccache/sccache as compiler launcher when available" ON)
+
+if(GROVE_USE_CCACHE)
+    find_program(GROVE_COMPILER_CACHE NAMES ccache sccache)
+    if(GROVE_COMPILER_CACHE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${GROVE_COMPILER_CACHE}")
+        set(CMAKE_C_COMPILER_LAUNCHER   "${GROVE_COMPILER_CACHE}")
+        message(STATUS "Compiler cache: ${GROVE_COMPILER_CACHE}")
+    else()
+        message(STATUS "Compiler cache: none found (install ccache to speed up rebuilds)")
+    endif()
+endif()
+
+# ============================================================================
 # Sanitizers for Testing
 # ============================================================================
 option(GROVE_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
