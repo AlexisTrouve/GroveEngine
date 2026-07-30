@@ -1,6 +1,6 @@
 # Plan — capture de frame headless, comme capacité de première classe
 
-> **État** : **C1 livré** (2026-07-30). C2/C3 ouverts. Plan écrit sur `a1ecefa`.
+> **État** : **C1 + C2 livrés** (2026-07-30). C3 (le volume) ouvert. Plan écrit sur `a1ecefa`.
 > **Origine** : la dette « le rendu HUD/map n'est pas vérifié » de
 > `drifterra/docs/grove_integration.md` §368.
 
@@ -184,7 +184,40 @@ C1 n'est pas seulement le code : c'est **la réponse mesurée** à §4, écrite 
 **Gate** : un test neuf qui publie un `render:rect` de couleur connue et asserte le pixel. Puis
 **preuve d'inertie** : changer la couleur attendue doit le faire tomber — sinon le test ne lit rien.
 
-### C2 — trois sites témoins, et la preuve d'équivalence
+### C2 — ✅ FAIT (2026-07-30) : trois sites témoins, et un DÉFAUT trouvé au passage
+
+Réécrits sur `setCaptureTarget` : `NineSliceGpu` et `RuntimeTextureGpu` (sans éclairage) et
+`LightingGpu` (**avec** éclairage). Ce dernier est le plus parlant : il codait `kCompositeView` en
+dur *et* re-liait à chaque frame, avec ce commentaire — « the module owns view redirection now […] a
+bind done once could be silently replaced ». Ce contournement disparaît : le module ré-applique.
+
+**Preuve d'équivalence, dans les deux sens.** Les trois passent à l'identique ; puis, `setCaptureTarget`
+neutralisé, **les trois tombent**. Sans ce second sens, « ça passe » n'aurait dit que « ça compile ».
+
+#### ⚠️ Le défaut que C2 a révélé : les liaisons de capture n'étaient jamais relâchées
+
+Après réécriture, deux des trois tests sont tombés en **`0xC0000374`** — la signature que ce dépôt
+attribue d'ordinaire à un artefact périmé. **Ce n'en était pas un** : reconstruit jusqu'à
+`no work to do`, l'échec restait 3/3. C'était bien une régression de C1.
+
+Localisé par **différentiel** plutôt que par raisonnement : retirer la seule liaison nouvelle (la vue
+de **fondu**) fait repasser les quatre tests. Cause réelle : une vue laissée attachée à un
+framebuffer que le device détruit ensuite est un pointeur mort côté pilote — ça ne se manifeste pas
+en erreur claire, mais en corruption de tas **au démontage**.
+
+Le correctif n'est pas de ne plus lier le fondu — ce serait masquer le défaut et rendre muette la
+capture d'un jeu qui utilise `render:fade`. C'est de **relâcher** : `setCaptureTarget({})` rend le HUD
+et le fondu à l'écran, et `shutdown()` le fait aussi, en filet pour l'appelant qui oublie.
+
+> **Deux leçons.** (1) Une signature de crash connue n'est pas un diagnostic : ici « artefact
+> périmé » était le mauvais réflexe, et seul un build vraiment stabilisé l'a montré — ma propre
+> seconde passe de build éditait encore des liens quand j'ai lancé la suite. (2) Le défaut n'a été
+> trouvé que parce que C2 existait : `FrameCaptureGpu` seul passait, parce qu'il se démonte
+> immédiatement. **Réécrire de vrais sites est ce qui a testé C1**, pas le test dédié.
+
+---
+
+### C2 — ce qui était prévu
 
 Réécrire **trois** des 17 sites sur le helper (un test GPU assertif, un outil `capture_*`, un cas
 avec éclairage actif). Ils doivent passer **à l'identique**, puis tomber quand on casse le helper.

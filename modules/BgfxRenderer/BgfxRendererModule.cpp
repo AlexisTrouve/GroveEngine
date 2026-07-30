@@ -93,7 +93,26 @@ rhi::IRHIDevice* BgfxRendererModule::getDevice() const {
 }
 
 void BgfxRendererModule::setCaptureTarget(rhi::FramebufferHandle fb) {
+    if (!fb.isValid()) releaseCaptureBindings();
     m_captureTarget = fb;
+}
+
+// Rend a l'ECRAN les vues que la capture avait detournees.
+//
+// POURQUOI ca ne peut pas etre omis : une vue laissee attachee a un framebuffer que l'appelant (ou
+// le demontage du device) detruit ensuite est un pointeur mort cote pilote -- ca se manifeste en
+// CORRUPTION DE TAS au demontage, pas en erreur claire. Trouve exactement comme ca : trois tests
+// reecrits sur `setCaptureTarget` tombaient en 0xC0000374 apres "shutting down", et un differentiel
+// (retirer la liaison du fondu) l'a isole en une passe.
+//
+// ⚠️ On ne restaure QUE le HUD et le fondu. La vue couleur finale (monde / composite / presentation)
+// est repositionnee de toute facon par la configuration du pipeline a la frame suivante, et la
+// forcer ici casserait l'eclairage : sans capture, la vue 0 doit rester attachee a la cible de
+// scene, pas au backbuffer.
+void BgfxRendererModule::releaseCaptureBindings() {
+    if (!m_device || !m_captureTarget.isValid()) return;
+    m_device->setViewFramebuffer(1, rhi::FramebufferHandle{});                    // HUD
+    m_device->setViewFramebuffer(FadePass::kFadeView, rhi::FramebufferHandle{});  // fondu
 }
 
 assets::AssetManager* BgfxRendererModule::getAssetManager() const {
@@ -1216,6 +1235,11 @@ void BgfxRendererModule::ensureLightingTargets(uint16_t width, uint16_t height) 
 }
 
 void BgfxRendererModule::shutdown() {
+    // Filet : un appelant qui part sans relacher sa cible de capture laisserait des vues attachees
+    // a un framebuffer sur le point d'etre detruit. Symptome observe : corruption de tas.
+    releaseCaptureBindings();
+    m_captureTarget = rhi::FramebufferHandle{};
+
     m_logger->info("BgfxRenderer shutting down, {} frames rendered", m_frameCount);
 
     // Lighting targets first: they are plain device resources, and the graph's shutdown destroys the

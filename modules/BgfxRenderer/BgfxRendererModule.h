@@ -78,6 +78,11 @@ public:
      * ⚠️ Ne redimensionne rien : une cible plus petite que la fenetre capture une image tronquee.
      */
     void setCaptureTarget(rhi::FramebufferHandle fb);
+
+private:
+    // Rend a l'ecran les vues detournees par la capture (cf. .cpp : sinon corruption de tas).
+    void releaseCaptureBindings();
+public:
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 
     // BULK sprite submission — direct, IIO/JSON-free. A statically-linked host that already

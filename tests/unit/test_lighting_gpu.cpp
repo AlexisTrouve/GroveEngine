@@ -96,13 +96,16 @@ TEST_CASE("lighting: the composite multiplies the scene by the ambient (GPU)", "
           a->setInt("color", static_cast<int>(ambient));
           gIO->publish("render:ambient", std::move(a)); }
 
+        // Une seule pose : le module RE-APPLIQUE la redirection a chaque frame, y compris apres
+        // une reconstruction de ses cibles. C'est ce qui remplace le re-bind manuel par frame que ce
+        // test devait faire -- et qui codait kCompositeView en dur, c'est-a-dire la connaissance que
+        // le module porte desormais lui-meme (la vue finale depend des effets actifs).
+        renderer->setCaptureTarget(fb);
         for (int i = 0; i < 5; ++i) {
             drawWhite();
-            // Re-bind EVERY frame: the module owns view redirection now and rebuilds its targets on
-            // a resize, so a bind done once could be silently replaced.
-            dev->setViewFramebuffer(CompositePass::kCompositeView, fb);
             frame();
         }
+        renderer->setCaptureTarget(rhi::FramebufferHandle{});
 
         std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
         if (!dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size()))) return -1;

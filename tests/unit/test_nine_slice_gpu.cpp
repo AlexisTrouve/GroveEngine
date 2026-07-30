@@ -106,7 +106,9 @@ TEST_CASE("render:nineslice samples the right source regions per quad (GPU)", "[
     // 3. RENDER into a framebuffer + read back.
     rhi::IRHIDevice* dev = renderer->getDevice();
     rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H), rhi::TargetFormat::RGBA8);
-    dev->setViewFramebuffer(0, fb); dev->setViewFramebuffer(1, fb);
+    // Capture headless : le module redirige sa SORTIE FINALE, il n'y a plus a deviner quelles
+    // vues la composent (elles varient avec les effets actifs -- cf. docs/design/frame-capture.md).
+    renderer->setCaptureTarget(fb);
     for (int i = 0; i < 4; ++i) frame();   // flush the retained nineslice through the readback fb
 
     std::vector<uint8_t> rgba(static_cast<size_t>(W)*H*4, 0);
