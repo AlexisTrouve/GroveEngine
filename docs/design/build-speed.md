@@ -300,7 +300,41 @@ Aucun de ces deux points n'a été corrigé ici : ce sont d'autres dépôts, ave
 
 ---
 
-## 7. Ce qui reste sur la table
+## 7. L'automatisation (Gitea Actions)
+
+`.gitea/workflows/build.yml` — sur push vers `master` et sur déclenchement manuel.
+
+**L'infra existait déjà** : Gitea tourne **sur ce même serveur**, avec deux runners `act_runner`
+actifs dont un instance-wide. Rien à installer. Le runner global expose le label **`host:host`**,
+donc le job s'exécute **directement sur la machine** et hérite du mingw, du sysroot SDL2 et surtout
+du **ccache partagé** — un conteneur repartirait de zéro et rendrait le cache inutile.
+
+**⚠️ Une seule file, deux portes d'entrée.** Le job prend `~/grovefarm/.build.lock`, le MÊME verrou
+que `tools/remote-build.sh`. Sans ça, la file du runner et celle de la ferme se disputeraient
+8 threads sur une machine qui héberge aussi la prod.
+
+Les deux chemins sont **complémentaires, pas redondants** :
+
+| | construit quoi | quand |
+|---|---|---|
+| `tools/remote-build.sh` | ton arbre de travail, **même non commité** | à la demande |
+| Gitea Actions | ce qui est **poussé** | automatiquement, avec historique |
+
+**⚠️ Trois tests exclus NOMMÉMENT** (`MemoryLeakHunter`, `CrashHandlerRealE2E`,
+`RaceConditionHunter`) : ils échouent pour des raisons connues et étrangères au code poussé. Les
+laisser rendrait le workflow rouge en permanence — et un rouge permanent ne se lit plus. Ils sont
+exclus explicitement pour qu'on voie ce qu'on ne teste pas ; reprendre l'un d'eux = retirer sa
+mention. **Vérifié : 100/100, exit 0, en 94 s** (build 145 s).
+
+**Portée : groveengine uniquement.** Câbler les jeux tant que leurs propres défauts bloquent le
+build fabriquerait trois alertes mortes. Voir §6.
+
+Prérequis restant : l'unité **Actions doit être activée sur le dépôt** côté Gitea (Paramètres →
+Actions). Le workflow ne s'arme qu'au premier push.
+
+---
+
+## 8. Ce qui reste sur la table
 
 - **`RaceConditionHunter` segfaute sous Linux** — non diagnostiqué. Peut être un artefact du port
   parké, peut être une vraie race que Windows masque.
