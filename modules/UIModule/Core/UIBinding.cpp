@@ -1,3 +1,5 @@
+#include <cerrno>
+#include <cstdlib>
 #include "UIBinding.h"
 #include <cctype>
 #include <vector>
@@ -110,16 +112,40 @@ static std::string singleBindingPath(const std::string& tmpl) {
     return trim(tmpl.substr(open + 2, close - (open + 2)));
 }
 
+// Conversion texte -> nombre SANS exception, a semantique STRICTEMENT identique a std::stod :
+//   - conversion partielle acceptee ("12abc" -> 12), exactement comme stod ;
+//   - aucun caractere consomme -> echec (stod levait invalid_argument) ;
+//   - depassement de plage -> echec (stod levait out_of_range).
+//
+// POURQUOI ce detour au lieu du try/catch d'origine : `resolveWidgetBindings` resout CHAQUE binding
+// des trois facons (chaine, nombre, booleen) et le widget n'en garde qu'une. La resolution numerique
+// d'un binding TEXTUEL -- `text: "{{name}}"`, le binding le plus courant qui soit -- tombait donc
+// systematiquement dans le chemin d'exception. Mesure : 104 ns sur une valeur numerique contre
+// 3508 ns sur une chaine, un facteur 34, et l'ecart EST le cout de lever puis attraper l'exception.
+// Une exception n'est pas censee etre le cas NORMAL ; ici elle l'etait, une fois par binding
+// textuel et par poussee de donnees.
+static bool parseNumber(const std::string& s, double& out) {
+    const char* begin = s.c_str();
+    char* end = nullptr;
+    errno = 0;
+    const double v = std::strtod(begin, &end);
+    if (end == begin) return false;    // rien de convertible
+    if (errno == ERANGE) return false; // hors plage
+    out = v;
+    return true;
+}
+
 double resolveNumber(const Scope& scope, const std::string& tmpl, double def) {
+    double v = 0.0;
     if (hasBindings(tmpl)) {
         const json* leaf = resolvePath(scope, singleBindingPath(tmpl));
         if (!leaf) return def;
         if (leaf->is_number())  return leaf->get<double>();
         if (leaf->is_boolean()) return leaf->get<bool>() ? 1.0 : 0.0;
-        if (leaf->is_string())  { try { return std::stod(leaf->get<std::string>()); } catch (...) { return def; } }
+        if (leaf->is_string())  return parseNumber(leaf->get<std::string>(), v) ? v : def;
         return def;
     }
-    try { return std::stod(tmpl); } catch (...) { return def; }   // a literal number prop
+    return parseNumber(tmpl, v) ? v : def;   // a literal number prop
 }
 
 static bool toIndex(const std::string& seg, size_t& out) {

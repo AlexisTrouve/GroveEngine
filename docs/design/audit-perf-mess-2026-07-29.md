@@ -86,7 +86,44 @@ La (a) seule supprime le cas pathologique — pousser des données inchangées.
 
 ---
 
-## P2 — 🟠 Chaque binding est résolu TROIS fois, deux résultats jetés
+## P2 — ✅ MESURÉ puis CLOS (2026-07-30) — le constat était mal cadré
+
+> **La redondance n'était pas le problème. L'exception l'était.**
+>
+> `resolveNumber` convertissait le texte avec `std::stod`, qui **lève une exception** sur toute
+> chaîne non numérique — attrapée et jetée. Or la résolution numérique d'un binding TEXTUEL
+> (`text: "{{name}}"`, le binding le plus courant qui soit) tombait dans ce chemin **à chaque
+> poussée de données**. Une exception y était le cas NORMAL, pas l'exception.
+>
+> Mesuré : `resolveNumber` coûtait **104 ns sur une valeur numérique contre 3508 ns sur une
+> chaîne — facteur 34**, et l'écart est exactement le prix de lever puis attraper.
+>
+> Remplacé par `strtod` (pas d'exception), à sémantique **strictement identique** à `stod` :
+> conversion partielle acceptée (`"12abc"` → 12), rien de convertible → défaut, dépassement →
+> défaut. Verrouillé par `test_ui_binding` sur ces trois cas limites — ce sont précisément ceux où
+> un parseur naïf divergerait en silence.
+>
+> | | Avant | Après |
+> |---|---|---|
+> | Les trois résolutions, par binding | 2031 ns | **630 ns** |
+> | `resolveNumber` sur une chaîne | 3508 ns | **172 ns** |
+> | Écran de 200 bindings | 0,406 ms | **0,126 ms** |
+>
+> **Et la conclusion sur la redondance elle-même : ne pas la corriger.** Une fois l'exception
+> partie, les deux résolutions jetées coûtent **0,067 ms sur 200 bindings** — 0,4 % d'une frame.
+> Restructurer `applyBoundProp` (évaluation paresseuse ou type variant) sur les dix-sept widgets
+> pour ça serait un mauvais échange : beaucoup de surface touchée, une lisibilité dégradée, un gain
+> sous le bruit. La ligne est close, pas reportée.
+>
+> **Ce que ça apprend** : le premier audit avait vu la redondance et pas ce qu'elle coûtait
+> vraiment. « Trois appels au lieu d'un » est un raisonnement de forme ; il désignait la bonne
+> ligne pour la mauvaise raison, et aurait mené à un gros refactor pour 0,4 % au lieu d'un
+> correctif de trois lignes pour 3,2×. **Mesurer avant de restructurer, même quand la redondance
+> est visible à l'œil nu.**
+
+### Le constat d'origine
+
+## P2 (constat initial) — 🟠 Chaque binding est résolu TROIS fois, deux résultats jetés
 
 `resolveWidgetBindings` (`UIModule.cpp:584`) :
 
@@ -182,5 +219,5 @@ un chemin que le reste du code avait déjà appris à protéger ailleurs.
 1. ~~**P1**~~ — ✅ fait le 2026-07-30 (voir l'encadré en tête de P1).
 2. ~~**P3** sur `registerDefaultWidgets`~~ — ✅ fait le 2026-07-30. Les quatre autres fonctions longues restent.
 3. **P4** — cosmétique mais gratuit.
-4. **P2** — à re-mesurer *après* P1, pas avant.
+4. ~~**P2**~~ — ✅ mesuré puis clos le 2026-07-30 : la vraie cause était une exception, pas la redondance.
 5. **P5** — ne rien faire pour l'instant.
