@@ -102,8 +102,31 @@ private:
 
     // Create/resize the offscreen targets to WxH. No-op when they already match.
     void ensureLightingTargets(uint16_t width, uint16_t height);
-    // Release them (window resize, or shutdown).
+    // Release them (window resize, or shutdown). Also releases the bloom targets, which are their
+    // children: both are screen-sized, so one size change invalidates all of them.
     void releaseLightingTargets();
+
+    // ---- Post-processing / bloom (plan B) -----------------------------------------------------
+    // Built ONLY once a game publishes `render:bloom` with a non-zero intensity, and released again
+    // the moment it stops. Without bloom the composite writes straight to the backbuffer and none of
+    // this exists — the same zero-cost contract as lighting itself, one layer up.
+    //
+    // ⚠️ Le bloom EXIGE l'éclairage : la source de l'extraction est la frame COMPOSÉE, et sans
+    //    éclairage il n'y a pas de composite du tout (la scène va directement au backbuffer, qui ne
+    //    s'échantillonne pas). Un jeu qui ne veut que du post-traitement publie un ambiant BLANC.
+    class BloomPass*   m_bloomPass = nullptr;     // owned by the render graph, borrowed here
+    class PresentPass* m_presentPass = nullptr;   // idem
+    // La cible HDR où le composite écrit quand le bloom est actif (au lieu du backbuffer).
+    rhi::FramebufferHandle m_hdrFB;
+    // Les deux cibles au QUART de la résolution : extraction -> A, flou H -> B, flou V -> A.
+    rhi::FramebufferHandle m_bloomFB[2];
+    uint16_t m_bloomWidth = 0;    // taille PLEINE pour laquelle les cibles ont été bâties (0 = aucune)
+    uint16_t m_bloomHeight = 0;
+    uint16_t m_bloomQuarterW = 0;
+    uint16_t m_bloomQuarterH = 0;
+
+    void ensureBloomTargets(uint16_t width, uint16_t height);
+    void releaseBloomTargets();
     std::unique_ptr<ShaderManager> m_shaderManager;
     std::unique_ptr<RenderGraph> m_renderGraph;
     std::unique_ptr<SceneCollector> m_sceneCollector;

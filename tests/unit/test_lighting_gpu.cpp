@@ -22,6 +22,7 @@
 #define SDL_MAIN_HANDLED
 
 #include <cmath>
+#include <cstdlib>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <SDL.h>
@@ -29,6 +30,7 @@
 
 #include "BgfxRendererModule.h"
 #include "Passes/CompositePass.h"
+#include "Passes/PresentPass.h"
 #include "RHI/RHIDevice.h"
 #include <grove/JsonDataNode.h>
 #include <grove/IntraIOManager.h>
@@ -1027,6 +1029,178 @@ TEST_CASE("lighting: a nebula absorbs PROGRESSIVELY, and its bounding quad is in
     renderer->shutdown();
     mgr.removeInstance("li9_r");
     mgr.removeInstance("li9_g");
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}
+
+// ============================================================================
+// Bloom (plan B) — la lueur DÉBORDE hors du rayon de la lampe.
+//
+// LE DISCRIMINANT, conçu avant d'écrire le shader (lighting-bloom.md §6.3) : on échantillonne un pixel
+// SITUÉ HORS du rayon de la lampe. La retombée y vaut *exactement* 0 par construction — c'est ce qui
+// rend le quad de la lampe correct — donc toute lumière mesurée là ne peut venir que du bloom.
+// Mesurer au centre de la lampe ne discriminerait rien : il est déjà saturé, et une passe de bloom
+// cassée y donnerait le même blanc.
+//
+// Quatre mesures, dans cet ordre :
+//   1. la RÉFÉRENCE — bloom éteint.
+//   2. la PLOMBERIE — bloom allumé mais avec un seuil INATTEIGNABLE : la sortie doit être identique à
+//      la référence, alors que le trajet HDR complet a été emprunté (composite -> cible HDR ->
+//      extraction -> deux flous -> présentation). Ça sépare « la plomberie déforme-t-elle l'image »
+//      de « la lueur fonctionne-t-elle », deux échecs qu'une seule mesure mélangerait.
+//   3. la LUEUR — même scène, seuil atteignable : le pixel hors rayon s'éclaircit.
+//   4. la LOCALITÉ — un pixel du coin, hors de portée du flou, ne bouge PAS. Sans cette mesure, un
+//      shader qui ajouterait une constante ou échantillonnerait la mauvaise texture passerait la 3.
+//
+// ⚠️ La lecture se fait sur la vue de PRÉSENTATION quand le bloom est actif, pas sur celle du
+//    composite : le module redirige celle-ci vers la cible HDR à chaque frame. Un test qui lirait le
+//    composite mesurerait la frame AVANT la lueur et serait vert en ne prouvant rien — le même piège
+//    qu'en L1 (lighting-2d.md §7), un cran plus loin.
+// ============================================================================
+
+TEST_CASE("bloom: the glow reaches OUTSIDE the lamp radius, and only nearby (GPU)",
+          "[gpu][light][bloom]") {
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) { WARN("no SDL video — skipping"); return; }
+
+    // 128x128 et pas 32 : il faut de la place pour la lampe ET pour la portée du flou au-delà d'elle,
+    // plus un coin franchement hors de portée pour la mesure de localité.
+    const int W = 128, H = 128;
+    SDL_Window* win = SDL_CreateWindow("bloom", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                                       SDL_WINDOW_HIDDEN);
+    if (!win) { SDL_Quit(); WARN("no window — skipping"); return; }
+    SDL_SysWMinfo wmi; SDL_VERSION(&wmi.version); REQUIRE(SDL_GetWindowWMInfo(win, &wmi));
+
+    auto& mgr = IntraIOManager::getInstance();
+    auto rIO = mgr.createInstance("bl_r");
+    auto gIO = mgr.createInstance("bl_g");
+
+    auto renderer = std::make_unique<BgfxRendererModule>();
+    {
+        JsonDataNode c("config");
+        c.setDouble("nativeWindowHandle", static_cast<double>(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
+        c.setInt("windowWidth", W); c.setInt("windowHeight", H); c.setBool("vsync", false);
+        renderer->setConfiguration(c, rIO.get(), nullptr);
+    }
+    if (!renderer->getDevice()) {
+        renderer->shutdown(); mgr.removeInstance("bl_r"); mgr.removeInstance("bl_g");
+        SDL_DestroyWindow(win); SDL_Quit(); WARN("no GPU — skipping"); return;
+    }
+    rhi::IRHIDevice* dev = renderer->getDevice();
+    rhi::FramebufferHandle fb = dev->createFramebuffer(static_cast<uint16_t>(W), static_cast<uint16_t>(H),
+                                                       rhi::TargetFormat::RGBA8);
+
+    const double cx = W * 0.5, cy = H * 0.5;
+    const double lampRadius = 30.0;                       // unités MONDE = pixels (caméra par défaut)
+    // 5 px HORS du bord de la lampe. Le premier essai échantillonnait à 45 px (15 px dehors) et
+    // mesurait +5/255 : réel, mais faible — et pour une raison physique, pas un bug. Seule la partie
+    // du disque dont la luminance dépasse le seuil brille (ici d < 15 px), et le flou étale cette
+    // petite tache sur un rayon de 55 px, donc dilue son énergie d'environ un facteur 13. Mesurer
+    // juste au bord garde le discriminant intact — la retombée y vaut EXACTEMENT zéro — avec un signal
+    // franc. La résolution en croix du composite ne s'étend que d'un pixel, elle ne peut pas polluer
+    // 5 px plus loin.
+    const int    sampleX = static_cast<int>(cx + 35.0);
+    const int    sampleY = static_cast<int>(cy);
+    // Intensité de bloom 2 : un réglage de jeu courant (1 à 3), et deux fois plus punitif pour la
+    // mesure de plomberie — une fuite du seuil inatteignable y serait doublée.
+    const double bloomIntensity = 2.0;
+
+    // Une scène BLANCHE : le terme de scène vaut 1 partout, donc ce qui sort du composite EST le terme
+    // d'éclairage. Sans surface éclairée il n'y aurait rien du tout — la lumière MULTIPLIE la scène,
+    // donc une scène noire resterait noire, lampe ou pas.
+    auto publishScene = [&] {
+        { auto cam = std::make_unique<JsonDataNode>("camera");
+          cam->setInt("viewportX", 0); cam->setInt("viewportY", 0);
+          cam->setInt("viewportW", W); cam->setInt("viewportH", H);
+          gIO->publish("render:camera", std::move(cam)); }
+        { auto s = std::make_unique<JsonDataNode>("d");
+          s->setDouble("cx", cx); s->setDouble("cy", cy);          // cx,cy = CENTRE
+          s->setDouble("scaleX", W); s->setDouble("scaleY", H);
+          s->setInt("color", static_cast<int>(0xFFFFFFFFu)); s->setInt("layer", 10);
+          gIO->publish("render:sprite", std::move(s)); }
+        // Ambiant TRÈS sombre : hors de la lampe la scène retombe à ~4 %, bien sous le début du genou
+        // (seuil/2), donc ces pixels ne brillent pas d'eux-mêmes et tout ce qu'on mesurera là au-delà
+        // de l'ambiant sera venu d'ailleurs.
+        { auto a = std::make_unique<JsonDataNode>("a");
+          a->setInt("color", static_cast<int>(0x0A0A0AFFu));
+          gIO->publish("render:ambient", std::move(a)); }
+        // La lampe : intensité 4, donc son disque dépasse largement le seuil de 1 et a de quoi
+        // alimenter l'extraction. C'est la raison d'être du RGBA16F.
+        { auto l = std::make_unique<JsonDataNode>("l");
+          l->setDouble("cx", cx); l->setDouble("cy", cy);
+          l->setDouble("radius", lampRadius);
+          l->setInt("color", static_cast<int>(0xFFFFFFFFu));
+          l->setDouble("intensity", 4.0);
+          gIO->publish("render:light", std::move(l)); }
+    };
+
+    // Rend 5 frames avec les réglages donnés puis relit la cible. `bloomOn == false` publie
+    // intensity 0, ce qui éteint tout le post-traitement (le contournement) : la frame finale sort
+    // alors du composite lui-même, donc on lit sa vue.
+    std::vector<uint8_t> rgba(static_cast<size_t>(W) * H * 4, 0);
+    auto render = [&](bool bloomOn, double intensity, double threshold, double radius) {
+        for (int i = 0; i < 5; ++i) {
+            publishScene();
+            { auto b = std::make_unique<JsonDataNode>("b");
+              b->setDouble("intensity", bloomOn ? intensity : 0.0);
+              b->setDouble("threshold", threshold);
+              b->setDouble("radius", radius);
+              gIO->publish("render:bloom", std::move(b)); }
+            // Ré-attaché CHAQUE frame : le module possède la redirection de vue et rebâtit ses cibles.
+            dev->setViewFramebuffer(bloomOn ? PresentPass::kPresentView : CompositePass::kCompositeView, fb);
+            JsonDataNode in("input"); in.setDouble("deltaTime", 0.016); renderer->process(in);
+        }
+        REQUIRE(dev->readFramebuffer(fb, rgba.data(), static_cast<uint32_t>(rgba.size())));
+    };
+    auto lumaAt = [&](int x, int y) {
+        const uint8_t* p = &rgba[(static_cast<size_t>(y) * W + x) * 4];
+        return (static_cast<int>(p[0]) + p[1] + p[2]) / 3;
+    };
+
+    // ---- 1. Le bloom ÉTEINT : la référence -------------------------------------------------
+    render(false, 0.0, 1.0, 40.0);
+    const int offSample = lumaAt(sampleX, sampleY);
+    const int offCentre = lumaAt(static_cast<int>(cx), static_cast<int>(cy));
+    const int offCorner = lumaAt(4, 4);
+    INFO("OFF  sample=" << offSample << " centre=" << offCentre << " corner=" << offCorner);
+    REQUIRE(offCentre > 200);              // la lampe éclaire vraiment (sanité de la scène)
+    REQUIRE(offSample < 40);               // et le point d'échantillonnage est bien hors de la lampe
+
+    // ---- 2. La PLOMBERIE : bloom allumé, seuil inatteignable -------------------------------
+    // Rien dans cette scène n'atteint une luminance de 40, donc l'extraction rend zéro partout et la
+    // présentation ajoute zéro. L'image doit être celle du composite — bien qu'elle ait traversé la
+    // cible HDR, deux flous et une passe de plus.
+    render(true, bloomIntensity, 40.0, 40.0);
+    const int plumbSample = lumaAt(sampleX, sampleY);
+    const int plumbCentre = lumaAt(static_cast<int>(cx), static_cast<int>(cy));
+    INFO("PLUMB sample=" << plumbSample << " (off " << offSample << ") centre=" << plumbCentre
+         << " (off " << offCentre << ")");
+    CHECK(std::abs(plumbSample - offSample) <= 2);   // 2 pour l'arrondi 8 bits, pas par tolérance
+    CHECK(std::abs(plumbCentre - offCentre) <= 2);
+
+    // ---- 3. La LUEUR : même scène, seuil atteignable ---------------------------------------
+    render(true, bloomIntensity, 1.0, 40.0);
+    const int onSample = lumaAt(sampleX, sampleY);
+    const int onCorner = lumaAt(4, 4);
+    INFO("ON   sample=" << onSample << " (off " << offSample << ") corner=" << onCorner
+         << " (off " << offCorner << ")");
+
+    // L'assertion qui mord : de la lumière là où la retombée de la lampe vaut EXACTEMENT zéro.
+    // MESURÉ : 10 (éteint) -> 40 (allumé), pendant que le coin reste à 10. La marge de +15 est donc
+    // deux fois moindre que l'effet réel, et le plancher de bruit est mesuré à 0 par le contrôle de
+    // localité ci-dessous — ce n'est pas une marge choisie pour passer.
+    CHECK(onSample > offSample + 15);
+
+    // ---- 4. La LOCALITÉ : le coin ne bouge pas ---------------------------------------------
+    // À ~90 px du centre, donc hors de portée d'un flou dont les taps atteignent 40 px depuis le bord
+    // du disque (30 + 40 = 70). Un shader qui ajouterait une constante, ou qui échantillonnerait la
+    // frame composée au lieu de la lueur floutée, éclaircirait ce coin aussi.
+    CHECK(std::abs(onCorner - offCorner) <= 3);
+
+    renderer->shutdown();
+    mgr.removeInstance("bl_r");
+    mgr.removeInstance("bl_g");
+    dev = nullptr;
     SDL_DestroyWindow(win);
     SDL_Quit();
 }
