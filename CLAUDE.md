@@ -91,7 +91,18 @@ tromper de domaine coûte cher dans les deux sens.
 | **Lancer la suite COMPLÈTE** (`ctest` sans `-R`) | **FERME** | c'est là qu'est la chaleur : ~200 s de CPU à fond. `tools/remote-build.sh --test` |
 | Build propre / `--clean` / après changement de flags CMake | **FERME** | plusieurs minutes de CPU local évitées |
 | Vérifier que la cible **Windows** compile depuis autre chose que le poste | **FERME** | `tools/remote-build.sh --mingw` |
-| Lancer un test **visuel/GPU** (`test_ui_showcase`, `*_gpu`) | **LOCAL** | la ferme n'a ni écran ni GPU utilisable |
+| Lancer un test **visuel/GPU** (`test_ui_showcase`, `*Gpu`) | **LOCAL** *(pour l'instant)* | la ferme **actuelle** n'a ni écran ni GPU utilisable — c'est une propriété de la machine, pas une règle. Voir ci-dessous. |
+
+**Ce n'est pas gravé : les tests sont étiquetés par CAPACITÉ.** Les 16 tests GPU portent le label
+ctest `gpu`, et trois cas particuliers portent `platform-windows`, `timing-sensitive` et
+`known-fail-linux` (déclarés dans `tests/CMakeLists.txt`). Les appelants excluent des **labels**,
+jamais des noms — donc le jour où la ferme aura un GPU et un écran, on retire `gpu` d'un seul
+endroit (`GROVE_REMOTE_EXCLUDE_LABELS`, ou l'option `--gpu`) et le reste suit. **C'est une porte
+laissée ouverte volontairement, ce scénario est attendu.**
+⚠️ Une nuance qui décide de la faisabilité : les binaires `--mingw` sont des **PE Windows** et ne
+s'exécuteront jamais sur un hôte Linux, GPU ou non. Faire tourner les tests `gpu` sur une ferme
+**Linux** suppose donc le build **natif Linux**, c'est-à-dire de rouvrir la dette « port Linux »
+(parkée). Sur une ferme **Windows** à GPU, la question ne se pose pas.
 
 **Règle courte : itère en local, valide sur la ferme.**
 

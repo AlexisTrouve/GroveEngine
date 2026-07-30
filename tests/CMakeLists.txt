@@ -4290,3 +4290,59 @@ if(GROVE_USE_PCH)
 
     message(STATUS "Shared test PCH: reused by ${_grove_pch_count} test targets")
 endif()
+
+
+# ============================================================================
+# Labels de CAPACITÉ — ce qu'un test exige de la MACHINE, pas ce qu'il teste
+# ----------------------------------------------------------------------------
+# QUOI    : étiquette les tests selon le matériel ou la plateforme qu'ils exigent,
+#           pour qu'une machine puisse sélectionner ce qu'elle sait faire tourner
+#           (`ctest -LE gpu`, `ctest -L gpu`, …).
+#
+# POURQUOI: la ferme de build distante n'a aujourd'hui ni GPU ni écran, et trois
+#           tests échouent chez elle pour des raisons étrangères au code. Sans
+#           label, la seule façon de les écarter est une liste de NOMS recopiée
+#           dans chaque appelant (workflow CI, script de déport, doc) — trois
+#           endroits à corriger le jour où la machine change, et aucun ne dit
+#           POURQUOI le test est écarté.
+#           Le label transporte la RAISON, et le jour où la ferme aura un GPU et
+#           un écran il suffira d'arrêter d'exclure `gpu` : rien d'autre à toucher.
+#           ⚠️ C'est une porte laissée ouverte volontairement — une ferme équipée
+#           est un scénario attendu, pas hypothétique.
+#
+# COMMENT : on énumère les tests déclarés dans ce répertoire et on étiquette.
+#           `gpu` est dérivé du suffixe de nom `…Gpu`, qui est déjà la convention
+#           du dépôt ; les autres sont nommés explicitement, parce que leur raison
+#           est particulière et mérite d'être lue.
+#
+# LABELS  : gpu              — exige un vrai contexte GL (⚠️ llvmpixel/llvmpipe ne
+#                              donne qu'OpenGL 2.1, insuffisant : voir la dette
+#                              « port Linux »)
+#           platform-windows — ne peut pas passer ailleurs par construction
+#           timing-sensitive — porte son propre chien de garde, déborde sous charge
+#           known-fail-linux — échec constaté non diagnostiqué
+# ============================================================================
+
+get_property(_grove_all_tests DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY TESTS)
+
+foreach(_grove_t IN LISTS _grove_all_tests)
+    if(_grove_t MATCHES "Gpu$")
+        set_tests_properties(${_grove_t} PROPERTIES LABELS "gpu")
+    endif()
+endforeach()
+
+# Cas particuliers, étiquetés nommément : chacun a une raison propre.
+# Le `if(TEST ...)` est nécessaire — ces cibles sont conditionnelles aux flags de
+# build, et set_tests_properties sur un test absent est une erreur dure.
+if(TEST CrashHandlerRealE2E)
+    # Le reporter de crash est du SEH Windows ; ailleurs c'est le backend Noop.
+    set_tests_properties(CrashHandlerRealE2E PROPERTIES LABELS "platform-windows")
+endif()
+if(TEST MemoryLeakHunter)
+    # Passe en 161 s contre son propre plafond de 180 : déborde sous charge.
+    set_tests_properties(MemoryLeakHunter PROPERTIES LABELS "timing-sensitive")
+endif()
+if(TEST RaceConditionHunter)
+    # SEGFAULT sous Linux, non diagnostiqué (2026-07-30).
+    set_tests_properties(RaceConditionHunter PROPERTIES LABELS "known-fail-linux")
+endif()

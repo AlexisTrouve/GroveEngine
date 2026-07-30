@@ -378,3 +378,46 @@ utile — le correctif ne la fait pas gonfler.
 `FarmTddProbe (Failed)`. Le fichier arrive, et le verdict est honnête.
 
 Ne jamais « optimiser » la synchro en revenant aux seuls fichiers suivis.
+
+---
+
+## 10. Porte laissée ouverte : une ferme avec GPU et écran
+
+Une ferme équipée est un scénario **attendu**, pas hypothétique. Les deux premières versions de ce
+chantier avaient codé en dur « la ferme n'a ni écran ni GPU » — dans `CLAUDE.md` **et** dans une
+liste de NOMS de tests recopiée dans le workflow CI. Trois endroits à corriger le jour du
+changement, et aucun ne disait *pourquoi* un test était écarté.
+
+### Le point d'accroche : des labels de capacité
+
+`tests/CMakeLists.txt` étiquette désormais les tests par ce qu'ils exigent de la **machine** :
+
+| Label | Signification | Tests |
+|---|---|---|
+| `gpu` | exige un vrai contexte GL | **16** (dérivé du suffixe `…Gpu`) |
+| `platform-windows` | ne peut pas passer ailleurs par construction | `CrashHandlerRealE2E` |
+| `timing-sensitive` | porte son chien de garde, déborde sous charge | `MemoryLeakHunter` |
+| `known-fail-linux` | échec constaté non diagnostiqué | `RaceConditionHunter` |
+
+Vérifié : 206 tests au total, `-L gpu` → 16, `-LE` des quatre → 187 (= 206 − 16 − 3).
+
+Les appelants (`tools/remote-build.sh`, `.gitea/workflows/build.yml`) excluent des **labels**, plus
+jamais des noms. Le jour venu, on retire `gpu` de `GROVE_REMOTE_EXCLUDE_LABELS` — ou on passe
+`--gpu` — et **rien d'autre ne bouge**. Vérifié : `--gpu` retire bien `gpu` de la liste, et la ferme
+actuelle reste à **100/100 en 89 s** avec l'exclusion par capacité.
+
+### ⚠️ La nuance qui décide de la faisabilité
+
+Le matériel n'est pas le seul verrou, et l'OS de la future ferme change tout :
+
+- **Ferme Linux à GPU** — les binaires `--mingw` sont des **PE Windows** et ne s'exécuteront jamais
+  sur un hôte Linux, GPU ou non. Y faire tourner les tests `gpu` suppose donc le build **natif
+  Linux**, c'est-à-dire **rouvrir la dette « port Linux »** (parkée). Bonne nouvelle en revanche :
+  le blocage qui l'a parkée est précisément l'absence de GPU (bgfx n'obtient qu'un contexte OpenGL
+  2.1 sous llvmpipe, insuffisant pour les shaders GLSL 1.30+). Un vrai GPU **est** susceptible de
+  lever ce blocage — la ferme équipée et la dette Linux sont le même sujet.
+- **Ferme Windows à GPU** — la cross-compilation devient inutile pour cet hôte : build natif, tests
+  `gpu` natifs, et artefacts directement exécutables. Topologie plus simple, mais il faut y
+  provisionner MinGW + ccache comme sur le poste.
+
+À trancher le jour où la machine existe ; le côté logiciel est prêt dans les deux cas.

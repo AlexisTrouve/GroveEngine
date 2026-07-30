@@ -58,6 +58,13 @@ JOBS="${GROVE_REMOTE_JOBS:-6}"
 NICE="${GROVE_REMOTE_NICE:-19}"
 LOCK_WAIT="${GROVE_REMOTE_LOCK_WAIT:-3600}"
 
+# Capacités de la machine de build, exprimées comme les labels ctest qu'elle NE sait
+# PAS faire tourner. C'est un réglage, pas une vérité gravée : le jour où la ferme a
+# un GPU et un écran, on retire `gpu` d'ici (ou on passe --gpu) et rien d'autre ne
+# bouge — ni le workflow CI, ni la doc, ni les appelants.
+# Voir tests/CMakeLists.txt § « Labels de CAPACITÉ » pour la signification de chacun.
+EXCLUDE_LABELS="${GROVE_REMOTE_EXCLUDE_LABELS:-gpu|platform-windows|timing-sensitive|known-fail-linux}"
+
 REPO="."
 WITH=()
 MINGW=0
@@ -71,6 +78,8 @@ while [[ $# -gt 0 ]]; do
         --repo)  REPO="$2"; shift 2 ;;
         --with)  WITH+=("$2"); shift 2 ;;
         --mingw) MINGW=1; shift ;;
+        # La ferme sait faire du GPU : on cesse d'écarter les tests qui en exigent.
+        --gpu)   EXCLUDE_LABELS="$(echo "$EXCLUDE_LABELS" | sed -E 's/(^gpu\||\|gpu$|^gpu$)//')"; shift ;;
         --test)  RUN_TESTS=1; shift ;;
         --fetch) FETCH="$2"; shift 2 ;;
         --clean) CLEAN=1; shift ;;
@@ -200,7 +209,11 @@ if [[ $RUN_TESTS -eq 1 ]]; then
             echo '==> ctest (série)'
             cd ~/$FARM/$MAIN_NAME/$BUILD_DIR
             T0=\$(date +%s)
-            nice -n $NICE ctest --output-on-failure > /tmp/grove-ctest-$MAIN_NAME.log 2>&1 || true
+            # -LE : on écarte par CAPACITÉ (label), pas par nom. Le label dit POURQUOI
+            # le test est écarté, et le jour où la ferme a un GPU/écran il suffit de
+            # retirer 'gpu' de EXCLUDE_LABELS (ou de passer --gpu).
+            nice -n $NICE ctest --output-on-failure -LE '$EXCLUDE_LABELS' > /tmp/grove-ctest-$MAIN_NAME.log 2>&1 || true
+            echo \"    exclus par capacité : $EXCLUDE_LABELS\"
             echo \"    \$((\$(date +%s) - T0)) s\"
             grep -E 'tests passed|tests failed out of' /tmp/grove-ctest-$MAIN_NAME.log || true
             grep -E '^\s+[0-9]+ - ' /tmp/grove-ctest-$MAIN_NAME.log | grep -iE 'Failed|Timeout' || true

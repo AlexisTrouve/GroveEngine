@@ -23,17 +23,28 @@
 #            (ai.etheryale.com). Le verrou est ce qui fait qu'il n'y a qu'une
 #            seule file, quelle que soit la porte d'entrée.
 #
-# ⚠️ TESTS EXCLUS — et pourquoi c'est explicite plutôt que silencieux. Trois
-#            tests échouent sur ce serveur pour des raisons CONNUES et étrangères
-#            au code poussé. Les laisser rendrait le workflow rouge en permanence,
-#            et un rouge permanent ne se lit plus. Ils sont donc exclus NOMMÉMENT,
-#            pour qu'on voie ce qu'on ne teste pas :
-#              - MemoryLeakHunter    : 161 s contre son propre plafond de 180 s,
-#                                      il déborde sous charge (fragilité connue)
-#              - CrashHandlerRealE2E : le reporter est du SEH Windows, backend
-#                                      Noop ailleurs — ne peut pas passer ici
-#              - RaceConditionHunter : segfault sous Linux, non diagnostiqué
-#            Toute reprise de ces trois-là doit RETIRER la ligne correspondante.
+# ⚠️ TESTS EXCLUS PAR CAPACITÉ, pas par nom. On écarte des LABELS ctest
+#            (voir tests/CMakeLists.txt § « Labels de CAPACITÉ »), parce qu'un label
+#            transporte la RAISON de l'exclusion là où une liste de noms ne dit rien :
+#              gpu              — exige un vrai contexte GL ; le serveur n'a pas de
+#                                 GPU utilisable (llvmpipe ne donne qu'OpenGL 2.1)
+#              platform-windows — CrashHandlerRealE2E : reporter SEH Windows,
+#                                 backend Noop ailleurs, ne PEUT pas passer ici
+#              timing-sensitive — MemoryLeakHunter : 161 s contre son propre
+#                                 plafond de 180, déborde sous charge
+#              known-fail-linux — RaceConditionHunter : segfault Linux non diagnostiqué
+#            Les laisser rendrait le workflow rouge en permanence, et un rouge
+#            permanent ne se lit plus.
+#
+# ⚠️ PORTE LAISSÉE OUVERTE : une ferme équipée d'un GPU et d'un écran est un
+#            scénario attendu, pas hypothétique. Le jour venu, on retire `gpu` de
+#            la liste ci-dessous — et RIEN d'autre ne bouge, ni le script de déport,
+#            ni la doc. C'est tout l'intérêt d'étiqueter plutôt que de nommer.
+#            ⚠️ Attention toutefois : les binaires produits par le job mingw sont
+#            des PE Windows et ne s'exécuteront jamais sur un hôte Linux, GPU ou
+#            non. Faire tourner les tests `gpu` sur une ferme Linux suppose le
+#            build NATIF Linux, donc de rouvrir la dette « port Linux » (parkée).
+#            Sur une ferme Windows à GPU, la question ne se pose pas.
 #
 # PORTÉE   : groveengine UNIQUEMENT. drifterra / DAOS / fractax ne sont pas
 #            câblés tant que leurs propres défauts bloquent le build (DAOS : casse
@@ -64,9 +75,10 @@ jobs:
           nice -n 19 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           nice -n 19 ninja -C build -j6
 
-          # Exclusions documentées en tête de fichier. -E prend une regex.
+          # -LE = exclusion par LABEL. Raisons détaillées en tête de fichier.
+          # Ferme équipée un jour d'un GPU/écran ⇒ retirer `gpu` de cette seule ligne.
           nice -n 19 ctest --test-dir build --output-on-failure \
-            -E 'MemoryLeakHunter|CrashHandlerRealE2E|RaceConditionHunter'
+            -LE 'gpu|platform-windows|timing-sensitive|known-fail-linux'
 
   windows-cross-check:
     runs-on: host
