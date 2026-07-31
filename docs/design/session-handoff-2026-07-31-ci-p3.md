@@ -14,6 +14,63 @@ erreurs commises en la faisant. Le détail technique est dans
 
 ---
 
+## 0. REPRENDRE À FROID — à lire en premier
+
+*Le dépôt est laissé au repos ; le travail bascule sur un autre projet. Rien n'est en cours, rien
+n'est à moitié fait, rien n'attend d'être poussé.*
+
+### L'état, en trois lignes
+
+| | |
+|---|---|
+| `master` | poussé et **identique** sur gitea (`origin`) et github. Arbre propre, un seul worktree |
+| CI | **verte** — 189/189 tests + cross-compilation Windows, sur push de n'importe quelle branche |
+| Suite locale | **1 rouge sur 208** : `ChaosMonkey`, **attendu**, cf. ci-dessous |
+
+⚠️ **Le rouge local n'est PAS une régression.** Si la suite ressort à 1 rouge nommé `ChaosMonkey`,
+c'est l'état sain. À 2, il s'est passé quelque chose.
+
+### Les trois choses ouvertes, avec le geste suivant
+
+**1. `ChaosMonkey` — une décision, pas un bug.** Il échoue sur un budget d'horloge en dur (70 s contre
+60), machine au repos, 3 fois sur 3. Pas une course : toutes les récupérations réussissent.
+→ *Geste suivant* : une mesure **à froid** (poste non sollicité depuis un moment) départage « budget
+trop serré » de « poste bridé thermiquement ». Puis ta décision sur ce qu'on fait d'un budget absolu.
+⚠️ **Piège** : lui coller `timing-sensitive` le retirerait de la CI **où il passe** — on échangerait
+une couverture réelle contre un vert local. Détail : [known-annoyances.md §2ter](known-annoyances.md).
+
+**2. `UIModule::updateUI` (452 lignes) — dernière de P3, et d'une autre nature.**
+→ *Geste suivant* : **ne pas** la traiter par analogie avec les quatre autres. Ni table déguisée à
+révéler, ni blocs jumeaux à factoriser : aucune répétition, et de l'état qui circule entre les
+étapes. Si elle est reprise, ça commence par une analyse de la **circulation d'état**, pas par un
+découpage. Détail : [audit-perf-mess-2026-07-29.md §P3](audit-perf-mess-2026-07-29.md).
+
+**3. L'intermittence résiduelle** — `NineSliceGpu` : rouge en suite complète, vert 3/3 lancé seul.
+→ *Geste suivant* : session dédiée, `tests/helpers/CrashBacktrace.h`, boucler jusqu'à capture d'une
+trace réelle. ⚠️ **Ne pas confondre avec le cas 1** — c'est l'erreur que cette session a corrigée :
+`ChaosMonkey` était rangé là à tort, et il n'a rien d'intermittent.
+
+*(Hors périmètre, en attente d'arbitrage matériel : les 16 tests `[gpu]` restent hors CI et n'y
+entreront que sur une ferme **Windows** à GPU. Le rendu **headless**, lui, est couvert.)*
+
+### Les trois pièges qui coûtent une demi-journée si on les ignore
+
+- **Retirer le label `gpu` de la CI ne ferait apparaître aucun test** — les 16 sont gardés par
+  `WIN32` et ne se **construisent** pas sur Linux. Ce n'est pas un filtre, c'est une absence.
+- **Ne pas retirer les `-DGROVE_BUILD_*` du workflow « pour aller plus vite »** : le gain serait
+  invisible et la perte de couverture silencieuse — c'est exactement la panne réparée ce jour-là.
+- **La ferme peut être bloquée par un processus MORT** (verrou hérité via un descripteur). Le message
+  nomme désormais le détenteur ; le tuer **par son PID**, jamais par nom.
+  Détail : [build-speed.md §7](build-speed.md).
+
+### Où est la vérité
+
+`CLAUDE.md` pour l'inventaire du moteur · **ProjectMind** (projet `alexi/groveengine`, ⚠️ *pas*
+`StillHammer/...` — l'ancre `getProject({gitRepo})` échoue, passer par `listProjects()`) pour le plan
+actif et les tâches · les docs liées ci-dessus pour chaque sujet.
+
+---
+
 ## 1. Ce qui a été livré
 
 | Chantier | Commits | Résultat |
