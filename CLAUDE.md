@@ -118,11 +118,13 @@ Pièges à connaître avant de s'en servir :
 
 Détail complet, mesures et pièges : **[docs/design/build-speed.md](docs/design/build-speed.md)**.
 
-### CI — un push sur `master` déclenche une validation automatique
+### CI — tout push déclenche une validation automatique
 
-`.gitea/workflows/build.yml` : à chaque push sur `master` (et sur déclenchement manuel), le serveur
-construit le moteur, lance la suite, puis vérifie que la **cible Windows** compile en
-cross-compilation. Ce n'est pas une brique à monter — Gitea tourne sur ce même serveur et son runner
+`.gitea/workflows/build.yml` : à chaque push sur **n'importe quelle branche** (plus les pull requests
+vers `master`, plus le déclenchement manuel), le serveur construit le moteur, lance la suite, puis
+vérifie que la **cible Windows** compile en cross-compilation. Valider seulement `master` reviendrait
+à valider *après* coup — pousser sa branche de travail donne le même verdict **avant** la fusion, et
+ne coûte rien tant qu'on n'en pousse pas. Ce n'est pas une brique à monter — Gitea tourne sur ce même serveur et son runner
 `act-runner-global` expose le label `host:host`, donc le job s'exécute directement sur la machine et
 hérite du ccache partagé.
 
@@ -130,17 +132,41 @@ hérite du ccache partagé.
 de travail **même non commité**, à la demande ; le CI vérifie ce qui est **poussé**, tout seul, avec
 un historique.
 
+⚠️ **Les modules sont activés EXPLICITEMENT dans le job.** Les défauts CMake sont `OFF` pour
+BgfxRenderer, UIModule, Fx, Dialogue et Video : un `cmake -B build` nu ne les compile pas, et leurs
+tests **n'existent alors pas dans l'arbre**. Ce ne sont pas des tests « exclus », ce sont des tests
+**absents** — aucun filtre par label ne pouvait le montrer. Mesuré le 31/07/2026 : la CI lançait
+**103** tests, elle en lance **189** (100 % verts, 97 s de `ctest`). Les 86 gagnés sont les E2E de
+l'UI, le renderer **headless** (SceneCollector, PipelineHeadless, MockRHIDevice), FX, dialogue et
+vidéo. SoundManager reste dehors (il exige SDL2_mixer sur la chaîne du serveur). **Ne pas retirer ces
+drapeaux « pour aller plus vite »** : le gain serait invisible, la perte de couverture silencieuse.
+
 ⚠️ **Trois tests sont exclus, par LABEL et non par nom** — le label porte la raison :
 `platform-windows` (le reporter de crash est du SEH Windows), `timing-sensitive`
 (`MemoryLeakHunter` passe en 161 s contre son propre plafond de 180 et déborde sous charge),
-`known-fail-linux` (`RaceConditionHunter` segfaute sous Linux, non diagnostiqué), plus `gpu`
-(le serveur n'a pas de GPU utilisable). Les laisser rendrait le CI rouge en permanence — et un rouge
-permanent ne se lit plus. **Reprendre l'un d'eux = retirer son label de la ligne `-LE`**, à un seul
-endroit. Ces labels sont déclarés en fin de `tests/CMakeLists.txt`.
+`known-fail-linux` (`RaceConditionHunter` segfaute sous Linux, non diagnostiqué). Les laisser rendrait
+le CI rouge en permanence — et un rouge permanent ne se lit plus. **Reprendre l'un d'eux = retirer son
+label de la ligne `-LE`**, à un seul endroit. Ces labels sont déclarés en fin de `tests/CMakeLists.txt`.
+
+⚠️ **`gpu` figure dans la ligne `-LE` mais n'écarte RIEN** (mesuré) : les 16 tests GPU sont gardés par
+`WIN32` dans `tests/CMakeLists.txt`, donc sur Linux ils ne se **construisent** pas. Conséquence à ne
+pas se tromper : retirer le label ne les ferait pas apparaître. Ils n'arriveront que sur une ferme
+**Windows** à GPU — sur une ferme Linux il faudrait d'abord qu'ils s'y compilent, c'est-à-dire rouvrir
+la dette « port Linux », parquée. C'est le seul trou de couverture restant, et il est étroit : le
+rendu **headless**, lui, est couvert.
 
 ⚠️ Le job prend **le même `flock`** que `remote-build.sh` (`~/grovefarm/.build.lock`) : une seule
 file d'attente quelle que soit la porte d'entrée, parce que le serveur n'a que 8 threads **et**
 héberge la prod.
+
+⚠️ **Si la ferme semble « occupée » sans fin, lis QUI tient le verrou — c'est affiché.** Un `flock`
+ne se libère qu'à la fermeture du **dernier** descripteur, pas à la mort de celui qui l'a pris : tout
+processus démonisé sous le verrou (serveur X, démon…) en **hérite** et le tient indéfiniment. Vécu le
+30/07/2026 — un `Xvfb` orphelin a bloqué builds **et** CI pendant **14 h**, et le message d'alors
+(« file trop longue ») décrivait le symptôme en cachant la cause. Les deux portes d'entrée affichent
+maintenant les détenteurs (`fuser`) à la mise en file **et** à l'expiration. Le coupable se tue
+**par son PID** — jamais par nom : d'autres instances légitimes peuvent tourner (ce jour-là, un second
+`Xvfb` parfaitement sain tournait depuis juin).
 
 **Portée : `groveengine` uniquement.** drifterra / DAOS / fractax ne sont pas câblés tant que leurs
 propres défauts bloquent leur build (voir `docs/design/build-speed.md` §6 et §12).
