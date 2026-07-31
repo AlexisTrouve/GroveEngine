@@ -28,7 +28,21 @@ n'est à moitié fait, rien n'attend d'être poussé.*
 | Suite locale | **1 rouge sur 208** : `ChaosMonkey`, **attendu**, cf. ci-dessous |
 
 ⚠️ **Le rouge local n'est PAS une régression.** Si la suite ressort à 1 rouge nommé `ChaosMonkey`,
-c'est l'état sain. À 2, il s'est passé quelque chose.
+c'est l'état sain.
+
+> ⚠️ **CORRIGÉ le soir même — la phrase qui suivait était « À 2, il s'est passé quelque chose », et
+> elle est FAUSSE.** Le même soir la suite est ressortie à **4 rouges sur 210**, les quatre innocents :
+> deux budgets d'horloge absolus (`ChaosMonkey`, `ErrorRecovery`) et deux échecs de contention
+> (`StressTest`, `MultiVersionCoexistence`, verts quand on les relance seuls). Le poste tournait
+> **68 % plus lentement** que trois jours plus tôt (757 s de suite contre ~450 s) — aucune ligne de
+> code n'avait bougé de leur côté.
+>
+> **Le COMPTE de rouges n'est pas un signal, il suit la vitesse de la machine.** Ce qui est
+> utilisable : le **nom** du test et la **raison** de son échec. Méthode et preuve (comparer la date
+> du binaire à celle de l'édition) : [known-annoyances.md §2quater](known-annoyances.md).
+>
+> C'est exactement le défaut que ce document dénonce trois sections plus bas : j'ai écrit un seuil
+> commode — « 1 » — au lieu d'un critère qui discrimine.
 
 ### Les trois choses ouvertes, avec le geste suivant
 

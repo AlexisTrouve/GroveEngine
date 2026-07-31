@@ -98,6 +98,51 @@ mémoire, récupérations réussies) et de traiter la durée comme une **métriq
 > **matériel** déguisée en propriété du **code**. Il finira toujours par tomber, et son échec
 > n'apprend rien sur la correction — tout en ressemblant, dans le résumé de `ctest`, à un vrai bug.
 
+### 2quater. `ErrorRecovery` rejoint la famille — et **`ChaosMonkey` n'est plus seul** (2026-07-31, soir)
+
+```
+❌ ASSERTION FAILED: Recovery time should be < 500ms
+   Expected: < 500     Actual: 555.653
+   tests/integration/test_06_error_recovery.cpp:255
+```
+
+Même signature exactement : **toutes les phases fonctionnelles passent** (l'état est extrait, le
+hot-reload aboutit, le module redevient sain, 120 frames de stabilité), et seule l'assertion
+chronométrique finale tombe. Dépassement **11 %**. Il échoue **seul** comme en suite, donc ce n'est
+pas de la contention.
+
+⚠️ **Ce que ça change pour qui lit `ctest` : la phrase « 1 rouge = état sain » ne tient plus.** Ce
+soir-là la suite complète est ressortie à **4 rouges sur 210** — et les quatre étaient innocents :
+
+| Test | Seul | En suite | Famille |
+|---|---|---|---|
+| `ChaosMonkey` | ❌ | ❌ | budget d'horloge (§2ter) |
+| `ErrorRecovery` | ❌ | ❌ | **budget d'horloge (celle-ci)** |
+| `StressTest` | ✅ | ❌ | contention (§2) |
+| `MultiVersionCoexistence` | ✅ | ❌ | contention (§2) |
+
+Le **nombre** de rouges n'est donc pas un signal : il suit la vitesse du poste. Ce soir-là la suite a
+mis **757 s** contre ~450 s mesurées trois jours plus tôt — 68 % plus lente, et deux budgets absolus
+sont passés du bon côté au mauvais sans qu'une ligne de code ait bougé. Le signal utilisable est le
+**nom** du test et la **raison** de son échec, jamais le compte.
+
+**La méthode qui a tranché en cinq minutes**, à réutiliser telle quelle :
+
+1. relancer les inattendus **seuls** — ça sépare contention et échec dur ;
+2. lire l'assertion, pas le résumé — « Recovery time should be < 500ms » se lit d'un coup d'œil ;
+3. **comparer la date du binaire à celle de l'édition** :
+   ```bash
+   stat -c "%y  %n" build/tests/test_06_error_recovery.exe modules/BgfxRenderer/Scene/SceneCollector.cpp
+   ```
+   L'exécutable datait de 09:51, l'édition de 20:32 : **le binaire qui échouait était celui d'avant le
+   travail**, jamais recompilé. Ce n'est plus un argument, c'est une preuve. (C'est le piège
+   « artefact périmé » du §3bis pris **par l'autre bout** : là il cachait un correctif, ici il
+   démontre une innocence.)
+
+> **Leçon de méthode** : devant N rouges après un changement, l'instinct est de chercher lequel on a
+> cassé. La question moins chère est **« mon code est-il seulement DANS ce binaire ? »** — deux de ces
+> quatre tests ne lient même pas `BgfxRenderer`.
+
 ## 3bis. ⚠️ Un artefact périmé se déguise en CORRUPTION DE TAS
 
 **Symptôme** : un test `[gpu]` meurt en `0xC0000374` (corruption de tas) *après* son dernier assert,
