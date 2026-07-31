@@ -12,6 +12,12 @@
  * HOW   : cols=4 → cell u0 ∈ {0, 0.25, 0.5, 0.75}. We isolate the flipbook by its textureId (5), record
  *         every observed u0, and require (a) at least two distinct u0 values, (b) the specific 0.25
  *         (frame 1 → real sheet-cell math, not just "some change"), (c) a render:sprite:update fired.
+ *
+ * ⚠️ PORTÉE — ce test s'arrête au MESSAGE PUBLIÉ, il ne voit pas le rendu. Il prouve que l'UI ÉMET
+ *    les bonnes UV ; il ne prouvait pas qu'elles arrivaient à l'écran, et pendant ce temps
+ *    `parseSpriteUpdate` ne les relisait pas du tout (corrigé le 2026-07-31). Le maillon suivant est
+ *    couvert côté collector : test_scene_collector.cpp, « `:update` honore des UV explicites ».
+ *    À retenir : un E2E qui observe le bus vérifie l'émetteur, pas la chaîne.
  */
 
 #include <catch2/catch_test_macros.hpp>

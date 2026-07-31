@@ -295,15 +295,20 @@ arm->setInt("layer", 12);                // draw order between the body and the 
 io->publish("render:sprite", std::move(arm));
 ```
 
-**Two limits worth knowing before you build on this:**
+Flips are honoured on **all three** sprite topics — `render:sprite`, `:add` **and `:update`** — so a
+retained character can turn around without being re-published from scratch. On `:update` the flip is
+**absolute state, not a toggle**: publish `flipX: true` every frame while your character walks left
+and it stays mirrored; omit it and it faces right again. Publish your state, not your transitions.
 
-- A sprite with **`textureId: 0`** is a flat tinted quad — there is no image to mirror, so a flip on
-  it is a visual no-op. Textured sprites (including `asset` ids) mirror as expected.
-- Flips are honoured on **`render:sprite`** and **`render:sprite:add`**, **not** on
-  `render:sprite:update`. That path updates a retained sprite incrementally and does not rebuild its
-  UVs, so a repeated `flipX` across successive updates would flip back and forth. Set the flip when
-  you add the sprite, or re-publish it ephemerally each frame (what an animated paper-doll does
-  anyway). Design notes: `docs/design/sprite-transforms.md`.
+**One limit worth knowing before you build on this:** a sprite with **`textureId: 0`** is a flat
+tinted quad — there is no image to mirror, so a flip on it is a visual no-op. Textured sprites
+(including `asset` ids) mirror as expected.
+
+> ⚠️ **Until 2026-07-31 the flip did nothing on `asset`-backed sprites**, and this guide told you to
+> re-publish ephemerally each frame to work around a `:update` limitation that no longer exists.
+> Both are fixed. If your game mirrors with a **negative `scaleX`** because of it, know that a
+> negative scale also reverses the apparent direction of `rotation` — switching to `flipX` means
+> un-negating whatever angle you compensated with. Design notes: `docs/design/sprite-transforms.md`.
 
 #### Additive sprites — glowing, stretched quads (`blend`)
 

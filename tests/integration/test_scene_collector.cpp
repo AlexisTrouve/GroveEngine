@@ -15,6 +15,7 @@
 
 #include "../../modules/BgfxRenderer/Scene/SceneCollector.h"
 #include "../../modules/BgfxRenderer/Scene/Camera.h"
+#include "../../modules/BgfxRenderer/Assets/AssetManager.h"   // sprites portés par un `asset` streamé
 #include "../../modules/BgfxRenderer/Frame/FrameAllocator.h"
 #include "grove/IntraIO.h"
 #include "grove/IntraIOManager.h"
@@ -535,6 +536,12 @@ TEST_CASE("SceneCollector - parse sprite all fields", "[scene_collector][integra
 // right depending on the walk direction). Implemented as a UV SWAP: the image mirrors INSIDE its
 // quad, which is why it composes correctly with `rotation` (the picture is mirrored first, then the
 // box turns) and needs neither a new instance field nor a shader change.
+//
+// ⚠️ CE QUE CETTE SECTION NE COUVRE PAS — et l'a affirmé à tort pendant trois jours. Les UV sont
+// posées À LA MAIN sur un `textureId` numérique : c'est la seule combinaison où le flip survivait,
+// puisque la résolution d'un `asset` réécrit les UV. Le commentaire ci-dessous parlait d'« ATLAS
+// sub-rect » et argumentait le cas atlas, sans jamais l'emprunter. Le vrai chemin atlas est couvert
+// plus bas (« Mode RETENU — les champs visuels… »), avec un AssetManager réel.
 // ============================================================================
 
 TEST_CASE("SceneCollector: flipX mirrors the sprite's U range", "[collector][sprite][flip]") {
@@ -546,7 +553,7 @@ TEST_CASE("SceneCollector: flipX mirrors the sprite's U range", "[collector][spr
 
     auto sprite = std::make_unique<JsonDataNode>("sprite");
     sprite->setDouble("cx", 50.0); sprite->setDouble("cy", 60.0);
-    sprite->setDouble("u0", 0.25); sprite->setDouble("u1", 0.75);   // an ATLAS sub-rect, not 0..1
+    sprite->setDouble("u0", 0.25); sprite->setDouble("u1", 0.75);   // sous-rect POSÉE À LA MAIN (cf. l'avertissement ci-dessus)
     sprite->setDouble("v0", 0.10); sprite->setDouble("v1", 0.90);
     sprite->setBool("flipX", true);
     sprite->setInt("textureId", 7);
@@ -3476,4 +3483,226 @@ TEST_CASE("SceneCollector - sectors: tri par couche + separation monde/HUD",
 
     REQUIRE(p.hudSectors[0].layer == 2);     // tri croissant, bucket HUD
     REQUIRE(p.hudSectors[1].layer == 9);
+}
+
+// ============================================================================
+// Mode RETENU — les champs visuels que `:update` laissait tomber en silence.
+//
+// POURQUOI cette section existe : DAOS a signalé (2026-07-31) que `flipX` ne miroitait pas ses
+// pièces `asset`. En mesurant, le défaut s'est révélé plus large que le miroir — `render:sprite:*`
+// résolvait l'asset APRÈS avoir posé le flip (donc l'écrasait), et `:update` ne lisait ni les UV
+// explicites, ni le flip, ni le blend. `UIRenderer` envoie pourtant ses UV à CHAQUE update
+// (UIRenderer.cpp l.348) : le flipbook animait dans le vide.
+//
+// POURQUOI ces tests-ci et pas les précédents : les deux tests qui semblaient garder ces chemins
+// s'arrêtaient un maillon trop tôt. `IT_054` observe le message PUBLIÉ (`m.data->getDouble("u0")`)
+// et jamais le FramePacket ; l'ancien test `[flip]` simulait une sous-rect d'atlas à la main avec un
+// `textureId` numérique — la seule combinaison où le flip survivait. Tout ici asserte donc le
+// FramePacket, et passe par un vrai AssetManager.
+// ============================================================================
+
+namespace {
+// Fournisseur de textures minimal : l'AssetManager veut une backend, on lui en donne une qui compte.
+// Calqué sur MockProvider de tests/unit/test_asset_manager.cpp (pas de GPU, pas de fichier).
+struct CollectorTexProvider : assets::ITextureProvider {
+    uint32_t nextId = 1;
+    uint32_t load(const std::string& path) override { (void)path; return nextId++; }
+    void     unload(uint32_t texId) override { (void)texId; }
+    uint64_t bytes(uint32_t texId) const override { (void)texId; return 100; }
+    uint32_t upload(const uint8_t* rgba, int w, int h) override { (void)rgba; (void)w; (void)h; return nextId++; }
+};
+
+// Le harnais retenu + un AssetManager portant UNE sous-sprite d'atlas connue.
+// La sous-rect est volontairement asymétrique (0.25..0.75 en U, 0.10..0.90 en V) : un miroir qui
+// supposerait la texture entière écrirait 1..0 et se verrait immédiatement.
+struct AssetFixture : RetainedFixture {
+    CollectorTexProvider provider;
+    assets::AssetManager mgr{&provider, 1024 * 1024};
+    AssetFixture() {
+        mgr.registerAsset("sheet", "sheet.png");
+        mgr.registerAtlasSprite("part:beard", "sheet", 0.25f, 0.10f, 0.75f, 0.90f);
+        collector.setAssetManager(&mgr);
+    }
+};
+} // namespace
+
+// Le défaut signalé par DAOS, en immédiat : le flip était posé PUIS écrasé par la résolution d'asset.
+// La version fausse rend la sous-rect intacte (0.25..0.75) — donc un test qui n'asserte que
+// « les UV valent la sous-rect » passerait des deux côtés. C'est l'ORDRE qui doit être asserté.
+TEST_CASE("SceneCollector - flipX miroite un sprite porté par un asset (immédiat)",
+          "[scene_collector][flip][asset]") {
+    AssetFixture fx;
+    FrameAllocator allocator;
+
+    auto s = std::make_unique<JsonDataNode>("s");
+    s->setDouble("cx", 50.0); s->setDouble("cy", 60.0);
+    s->setString("asset", "part:beard");
+    s->setBool("flipX", true);
+    fx.ioPublisher->publish("render:sprite", std::move(s));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    // U échangé DANS la sous-rect de l'atlas, V intact, texture = celle de la planche.
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.75f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].v0, WithinAbs(0.10f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].v1, WithinAbs(0.90f, 0.001f));
+    REQUIRE(p.sprites[0].textureId > 0.0f);
+}
+
+// Même défaut sur le chemin retenu : c'est celui que DAOS devrait pouvoir utiliser.
+TEST_CASE("SceneCollector - flipX miroite un sprite asset en mode retenu (add)",
+          "[scene_collector][flip][asset][retained]") {
+    AssetFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 42);
+    add->setDouble("cx", 10.0); add->setDouble("cy", 20.0);
+    add->setString("asset", "part:beard");
+    add->setBool("flipX", true);
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.75f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.25f, 0.001f));
+}
+
+// LE cas d'usage de DAOS : un nain retenu qui fait demi-tour. Le flip doit être un ÉTAT ABSOLU,
+// pas une bascule — sinon deux updates consécutives avec flipX:true le remettraient à l'endroit.
+// C'est exactement le "double-flip" qui avait fait renoncer à porter le flip sur `:update`.
+TEST_CASE("SceneCollector - retenu : le flip change au fil des updates, sans jamais basculer",
+          "[scene_collector][flip][retained]") {
+    AssetFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 7);
+    add->setDouble("cx", 0.0); add->setDouble("cy", 0.0);
+    add->setString("asset", "part:beard");
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+    {   // il regarde à droite
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.25f, 0.001f));
+    }
+    fx.collector.clear();
+
+    // Il part à gauche : deux frames de suite avec flipX:true (un jeu republie son état, il ne
+    // publie pas des transitions). La seconde ne doit RIEN changer.
+    for (int frame = 0; frame < 2; ++frame) {
+        auto up = std::make_unique<JsonDataNode>("s");
+        up->setInt("renderId", 7);
+        up->setDouble("cx", static_cast<double>(-frame));
+        up->setString("asset", "part:beard");
+        up->setBool("flipX", true);
+        fx.ioPublisher->publish("render:sprite:update", std::move(up));
+        fx.pump();
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.spriteCount == 1);
+        INFO("frame " << frame << " : un flip idempotent, pas une bascule");
+        REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.75f, 0.001f));
+        REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.25f, 0.001f));
+        fx.collector.clear();
+    }
+
+    // Il repart à droite : flipX omis (== faux) doit RESTAURER l'orientation, pas la figer.
+    auto back = std::make_unique<JsonDataNode>("s");
+    back->setInt("renderId", 7);
+    back->setString("asset", "part:beard");
+    fx.ioPublisher->publish("render:sprite:update", std::move(back));
+    fx.pump();
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.75f, 0.001f));
+}
+
+// Le cas UIFlipbook : l'UI envoie des UV neuves à chaque update (UIRenderer.cpp l.348) et le
+// collector ne les lisait pas — l'animation retenue ne pouvait PAS bouger à l'écran. IT_054 ne
+// pouvait pas le voir : il asserte le message publié, pas le paquet rendu.
+TEST_CASE("SceneCollector - retenu : `:update` honore des UV explicites (cellule de flipbook)",
+          "[scene_collector][retained][uv]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 3);
+    add->setInt("textureId", 5);
+    add->setDouble("u0", 0.0); add->setDouble("u1", 0.25);   // cellule 0 d'une planche 4 colonnes
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+    fx.collector.finalize(allocator);
+    fx.collector.clear();
+
+    auto up = std::make_unique<JsonDataNode>("s");           // cellule 1
+    up->setInt("renderId", 3);
+    up->setInt("textureId", 5);
+    up->setDouble("u0", 0.25); up->setDouble("u1", 0.50);
+    fx.ioPublisher->publish("render:sprite:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.50f, 0.001f));
+}
+
+// Troisième champ silencieusement perdu : un sprite retenu ne pouvait pas devenir additif.
+TEST_CASE("SceneCollector - retenu : `:update` honore le blend additif",
+          "[scene_collector][retained][blend]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");
+    add->setInt("renderId", 9);
+    add->setInt("textureId", 2);
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+    fx.collector.finalize(allocator);
+    fx.collector.clear();
+
+    auto up = std::make_unique<JsonDataNode>("s");
+    up->setInt("renderId", 9);
+    up->setInt("textureId", 2);
+    up->setString("blend", "additive");
+    fx.ioPublisher->publish("render:sprite:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].padding0, WithinAbs(1.0f, 0.001f));   // 0 = alpha, 1 = additif
+}
+
+// NON-RÉGRESSION — la charge utile de FxModule, qui n'envoie JAMAIS d'UV (ni à l'add, ni à
+// l'update). L'instantané complet doit lui redonner exactement ce que son `:add` produisait :
+// la sous-rect de l'atlas, surtout pas 0..1. C'est le seul risque de la bascule sémantique.
+TEST_CASE("SceneCollector - retenu : un update sans UV garde la sous-rect de l'asset",
+          "[scene_collector][retained][uv]") {
+    AssetFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("s");            // exactement les champs de FxModule
+    add->setInt("renderId", 11);
+    add->setDouble("cx", 1.0); add->setDouble("cy", 2.0);
+    add->setString("asset", "part:beard");
+    fx.ioPublisher->publish("render:sprite:add", std::move(add));
+    fx.pump();
+    fx.collector.finalize(allocator);
+    fx.collector.clear();
+
+    auto up = std::make_unique<JsonDataNode>("s");
+    up->setInt("renderId", 11);
+    up->setDouble("cx", 3.0); up->setDouble("cy", 4.0);
+    up->setString("asset", "part:beard");
+    fx.ioPublisher->publish("render:sprite:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].x,  WithinAbs(3.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.75f, 0.001f));
 }

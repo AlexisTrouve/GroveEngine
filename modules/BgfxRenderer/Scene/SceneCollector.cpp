@@ -71,6 +71,13 @@ static bool isScreenSpace(const IDataNode& data) {
 //
 // ⚠️ A sprite with textureId 0 is a flat tinted quad: there is no image to mirror, so a flip on it
 // is visually a no-op. That is inherent, not an oversight.
+//
+// ⚠️ CALL ORDER — this MUST run AFTER resolveSpriteTexture, never before. An `asset` sprite has its
+// UVs written by the resolution (the atlas sub-rect overrides whatever the payload said), so a flip
+// applied first is silently DISCARDED. That was the real defect DAOS hit on 2026-07-31: flipX worked
+// on a numeric textureId and did nothing on the asset path — i.e. it worked exactly where it was
+// tested and nowhere a game uses it. Applying it after also makes the flip IDEMPOTENT (it acts on
+// freshly derived UVs, never on already-flipped stored ones), which is what lets `:update` carry it.
 inline void applySpriteFlip(const IDataNode& data, SpriteInstance& sprite) {
     if (data.getBool("flipX", false)) std::swap(sprite.u0, sprite.u1);
     if (data.getBool("flipY", false)) std::swap(sprite.v0, sprite.v1);
@@ -762,8 +769,8 @@ void SceneCollector::parseSprite(const IDataNode& data) {
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     // i_data2
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
-    applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
+    applySpriteFlip(data, sprite);   // AFTER the resolve (see applySpriteFlip); absent -> UVs untouched
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = parseSpriteBlend(data);   // 0 = alpha (default), 1 = additive
     // i_data3 (reserved)
@@ -1669,8 +1676,8 @@ void SceneCollector::parseSpriteAdd(const IDataNode& data) {
     sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
     sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
     sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
-    applySpriteFlip(data, sprite);   // optional mirror; absent -> UVs untouched
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite));
+    applySpriteFlip(data, sprite);   // AFTER the resolve (see applySpriteFlip); absent -> UVs untouched
     sprite.layer = static_cast<float>(data.getInt("layer", 0));
     sprite.padding0 = parseSpriteBlend(data);   // retained sprites glow too (same field)
     // Optional UI clip rect rides in reserved[] (SpritePass reads it -> bgfx scissor). Absent = 0 = none.
@@ -1716,7 +1723,26 @@ void SceneCollector::parseSpriteUpdate(const IDataNode& data) {
     sprite.scaleX = static_cast<float>(data.getDouble("scaleX", sprite.scaleX));
     sprite.scaleY = static_cast<float>(data.getDouble("scaleY", sprite.scaleY));
     sprite.rotation = static_cast<float>(data.getDouble("rotation", sprite.rotation));
+
+    // APPARENCE — instantané COMPLET à chaque update, exactement comme le clip ci-dessous (même règle,
+    // même raison). Les trois champs lus ici étaient auparavant ignorés, en silence :
+    //   - u0..v1 : UIRenderer les envoie à CHAQUE update (UIRenderer.cpp) pour animer un UIFlipbook ;
+    //     le collector ne les relisait pas, donc une animation retenue ne bougeait jamais à l'écran.
+    //   - flipX/flipY : un personnage retenu ne pouvait pas faire demi-tour (le défaut DAOS).
+    //   - blend : un sprite retenu ne pouvait pas devenir additif après son add.
+    // POURQUOI l'instantané plutôt que « conserver si omis » : le flip et les UV sont le MÊME état
+    // (le flip EST un échange d'UV). Le conserver imposerait de mémoriser les UV de base à côté de
+    // l'instance, et un flip réappliqué sur des UV déjà miroitées BASCULERAIT d'une frame à l'autre.
+    // En repartant de la base à chaque fois, l'état publié est l'état obtenu — idempotent par
+    // construction. Vérifié côté publishers : UIRenderer envoie toujours ses UV, FxModule n'en envoie
+    // jamais (ni add ni update) et retombe donc sur exactement ce que son add produisait.
+    sprite.u0 = static_cast<float>(data.getDouble("u0", 0.0));
+    sprite.v0 = static_cast<float>(data.getDouble("v0", 0.0));
+    sprite.u1 = static_cast<float>(data.getDouble("u1", 1.0));
+    sprite.v1 = static_cast<float>(data.getDouble("v1", 1.0));
     sprite.textureId = static_cast<float>(resolveSpriteTexture(data, sprite, static_cast<int>(sprite.textureId)));
+    applySpriteFlip(data, sprite);              // APRÈS le resolve — cf. applySpriteFlip
+    sprite.padding0 = parseSpriteBlend(data);   // 0 = alpha (défaut), 1 = additif
     sprite.layer = static_cast<float>(data.getInt("layer", static_cast<int>(sprite.layer)));
 
     // Re-resolve the clip every update (full snapshot): absent -> 0 -> clip cleared. The UI

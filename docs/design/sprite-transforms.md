@@ -53,6 +53,17 @@ L'échange d'UV a trois propriétés qui comptent :
 1. **Il mirroite DANS le sous-rect d'atlas.** Un sprite qui référence un `asset` reçoit des UV
    partielles (`u0..u1` ⊂ `0..1`). Un miroir naïf qui écrirait `1..0` aurait cassé **tout** sprite
    d'atlas en affichant le voisin. Échanger `u0` et `u1` mirroite à l'intérieur du sous-rect.
+
+   > ⚠️ **Cette propriété était vraie en théorie et fausse en pratique pendant trois jours** — corrigé
+   > le 2026-07-31. Le flip était appliqué **avant** `resolveSpriteTexture`, qui écrase les quatre UV
+   > par le sous-rect de l'atlas : sur un sprite porté par un `asset`, le miroir était donc
+   > **silencieusement jeté**. Il ne fonctionnait que sur un `textureId` numérique aux UV écrites à la
+   > main — c'est-à-dire **exactement le cas que le test posait**, et aucun de ceux qu'un jeu utilise.
+   > DAOS l'a signalé après l'avoir contourné par un `scaleX` négatif, soit la ligne ❌ du tableau
+   > ci-dessus : le contournement leur a coûté de devoir cesser de négocier l'angle de leurs poses.
+   >
+   > **L'ordre d'appel EST la fonctionnalité** : `resolveSpriteTexture` d'abord, `applySpriteFlip`
+   > ensuite. Deux lignes, mais l'inverse n'échoue nulle part bruyamment — il rend juste le champ inerte.
 2. **Il compose correctement avec `rotation`.** L'image est mirroitée dans son quad, puis le quad
    tourne — soit exactement `flip → rotate`.
 3. **Il ne coûte rien.** Pas de changement de shader, pas d'octet supplémentaire par instance.
@@ -67,19 +78,34 @@ parfaitement valide, aucune hypothèse d'ordre n'est faite côté GPU.
 Un sprite sans texture est un **quad plein teinté**. Il n'y a pas d'image à mirroiter : le flip est
 mathématiquement sans objet. C'est inhérent à ce qu'est un quad uni, pas un oubli d'implémentation.
 
-### `render:sprite:update` — non honoré
+### ~~`render:sprite:update` — non honoré~~ → ✅ **LIVRÉ le 2026-07-31**
 
-Le miroir est appliqué sur **`render:sprite`** (éphémère) et **`render:sprite:add`** (retenu), les deux
-chemins qui construisent leurs UV **de zéro** — un échange y est donc non ambigu.
+*Cette section décrivait une limite. Elle est levée ; le raisonnement est gardé parce que le
+diagnostic était juste et la conclusion fausse.*
 
-`:update` est un chemin **incrémental** qui ne reconstruit pas ses UV. Y appliquer un échange rendrait
-le résultat dépendant du nombre de messages reçus : deux updates portant `flipX: true` se
-double-flipperaient et reviendraient à l'état non mirroité. Un miroir dont le résultat dépend du
-nombre de fois où on l'a demandé n'est pas un miroir.
+**Ce qui était écrit** : `:update` est un chemin incrémental qui ne reconstruit pas ses UV ; y
+appliquer un échange rendrait le résultat dépendant du **nombre de messages reçus** (deux updates
+`flipX:true` se double-flipperaient). Le suivi proposé était de porter l'intention de flip dans
+`SpriteInstance` — **un champ de plus sur le chemin maigre**.
 
-*Suivi si le besoin apparaît* : porter l'**intention** de flip dans `SpriteInstance` plutôt que de la
-cuire dans les UV, et l'appliquer à la résolution de texture. Ça coûte un champ par instance sur le
-chemin maigre — à ne payer que si un consommateur en a réellement besoin en mode retenu.
+**Le double-flip était réel, le remède était trop cher.** Il suffit que `:update` traite l'apparence
+en **instantané complet** — relire `u0..v1` (défaut `0,0,1,1`), résoudre la texture, puis flipper. Le
+flip s'applique alors toujours à des UV **fraîchement dérivées**, jamais à des UV déjà mirroitées :
+idempotent par construction, sans un octet de plus par instance. La règle existait déjà **dans la
+même fonction**, pour le clip (*« Re-resolve the clip every update (full snapshot) »*) — il fallait
+l'étendre, pas inventer.
+
+Conséquence de contrat, à connaître : sur `:update`, `u0..v1` / `flipX` / `flipY` / `blend` omis
+**reviennent au défaut**, là où `cx/cy/scale/layer/color` omis **conservent** leur valeur. La
+frontière n'est pas cosmétique — elle sépare ce qui décrit une **apparence** (qu'on republie en
+entier) de ce qui décrit une **position** (qu'on ajuste). Vérifié sur les deux publishers du dépôt :
+`UIRenderer` envoie toujours ses UV, `FxModule` n'en envoie jamais et retombe donc exactement sur ce
+que son `:add` produisait.
+
+⚠️ **Le vrai coût de cette limite n'était pas le flip.** Tant que `:update` ignorait `u0..v1`,
+`UIRenderer` envoyait des UV neuves à chaque frame pour animer un `UIFlipbook` **que le collector
+jetait** : l'animation retenue ne pouvait pas bouger à l'écran. Personne ne l'a vu parce que son E2E
+(`IT_054`) observe le **message publié**, pas le paquet rendu.
 
 ## 5. Ce que ça verrouille
 
@@ -92,6 +118,21 @@ chemin maigre — à ne payer que si un consommateur en a réellement besoin en 
   normaliserait `u0 < u1` aurait cassé tous les sprites existants en silence.
 
 Rouge d'abord sur les deux premiers, vert d'emblée sur le troisième.
+
+**Ajouté le 2026-07-31** — les cinq cas que les précédents ne pouvaient pas voir, tous assertés sur le
+**FramePacket** et passant par un **vrai `AssetManager`** (aucun test n'en câblait un sur le collector
+avant, ce qui est le trou de couverture en une ligne) :
+
+- `flipX` sur un sprite porté par un **`asset`**, en immédiat **et** en retenu (`:add`) ;
+- un sprite retenu qui **fait demi-tour** : deux `:update` consécutifs `flipX:true` doivent donner le
+  **même** résultat (idempotence — c'est l'assertion qui distingue l'instantané de la bascule), puis
+  `flipX` omis restaure l'orientation ;
+- `:update` portant des **UV explicites** (la cellule de flipbook) ;
+- `:update` portant **`blend:"additive"`**.
+
+Plus une non-régression : la charge utile exacte de `FxModule` (asset, jamais d'UV) doit garder son
+sous-rect après un `:update` — elle était **verte avant comme après**, c'est le seul garde-fou de la
+bascule sémantique.
 
 ## 6. Où c'est
 
