@@ -36,6 +36,26 @@
 #            Les laisser rendrait le workflow rouge en permanence, et un rouge
 #            permanent ne se lit plus.
 #
+# ⚠️ CE QUE LA MESURE A CORRIGÉ (31/07/2026) — le paragraphe ci-dessus décrivait
+#            une intention, pas l'effet réel. Mesuré : sur les 192 tests construits
+#            ici, le filtre par label n'en écarte que TROIS — CrashHandlerRealE2E,
+#            MemoryLeakHunter, RaceConditionHunter. Le label `gpu` n'écarte RIEN,
+#            parce que les 16 tests GPU sont gardés par `WIN32` dans
+#            tests/CMakeLists.txt : sur Linux ils ne sont pas compilés du tout.
+#            Conséquence à retenir : `gpu` ne servira ici que le jour où la ferme
+#            sera une machine WINDOWS à GPU. Sur une ferme Linux, retirer le label
+#            ne suffirait pas — il faudrait d'abord que ces tests s'y construisent.
+#
+# ⚠️ MODULES ACTIVÉS EXPLICITEMENT (voir le job natif). Les défauts CMake sont
+#            OFF : un `cmake -B build` nu ne compile ni le renderer, ni l'UI, ni Fx,
+#            Dialogue, Video. La CI lançait alors 103 tests ; elle en lance 189
+#            (100 % verts, 92 s de ctest). Les 86 tests gagnés ne sont pas du décor :
+#            ce sont les E2E de l'UI, le renderer headless (SceneCollector,
+#            PipelineHeadless, MockRHIDevice), FX, dialogue et vidéo.
+#            ⚠️ Ne PAS retirer ces drapeaux « pour aller plus vite » : le gain de
+#            temps serait invisible et la perte de couverture, elle, silencieuse —
+#            c'est exactement la panne qu'on vient de réparer.
+#
 # ⚠️ PORTE LAISSÉE OUVERTE : une ferme équipée d'un GPU et d'un écran est un
 #            scénario attendu, pas hypothétique. Le jour venu, on retire `gpu` de
 #            la liste ci-dessous — et RIEN d'autre ne bouge, ni le script de déport,
@@ -55,7 +75,17 @@
 name: build
 
 on:
+  # ⚠️ TOUTES LES BRANCHES, pas seulement master. Ne valider que master, c'est
+  #    valider APRÈS coup : au moment où la CI parle, le code est déjà dans la
+  #    branche de référence. Un push de branche de travail déclenche donc le même
+  #    job, et le coût est nul tant que personne n'en pousse.
+  #    (Le flux courant ici est « fusionner en local puis pousser master », donc un
+  #    déclencheur `pull_request` seul ne se serait jamais déclenché — c'est
+  #    pourquoi on prend les deux.)
   push:
+    branches: ['**']
+    tags-ignore: ['**']   # un tag ne change pas le code : rien à revalider
+  pull_request:
     branches: [master]
   workflow_dispatch:      # déclenchement manuel depuis l'interface Gitea
 
@@ -70,9 +100,33 @@ jobs:
           set -e
           mkdir -p ~/grovefarm
           exec 9>~/grovefarm/.build.lock
-          flock -w 3600 9 || { echo "file trop longue, abandon"; exit 1; }
+          if ! flock -w 3600 9; then
+            echo "ÉCHEC : verrou de la ferme jamais obtenu en 3600 s."
+            echo "Détenteur(s) du fichier de verrou :"
+            fuser -v ~/grovefarm/.build.lock 2>&1 | sed 's/^/   /' || true
+            echo "(le shell qui attend, et fuser/sed eux-mêmes, figurent dans cette"
+            echo " liste : ils héritent du même descripteur. C'est attendu.)"
+            echo "ATTENTION : si un AUTRE processus y apparaît sans ressembler à un"
+            echo "build (serveur X, démon…), il a hérité du descripteur du verrou et le"
+            echo "tient indéfiniment — flock ne se libère qu'à la fermeture du DERNIER"
+            echo "descripteur, pas à la mort du preneur. Le tuer PAR SON PID (jamais"
+            echo "par nom, d'autres instances légitimes peuvent tourner) libère la ferme."
+            exit 1
+          fi
 
-          nice -n 19 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          # ⚠️ LES MODULES SONT EXPLICITEMENT ACTIVÉS. Leurs défauts CMake sont OFF
+          #    (voir CMakeLists.txt racine) : sans ces drapeaux, BgfxRenderer, UIModule,
+          #    Fx, Dialogue et Video ne sont pas COMPILÉS, et leurs tests n'existent pas
+          #    dans l'arbre — la CI en lançait 103 au lieu de 189 (mesuré le 31/07/2026).
+          #    Ce ne sont pas des tests « exclus », ce sont des tests ABSENTS : aucun
+          #    filtre par label ne pouvait le montrer.
+          #    SoundManager reste dehors : il exige SDL2_mixer sur la chaîne du serveur.
+          nice -n 19 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGROVE_BUILD_BGFX_RENDERER=ON \
+            -DGROVE_BUILD_UI_MODULE=ON \
+            -DGROVE_BUILD_FX_MODULE=ON \
+            -DGROVE_BUILD_DIALOGUE_MODULE=ON \
+            -DGROVE_BUILD_VIDEO_MODULE=ON
           nice -n 19 ninja -C build -j6
 
           # -LE = exclusion par LABEL. Raisons détaillées en tête de fichier.
@@ -90,7 +144,12 @@ jobs:
         run: |
           set -e
           exec 9>~/grovefarm/.build.lock
-          flock -w 3600 9 || { echo "file trop longue, abandon"; exit 1; }
+          if ! flock -w 3600 9; then
+            echo "ÉCHEC : verrou de la ferme jamais obtenu en 3600 s."
+            echo "Détenteur(s) du fichier de verrou :"
+            fuser -v ~/grovefarm/.build.lock 2>&1 | sed 's/^/   /' || true
+            exit 1
+          fi
 
           # Pas de ctest ici : ce sont des PE Windows, ils ne s'exécutent pas sur
           # le serveur. C'est une preuve de COMPILATION de la cible réelle ;
