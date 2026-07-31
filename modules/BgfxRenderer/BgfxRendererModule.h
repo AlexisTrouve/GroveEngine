@@ -89,6 +89,37 @@ public:
 private:
     // Rend a l'ecran les vues detournees par la capture (cf. .cpp : sinon corruption de tas).
     void releaseCaptureBindings();
+
+    // ------------------------------------------------------------------------
+    // HANDLERS DE TOPICS — un par sujet IIO traite ICI plutot que par SceneCollector.
+    // ------------------------------------------------------------------------
+    // QUOI     : le corps de chaque abonnement de setConfiguration, sorti en methode nommee.
+    //
+    // POURQUOI : ces sujets ne sont PAS des primitives de dessin — ce sont des reglages de
+    //            passe ou de peripherique (tileset, police, texture, atlas). Ils vivent donc
+    //            ici, ou vivent le device et les pointeurs de passes, et pas dans le
+    //            collecteur de scene. Ecrits en lambdas dans setConfiguration, ils y noyaient
+    //            la sequence d'initialisation sous ~250 lignes de logique de sujet : on ne
+    //            voyait plus ni ce qui etait initialise, ni ce qui etait ecoute.
+    //
+    // COMMENT  : chaque abonnement garde sa POSITION EXACTE dans setConfiguration — les
+    //            abonnements y sont entrelaces avec la construction du graphe de rendu, et
+    //            rien ne prouve cet ordre indifferent. On extrait le CORPS, jamais l'appel.
+    //            Toutes les lambdas d'origine ne capturaient que `this` (verifie), d'ou une
+    //            extraction sans changement de capture. Le commentaire de chaque sujet est
+    //            descendu avec son handler, la ou il documente quelque chose.
+    //            ⚠️ Les quatre `asset:register/preload/setPriority/unload` restent en ligne :
+    //            ils font deux lignes, les extraire allongerait sans clarifier.
+    void onTilemapAnim(const Message& msg);       // render:tilemap:anim
+    void onTilemapTileset(const Message& msg);    // render:tilemap:tileset
+    void onTilemapFogStyle(const Message& msg);   // render:tilemap:fog:style
+    void onTilemapPalette(const Message& msg);    // render:tilemap:palette
+    void onFontLoad(const Message& msg);          // render:font
+    void onScreenshot(const Message& msg);        // render:screenshot
+    void onAssetPack(const Message& msg);         // asset:pack
+    void onTextureCreate(const Message& msg);     // render:texture:create
+    void onTexturePaint(const Message& msg);      // render:texture:paint
+    void onTextureUpload(const Message& msg);     // render:texture:upload
 public:
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 

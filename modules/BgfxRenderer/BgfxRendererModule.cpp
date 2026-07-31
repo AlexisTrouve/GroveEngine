@@ -233,177 +233,17 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     // stops it). SceneCollector's "render:.*" subscription has no case for this topic (ignored there),
     // so we handle it here, where the pass pointer lives — it's pass config, like setTileset/setFog.
     if (m_io) {
-        m_io->subscribe("render:tilemap:anim", [this](const Message& msg) {
-            if (!msg.data || !m_tilemapPass) return;
-            const IDataNode& d = *msg.data;
-            m_tilemapPass->setTileAnim(static_cast<uint16_t>(d.getInt("tileId", 0)),
-                                       static_cast<uint16_t>(d.getInt("frames", 0)),
-                                       static_cast<float>(d.getDouble("fps", 0.0)));
-        });
+        m_io->subscribe("render:tilemap:anim", [this](const Message& msg) { onTilemapAnim(msg); });
 
-        // Runtime topic: load a PNG tileset GRID as a texture2DArray (one tile per layer) and bind it to a
-        // tileset id, so render:tilemap:add {textureId} can draw with real tile images. Handled here (the
-        // pass + device live here, like render:tilemap:anim). TextureHandle is a POD id — the device owns
-        // the texture and frees it on shutdown, so no per-tileset lifetime bookkeeping is needed here.
-        m_io->subscribe("render:tilemap:tileset", [this](const Message& msg) {
-            if (!msg.data || !m_tilemapPass || !m_device) return;
-            const IDataNode& d = *msg.data;
-            const std::string path = d.getString("path", "");
-            const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
-            const int tw = static_cast<int>(d.getInt("tileW", 16));
-            const int th = static_cast<int>(d.getInt("tileH", 16));
-            if (texId == 0) return;                  // 0 is reserved for the procedural colour atlas
+        m_io->subscribe("render:tilemap:tileset", [this](const Message& msg) { onTilemapTileset(msg); });
 
-            // Two sources, same handling downstream: a PNG on disk (`path`) or ALREADY-DECODED RGBA8
-            // pixels riding beside the json (`pixels` blob + imgW/imgH). The blob spares a game that
-            // GENERATES its tileset at startup from encoding a PNG and writing it to disk just so we
-            // can read and decode it back. Note imgW/imgH rather than render:texture:upload's w/h:
-            // tileW/tileH already live on this topic, so bare w/h would read ambiguously here.
-            const auto* blob = d.getBlob("pixels");
-            TextureLoader::LoadResult res;
-            if (blob != nullptr && !blob->empty()) {
-                // Explicit data beats an indirection: if BOTH are given the pixels win, loudly.
-                if (!path.empty()) {
-                    m_logger->warn("Tileset {}: both 'pixels' and 'path' given — using 'pixels', ignoring '{}'",
-                                   texId, path);
-                }
-                const int iw = static_cast<int>(d.getInt("imgW", 0));
-                const int ih = static_cast<int>(d.getInt("imgH", 0));
-                res = TextureLoader::loadArrayFromPixels(*m_device, blob->data(), blob->size(), iw, ih, tw, th);
-            } else if (!path.empty()) {
-                res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
-            } else {
-                m_logger->warn("Tileset {} ignored: neither 'path' nor a 'pixels' blob", texId);
-                return;
-            }
-            if (res.success) {
-                m_tilemapPass->setTileset(texId, res.handle);
-                // Also feed the zoom-out band: each layer's average colour becomes this tileset's LOD
-                // colour table, so dezoomed tiles show the tileset's own colours instead of the
-                // built-in 8-colour palette. Free (computed during the decode) and needs no topic.
-                m_tilemapPass->setTilesetLodColors(texId, std::move(res.layerColors));
-                m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId,
-                               path.empty() ? std::string("<pixels blob>") : path,
-                               res.layers, res.width, res.height);
-            } else {
-                m_logger->warn("Tileset {} load failed from {}: {}", texId,
-                               path.empty() ? std::string("<pixels blob>") : path, res.error);
-            }
-        });
+        m_io->subscribe("render:tilemap:fog:style", [this](const Message& msg) { onTilemapFogStyle(msg); });
 
-        // Runtime topic: capture du backbuffer pour le devlog. La scene publie
-        // render:screenshot {path} ; on relaie au device (qui demande la capture a
-        // bgfx, ecrite au prochain frame()). Ce handler tourne pendant collect()
-        // (avant le frame() de process()) -> la capture sort sur la frame courante.
-        // ------------------------------------------------------------------
-        // Runtime topic: l'APPARENCE du brouillard — `render:tilemap:fog:style {path?, scale?, offsetX?, offsetY?}`
-        //
-        // QUOI : change la texture de brouillard, sa taille MONDE, et son décalage d'échantillonnage,
-        //   en cours de partie.
-        //
-        // POURQUOI : tout cela n'était réglable qu'au BOOT (`fogTexture`/`fogScale` dans la config),
-        //   et l'échelle ne l'était pas du tout (constante `64.0` dans le shader). Un jeu ne pouvait
-        //   donc ni changer de brouillard selon le biome ou la scène, ni le faire dériver. Les
-        //   polices avaient déjà reçu ce traitement (`render:font`) ; le brouillard le méritait pour
-        //   la même raison : un asset chargé une fois pour toutes n'est pas un asset, c'est une
-        //   constante.
-        //
-        // COMMENT : chaque champ est OPTIONNEL et ne s'applique que s'il est fourni — publier
-        //   `{offsetX, offsetY}` chaque frame fait dériver le nuage sans retoucher la texture ni
-        //   l'échelle. ⚠️ Seul le NUAGE bouge : le masque de révélation (`render:tilemap:fog`) n'est
-        //   pas touché, donc une dérive ne peut pas re-cacher ce que le joueur a exploré.
-        //   Un chargement raté conserve la texture courante (échec franc + log, jamais de brouillard
-        //   noir surprise).
-        m_io->subscribe("render:tilemap:fog:style", [this](const Message& msg) {
-            if (!msg.data || !m_tilemapPass || !m_device) return;
-            const IDataNode& d = *msg.data;
+        m_io->subscribe("render:tilemap:palette", [this](const Message& msg) { onTilemapPalette(msg); });
 
-            const std::string path = d.getString("path", "");
-            if (!path.empty()) {
-                // Même chemin que le boot : loadFromFile (PAS loadTextureWithId) — la texture de
-                // brouillard est liée directement par setFogTexture et ne doit pas consommer un
-                // textureId de sprite, sous peine de décaler texture1/texture2.
-                TextureLoader::LoadResult fog = TextureLoader::loadFromFile(*m_device, path);
-                if (fog.success) {
-                    m_tilemapPass->setFogTexture(fog.handle);
-                    m_logger->info("render:tilemap:fog:style — texture '{}' ({}x{})", path, fog.width, fog.height);
-                } else {
-                    m_logger->warn("render:tilemap:fog:style — '{}' non chargee ({}), on garde l'actuelle",
-                                   path, fog.error);
-                }
-            }
+        m_io->subscribe("render:font", [this](const Message& msg) { onFontLoad(msg); });
 
-            const double scale = d.getDouble("scale", 0.0);
-            if (scale > 0.0) m_tilemapPass->setFogScale(static_cast<float>(scale));
-
-            // `edge` accepte 0 (= remettre un bord droit), on relit donc la valeur courante comme
-            // défaut plutôt que de traiter 0 comme « absent ».
-            const double edge = d.getDouble("edge", static_cast<double>(m_tilemapPass->fogEdge()));
-            m_tilemapPass->setFogEdge(static_cast<float>(edge));
-
-            // Le décalage n'a pas de sentinelle « absent » utilisable (0 est une valeur légitime), on
-            // relit donc la valeur courante comme défaut : publier l'un sans l'autre est sans effet
-            // de bord.
-            const double offX = d.getDouble("offsetX", static_cast<double>(m_tilemapPass->fogOffsetX()));
-            const double offY = d.getDouble("offsetY", static_cast<double>(m_tilemapPass->fogOffsetY()));
-            m_tilemapPass->setFogOffset(static_cast<float>(offX), static_cast<float>(offY));
-        });
-
-        // SceneCollector ignore ce topic (pas une primitive) ; on le traite ici, ou
-        // vit le device -- comme render:tilemap:anim.
-        // Runtime topic: an EXPLICIT zoom-out colour table pushed by the game, overriding the one
-        // derived from the tileset. For a game whose tile colours are pure data with no art to
-        // average (the tileset is the normal path — this is the escape hatch). `colors` is a raw
-        // RGBA8 blob, 4 bytes per entry, entry i = tile id i+1 (the atlas layer convention).
-        // textureId defaults to 0 = the procedural-atlas path. Publishing nothing changes nothing.
-        m_io->subscribe("render:tilemap:palette", [this](const Message& msg) {
-            if (!msg.data || !m_tilemapPass) return;
-            const IDataNode& d = *msg.data;
-            const auto* blob = d.getBlob("colors");
-            if (!blob || blob->empty()) {
-                m_logger->warn("render:tilemap:palette ignored: no 'colors' blob");
-                return;
-            }
-            std::vector<uint32_t> table = lod::paletteFromBytes(blob->data(), blob->size());
-            if (table.empty()) {
-                m_logger->warn("render:tilemap:palette ignored: 'colors' blob too short ({} bytes)",
-                               blob->size());
-                return;
-            }
-            const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
-            m_logger->info("LOD palette for tileset {} <- {} colours", texId, table.size());
-            m_tilemapPass->setLodPalette(texId, std::move(table));
-        });
-
-        // Runtime topic: swap the glyph atlas for a REAL TrueType face.
-        //   render:font {path, size?}
-        // The built-in 8x8 bitmap stays the default, so publishing nothing changes nothing. No font is
-        // vendored with the engine: shipping a face is a content/licensing decision for the game, the
-        // same posture as the audio stems and the 9-slice art. A failed load keeps the current font.
-        m_io->subscribe("render:font", [this](const Message& msg) {
-            if (!msg.data || !m_textPass || !m_device) return;
-            const std::string path = msg.data->getString("path", "");
-            if (path.empty()) { m_logger->warn("render:font ignored: no 'path'"); return; }
-            const float size = static_cast<float>(msg.data->getDouble("size", 32.0));
-            // `bold: true` targets the BOLD face; anything else the regular one.
-            const bool asBold = msg.data->getBool("bold", false);
-            BitmapFont& target = asBold ? m_textPass->getFontBold() : m_textPass->getFont();
-            if (!target.loadTTF(*m_device, path, size)) {
-                m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
-                return;
-            }
-            // La police a changé : rediffuser ses avances, sinon tout consommateur qui MESURE du texte
-            // (curseur d'un champ de saisie, surlignage de sélection) continuerait de mesurer avec
-            // l'ancienne — le curseur dériverait du texte réellement dessiné. On ne pousse que la
-            // face REGULAR : le gras est une seconde table, à traiter le jour où l'UI en aura besoin.
-            if (!asBold) publishFontMetrics(m_io, m_textPass->getFont());
-        });
-
-        m_io->subscribe("render:screenshot", [this](const Message& msg) {
-            if (!msg.data || !m_device) return;
-            const std::string path = msg.data->getString("path", "");
-            if (!path.empty()) m_device->requestScreenShot(path);
-        });
+        m_io->subscribe("render:screenshot", [this](const Message& msg) { onScreenshot(msg); });
     }
 
     // Create SpritePass and keep reference for texture binding
@@ -631,106 +471,11 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
             m_io->subscribe("asset:unload", [this](const Message& m) {
                 if (m.data) m_assetManager->unload(m.data->getString("id",""));
             });
-            // Runtime atlas packing: pack N separate PNGs into one shared sheet + register their sub-sprites.
-            // asset:pack {sheet, sprites:[{id,path}], maxWidth?, gutter?, priority?, group?}.
-            m_io->subscribe("asset:pack", [this](const Message& m) {
-                if (!m.data || !m_device) return;
-                const std::string sheet = m.data->getString("sheet", "");
-                if (sheet.empty()) return;
-                std::vector<assets::PackEntry> entries;
-                // Read the sprites array straight off the payload json (const). We deliberately do
-                // NOT use getChildReadOnly here: it lazily MATERIALIZES child nodes (mutates the
-                // node), which on a shared, const, zero-copy payload would be both ill-formed and a
-                // data race across subscribers. The raw const json read is mutation-free + thread-safe.
-                if (auto* jn = dynamic_cast<const JsonDataNode*>(m.data.get())) {
-                    const auto& j = jn->getJsonData();
-                    auto it = j.find("sprites");
-                    if (it != j.end() && it->is_array()) {
-                        for (const auto& e : *it) {
-                            entries.push_back({ e.value("id", std::string{}), e.value("path", std::string{}) });
-                        }
-                    }
-                }
-                assets::packAtlas(*m_device, *m_resourceCache, *m_assetManager, sheet, entries,
-                                  m.data->getInt("maxWidth", 2048), m.data->getInt("gutter", 2),
-                                  m.data->getInt("priority", 0), m.data->getString("group", ""));
-            });
+            m_io->subscribe("asset:pack", [this](const Message& m) { onAssetPack(m); });
 
-            // Runtime textures / painting. The game creates a texture by a stable STRING id (registered as a
-            // RESIDENT asset, so render:sprite{asset:"id"} AND the UI `asset` prop can use it) and paints
-            // colored sub-rects into it via a region update (no full re-upload). Mostly EXPOSES the existing
-            // RHI create/updateTexture — the asset id is the handle the game keeps.
-            // render:texture:create {id, width, height, color?}  (color = 0xRRGGBBAA, default transparent).
-            m_io->subscribe("render:texture:create", [this](const Message& m) {
-                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
-                const std::string id = m.data->getString("id", "");
-                const int w = m.data->getInt("width", 0), h = m.data->getInt("height", 0);
-                if (id.empty() || w <= 0 || h <= 0) return;
-                const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));   // default transparent
-                std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
-                for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
-                    px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
-                    px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
-                }
-                rhi::TextureDesc d;
-                d.width = static_cast<uint16_t>(w); d.height = static_cast<uint16_t>(h);
-                d.format = rhi::TextureDesc::RGBA8; d.mipLevels = 1;
-                d.filter = rhi::TextureDesc::Point; d.wrap = rhi::TextureDesc::Clamp;   // crisp canvas, no wrap
-                // IMPORTANT: create EMPTY (no initial data). bgfx makes a texture created WITH data immutable,
-                // and updateTexture2D on it is ignored — so a paintable canvas MUST be created empty (mutable)
-                // and then filled via a region update. Same reason the tilemap index grid is created mutable.
-                d.data = nullptr; d.dataSize = 0;
-                rhi::TextureHandle handle = m_device->createTexture(d);
-                if (!handle.isValid()) return;
-                m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
-                                        0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));   // fill color
-                if (m_assetManager->isRegistered(id)) m_assetManager->unload(id);   // replace -> free the old texture
-                const uint16_t texId = m_resourceCache->registerTexture(handle);
-                if (texId == 0) { m_device->destroy(handle); return; }
-                m_assetManager->registerResident(id, texId, static_cast<uint64_t>(w) * h * 4);
-            });
-            // render:texture:paint {id, x, y, w, h, color} — fill a sub-rect (region update of the GPU texture).
-            m_io->subscribe("render:texture:paint", [this](const Message& m) {
-                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
-                const std::string id = m.data->getString("id", "");
-                const int x = m.data->getInt("x", 0), y = m.data->getInt("y", 0);
-                const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
-                if (id.empty() || w <= 0 || h <= 0) return;
-                float u0, v0, u1, v1;
-                const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
-                if (texId == 0) return;
-                rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
-                if (!handle.isValid()) return;
-                const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));
-                std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
-                for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
-                    px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
-                    px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
-                }
-                m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
-                                        static_cast<uint16_t>(x), static_cast<uint16_t>(y),
-                                        static_cast<uint16_t>(w), static_cast<uint16_t>(h));
-            });
-            // render:texture:upload {id, w, h, +blob "pixels"} — replace the WHOLE texture's pixels from a
-            // raw RGBA8 blob (the arbitrary-pixel upload path — video frames, procedural images). Same GPU
-            // region-update as paint, but full-texture with real pixels instead of a solid colour. The blob
-            // rides beside the json (setBlob/getBlob, zero-copy in-process) — no base64/UTF-8 abuse.
-            m_io->subscribe("render:texture:upload", [this](const Message& m) {
-                if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
-                const std::string id = m.data->getString("id", "");
-                const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
-                if (id.empty() || w <= 0 || h <= 0) return;
-                const auto* blob = m.data->getBlob("pixels");
-                const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;   // RGBA8
-                if (!blob || blob->size() < need) return;
-                float u0, v0, u1, v1;
-                const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
-                if (texId == 0) return;
-                rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
-                if (!handle.isValid()) return;
-                m_device->updateTexture(handle, blob->data(), static_cast<uint32_t>(need),
-                                        0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));
-            });
+            m_io->subscribe("render:texture:create", [this](const Message& m) { onTextureCreate(m); });
+            m_io->subscribe("render:texture:paint", [this](const Message& m) { onTexturePaint(m); });
+            m_io->subscribe("render:texture:upload", [this](const Message& m) { onTextureUpload(m); });
         }
         m_logger->info("AssetManager ready ({} MB VRAM budget)", config.getInt("assetVramBudgetMB", 256));
     }
@@ -808,6 +553,282 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
 
     m_logger->info("BgfxRenderer initialized successfully");
 }
+
+void BgfxRendererModule::onTilemapAnim(const Message& msg) {
+        if (!msg.data || !m_tilemapPass) return;
+        const IDataNode& d = *msg.data;
+        m_tilemapPass->setTileAnim(static_cast<uint16_t>(d.getInt("tileId", 0)),
+                                   static_cast<uint16_t>(d.getInt("frames", 0)),
+                                   static_cast<float>(d.getDouble("fps", 0.0)));
+}
+
+// Runtime topic: load a PNG tileset GRID as a texture2DArray (one tile per layer) and bind it to a
+// tileset id, so render:tilemap:add {textureId} can draw with real tile images. Handled here (the
+// pass + device live here, like render:tilemap:anim). TextureHandle is a POD id — the device owns
+// the texture and frees it on shutdown, so no per-tileset lifetime bookkeeping is needed here.
+void BgfxRendererModule::onTilemapTileset(const Message& msg) {
+        if (!msg.data || !m_tilemapPass || !m_device) return;
+        const IDataNode& d = *msg.data;
+        const std::string path = d.getString("path", "");
+        const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
+        const int tw = static_cast<int>(d.getInt("tileW", 16));
+        const int th = static_cast<int>(d.getInt("tileH", 16));
+        if (texId == 0) return;                  // 0 is reserved for the procedural colour atlas
+
+        // Two sources, same handling downstream: a PNG on disk (`path`) or ALREADY-DECODED RGBA8
+        // pixels riding beside the json (`pixels` blob + imgW/imgH). The blob spares a game that
+        // GENERATES its tileset at startup from encoding a PNG and writing it to disk just so we
+        // can read and decode it back. Note imgW/imgH rather than render:texture:upload's w/h:
+        // tileW/tileH already live on this topic, so bare w/h would read ambiguously here.
+        const auto* blob = d.getBlob("pixels");
+        TextureLoader::LoadResult res;
+        if (blob != nullptr && !blob->empty()) {
+            // Explicit data beats an indirection: if BOTH are given the pixels win, loudly.
+            if (!path.empty()) {
+                m_logger->warn("Tileset {}: both 'pixels' and 'path' given — using 'pixels', ignoring '{}'",
+                               texId, path);
+            }
+            const int iw = static_cast<int>(d.getInt("imgW", 0));
+            const int ih = static_cast<int>(d.getInt("imgH", 0));
+            res = TextureLoader::loadArrayFromPixels(*m_device, blob->data(), blob->size(), iw, ih, tw, th);
+        } else if (!path.empty()) {
+            res = TextureLoader::loadArrayFromFile(*m_device, path, tw, th);
+        } else {
+            m_logger->warn("Tileset {} ignored: neither 'path' nor a 'pixels' blob", texId);
+            return;
+        }
+        if (res.success) {
+            m_tilemapPass->setTileset(texId, res.handle);
+            // Also feed the zoom-out band: each layer's average colour becomes this tileset's LOD
+            // colour table, so dezoomed tiles show the tileset's own colours instead of the
+            // built-in 8-colour palette. Free (computed during the decode) and needs no topic.
+            m_tilemapPass->setTilesetLodColors(texId, std::move(res.layerColors));
+            m_logger->info("Tileset {} <- {} ({} layers of {}x{})", texId,
+                           path.empty() ? std::string("<pixels blob>") : path,
+                           res.layers, res.width, res.height);
+        } else {
+            m_logger->warn("Tileset {} load failed from {}: {}", texId,
+                           path.empty() ? std::string("<pixels blob>") : path, res.error);
+        }
+}
+
+// Runtime topic: capture du backbuffer pour le devlog. La scene publie
+// render:screenshot {path} ; on relaie au device (qui demande la capture a
+// bgfx, ecrite au prochain frame()). Ce handler tourne pendant collect()
+// (avant le frame() de process()) -> la capture sort sur la frame courante.
+// ------------------------------------------------------------------
+// Runtime topic: l'APPARENCE du brouillard — `render:tilemap:fog:style {path?, scale?, offsetX?, offsetY?}`
+//
+// QUOI : change la texture de brouillard, sa taille MONDE, et son décalage d'échantillonnage,
+//   en cours de partie.
+//
+// POURQUOI : tout cela n'était réglable qu'au BOOT (`fogTexture`/`fogScale` dans la config),
+//   et l'échelle ne l'était pas du tout (constante `64.0` dans le shader). Un jeu ne pouvait
+//   donc ni changer de brouillard selon le biome ou la scène, ni le faire dériver. Les
+//   polices avaient déjà reçu ce traitement (`render:font`) ; le brouillard le méritait pour
+//   la même raison : un asset chargé une fois pour toutes n'est pas un asset, c'est une
+//   constante.
+//
+// COMMENT : chaque champ est OPTIONNEL et ne s'applique que s'il est fourni — publier
+//   `{offsetX, offsetY}` chaque frame fait dériver le nuage sans retoucher la texture ni
+//   l'échelle. ⚠️ Seul le NUAGE bouge : le masque de révélation (`render:tilemap:fog`) n'est
+//   pas touché, donc une dérive ne peut pas re-cacher ce que le joueur a exploré.
+//   Un chargement raté conserve la texture courante (échec franc + log, jamais de brouillard
+//   noir surprise).
+void BgfxRendererModule::onTilemapFogStyle(const Message& msg) {
+        if (!msg.data || !m_tilemapPass || !m_device) return;
+        const IDataNode& d = *msg.data;
+
+        const std::string path = d.getString("path", "");
+        if (!path.empty()) {
+            // Même chemin que le boot : loadFromFile (PAS loadTextureWithId) — la texture de
+            // brouillard est liée directement par setFogTexture et ne doit pas consommer un
+            // textureId de sprite, sous peine de décaler texture1/texture2.
+            TextureLoader::LoadResult fog = TextureLoader::loadFromFile(*m_device, path);
+            if (fog.success) {
+                m_tilemapPass->setFogTexture(fog.handle);
+                m_logger->info("render:tilemap:fog:style — texture '{}' ({}x{})", path, fog.width, fog.height);
+            } else {
+                m_logger->warn("render:tilemap:fog:style — '{}' non chargee ({}), on garde l'actuelle",
+                               path, fog.error);
+            }
+        }
+
+        const double scale = d.getDouble("scale", 0.0);
+        if (scale > 0.0) m_tilemapPass->setFogScale(static_cast<float>(scale));
+
+        // `edge` accepte 0 (= remettre un bord droit), on relit donc la valeur courante comme
+        // défaut plutôt que de traiter 0 comme « absent ».
+        const double edge = d.getDouble("edge", static_cast<double>(m_tilemapPass->fogEdge()));
+        m_tilemapPass->setFogEdge(static_cast<float>(edge));
+
+        // Le décalage n'a pas de sentinelle « absent » utilisable (0 est une valeur légitime), on
+        // relit donc la valeur courante comme défaut : publier l'un sans l'autre est sans effet
+        // de bord.
+        const double offX = d.getDouble("offsetX", static_cast<double>(m_tilemapPass->fogOffsetX()));
+        const double offY = d.getDouble("offsetY", static_cast<double>(m_tilemapPass->fogOffsetY()));
+        m_tilemapPass->setFogOffset(static_cast<float>(offX), static_cast<float>(offY));
+}
+
+// SceneCollector ignore ce topic (pas une primitive) ; on le traite ici, ou
+// vit le device -- comme render:tilemap:anim.
+// Runtime topic: an EXPLICIT zoom-out colour table pushed by the game, overriding the one
+// derived from the tileset. For a game whose tile colours are pure data with no art to
+// average (the tileset is the normal path — this is the escape hatch). `colors` is a raw
+// RGBA8 blob, 4 bytes per entry, entry i = tile id i+1 (the atlas layer convention).
+// textureId defaults to 0 = the procedural-atlas path. Publishing nothing changes nothing.
+void BgfxRendererModule::onTilemapPalette(const Message& msg) {
+        if (!msg.data || !m_tilemapPass) return;
+        const IDataNode& d = *msg.data;
+        const auto* blob = d.getBlob("colors");
+        if (!blob || blob->empty()) {
+            m_logger->warn("render:tilemap:palette ignored: no 'colors' blob");
+            return;
+        }
+        std::vector<uint32_t> table = lod::paletteFromBytes(blob->data(), blob->size());
+        if (table.empty()) {
+            m_logger->warn("render:tilemap:palette ignored: 'colors' blob too short ({} bytes)",
+                           blob->size());
+            return;
+        }
+        const uint16_t texId = static_cast<uint16_t>(d.getInt("textureId", 0));
+        m_logger->info("LOD palette for tileset {} <- {} colours", texId, table.size());
+        m_tilemapPass->setLodPalette(texId, std::move(table));
+}
+
+// Runtime topic: swap the glyph atlas for a REAL TrueType face.
+//   render:font {path, size?}
+// The built-in 8x8 bitmap stays the default, so publishing nothing changes nothing. No font is
+// vendored with the engine: shipping a face is a content/licensing decision for the game, the
+// same posture as the audio stems and the 9-slice art. A failed load keeps the current font.
+void BgfxRendererModule::onFontLoad(const Message& msg) {
+        if (!msg.data || !m_textPass || !m_device) return;
+        const std::string path = msg.data->getString("path", "");
+        if (path.empty()) { m_logger->warn("render:font ignored: no 'path'"); return; }
+        const float size = static_cast<float>(msg.data->getDouble("size", 32.0));
+        // `bold: true` targets the BOLD face; anything else the regular one.
+        const bool asBold = msg.data->getBool("bold", false);
+        BitmapFont& target = asBold ? m_textPass->getFontBold() : m_textPass->getFont();
+        if (!target.loadTTF(*m_device, path, size)) {
+            m_logger->warn("render:font: '{}' not loaded — keeping the current font", path);
+            return;
+        }
+        // La police a changé : rediffuser ses avances, sinon tout consommateur qui MESURE du texte
+        // (curseur d'un champ de saisie, surlignage de sélection) continuerait de mesurer avec
+        // l'ancienne — le curseur dériverait du texte réellement dessiné. On ne pousse que la
+        // face REGULAR : le gras est une seconde table, à traiter le jour où l'UI en aura besoin.
+        if (!asBold) publishFontMetrics(m_io, m_textPass->getFont());
+}
+
+void BgfxRendererModule::onScreenshot(const Message& msg) {
+        if (!msg.data || !m_device) return;
+        const std::string path = msg.data->getString("path", "");
+        if (!path.empty()) m_device->requestScreenShot(path);
+}
+
+// Runtime atlas packing: pack N separate PNGs into one shared sheet + register their sub-sprites.
+// asset:pack {sheet, sprites:[{id,path}], maxWidth?, gutter?, priority?, group?}.
+void BgfxRendererModule::onAssetPack(const Message& m) {
+            if (!m.data || !m_device) return;
+            const std::string sheet = m.data->getString("sheet", "");
+            if (sheet.empty()) return;
+            std::vector<assets::PackEntry> entries;
+            // Read the sprites array straight off the payload json (const). We deliberately do
+            // NOT use getChildReadOnly here: it lazily MATERIALIZES child nodes (mutates the
+            // node), which on a shared, const, zero-copy payload would be both ill-formed and a
+            // data race across subscribers. The raw const json read is mutation-free + thread-safe.
+            if (auto* jn = dynamic_cast<const JsonDataNode*>(m.data.get())) {
+                const auto& j = jn->getJsonData();
+                auto it = j.find("sprites");
+                if (it != j.end() && it->is_array()) {
+                    for (const auto& e : *it) {
+                        entries.push_back({ e.value("id", std::string{}), e.value("path", std::string{}) });
+                    }
+                }
+            }
+            assets::packAtlas(*m_device, *m_resourceCache, *m_assetManager, sheet, entries,
+                              m.data->getInt("maxWidth", 2048), m.data->getInt("gutter", 2),
+                              m.data->getInt("priority", 0), m.data->getString("group", ""));
+}
+
+// Runtime textures / painting. The game creates a texture by a stable STRING id (registered as a
+// RESIDENT asset, so render:sprite{asset:"id"} AND the UI `asset` prop can use it) and paints
+// colored sub-rects into it via a region update (no full re-upload). Mostly EXPOSES the existing
+// RHI create/updateTexture — the asset id is the handle the game keeps.
+// render:texture:create {id, width, height, color?}  (color = 0xRRGGBBAA, default transparent).
+void BgfxRendererModule::onTextureCreate(const Message& m) {
+            if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+            const std::string id = m.data->getString("id", "");
+            const int w = m.data->getInt("width", 0), h = m.data->getInt("height", 0);
+            if (id.empty() || w <= 0 || h <= 0) return;
+            const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));   // default transparent
+            std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+            for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+                px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
+                px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
+            }
+            rhi::TextureDesc d;
+            d.width = static_cast<uint16_t>(w); d.height = static_cast<uint16_t>(h);
+            d.format = rhi::TextureDesc::RGBA8; d.mipLevels = 1;
+            d.filter = rhi::TextureDesc::Point; d.wrap = rhi::TextureDesc::Clamp;   // crisp canvas, no wrap
+            // IMPORTANT: create EMPTY (no initial data). bgfx makes a texture created WITH data immutable,
+            // and updateTexture2D on it is ignored — so a paintable canvas MUST be created empty (mutable)
+            // and then filled via a region update. Same reason the tilemap index grid is created mutable.
+            d.data = nullptr; d.dataSize = 0;
+            rhi::TextureHandle handle = m_device->createTexture(d);
+            if (!handle.isValid()) return;
+            m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
+                                    0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));   // fill color
+            if (m_assetManager->isRegistered(id)) m_assetManager->unload(id);   // replace -> free the old texture
+            const uint16_t texId = m_resourceCache->registerTexture(handle);
+            if (texId == 0) { m_device->destroy(handle); return; }
+            m_assetManager->registerResident(id, texId, static_cast<uint64_t>(w) * h * 4);
+}
+
+// render:texture:paint {id, x, y, w, h, color} — fill a sub-rect (region update of the GPU texture).
+void BgfxRendererModule::onTexturePaint(const Message& m) {
+            if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+            const std::string id = m.data->getString("id", "");
+            const int x = m.data->getInt("x", 0), y = m.data->getInt("y", 0);
+            const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
+            if (id.empty() || w <= 0 || h <= 0) return;
+            float u0, v0, u1, v1;
+            const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
+            if (texId == 0) return;
+            rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
+            if (!handle.isValid()) return;
+            const uint32_t color = static_cast<uint32_t>(m.data->getInt("color", 0));
+            std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+            for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+                px[i*4+0] = (color >> 24) & 0xFF; px[i*4+1] = (color >> 16) & 0xFF;
+                px[i*4+2] = (color >> 8)  & 0xFF; px[i*4+3] =  color        & 0xFF;
+            }
+            m_device->updateTexture(handle, px.data(), static_cast<uint32_t>(px.size()),
+                                    static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                                    static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+}
+
+// render:texture:upload {id, w, h, +blob "pixels"} — replace the WHOLE texture's pixels from a
+// raw RGBA8 blob (the arbitrary-pixel upload path — video frames, procedural images). Same GPU
+// region-update as paint, but full-texture with real pixels instead of a solid colour. The blob
+// rides beside the json (setBlob/getBlob, zero-copy in-process) — no base64/UTF-8 abuse.
+void BgfxRendererModule::onTextureUpload(const Message& m) {
+            if (!m.data || !m_device || !m_resourceCache || !m_assetManager) return;
+            const std::string id = m.data->getString("id", "");
+            const int w = m.data->getInt("w", 0), h = m.data->getInt("h", 0);
+            if (id.empty() || w <= 0 || h <= 0) return;
+            const auto* blob = m.data->getBlob("pixels");
+            const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;   // RGBA8
+            if (!blob || blob->size() < need) return;
+            float u0, v0, u1, v1;
+            const uint32_t texId = m_assetManager->resolveSprite(id, u0, v0, u1, v1);   // string id -> texId
+            if (texId == 0) return;
+            rhi::TextureHandle handle = m_resourceCache->getTextureById(static_cast<uint16_t>(texId));
+            if (!handle.isValid()) return;
+            m_device->updateTexture(handle, blob->data(), static_cast<uint32_t>(need),
+                                    0, 0, static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+}
+
 
 void BgfxRendererModule::process(const IDataNode& input) {
     if (!m_device) {
