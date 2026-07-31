@@ -246,116 +246,8 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
         m_io->subscribe("render:screenshot", [this](const Message& msg) { onScreenshot(msg); });
     }
 
-    // Create SpritePass and keep reference for texture binding
-    auto spritePass = std::make_unique<SpritePass>(spriteShader);
-    m_spritePass = spritePass.get();  // Non-owning reference
-    m_spritePass->setResourceCache(m_resourceCache.get());
-    m_renderGraph->addPass(std::move(spritePass));
-    m_logger->info("Added SpritePass");
-
-    // Create TextPass (uses sprite shader for glyph quads)
-    auto textPass = std::make_unique<TextPass>(spriteShader);
-    m_textPass = textPass.get();   // non-owning ref, so render:font can rebake the glyph atlas
-    m_renderGraph->addPass(std::move(textPass));
-    m_logger->info("Added TextPass");
-
-    // Create ParticlePass (uses sprite shader, renders after sprites with additive blending)
-    auto particlePass = std::make_unique<ParticlePass>(spriteShader);
-    particlePass->setResourceCache(m_resourceCache.get());
-    m_renderGraph->addPass(std::move(particlePass));
-    m_logger->info("Added ParticlePass");
-
-    m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
-    m_logger->info("Added DebugPass");
-
-    // Filled ring-sectors / pie wedges (render:sector) — same position+colour shader as debug.
-    m_renderGraph->addPass(std::make_unique<SectorPass>(debugShader));
-    m_logger->info("Added SectorPass");
-
-    // Lighting composite (L1). Registered unconditionally: it costs nothing per frame until a game
-    // publishes render:ambient (the pass returns immediately), and building it lazily would mean
-    // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
-    // module can hand it the offscreen textures each frame; the graph owns the pass.
-    // Occluders -> the occlusion map the light march samples. Reuses the "color" program: they are
-    // flat black quads, exactly what DebugPass and SectorPass already draw with it.
-    m_renderGraph->addPass(std::make_unique<OcclusionPass>(debugShader));
-    m_logger->info("Added OcclusionPass");
-
-    // Soft radial media, into the SAME map and with the same multiplicative blend. Its own pass
-    // because it needs its own shader and one draw per volume, where OcclusionPass batches flat
-    // quads into one buffer.
-    m_renderGraph->addPass(std::make_unique<NebulaPass>(m_shaderManager->getProgram("nebula")));
-    m_logger->info("Added NebulaPass");
-
-    {
-        // The occlusion map the light march samples. WHITE = vacuum, so with nothing writing into
-        // it the march multiplies by 1 and the render is unchanged — that neutrality IS the proof
-        // this slice ships. 1x1 + clamp is enough while nothing draws occluders.
-        rhi::TextureDesc od;
-        od.width = 1; od.height = 1; od.format = rhi::TextureDesc::RGBA8;
-        const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
-        od.data = whitePixel;
-        od.dataSize = sizeof(whitePixel);
-        m_occlusionTex = m_device->createTexture(od);
-
-        // ...et son PENDANT pour l'accumulation de lumière : BLACK = aucune lumière ajoutée.
-        //
-        // ⚠️ Même piège, même remède, et il a fallu une capture pour le voir. Une vue qui ne reçoit
-        //    AUCUN draw est sautée par bgfx, et une vue sautée n'exécute jamais son effacement. Une
-        //    frame qui ne publie aucune lampe laissait donc la cible d'accumulation garder le contenu
-        //    de la dernière frame qui en avait — et le composite l'ajoutait à l'ambiant. Symptôme : un
-        //    fantôme de lumière FIGÉ, qu'un jeu chercherait dans son propre code.
-        //
-        //    C'est un état parfaitement légitime : toutes les lampes cullées hors écran, une
-        //    transition de scène, un interrupteur coupé. Personne ne l'avait vu parce que tous les
-        //    tests et toutes les planches publiaient au moins une lampe par frame.
-        //
-        //    Comme pour l'occultation, on ne CONSULTE pas la cible quand personne n'a rien écrit,
-        //    plutôt que de compter sur une sémantique d'effacement-au-toucher. Verrouillé par
-        //    LightingGpu [stale].
-        rhi::TextureDesc bd;
-        bd.width = 1; bd.height = 1; bd.format = rhi::TextureDesc::RGBA8;
-        const uint8_t blackPixel[4] = { 0, 0, 0, 255 };
-        bd.data = blackPixel;
-        bd.dataSize = sizeof(blackPixel);
-        m_blackLightTex = m_device->createTexture(bd);
-
-        auto lightPass = std::make_unique<LightPass>(m_shaderManager->getProgram("light"));
-        lightPass->setOcclusionTexture(m_occlusionTex);
-        m_lightPass = lightPass.get();
-        m_renderGraph->addPass(std::move(lightPass));
-        m_logger->info("Added LightPass");
-    }
-
-    {
-        auto compositePass = std::make_unique<CompositePass>(m_shaderManager->getProgram("composite"));
-        m_compositePass = compositePass.get();
-        m_renderGraph->addPass(std::move(compositePass));
-        m_logger->info("Added CompositePass");
-    }
-
-    {
-        // Post-traitement (plan B). Les deux passes sont enregistrées inconditionnellement et sortent
-        // immédiatement quand `bloom.intensity == 0` — comme CompositePass avec l'ambiant. Enregistrer
-        // conditionnellement obligerait à reconstruire le graphe quand un jeu allume le bloom en cours
-        // de partie, ce qui est exactement le genre de mutation qu'un graphe topologique n'aime pas.
-        auto bloomPass = std::make_unique<BloomPass>(m_shaderManager->getProgram("bloom_extract"),
-                                                    m_shaderManager->getProgram("bloom_blur"));
-        m_bloomPass = bloomPass.get();
-        m_renderGraph->addPass(std::move(bloomPass));
-
-        auto presentPass = std::make_unique<PresentPass>(m_shaderManager->getProgram("present"));
-        m_presentPass = presentPass.get();
-        m_renderGraph->addPass(std::move(presentPass));
-        // Le fondu est enregistre inconditionnellement comme les autres, et sort immediatement quand
-        // `amount == 0`. Mais contrairement a eux, il n'a besoin d'AUCUNE cible : il fonctionne donc
-        // aussi dans un jeu qui n'eclaire pas, ou tout le reste de ce bloc est inerte.
-        m_renderGraph->addPass(std::make_unique<FadePass>(m_shaderManager->getProgram("fade")));
-        m_logger->info("Added BloomPass + PresentPass + FadePass");
-    }
-
-    m_renderGraph->setup(*m_device);
-    m_logger->info("RenderGraph setup complete");
+    // Toutes les passes de rendu + setup du graphe (cf. .h : ordre = semantique).
+    buildRenderGraph(spriteShader, debugShader);
 
     // REAL FONT (optional). TextPass::setup() just installed the built-in 8x8 bitmap fallback; if the
     // host asked for a TrueType face, bake it over the top NOW — after setup, or initDefault would
@@ -552,6 +444,120 @@ void BgfxRendererModule::setConfiguration(const IDataNode& config, IIO* io, ITas
     }
 
     m_logger->info("BgfxRenderer initialized successfully");
+}
+
+void BgfxRendererModule::buildRenderGraph(rhi::ShaderHandle spriteShader,
+                                          rhi::ShaderHandle debugShader) {
+    // Create SpritePass and keep reference for texture binding
+    auto spritePass = std::make_unique<SpritePass>(spriteShader);
+    m_spritePass = spritePass.get();  // Non-owning reference
+    m_spritePass->setResourceCache(m_resourceCache.get());
+    m_renderGraph->addPass(std::move(spritePass));
+    m_logger->info("Added SpritePass");
+
+    // Create TextPass (uses sprite shader for glyph quads)
+    auto textPass = std::make_unique<TextPass>(spriteShader);
+    m_textPass = textPass.get();   // non-owning ref, so render:font can rebake the glyph atlas
+    m_renderGraph->addPass(std::move(textPass));
+    m_logger->info("Added TextPass");
+
+    // Create ParticlePass (uses sprite shader, renders after sprites with additive blending)
+    auto particlePass = std::make_unique<ParticlePass>(spriteShader);
+    particlePass->setResourceCache(m_resourceCache.get());
+    m_renderGraph->addPass(std::move(particlePass));
+    m_logger->info("Added ParticlePass");
+
+    m_renderGraph->addPass(std::make_unique<DebugPass>(debugShader));
+    m_logger->info("Added DebugPass");
+
+    // Filled ring-sectors / pie wedges (render:sector) — same position+colour shader as debug.
+    m_renderGraph->addPass(std::make_unique<SectorPass>(debugShader));
+    m_logger->info("Added SectorPass");
+
+    // Lighting composite (L1). Registered unconditionally: it costs nothing per frame until a game
+    // publishes render:ambient (the pass returns immediately), and building it lazily would mean
+    // creating GPU resources in the middle of the first lit frame. We keep a raw pointer so the
+    // module can hand it the offscreen textures each frame; the graph owns the pass.
+    // Occluders -> the occlusion map the light march samples. Reuses the "color" program: they are
+    // flat black quads, exactly what DebugPass and SectorPass already draw with it.
+    m_renderGraph->addPass(std::make_unique<OcclusionPass>(debugShader));
+    m_logger->info("Added OcclusionPass");
+
+    // Soft radial media, into the SAME map and with the same multiplicative blend. Its own pass
+    // because it needs its own shader and one draw per volume, where OcclusionPass batches flat
+    // quads into one buffer.
+    m_renderGraph->addPass(std::make_unique<NebulaPass>(m_shaderManager->getProgram("nebula")));
+    m_logger->info("Added NebulaPass");
+
+    {
+        // The occlusion map the light march samples. WHITE = vacuum, so with nothing writing into
+        // it the march multiplies by 1 and the render is unchanged — that neutrality IS the proof
+        // this slice ships. 1x1 + clamp is enough while nothing draws occluders.
+        rhi::TextureDesc od;
+        od.width = 1; od.height = 1; od.format = rhi::TextureDesc::RGBA8;
+        const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
+        od.data = whitePixel;
+        od.dataSize = sizeof(whitePixel);
+        m_occlusionTex = m_device->createTexture(od);
+
+        // ...et son PENDANT pour l'accumulation de lumière : BLACK = aucune lumière ajoutée.
+        //
+        // ⚠️ Même piège, même remède, et il a fallu une capture pour le voir. Une vue qui ne reçoit
+        //    AUCUN draw est sautée par bgfx, et une vue sautée n'exécute jamais son effacement. Une
+        //    frame qui ne publie aucune lampe laissait donc la cible d'accumulation garder le contenu
+        //    de la dernière frame qui en avait — et le composite l'ajoutait à l'ambiant. Symptôme : un
+        //    fantôme de lumière FIGÉ, qu'un jeu chercherait dans son propre code.
+        //
+        //    C'est un état parfaitement légitime : toutes les lampes cullées hors écran, une
+        //    transition de scène, un interrupteur coupé. Personne ne l'avait vu parce que tous les
+        //    tests et toutes les planches publiaient au moins une lampe par frame.
+        //
+        //    Comme pour l'occultation, on ne CONSULTE pas la cible quand personne n'a rien écrit,
+        //    plutôt que de compter sur une sémantique d'effacement-au-toucher. Verrouillé par
+        //    LightingGpu [stale].
+        rhi::TextureDesc bd;
+        bd.width = 1; bd.height = 1; bd.format = rhi::TextureDesc::RGBA8;
+        const uint8_t blackPixel[4] = { 0, 0, 0, 255 };
+        bd.data = blackPixel;
+        bd.dataSize = sizeof(blackPixel);
+        m_blackLightTex = m_device->createTexture(bd);
+
+        auto lightPass = std::make_unique<LightPass>(m_shaderManager->getProgram("light"));
+        lightPass->setOcclusionTexture(m_occlusionTex);
+        m_lightPass = lightPass.get();
+        m_renderGraph->addPass(std::move(lightPass));
+        m_logger->info("Added LightPass");
+    }
+
+    {
+        auto compositePass = std::make_unique<CompositePass>(m_shaderManager->getProgram("composite"));
+        m_compositePass = compositePass.get();
+        m_renderGraph->addPass(std::move(compositePass));
+        m_logger->info("Added CompositePass");
+    }
+
+    {
+        // Post-traitement (plan B). Les deux passes sont enregistrées inconditionnellement et sortent
+        // immédiatement quand `bloom.intensity == 0` — comme CompositePass avec l'ambiant. Enregistrer
+        // conditionnellement obligerait à reconstruire le graphe quand un jeu allume le bloom en cours
+        // de partie, ce qui est exactement le genre de mutation qu'un graphe topologique n'aime pas.
+        auto bloomPass = std::make_unique<BloomPass>(m_shaderManager->getProgram("bloom_extract"),
+                                                    m_shaderManager->getProgram("bloom_blur"));
+        m_bloomPass = bloomPass.get();
+        m_renderGraph->addPass(std::move(bloomPass));
+
+        auto presentPass = std::make_unique<PresentPass>(m_shaderManager->getProgram("present"));
+        m_presentPass = presentPass.get();
+        m_renderGraph->addPass(std::move(presentPass));
+        // Le fondu est enregistre inconditionnellement comme les autres, et sort immediatement quand
+        // `amount == 0`. Mais contrairement a eux, il n'a besoin d'AUCUNE cible : il fonctionne donc
+        // aussi dans un jeu qui n'eclaire pas, ou tout le reste de ce bloc est inerte.
+        m_renderGraph->addPass(std::make_unique<FadePass>(m_shaderManager->getProgram("fade")));
+        m_logger->info("Added BloomPass + PresentPass + FadePass");
+    }
+
+    m_renderGraph->setup(*m_device);
+    m_logger->info("RenderGraph setup complete");
 }
 
 void BgfxRendererModule::onTilemapAnim(const Message& msg) {

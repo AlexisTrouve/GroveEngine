@@ -120,6 +120,24 @@ private:
     void onTextureCreate(const Message& msg);     // render:texture:create
     void onTexturePaint(const Message& msg);      // render:texture:paint
     void onTextureUpload(const Message& msg);     // render:texture:upload
+
+    // ------------------------------------------------------------------------
+    // Construction du graphe de rendu — toutes les passes, puis son setup().
+    // ------------------------------------------------------------------------
+    // QUOI     : cree et enregistre SpritePass, TextPass, ParticlePass, DebugPass,
+    //            SectorPass et toute la chaine d'eclairage/post-traitement, puis
+    //            appelle m_renderGraph->setup().
+    // POURQUOI : c'etait ~110 lignes au milieu de setConfiguration, entre la lecture
+    //            de la config et le systeme d'assets. L'ORDRE des addPass porte la
+    //            semantique du rendu (le graphe trie, mais les passes de la meme
+    //            couche sortent dans l'ordre d'ajout) : le regrouper le rend lisible
+    //            d'un bloc au lieu de le faire deviner.
+    // COMMENT  : le bloc extrait ne dependait QUE de ces deux handles de shader
+    //            (verifie) et ne contenait ni abonnement ni sortie anticipee, d'ou une
+    //            extraction sans changement de flot. ClearPass et TilemapPass restent
+    //            dans setConfiguration : les abonnements tilemap y sont intercales
+    //            juste apres, et rien ne prouve cet ordre indifferent.
+    void buildRenderGraph(rhi::ShaderHandle spriteShader, rhi::ShaderHandle debugShader);
 public:
     assets::AssetManager* getAssetManager() const;   // streaming texture assets (string id -> texture)
 
