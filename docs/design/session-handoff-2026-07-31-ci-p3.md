@@ -64,7 +64,7 @@ une fois, la suite a tourné **18 % plus vite** et `ChaosMonkey` a **quand même
 
 ---
 
-## 3. La leçon centrale — et elle a récidivé quatre fois
+## 3. La leçon centrale — cinq récidives, dont une à l'envers
 
 > **Le réglage qui rend un résultat FACILE, PRÉVISIBLE ou RAPIDE à obtenir est très souvent celui qui
 > le rend INCAPABLE DE DISCRIMINER.**
@@ -87,9 +87,36 @@ Les quatre récidives de la journée, toutes rattrapées mais jamais du premier 
 **La parade, avant de croire un vert** : *quel résultat aurait donné la version FAUSSE ?* Si la
 réponse est « le même », la mesure ne vaut rien.
 
-C'est directement pour ça que les deux refactors ont été validés par **comparaison texte des corps
-contre l'original** (`git show HEAD`) et pas seulement par la compilation : **le compilateur attrape
-une capture manquante, pas un corps qu'un script aurait silencieusement tronqué.**
+### 3bis. Le même défaut À L'ENVERS — et il est plus vicieux
+
+Cinquième occurrence, en fin de session, et la seule de son sens : l'outil qui devait **prouver**
+que quinze blocs de `finalize` étaient factorisables a rapporté **« 15 blocs uniques, rien de
+factorisable »**. C'était lui qui **sous-normalisait** — le compteur au singulier
+(`packet.lightCount` pour le champ `lights`), puis la variable locale parfois homonyme du champ.
+Trois passes ont été nécessaires pour qu'il converge.
+
+> Une mesure trop LARGE conclut à tort qu'il y a un motif. Une mesure trop ÉTROITE conclut à tort
+> qu'il n'y en a pas. **Le second cas ne déclenche aucune alarme** : « rien à factoriser » ressemble
+> à une réponse légitime, on referme le sujet et on passe à autre chose. Le premier, au moins, finit
+> par produire un test rouge.
+
+Ce qui a sauvé la mise : diffuser deux blocs *normalisés* côte à côte au lieu de croire le verdict
+agrégé. Le diff a montré immédiatement que la différence n'était pas dans le code mais dans mon
+normaliseur.
+
+### 3ter. Deux gestes, deux preuves — elles ne sont pas interchangeables
+
+Les deux `setConfiguration` **déplaçaient** du code : la preuve était la **comparaison texte des
+corps contre l'original** (`git show HEAD`), 10/10 puis 23/23. Le compilateur attrape une capture
+manquante ; il n'attrape **pas** un corps qu'un script aurait silencieusement tronqué.
+
+`SceneCollector::finalize` **réécrivait** : cette preuve ne s'appliquait plus. Elle a été remplacée
+par deux autres — l'uniformité *prouvée* par normalisation (§3bis), et un **test de caractérisation
+écrit avant de toucher au code**, sur un chemin que la mesure de couverture disait tenu par **zéro
+test**.
+
+> **La leçon transverse** : la nature du geste dicte la nature de la preuve. Appliquer la preuve du
+> déplacement à une réécriture, c'est se rassurer avec un contrôle qui ne contrôle plus rien.
 
 ---
 
@@ -104,6 +131,19 @@ une capture manquante, pas un corps qu'un script aurait silencieusement tronqué
 - **Première mesure sur la ferme perdue** : pilotée à travers ma session SSH, tuée par la limite de
   tâche de fond alors qu'elle attendait encore dans la file. Le travail distant doit être **détaché
   côté serveur**.
+- **Une accolade orpheline laissée en remplaçant un bloc**, qui formait un bloc vide avec celle qui
+  restait. **Ça compilait sans broncher** — un bloc vide est syntaxiquement valide. Repérée en
+  relisant la zone, pas par le compilateur. ⚠️ La compilation ne valide pas ce qu'on croit : elle
+  valide la grammaire, pas l'intention.
+- **Un `mv` de restauration qui a rendu le fichier avec sa date d'ORIGINE**, antérieure à l'objet
+  compilé : ninja n'a rien reconstruit et le binaire *saboté* tournait encore. Symptôme : un test
+  rouge sur un source **identique à `HEAD`**. J'ai failli conclure « test instable » ou « j'ai cassé
+  quelque chose » — les deux faux. Diagnostic par comparaison des dates, puis `touch`. C'est le piège
+  « artefact périmé » déjà documenté dans `known-annoyances.md §3bis`, rencontré sous une forme
+  nouvelle : ce n'est pas l'édition qui l'a déclenché, c'est la **restauration**.
+- **Un `find -printf` trié sans la date** qui remontait des logs de la veille en tête — corrigé en
+  triant sur l'horodatage epoch. Trivial, mais c'est la troisième forme que prend le même défaut de
+  mesure dans la même journée.
 
 ---
 
@@ -152,3 +192,23 @@ nouvelle reste muet sur un plantage, et ce silence est indiscernable de « ça t
 
 **Base de référence avant tout refactor** : la suite AVANT de toucher au code. Sans elle, un rouge
 préexistant est attribué au chantier en cours — et ce jour-là il y en avait deux.
+
+**Mesurer la COUVERTURE avant de refactoriser un chemin**, pas seulement après :
+```bash
+for p in xCount yCount ...; do printf "%-16s %s\n" "$p" "$(grep -rho "$p" tests/ | wc -l)"; done
+```
+Un zéro dans cette colonne veut dire « réécrire à l'aveugle ». C'est ce qui a imposé le test de
+caractérisation sur `hudSectors` — et sans lui, la factorisation de `finalize` n'aurait eu aucun
+filet sur le seul chemin que rien n'observait.
+
+**Après avoir restauré un fichier, vérifier qu'il a bien été RECONSTRUIT** :
+```bash
+stat -c "%y %n" src.cpp build/.../src.cpp.obj    # l'objet est-il plus recent que la source ?
+```
+`cp`/`mv` peuvent rendre une source **plus vieille** que son objet ; ninja ne reconstruit alors rien
+et l'ancien binaire tourne. Symptôme trompeur : un test rouge sur un source identique à `HEAD`. En
+cas de doute, `touch` la source — c'est plus rapide que le diagnostic.
+
+**Sabotage adverse** : vérifier qu'il a été APPLIQUÉ (assertion dans le script + `grep` de contrôle)
+avant de croire le rouge qu'il produit — et vérifier que le rouge disparaît bien après restauration
+**et reconstruction**. Les deux moitiés comptent : c'est la seconde qui a piégé ici.
