@@ -17,7 +17,7 @@ erreurs commises en la faisant. Le détail technique est dans
 |---|---|---|
 | CI — modules, branches, verrou | `eabfb58` → `edb9cb0` | **103 → 189 tests validés** |
 | Nettoyage dépôt | `6467f4d` | `RUST_MIGRATION.md` retiré, worktree unitaire |
-| Dette P3 | `4bbe07d`, `bd67f3b`, `91e409e` | **1108 → 409 lignes** sur deux fonctions |
+| Dette P3 | `4bbe07d` → `b731aa1` | **1538 → 690 lignes** sur trois fonctions |
 
 Plus : **ProjectMind remis d'aplomb** (son plan actif datait de mai et décrivait un moteur deux
 phases en retard) et **la ferme débloquée** après 14 h d'arrêt.
@@ -110,9 +110,16 @@ une capture manquante, pas un corps qu'un script aurait silencieusement tronqué
 d'horloge absolu ? ⚠️ **Piège** : lui coller `timing-sensitive` le retirerait de la CI **où il passe**,
 échangeant une couverture réelle contre un vert local.
 
-**P3, deux fonctions** — `SceneCollector::finalize` (430) et `UIModule::updateUI` (452).
-⚠️ **La seconde n'est PAS justiciable du même geste** : aucune répétition, de l'état qui circule, y
-découper des phases est un pari. Elle ressemble aux autres **par sa taille seulement**.
+**P3, une seule fonction** — `UIModule::updateUI` (452). ⚠️ **Elle n'est PAS justiciable des gestes
+de ce chantier** : ni table déguisée à révéler, ni blocs jumeaux à factoriser — aucune répétition, et
+de l'état qui circule entre les étapes. Elle ressemble aux quatre autres **par sa taille seulement**.
+
+> `SceneCollector::finalize` (430 → 281) a été traitée en fin de session, avec un geste DIFFÉRENT des
+> deux `setConfiguration` : on y RÉÉCRIT au lieu de DÉPLACER, donc la comparaison textuelle des corps
+> ne s'appliquait plus. Elle a été remplacée par deux garde-fous — l'uniformité **prouvée** par
+> normalisation (l'outil a d'abord menti dans l'autre sens : « rien de factorisable ») et un test de
+> caractérisation écrit AVANT, sur un chemin que la mesure disait couvert par **zéro test**. Détail :
+> [audit-perf-mess-2026-07-29.md §P3](audit-perf-mess-2026-07-29.md).
 
 **Les 16 tests `[gpu]`** — seul trou de couverture CI restant, et il est étroit. N'arrivera que sur
 une ferme **Windows** à GPU.

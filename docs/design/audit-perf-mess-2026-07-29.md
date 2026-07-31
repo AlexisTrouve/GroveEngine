@@ -9,7 +9,7 @@
 > |---|---|---|
 > | **P1** | ✅ corrigé | poussée `ui:data` identique : 15,8 ms → **0,09 ms** |
 > | **P2** | ✅ mesuré → corrigé, puis **clos** | la cause n'était pas la redondance mais une **exception** par binding textuel : 2031 → **630 ns** |
-> | **P3** | 🟢 **3 fonctions sur 5** | ~2280 lignes → ~735 ; restent `SceneCollector::finalize` et `UIModule::updateUI` (cette dernière ⚠️ d'une autre nature) |
+> | **P3** | 🟢 **4 fonctions sur 5** | **2538 → 707 lignes** ; reste `UIModule::updateUI` seule, ⚠️ **d'une autre nature** (voir §P3) |
 > | **P4** | ✅ mesuré → **écarté** | 0,5 % d'une frame au pire ; restructurer ne se justifie pas |
 > | **P5** | dette assumée | inchangée, rouverte seulement si un 3e cas apparaît |
 >
@@ -164,17 +164,18 @@ gratuit en lisibilité. À ne faire que si la mesure le réclame après P1.
 
 ---
 
-## P3 — 🟢 Cinq fonctions au-delà de 350 lignes — TROIS traitées (2026-07-30 puis 07-31)
+## P3 — 🟢 Cinq fonctions au-delà de 350 lignes — QUATRE traitées (2026-07-30 puis 07-31)
 
-> **État au 2026-07-31 : 3 sur 5 résorbées, ~2280 lignes ramenées à ~735.**
+> **État au 2026-07-31 : 4 sur 5 résorbées, 2538 → 707 lignes.** Ne reste que
+> `UIModule::updateUI`, seule de son espèce.
 
 | Fonction | Audit (07-29) | Re-mesuré (07-31) | Après | Commit |
 |---|---|---|---|---|
 | `UITree::registerDefaultWidgets` | 621 | — | **17** (table) | 07-30 |
 | `BgfxRendererModule::setConfiguration` | 620 | **672** | **309** | `4bbe07d` + `bd67f3b` |
 | `UIModule::setConfiguration` | 419 | **436** | **100** | `91e409e` |
+| `SceneCollector::finalize` | 368 | **430** | **281** | `b6fac0b` + `b731aa1` |
 | `UIModule::updateUI` | 517 | **452** | — | ⚠️ voir ci-dessous |
-| `SceneCollector::finalize` | 368 | **430** | — | à faire |
 
 ⚠️ **Les chiffres de l'audit étaient faux dans les deux sens** (620→672, 419→436, 368→430, mais
 517→452). Une ligne de dette est une hypothèse **datée** : re-mesurer avant de planifier dessus a
@@ -208,18 +209,42 @@ câblage (chaque abonnement sur la bonne méthode) · **corps comparés texte co
 un corps qu'un script aurait silencieusement tronqué.** Les 50 lambdas concernées ne capturaient que
 `this` — vérifié *avant* de couper, c'est ce qui rendait l'extraction mécaniquement sûre.
 
-### Les deux restantes
+### `SceneCollector::finalize` — un geste DIFFÉRENT, et une preuve différente
 
-**`SceneCollector::finalize` (430)** — motif répété par type de primitive (« fusionner retenu +
-éphémère dans l'allocateur, poser `packet.X`/`packet.XCount` »). ⚠️ Mais **deux déclinaisons ne sont
-pas uniformes** : les tilemaps portent des drapeaux `dirty` et des couches, les textes traînent des
-chaînes copiées à part. Un gabarit qui les avalerait casserait quelque chose — gabarit pour les
-primitives uniformes, tilemaps et textes laissés explicites.
+430 → 281. Onze de ses **quinze** blocs de copie de primitives sont servis par quatre gabarits
+(`packEphemeral`, `packEphemeralSortedByLayer`, `packRetainedThenEphemeral`, et sa variante triée).
+Restent explicites `sprites`, `tilemaps` (drapeaux `dirty` + couches), `texts` et `hudTexts` (chaînes
+copiées à part) : leur forme diffère réellement, un gabarit qui les avalerait casserait quelque chose.
+
+⚠️ **Ici on RÉÉCRIT, là où les `setConfiguration` ne faisaient que DÉPLACER.** La comparaison textuelle
+des corps ne s'appliquait donc plus, et deux garde-fous l'ont remplacée :
+
+1. **L'uniformité prouvée, pas supposée** — chaque bloc normalisé (type, membre, champ, compteur,
+   locale → jetons) puis groupé. ⚠️ L'outil a d'abord annoncé « 15 blocs uniques, rien de
+   factorisable » : c'était **lui** qui sous-normalisait. Une normalisation incomplète conclut à
+   l'absence de motif — l'erreur symétrique de celle qui guette d'habitude.
+2. **Un test de caractérisation écrit AVANT de toucher au code**, parce que la couverture mesurée
+   disait `hudSectors` = **zéro test** et `sectors` = une seule assertion. Il publie des couches
+   délibérément désordonnées et vérifie le tri **plus** la séparation des buckets. **Prouvé qu'il
+   mord** : tri neutralisé → rouge.
+
+**Décisions à ne pas défaire** : deux fonctions plutôt qu'un drapeau `sortByLayer` (le corps d'un
+gabarit s'instancie même quand le booléen est faux, or `LightCommand`, `ParticleInstance`,
+`DebugLine` et `DebugRect` n'ont pas de champ `layer` — ça ne compilerait pas) · la projection est
+**nécessaire** (`RetainedFog`/`RetainedFilter` stockent les valeurs d'AUTEUR, la commande GPU en est
+dérivée à chaque frame, ce qui garde honnête un panneau redimensionné) · ⚠️ le **bord rugueux est
+préservé** : allocation ratée ⇒ ni pointeur ni compte touchés, comme le faisaient les quinze blocs.
+Le corriger serait un autre commit, avec son test.
+
+### La restante
 
 **`UIModule::updateUI` (452)** — ⚠️ **d'une AUTRE NATURE, ne pas traiter par analogie.** 54 branches,
-une seule boucle, **aucune répétition**, et de l'état qui circule entre les étapes. Y découper des
-« phases » est un pari, pas une extraction mécanique. Elle ressemble aux autres par sa taille
-seulement — et c'est exactement le raisonnement de forme contre lequel ce document met en garde.
+une seule boucle, **aucune répétition**, et de l'état qui circule entre les étapes. Ni table déguisée
+à révéler, ni blocs jumeaux à factoriser : les deux gestes de ce chantier n'ont aucune prise sur elle.
+Y découper des « phases » est un **pari**, pas une extraction mécanique.
+
+Elle ressemble aux quatre autres **par sa taille seulement** — et c'est exactement le raisonnement de
+forme contre lequel ce document met en garde depuis sa première ligne.
 
 La plus coûteuse en pratique est la première : `registerDefaultWidgets` contient **seize fabriques de
 widgets en lambdas inline**. Conséquence concrète — ajouter un widget oblige à éditer une fonction de
