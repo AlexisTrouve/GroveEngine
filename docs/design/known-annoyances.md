@@ -23,6 +23,12 @@ Pistes : que l'AutoCompiler travaille sur une **copie dans le répertoire de bui
 passent systématiquement lancés seuls (mesuré : 3/3 chacun, durées stables ~40-160 s). Ils sont affamés
 par le parallélisme, pas cassés.
 
+> ⚠️ **CORRECTION du 2026-07-31 — `ChaosMonkey` n'appartient PLUS à ce paragraphe.** Il échoue
+> désormais **3 fois sur 3 lancé SEUL**, machine à 11 % de charge, sur une assertion de budget
+> d'horloge. Ce n'est plus de la famine : voir **§2ter**. La phrase ci-dessus reste vraie pour
+> `StressTest` et `MemoryLeakHunter`. Laissée telle quelle avec cette réserve plutôt que réécrite,
+> parce que la mesure d'origine était juste **à sa date** — c'est le comportement qui a changé.
+
 **Conséquence** : un run complet ressort régulièrement à 181/182 pour une raison qui n'en est pas une,
 et il faut à chaque fois relancer pour distinguer ça d'une vraie régression. Quelqu'un finira par
 prendre l'un pour l'autre — dans un sens comme dans l'autre.
@@ -47,6 +53,50 @@ réflexe est de **relancer seul avant de chercher une régression**.
 **Piège** : ce dépassement se présente comme un échec fonctionnel dans le résumé de `ctest` (`Failed`,
 pas `Timeout`), au milieu d'un run de 200 tests. Il ressemble donc davantage à un vrai bug que les
 échecs de famine du §2, alors qu'il en est le cousin.
+
+### 2ter. `ChaosMonkey` franchit son budget de 17 %, machine au repos (2026-07-31)
+
+Troisième cas de la même famille, et **le plus net** — c'est ce qui en fait un motif et non une
+anecdote.
+
+```
+❌ ASSERTION FAILED: Total duration should be < 60 seconds
+   Expected: < 60      Actual: 70.128
+```
+`tests/integration/test_02_chaos_monkey.cpp:211`, plafond **en dur**, commenté
+« *Just check it completed within reasonable bounds* ».
+
+**Ce qui distingue ce cas des deux précédents, et pourquoi il compte davantage :**
+
+| | §2 (famine) | §2bis (`ProductionHotReload`) | §2ter (`ChaosMonkey`) |
+|---|---|---|---|
+| Se reproduit seul ? | non, passe 3/3 | non, passe seul | **OUI, 3/3 échecs** |
+| Charge machine | `-j2`/`-j4` | occupée | **11 %** |
+| Dépassement | — | 1 % | **17 %** |
+
+À 1 % sur une machine chargée, « la machine était occupée » est la bonne lecture. À **17 % sur une
+machine au repos**, non : le budget lui-même ne convient plus à ce poste.
+
+**Le test n'est pas en défaut sur le fond** — toutes les récupérations réussissent, aucun blocage,
+la croissance mémoire passe. Seul le chronomètre parle. Le coût est dominé par ~430 ms par
+récupération, sommés sur toutes les injections de panne.
+
+⚠️ **Hypothèse concurrente NON tranchée** : les trois mesures ont été prises après un build complet
+de plus de dix minutes, et ce poste **sature thermiquement sous compilation** (cf. `build-speed.md`).
+Une mesure **à froid** départagerait « budget trop serré » de « poste bridé ». Élément de contexte :
+lors d'un des runs, la suite complète a tourné **18 % plus vite** que la fois précédente (370 s contre
+453 s) et `ChaosMonkey` a **quand même** échoué — ça affaiblit l'hypothèse thermique sans l'éliminer.
+
+⚠️ **La CI Linux le passe** (189/189). Le rouge est propre à ce poste.
+
+**Piège de résolution à éviter** : lui coller le label `timing-sensitive` le **retirerait de la CI**,
+où il passe — on échangerait une couverture réelle contre le confort d'un vert local. Si le budget
+doit bouger, la piste est de garder les assertions de **correction** comme barrière (pas de blocage,
+mémoire, récupérations réussies) et de traiter la durée comme une **métrique rapportée**.
+
+> **Ce que les trois cas disent ensemble** : un budget d'horloge absolu est une propriété du
+> **matériel** déguisée en propriété du **code**. Il finira toujours par tomber, et son échec
+> n'apprend rien sur la correction — tout en ressemblant, dans le résumé de `ctest`, à un vrai bug.
 
 ## 3bis. ⚠️ Un artefact périmé se déguise en CORRUPTION DE TAS
 

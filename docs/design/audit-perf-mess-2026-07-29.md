@@ -9,7 +9,7 @@
 > |---|---|---|
 > | **P1** | ✅ corrigé | poussée `ui:data` identique : 15,8 ms → **0,09 ms** |
 > | **P2** | ✅ mesuré → corrigé, puis **clos** | la cause n'était pas la redondance mais une **exception** par binding textuel : 2031 → **630 ns** |
-> | **P3** | ✅ traité sur son point coûteux | `registerDefaultWidgets` 621 lignes → **table de 17** |
+> | **P3** | 🟢 **3 fonctions sur 5** | ~2280 lignes → ~735 ; restent `SceneCollector::finalize` et `UIModule::updateUI` (cette dernière ⚠️ d'une autre nature) |
 > | **P4** | ✅ mesuré → **écarté** | 0,5 % d'une frame au pire ; restructurer ne se justifie pas |
 > | **P5** | dette assumée | inchangée, rouverte seulement si un 3e cas apparaît |
 >
@@ -164,20 +164,62 @@ gratuit en lisibilité. À ne faire que si la mesure le réclame après P1.
 
 ---
 
-## P3 — 🟡 Cinq fonctions au-delà de 350 lignes — la plus coûteuse traitée (2026-07-30)
+## P3 — 🟢 Cinq fonctions au-delà de 350 lignes — TROIS traitées (2026-07-30 puis 07-31)
 
-> `UITree::registerDefaultWidgets` (621 lignes, dix-sept fabriques inline) est **résorbée** : chaque
-> fabrique vit chez son widget, la fonction est une table de 17 lignes, `UITree.cpp` passe de 873 à
-> 325 lignes. Détail et vérification : [ui-widget-interface.md](ui-widget-interface.md) §S2.
-> Les quatre autres restent.
+> **État au 2026-07-31 : 3 sur 5 résorbées, ~2280 lignes ramenées à ~735.**
 
-| Lignes | Fonction |
-|---|---|
-| 621 | `UITree::registerDefaultWidgets` (`UITree.cpp:35`) |
-| 620 | `BgfxRendererModule::setConfiguration` (`BgfxRendererModule.cpp:111`) |
-| 517 | `UIModule::updateUI` (`UIModule.cpp:727`) |
-| 419 | `UIModule::setConfiguration` (`UIModule.cpp:78`) |
-| 368 | `SceneCollector::finalize` (`SceneCollector.cpp:213`) |
+| Fonction | Audit (07-29) | Re-mesuré (07-31) | Après | Commit |
+|---|---|---|---|---|
+| `UITree::registerDefaultWidgets` | 621 | — | **17** (table) | 07-30 |
+| `BgfxRendererModule::setConfiguration` | 620 | **672** | **309** | `4bbe07d` + `bd67f3b` |
+| `UIModule::setConfiguration` | 419 | **436** | **100** | `91e409e` |
+| `UIModule::updateUI` | 517 | **452** | — | ⚠️ voir ci-dessous |
+| `SceneCollector::finalize` | 368 | **430** | — | à faire |
+
+⚠️ **Les chiffres de l'audit étaient faux dans les deux sens** (620→672, 419→436, 368→430, mais
+517→452). Une ligne de dette est une hypothèse **datée** : re-mesurer avant de planifier dessus a
+coûté trente secondes et a changé l'ordre des priorités.
+
+### Le geste, et la règle qui l'a borné
+
+Les deux `setConfiguration` étaient des **tables déguisées en code** : 14 et 25 abonnements IIO dont
+les handlers, écrits en lambdas inline, noyaient la séquence d'initialisation. Le corps de chaque
+handler part en méthode privée nommée, son commentaire d'entête descend avec lui, et il reste une
+table lisible d'un coup d'œil.
+
+> **La règle qui a borné les deux coupes : n'extraire que ce dont on peut prouver l'innocuité.**
+> Les abonnements sont **entrelacés** avec la construction du graphe de rendu et rien ne prouve cet
+> ordre indifférent — donc on extrait le **corps**, jamais l'appel. Pour la même raison, `ClearPass`
+> et `TilemapPass` restent dans `setConfiguration` : les abonnements tilemap les suivent
+> immédiatement.
+
+Ce qui reste **délibérément en ligne** : les handlers de 2 à 4 lignes (`asset:register`,
+`asset:preload`, `asset:setPriority`, `asset:unload`, `input:mouse:move`, `input:mouse:wheel`). Les
+extraire allongerait sans clarifier — *Simplicity First* reste subordonnée à la modularité, pas
+l'inverse.
+
+### La vérification qui compte
+
+La transformation a été **scriptée**, donc non crue sur parole. Quatre angles : volume (rien perdu) ·
+câblage (chaque abonnement sur la bonne méthode) · **corps comparés texte contre texte à l'original
+(`git show HEAD`) — 10/10 puis 23/23** · compilation + `[gpu]` 17/17 + suite complète sans régression.
+
+⚠️ Le troisième angle est le seul non redondant : **le compilateur attrape une capture manquante, pas
+un corps qu'un script aurait silencieusement tronqué.** Les 50 lambdas concernées ne capturaient que
+`this` — vérifié *avant* de couper, c'est ce qui rendait l'extraction mécaniquement sûre.
+
+### Les deux restantes
+
+**`SceneCollector::finalize` (430)** — motif répété par type de primitive (« fusionner retenu +
+éphémère dans l'allocateur, poser `packet.X`/`packet.XCount` »). ⚠️ Mais **deux déclinaisons ne sont
+pas uniformes** : les tilemaps portent des drapeaux `dirty` et des couches, les textes traînent des
+chaînes copiées à part. Un gabarit qui les avalerait casserait quelque chose — gabarit pour les
+primitives uniformes, tilemaps et textes laissés explicites.
+
+**`UIModule::updateUI` (452)** — ⚠️ **d'une AUTRE NATURE, ne pas traiter par analogie.** 54 branches,
+une seule boucle, **aucune répétition**, et de l'état qui circule entre les étapes. Y découper des
+« phases » est un pari, pas une extraction mécanique. Elle ressemble aux autres par sa taille
+seulement — et c'est exactement le raisonnement de forme contre lequel ce document met en garde.
 
 La plus coûteuse en pratique est la première : `registerDefaultWidgets` contient **seize fabriques de
 widgets en lambdas inline**. Conséquence concrète — ajouter un widget oblige à éditer une fonction de
@@ -261,7 +303,10 @@ un chemin que le reste du code avait déjà appris à protéger ailleurs.
 ## Ordre recommandé
 
 1. ~~**P1**~~ — ✅ fait le 2026-07-30 (voir l'encadré en tête de P1).
-2. ~~**P3** sur `registerDefaultWidgets`~~ — ✅ fait le 2026-07-30. Les quatre autres fonctions longues restent.
+2. ~~**P3** sur `registerDefaultWidgets`~~ — ✅ fait le 2026-07-30.
+   ~~**P3** sur les deux `setConfiguration`~~ — ✅ fait le 2026-07-31 (1108 → 409 lignes).
+   Restent `SceneCollector::finalize` (gabarit possible, mais tilemaps et textes ne sont pas
+   uniformes) et `UIModule::updateUI` (⚠️ **pas** justiciable du même geste — voir §P3).
 3. ~~**P4**~~ — ✅ mesuré puis écarté le 2026-07-30 : 0,5 % d'une frame au pire, la restructuration ne se justifie pas.
 4. ~~**P2**~~ — ✅ mesuré puis clos le 2026-07-30 : la vraie cause était une exception, pas la redondance.
 5. **P5** — ne rien faire pour l'instant.

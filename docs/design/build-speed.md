@@ -302,7 +302,10 @@ Aucun de ces deux points n'a été corrigé ici : ce sont d'autres dépôts, ave
 
 ## 7. L'automatisation (Gitea Actions)
 
-`.gitea/workflows/build.yml` — sur push vers `master` et sur déclenchement manuel.
+`.gitea/workflows/build.yml` — sur push vers **n'importe quelle branche**, sur pull request vers
+`master`, et sur déclenchement manuel *(élargi le 2026-07-31 ; ne valider que `master`, c'était
+valider APRÈS coup — pousser sa branche de travail donne le même verdict AVANT la fusion, et ne
+coûte rien tant qu'on n'en pousse pas)*.
 
 **L'infra existait déjà** : Gitea tourne **sur ce même serveur**, avec deux runners `act_runner`
 actifs dont un instance-wide. Rien à installer. Le runner global expose le label **`host:host`**,
@@ -313,6 +316,32 @@ du **ccache partagé** — un conteneur repartirait de zéro et rendrait le cach
 que `tools/remote-build.sh`. Sans ça, la file du runner et celle de la ferme se disputeraient
 8 threads sur une machine qui héberge aussi la prod.
 
+### ⚠️ Le verrou peut être tenu par un processus MORT — vécu, 14 h de ferme bloquée
+
+Le 2026-07-30 à 13h18, un **`Xvfb` orphelin** a hérité du **descripteur 9** d'un build qui est mort
+ensuite. `flock` ne se libère qu'à la fermeture du **DERNIER** descripteur, pas à la mort de celui qui
+l'a pris : tout processus démonisé sous le verrou en hérite et le tient **indéfiniment**.
+
+Constaté le lendemain : `/proc/locks` montrait un détenteur, `ps` montrait ce détenteur **mort**, et
+`/proc/1866409/fd/9 -> ~/grovefarm/.build.lock` désignait le coupable — un serveur X, `PPID 1`, vieux
+de quatorze heures. **Builds ET CI bloqués pendant tout ce temps** : le workflow prend le même verrou,
+donc chaque push depuis cette date attendait 3600 s puis abandonnait. La « validation automatique sur
+push » créée la veille n'avait probablement jamais abouti.
+
+**Ce qui a rendu la panne invisible n'est pas le bug, c'est le MESSAGE.** « abandon : file trop
+longue » décrit le symptôme et cache la cause. Les deux portes d'entrée **nomment désormais les
+détenteurs** (`fuser`) à la mise en file *et* à l'expiration, avec l'explication du mécanisme.
+
+**Diagnostic, si la ferme semble occupée sans fin :**
+```bash
+fuser -v ~/grovefarm/.build.lock          # qui tient le fichier
+grep "$(stat -c %i ~/grovefarm/.build.lock)" /proc/locks   # detenteur + attendants
+ls -l /proc/<PID>/fd/ | grep build.lock   # preuve de l'heritage
+```
+Un processus qui **ne ressemble pas à un build** (serveur X, démon) est le coupable. **Le tuer PAR SON
+PID — jamais par nom** : ce jour-là, un second `Xvfb` parfaitement sain tournait depuis juin, et un
+`pkill Xvfb` l'aurait emporté.
+
 Les deux chemins sont **complémentaires, pas redondants** :
 
 | | construit quoi | quand |
@@ -320,11 +349,37 @@ Les deux chemins sont **complémentaires, pas redondants** :
 | `tools/remote-build.sh` | ton arbre de travail, **même non commité** | à la demande |
 | Gitea Actions | ce qui est **poussé** | automatiquement, avec historique |
 
-**⚠️ Trois tests exclus NOMMÉMENT** (`MemoryLeakHunter`, `CrashHandlerRealE2E`,
-`RaceConditionHunter`) : ils échouent pour des raisons connues et étrangères au code poussé. Les
-laisser rendrait le workflow rouge en permanence — et un rouge permanent ne se lit plus. Ils sont
-exclus explicitement pour qu'on voie ce qu'on ne teste pas ; reprendre l'un d'eux = retirer sa
-mention. **Vérifié : 100/100, exit 0, en 94 s** (build 145 s).
+**⚠️ LE PLUS GROS TROU N'ÉTAIT PAS UNE EXCLUSION, C'ÉTAIT UNE ABSENCE** (découvert et corrigé le
+2026-07-31). Le job configurait `cmake -B build` **sans aucun `-DGROVE_BUILD_*`**, or les défauts du
+`CMakeLists.txt` racine sont **OFF** pour BgfxRenderer, UIModule, Fx, Dialogue et Video. Ces modules
+n'étaient donc **pas compilés**, et leurs tests n'existaient pas dans l'arbre : aucun filtre par label
+ne pouvait le révéler, et le workflow paraissait vert en validant **la moitié du moteur**.
+
+| | avant | après |
+|---|---|---|
+| tests construits | 106 | **192** |
+| tests **lancés** | **103** | **189** |
+| verdict | — | **189/189 verts, ~95 s de `ctest`** |
+
+Les 86 tests regagnés sont les E2E de l'UI, le renderer **headless** (SceneCollector,
+PipelineHeadless, MockRHIDevice), FX, dialogue et vidéo. **SoundManager reste dehors** : il exige
+SDL2_mixer sur la chaîne du serveur, et l'inclure aurait mélangé « le module ne compile pas ici » avec
+« le test échoue sur Linux ». ⚠️ **Ne pas retirer ces drapeaux « pour aller plus vite »** : le gain de
+temps serait invisible et la perte de couverture, elle, silencieuse.
+
+*Le symptôme qui trahissait l'oubli, visible depuis le début : le job `windows-cross-check`, lui,
+passait bien `-DGROVE_BUILD_BGFX_RENDERER=ON -DGROVE_BUILD_UI_MODULE=ON`. La cross-compilation
+couvrait donc plus de modules que le job qui lance les tests. Les deux lignes avaient divergé.*
+
+**Exclusions réelles : trois tests, par LABEL** (`platform-windows`, `timing-sensitive`,
+`known-fail-linux`) — le label porte la raison là où une liste de noms ne dit rien.
+
+⚠️ **Et le label `gpu` n'écarte RIEN ici** (mesuré) : les 16 tests GPU sont gardés par `WIN32` dans
+`tests/CMakeLists.txt`, donc sur Linux ils ne se **construisent** pas. **Retirer le label ne les
+ferait pas apparaître** — se tromper là-dessus coûte une demi-journée. Ils n'arriveront que sur une
+ferme **Windows** à GPU ; sur une ferme Linux il faudrait d'abord qu'ils s'y compilent, c'est-à-dire
+rouvrir la dette « port Linux » (cf. §10 et §11). C'est le seul trou de couverture restant, et il est
+étroit : le rendu **headless**, lui, est couvert.
 
 **Portée : groveengine uniquement.** Câbler les jeux tant que leurs propres défauts bloquent le
 build fabriquerait trois alertes mortes. Voir §6.
