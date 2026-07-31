@@ -311,6 +311,71 @@ void packEphemeralSortedByLayer(FrameAllocator& allocator, const std::vector<T>&
     }
 }
 
+// ============================================================================
+// FUSION RETENU -> EPHEMERE DANS L'ARENE DE FRAME
+// ----------------------------------------------------------------------------
+// QUOI     : concatene les entrees RETENUES (persistantes, indexees par renderId) puis
+//            les entrees EPHEMERES (republiees chaque frame) dans une seule tranche.
+//
+// POURQUOI : cinq blocs de `finalize` faisaient exactement cela. Deux d'entre eux
+//            appliquaient en plus une CONVERSION aux entrees retenues, un troisieme un
+//            tri -- et c'est justement ce qu'on ne voyait pas en lisant cinq pavés de
+//            dix-neuf lignes. La projection et le tri deviennent visibles au site
+//            d'appel, la ou la difference se decide.
+//
+// COMMENT  : l'ORDRE est signifiant et preserve : retenu D'ABORD, ephemere ENSUITE.
+//            ⚠️ La projection existe parce que le conteneur retenu ne stocke pas
+//            toujours le type de sortie (RetainedFog/RetainedFilter portent les donnees
+//            d'AUTEUR ; buildFog/buildFilter en derivent la commande GPU). Quand les
+//            deux types coincident, la surcharge sans projection copie tel quel.
+//            ⚠️ Meme bord rugueux que packEphemeral : allocation ratee => on ne touche
+//            ni le pointeur ni le compte. Comportement d'origine, conserve tel quel.
+// ============================================================================
+template <typename T, typename Map, typename Project>
+void packRetainedThenEphemeral(FrameAllocator& allocator, const Map& retained,
+                               const std::vector<T>& ephemeral,
+                               const T*& outPtr, size_t& outCount, Project project) {
+    const size_t total = retained.size() + ephemeral.size();
+    if (total > 0) {
+        T* dst = allocator.allocateArray<T>(total);
+        if (dst) {
+            size_t idx = 0;
+            for (const auto& kv : retained) dst[idx++] = project(kv.second);
+            if (!ephemeral.empty()) {
+                std::memcpy(&dst[idx], ephemeral.data(), ephemeral.size() * sizeof(T));
+            }
+            outPtr = dst;
+            outCount = total;
+        }
+    } else {
+        outPtr = nullptr;
+        outCount = 0;
+    }
+}
+
+// Surcharge sans conversion : le conteneur retenu stocke deja le type de sortie.
+template <typename T, typename Map>
+void packRetainedThenEphemeral(FrameAllocator& allocator, const Map& retained,
+                               const std::vector<T>& ephemeral,
+                               const T*& outPtr, size_t& outCount) {
+    packRetainedThenEphemeral(allocator, retained, ephemeral, outPtr, outCount,
+                              [](const T& v) -> const T& { return v; });
+}
+
+// Idem, puis tri stable par couche sur l'ENSEMBLE (retenu + ephemere confondus) : le
+// z-order doit etre celui des couches, pas celui du mode de publication.
+template <typename T, typename Map>
+void packRetainedThenEphemeralSorted(FrameAllocator& allocator, const Map& retained,
+                                     const std::vector<T>& ephemeral,
+                                     const T*& outPtr, size_t& outCount) {
+    packRetainedThenEphemeral(allocator, retained, ephemeral, outPtr, outCount);
+    if (outPtr && outCount > 1) {
+        T* dst = const_cast<T*>(outPtr);   // l'arene nous appartient ; le const est celui du PAQUET
+        std::stable_sort(dst, dst + outCount,
+            [](const T& a, const T& b) { return a.layer < b.layer; });
+    }
+}
+
 } // namespace
 
 FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
@@ -500,99 +565,32 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         packet.textCount = 0;
     }
 
-    // Copy occluders: RETAINED (static level geometry) then EPHEMERAL (a moving shutter). Both
-    // modes coexist -- neither is an error -- so a scene mixing them occludes with both. Order is
-    // irrelevant here: occlusion is a product, and a product does not care which factor came first.
-    {
-        const size_t totalOccluders = m_retainedOccluders.size() + m_occluders.size();
-        if (totalOccluders > 0) {
-            OccluderCommand* occ = allocator.allocateArray<OccluderCommand>(totalOccluders);
-            if (occ) {
-                size_t idx = 0;
-                for (const auto& kv : m_retainedOccluders) occ[idx++] = kv.second;
-                if (!m_occluders.empty()) {
-                    std::memcpy(&occ[idx], m_occluders.data(),
-                                m_occluders.size() * sizeof(OccluderCommand));
-                }
-                packet.occluders = occ;
-                packet.occluderCount = totalOccluders;
-            }
-        } else {
-            packet.occluders = nullptr;
-            packet.occluderCount = 0;
-        }
-    }
+    // Occluseurs : RETENUS (geometrie de niveau, statique) puis EPHEMERES (un volet qui bouge).
+    // Les deux modes coexistent — ce n'est pas une erreur — donc une scene qui les melange occulte
+    // avec les deux. L'ordre est ici sans importance : l'occultation est un PRODUIT, et un produit
+    // se moque de l'ordre de ses facteurs.
+    packRetainedThenEphemeral(allocator, m_retainedOccluders, m_occluders,
+                              packet.occluders, packet.occluderCount);
 
-    // Copy filters: RETAINED (static stained glass) then EPHEMERAL. Same shape as the occluders
-    // above, and for the same reason: no array at all when nobody published one, so a game without
-    // stained glass claims no arena slice.
-    //
-    // The retained ones are CONVERTED here rather than at merge time, because the conversion depends
-    // on the pane's thickness and an update may have changed it. Deriving from the stored author
-    // values every frame is what keeps a resized window honest — the cost is three pow() per pane,
-    // against a whole level's worth of messages saved by being retained at all.
-    {
-        const size_t totalFilters = m_retainedFilters.size() + m_filters.size();
-        if (totalFilters > 0) {
-            FilterCommand* flt = allocator.allocateArray<FilterCommand>(totalFilters);
-            if (flt) {
-                size_t idx = 0;
-                for (const auto& kv : m_retainedFilters) flt[idx++] = buildFilter(kv.second);
-                if (!m_filters.empty()) {
-                    std::memcpy(&flt[idx], m_filters.data(),
-                                m_filters.size() * sizeof(FilterCommand));
-                }
-                packet.filters = flt;
-                packet.filterCount = totalFilters;
-            }
-        } else {
-            packet.filters = nullptr;
-            packet.filterCount = 0;
-        }
-    }
+    // Filtres : memes deux modes. ⚠️ Les retenus sont CONVERTIS ici plutot qu'au moment de la
+    // fusion, parce que la conversion depend de l'EPAISSEUR du panneau et qu'une mise a jour a pu
+    // la changer. Deriver des valeurs d'auteur a chaque frame est ce qui garde honnete un panneau
+    // redimensionne — le prix est trois pow() par panneau, contre tout un niveau de messages
+    // economises par le fait meme d'etre retenu.
+    packRetainedThenEphemeral(allocator, m_retainedFilters, m_filters,
+                              packet.filters, packet.filterCount,
+                              [this](const RetainedFilter& f) { return buildFilter(f); });
 
-    // Copy nebulae: RETAINED (a cloud, which does not move — and is usually SEVERAL overlapping
-    // volumes, so the saving is per-volume) then EPHEMERAL. Same no-array-when-unused rule as the rest.
-    {
-        const size_t totalNebulae = m_retainedNebulae.size() + m_nebulae.size();
-        if (totalNebulae > 0) {
-            NebulaCommand* nb = allocator.allocateArray<NebulaCommand>(totalNebulae);
-            if (nb) {
-                size_t idx = 0;
-                for (const auto& kv : m_retainedNebulae) nb[idx++] = kv.second;
-                if (!m_nebulae.empty()) {
-                    std::memcpy(&nb[idx], m_nebulae.data(), m_nebulae.size() * sizeof(NebulaCommand));
-                }
-                packet.nebulae = nb;
-                packet.nebulaCount = totalNebulae;
-            }
-        } else {
-            packet.nebulae = nullptr;
-            packet.nebulaCount = 0;
-        }
-    }
+    // Nebuleuses : retenues (un nuage ne bouge pas — et c'est en general PLUSIEURS volumes qui se
+    // recouvrent, donc l'economie se compte par volume) puis ephemeres.
+    packRetainedThenEphemeral(allocator, m_retainedNebulae, m_nebulae,
+                              packet.nebulae, packet.nebulaCount);
 
-    // Copy fog volumes: RETAINED (a nebula, which does not move) then EPHEMERAL. Same
-    // no-array-when-unused rule as the rest; retained ones are derived here from the author's
-    // numbers so a partial update naming only one field stays coherent.
-    {
-        const size_t totalFogs = m_retainedFogs.size() + m_fogs.size();
-        if (totalFogs > 0) {
-            FogCommand* fg = allocator.allocateArray<FogCommand>(totalFogs);
-            if (fg) {
-                size_t idx = 0;
-                for (const auto& kv : m_retainedFogs) fg[idx++] = buildFog(kv.second);
-                if (!m_fogs.empty()) {
-                    std::memcpy(&fg[idx], m_fogs.data(), m_fogs.size() * sizeof(FogCommand));
-                }
-                packet.fogs = fg;
-                packet.fogCount = totalFogs;
-            }
-        } else {
-            packet.fogs = nullptr;
-            packet.fogCount = 0;
-        }
-    }
+    // Volumes de brouillard : idem, et les retenus sont derives des nombres de l'auteur ici pour
+    // qu'une mise a jour partielle ne nommant qu'un seul champ reste coherente.
+    packRetainedThenEphemeral(allocator, m_retainedFogs, m_fogs,
+                              packet.fogs, packet.fogCount,
+                              [this](const RetainedFog& f) { return buildFog(f); });
 
     // Lumieres et particules : ephemeres, aucune contrainte d'ordre (l'eclairage est une
     // somme, les particules sont melangees en additif — deux operations commutatives).
@@ -610,25 +608,8 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     // HUD sprites (screen-space): retained widgets (m_retainedHudSprites) + ephemeral (m_hudSprites),
     // both drawn on the fixed m_hudView (camera-immune). Retained first (matches the world bucket order),
     // then a per-layer stable_sort so HUD z-order is deterministic too.
-    {
-        const size_t totalHud = m_retainedHudSprites.size() + m_hudSprites.size();
-        if (totalHud > 0) {
-            SpriteInstance* hud = allocator.allocateArray<SpriteInstance>(totalHud);
-            if (hud) {
-                size_t idx = 0;
-                for (const auto& [renderId, sprite] : m_retainedHudSprites) hud[idx++] = sprite;
-                if (!m_hudSprites.empty())
-                    std::memcpy(&hud[idx], m_hudSprites.data(), m_hudSprites.size() * sizeof(SpriteInstance));
-                std::stable_sort(hud, hud + totalHud,
-                    [](const SpriteInstance& a, const SpriteInstance& b) { return a.layer < b.layer; });
-                packet.hudSprites = hud;
-                packet.hudSpriteCount = totalHud;
-            }
-        } else {
-            packet.hudSprites = nullptr;
-            packet.hudSpriteCount = 0;
-        }
-    }
+    packRetainedThenEphemeralSorted(allocator, m_retainedHudSprites, m_hudSprites,
+                                    packet.hudSprites, packet.hudSpriteCount);
 
     // HUD texts (screen-space): retained (m_retainedHudTexts, strings from m_retainedHudTextStrings) +
     // ephemeral (m_hudTexts, strings by index). Retained first, then a per-layer stable_sort. Strings are
