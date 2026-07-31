@@ -255,6 +255,64 @@ void SceneCollector::collect(IIO* io, float deltaTime) {
     }
 }
 
+namespace {
+
+// ============================================================================
+// COPIE D'UN TABLEAU EPHEMERE DANS L'ARENE DE FRAME
+// ----------------------------------------------------------------------------
+// QUOI     : alloue une tranche exactement dimensionnee dans l'arene, y recopie le
+//            vecteur ephemere, et publie le couple (pointeur, compte) dans le paquet.
+//
+// POURQUOI : `finalize` contenait QUINZE blocs de copie de primitives, dont six
+//            strictement identiques a ces quelques lignes pres. Le probleme n'est pas
+//            la longueur : c'est qu'un lecteur ne peut pas voir LEQUEL differe ni
+//            POURQUOI. Regrouper l'identique fait ressortir la variation au site
+//            d'appel, au lieu de la noyer.
+//
+// COMMENT  : ⚠️ COMPORTEMENT PRESERVE A L'IDENTIQUE, y compris son bord rugueux — si
+//            l'allocation ECHOUE, on ne touche NI le pointeur NI le compte (ils gardent
+//            leur valeur d'initialisation du paquet). C'est ce que faisaient les quinze
+//            blocs d'origine. Un refactor ne corrige pas en douce ; si ce bord doit
+//            changer, c'est un commit separe avec son test.
+//            ⚠️ DEUX fonctions plutot qu'un drapeau `sortByLayer` : le corps d'un
+//            gabarit est instancie meme quand le drapeau est faux, or LightCommand,
+//            ParticleInstance, DebugLine et DebugRect n'ont PAS de champ `layer` — un
+//            booleen ne compilerait tout simplement pas. Le nom au site d'appel dit
+//            donc la difference, ce qu'un `true` nu n'aurait pas fait de toute facon.
+// ============================================================================
+template <typename T>
+void packEphemeral(FrameAllocator& allocator, const std::vector<T>& src,
+                   const T*& outPtr, size_t& outCount) {
+    if (!src.empty()) {
+        T* dst = allocator.allocateArray<T>(src.size());
+        if (dst) {
+            std::memcpy(dst, src.data(), src.size() * sizeof(T));
+            outPtr = dst;
+            outCount = src.size();
+        }
+    } else {
+        outPtr = nullptr;
+        outCount = 0;
+    }
+}
+
+// Idem, suivi d'un tri par COUCHE croissante. Le tri est **stable** : a couche egale,
+// l'ordre de publication est conserve — c'est ce qui rend le z-order deterministe d'une
+// frame a l'autre pour un jeu qui republie ses secteurs dans le meme ordre.
+// Reserve aux types qui portent un champ `layer` (SectorCommand).
+template <typename T>
+void packEphemeralSortedByLayer(FrameAllocator& allocator, const std::vector<T>& src,
+                                const T*& outPtr, size_t& outCount) {
+    packEphemeral(allocator, src, outPtr, outCount);
+    if (outPtr && outCount > 1) {
+        T* dst = const_cast<T*>(outPtr);   // l'arene nous appartient : le const est celui du PAQUET
+        std::stable_sort(dst, dst + outCount,
+            [](const T& a, const T& b) { return a.layer < b.layer; });
+    }
+}
+
+} // namespace
+
 FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
     FramePacket packet;
 
@@ -536,73 +594,18 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
-    // Copy lights (ephemeral). Same exactly-sized arena slice as every other primitive array.
-    if (!m_lights.empty()) {
-        LightCommand* lights = allocator.allocateArray<LightCommand>(m_lights.size());
-        if (lights) {
-            std::memcpy(lights, m_lights.data(), m_lights.size() * sizeof(LightCommand));
-            packet.lights = lights;
-            packet.lightCount = m_lights.size();
-        }
-    } else {
-        packet.lights = nullptr;
-        packet.lightCount = 0;
-    }
+    // Lumieres et particules : ephemeres, aucune contrainte d'ordre (l'eclairage est une
+    // somme, les particules sont melangees en additif — deux operations commutatives).
+    packEphemeral(allocator, m_lights, packet.lights, packet.lightCount);
+    packEphemeral(allocator, m_particles, packet.particles, packet.particleCount);
 
-    // Copy particles
-    if (!m_particles.empty()) {
-        ParticleInstance* particles = allocator.allocateArray<ParticleInstance>(m_particles.size());
-        if (particles) {
-            std::memcpy(particles, m_particles.data(), m_particles.size() * sizeof(ParticleInstance));
-            packet.particles = particles;
-            packet.particleCount = m_particles.size();
-        }
-    } else {
-        packet.particles = nullptr;
-        packet.particleCount = 0;
-    }
+    // Primitives de debogage : ephemeres, dessinees par-dessus, sans ordre significatif.
+    packEphemeral(allocator, m_debugLines, packet.debugLines, packet.debugLineCount);
+    packEphemeral(allocator, m_debugRects, packet.debugRects, packet.debugRectCount);
 
-    // Copy debug lines
-    if (!m_debugLines.empty()) {
-        DebugLine* lines = allocator.allocateArray<DebugLine>(m_debugLines.size());
-        if (lines) {
-            std::memcpy(lines, m_debugLines.data(), m_debugLines.size() * sizeof(DebugLine));
-            packet.debugLines = lines;
-            packet.debugLineCount = m_debugLines.size();
-        }
-    } else {
-        packet.debugLines = nullptr;
-        packet.debugLineCount = 0;
-    }
-
-    // Copy debug rects
-    if (!m_debugRects.empty()) {
-        DebugRect* rects = allocator.allocateArray<DebugRect>(m_debugRects.size());
-        if (rects) {
-            std::memcpy(rects, m_debugRects.data(), m_debugRects.size() * sizeof(DebugRect));
-            packet.debugRects = rects;
-            packet.debugRectCount = m_debugRects.size();
-        }
-    } else {
-        packet.debugRects = nullptr;
-        packet.debugRectCount = 0;
-    }
-
-    // Sectors (filled wedges), ephemeral. World bucket -> packet.sectors, stable_sort by layer; the
-    // HUD bucket is handled with the other screen-space buckets below.
-    if (!m_sectors.empty()) {
-        SectorCommand* sec = allocator.allocateArray<SectorCommand>(m_sectors.size());
-        if (sec) {
-            std::memcpy(sec, m_sectors.data(), m_sectors.size() * sizeof(SectorCommand));
-            std::stable_sort(sec, sec + m_sectors.size(),
-                [](const SectorCommand& a, const SectorCommand& b) { return a.layer < b.layer; });
-            packet.sectors = sec;
-            packet.sectorCount = m_sectors.size();
-        }
-    } else {
-        packet.sectors = nullptr;
-        packet.sectorCount = 0;
-    }
+    // Secteurs (parts de disque), ephemeres. Bucket MONDE ici, trie par couche ; le bucket
+    // HUD est traite plus bas avec les autres primitives en espace ecran.
+    packEphemeralSortedByLayer(allocator, m_sectors, packet.sectors, packet.sectorCount);
 
     // HUD sprites (screen-space): retained widgets (m_retainedHudSprites) + ephemeral (m_hudSprites),
     // both drawn on the fixed m_hudView (camera-immune). Retained first (matches the world bucket order),
@@ -666,20 +669,10 @@ FramePacket SceneCollector::finalize(FrameAllocator& allocator) {
         }
     }
 
-    // HUD sectors (screen-space wedges, e.g. the action wheel). stable_sort by layer.
-    if (!m_hudSectors.empty()) {
-        SectorCommand* hud = allocator.allocateArray<SectorCommand>(m_hudSectors.size());
-        if (hud) {
-            std::memcpy(hud, m_hudSectors.data(), m_hudSectors.size() * sizeof(SectorCommand));
-            std::stable_sort(hud, hud + m_hudSectors.size(),
-                [](const SectorCommand& a, const SectorCommand& b) { return a.layer < b.layer; });
-            packet.hudSectors = hud;
-            packet.hudSectorCount = m_hudSectors.size();
-        }
-    } else {
-        packet.hudSectors = nullptr;
-        packet.hudSectorCount = 0;
-    }
+    // Secteurs HUD (parts de disque en espace ecran, ex. la roue d'action). Meme tri par
+    // couche que le bucket monde, et c'est voulu : le z-order de l'interface doit etre
+    // deterministe au meme titre que celui de la scene.
+    packEphemeralSortedByLayer(allocator, m_hudSectors, packet.hudSectors, packet.hudSectorCount);
 
     packet.hudView = m_hudView;
 

@@ -3422,3 +3422,58 @@ TEST_CASE("SceneCollector - grade: valeurs negatives bornees, hautes LIBRES",
         REQUIRE_THAT(p.grade.contrast, WithinAbs(4.0f, 1e-5f));
     }
 }
+
+// ============================================================================
+// CARACTERISATION — tri par COUCHE et separation monde / HUD des secteurs
+// ----------------------------------------------------------------------------
+// QUOI     : fige deux comportements de SceneCollector::finalize sur render:sector —
+//            le tri stable par couche, et le fait que space:"screen" atterrisse dans
+//            un bucket SEPARE du bucket monde.
+//
+// POURQUOI : mesure du 2026-07-31 — `hudSectors` n'etait couvert par AUCUN test (0
+//            occurrence dans tests/) et `sectorCount` par UNE seule assertion. Or
+//            finalize contient quinze blocs de copie de primitives quasi identiques,
+//            dont onze sont factorisables ; deux axes varient entre eux, et l'un des
+//            deux est PRECISEMENT ce tri. Factoriser sans ce test reviendrait a
+//            reecrire a l'aveugle le seul chemin que rien n'observe.
+//
+// COMMENT  : on publie a couches DELIBEREMENT desordonnees (5,1,3 puis 9,2). Un
+//            finalize qui oublie le tri, qui trie la mauvaise plage, ou qui melange
+//            les deux buckets, ressort les couches dans l'ordre de publication —
+//            l'ordre trie et l'ordre publie sont differents par construction, donc
+//            l'assertion DISCRIMINE au lieu de passer par coincidence.
+// ============================================================================
+TEST_CASE("SceneCollector - sectors: tri par couche + separation monde/HUD",
+          "[scene_collector][sector][hud]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto sector = [&](double cx, int layer, const char* space) {
+        auto s = std::make_unique<JsonDataNode>("s");
+        s->setDouble("cx", cx);
+        s->setDouble("cy", 1.0);
+        s->setDouble("r1", 2.0);
+        s->setInt("layer", layer);
+        if (space) s->setString("space", space);
+        fx.ioPublisher->publish("render:sector", std::move(s));
+    };
+
+    sector(10.0, 5, nullptr);        // monde, couches publiees dans le desordre
+    sector(11.0, 1, nullptr);
+    sector(12.0, 3, nullptr);
+    sector(20.0, 9, "screen");       // HUD, idem
+    sector(21.0, 2, "screen");
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+
+    REQUIRE(p.sectorCount == 3);
+    REQUIRE(p.hudSectorCount == 2);          // le HUD ne fuit pas dans le monde
+
+    REQUIRE(p.sectors[0].layer == 1);        // tri croissant, bucket monde
+    REQUIRE(p.sectors[1].layer == 3);
+    REQUIRE(p.sectors[2].layer == 5);
+
+    REQUIRE(p.hudSectors[0].layer == 2);     // tri croissant, bucket HUD
+    REQUIRE(p.hudSectors[1].layer == 9);
+}
