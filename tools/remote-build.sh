@@ -223,13 +223,32 @@ fi
 
 # flock -w : on ATTEND son tour plutôt que d'échouer. Le message n'apparaît que si
 # le verrou n'est pas libre immédiatement, pour ne pas bruiter le cas courant.
+#
+# ⚠️ ON NOMME LE DÉTENTEUR. Un message qui dit seulement « file trop longue »
+#    décrit le symptôme et cache la cause. Le 30/07/2026, un `Xvfb` orphelin avait
+#    HÉRITÉ du descripteur 9 d'un build mort : `flock` ne se libère qu'à la
+#    fermeture du DERNIER descripteur, pas à la mort du preneur, donc la ferme est
+#    restée verrouillée 14 h — builds ET CI — sans que le message le laisse voir.
+#    `fuser` sur le fichier donne le coupable en une ligne : on l'affiche.
 ssh "$HOST" "
     set -e
     mkdir -p ~/$FARM
     exec 9>~/$FARM/.build.lock
     if ! flock -n 9; then
         echo '==> un autre build occupe la ferme, mise en file…'
-        flock -w $LOCK_WAIT 9 || { echo 'abandon : file trop longue'; exit 1; }
+        echo '    détenteur(s) du verrou :'
+        fuser -v ~/$FARM/.build.lock 2>&1 | sed 's/^/      /' || true
+        if ! flock -w $LOCK_WAIT 9; then
+            echo \"abandon : verrou jamais obtenu en $LOCK_WAIT s.\"
+            echo \"(le shell qui attend, et fuser/sed eux-mêmes, figurent dans la liste\"
+            echo \" ci-dessus : ils héritent du même descripteur. C'est attendu.)\"
+            echo \"ATTENTION : si un AUTRE processus y apparaît sans ressembler à un build\"
+            echo \"(serveur X, démon…), il a hérité du descripteur du verrou et le tient\"
+            echo \"indéfiniment — flock ne se libère qu'à la fermeture du DERNIER\"
+            echo \"descripteur, pas à la mort du preneur. Le tuer PAR SON PID libère la\"
+            echo \"ferme ; jamais par nom, d'autres instances légitimes peuvent tourner.\"
+            exit 1
+        fi
     fi
 
     $CLEAN_CMD
