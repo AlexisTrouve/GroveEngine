@@ -126,392 +126,439 @@ void UIModule::setConfiguration(const IDataNode& config, IIO* io, ITaskScheduler
             m_context->mouseY = static_cast<float>(msg.data->getDouble("y", 0.0));
         });
 
-        m_io->subscribe("input:mouse:button", [this](const Message& msg) {
-            bool pressed = msg.data->getBool("pressed", false);
-            m_context->mouseButton = msg.data->getInt("button", 0);   // 0 = left, 1 = right
-            if (pressed && !m_context->mouseDown) {
-                m_context->mousePressed = true;
-            }
-            if (!pressed && m_context->mouseDown) {
-                m_context->mouseReleased = true;
-            }
-            m_context->mouseDown = pressed;
-        });
+        m_io->subscribe("input:mouse:button", [this](const Message& msg) { onInputMouseButton(msg); });
 
         m_io->subscribe("input:mouse:wheel", [this](const Message& msg) {
             m_context->mouseWheelDelta = static_cast<float>(msg.data->getDouble("delta", 0.0));
         });
 
-        // Legacy single-topic keyboard path (kept for the visual showcases, which still
-        // publish "input:keyboard" {keyCode, char}).
-        m_io->subscribe("input:keyboard", [this](const Message& msg) {
-            m_context->keyPressed = true;
-            m_context->keyCode = msg.data->getInt("keyCode", 0);
-            m_context->keyChar = static_cast<char>(msg.data->getInt("char", 0));
-        });
+        m_io->subscribe("input:keyboard", [this](const Message& msg) { onInputKeyboard(msg); });
 
-        // FIX #5: the real InputModule publishes input:keyboard:text {text} (typed
-        // characters) and input:keyboard:key {scancode, pressed, ...} (special keys) —
-        // NOT "input:keyboard". UIModule subscribed only the legacy topic, so keyboard
-        // input from the real pipeline never reached the UI. Subscribe the real topics.
-        m_io->subscribe("input:keyboard:text", [this](const Message& msg) {
-            std::string text = msg.data->getString("text", "");
-            if (!text.empty()) {
-                m_context->keyPressed = true;
-                m_context->keyCode = 0;
-                // FIX #5/C2 : on transmet la chaîne ENTIÈRE (commit IME / coller / UTF-8
-                // multi-octets), pas seulement le 1er octet. keyChar garde le 1er octet
-                // pour la compat (reset du blink, chemin legacy).
-                m_context->keyText = text;
-                m_context->keyChar = static_cast<char>(static_cast<unsigned char>(text[0]));
-            }
-        });
-        m_io->subscribe("input:keyboard:key", [this](const Message& msg) {
-            if (msg.data->getBool("pressed", true)) {
-                // FIX #5-suite : on ne traite ici que les touches d'ÉDITION (backspace,
-                // entrée, suppr, flèches, home/end), traduites du scancode SDL vers le
-                // dialecte UITextInput. Les caractères imprimables arrivent par
-                // input:keyboard:text (ci-dessus) — on NE lève PAS keyPressed pour eux,
-                // sinon le scancode brut écraserait keyChar (déjà posé par :text) avec
-                // un no-op et le caractère serait perdu.
-                // Les modificateurs voyagent DÉJÀ dans ce payload (InputConverter.cpp) ; on les
-                // relaie enfin. Maj distingue « déplacer le curseur » de « étendre la sélection »,
-                // Ctrl porte les raccourcis d'édition.
-                const bool shift = msg.data->getBool("shift", false);
-                const bool ctrl  = msg.data->getBool("ctrl", false);
-                const int scancode = msg.data->getInt("scancode", 0);
+        m_io->subscribe("input:keyboard:text", [this](const Message& msg) { onInputKeyboardText(msg); });
+        m_io->subscribe("input:keyboard:key", [this](const Message& msg) { onInputKeyboardKey(msg); });
 
-                int editKey = sdlScancodeToEditKey(scancode);
+        m_io->subscribe("render:font:metrics", [this](const Message& msg) { onRenderFontMetrics(msg); });
 
-                // QUOI : avec Ctrl enfoncé, une LETTRE devient elle aussi un événement d'édition.
-                // POURQUOI : SDL n'émet pas de SDL_TEXTINPUT pour une touche modifiée par Ctrl — un
-                //   Ctrl+A n'arrivait donc par AUCUN des deux chemins (ni :text, ni :key, puisque 'A'
-                //   n'est pas une touche d'édition). Les raccourcis étaient structurellement
-                //   inatteignables, indépendamment du `bool ctrl = false` du site d'appel.
-                // COMMENT : SDL_SCANCODE_A..Z sont contigus (4..29) — on les ramène en minuscules,
-                //   dialecte attendu par onKeyInput. Sans Ctrl, on ne touche à rien : les caractères
-                //   imprimables continuent d'arriver par input:keyboard:text (sinon le scancode brut
-                //   écraserait keyChar et le caractère serait perdu — cf. FIX #5-suite).
-                int shortcutChar = 0;
-                if (ctrl && scancode >= 4 && scancode <= 29) {
-                    shortcutChar = 'a' + (scancode - 4);
-                }
+        m_io->subscribe("input:clipboard:text", [this](const Message& msg) { onInputClipboardText(msg); });
 
-                if (editKey != 0 || shortcutChar != 0) {
-                    m_context->keyPressed = true;
-                    m_context->keyCode = editKey;  // 0 pour un raccourci pur (Ctrl+lettre)
-                    m_context->keyChar = static_cast<char>(shortcutChar);
-                    m_context->keyShift = shift;
-                    m_context->keyCtrl = ctrl;
-                    m_context->keyAlt = msg.data->getBool("alt", false);
-                }
-            }
-        });
+        m_io->subscribe("ui:load", [this](const Message& msg) { onUiLoad(msg); });
 
-        // QUOI : réception de la table d'avances de la police, poussée par le renderer.
-        // POURQUOI : tout ce qui touche au curseur d'un champ de saisie (position, surlignage de
-        //   sélection, clic -> index) est un calcul de largeur de texte. L'UIModule ne connaît pas la
-        //   police ; le renderer la POUSSE plutôt que de répondre à des requêtes, parce que placer un
-        //   curseur doit se faire dans la frame même du clic — un aller-retour serait asynchrone.
-        // COMMENT : décodage de la chaîne dense (IIO ne transporte que le JSON propre du nœud). Une
-        //   charge utile illisible rend une table vide, donc on retombe sur le repli monospace :
-        //   dégradé mais cohérent, jamais un curseur placé au hasard.
-        m_io->subscribe("render:font:metrics", [this](const Message& msg) {
-            if (!msg.data || !m_context) return;
-            text::MetricsWire wire;
-            wire.baseSize = static_cast<float>(msg.data->getDouble("baseSize", 8.0));
-            wire.lineHeight = static_cast<float>(msg.data->getDouble("lineHeight", 8.0));
-            wire.firstCodepoint = static_cast<uint32_t>(msg.data->getInt("firstCodepoint", 32));
-            wire.advances = msg.data->getString("advances", "");
+        m_io->subscribe("ui:resize", [this](const Message& msg) { onUiResize(msg); });
 
-            text::Metrics decoded = text::decodeDense(wire);
-            if (decoded.empty()) {
-                m_logger->warn("render:font:metrics illisible — on garde la mesure monospace");
-                return;
-            }
-            m_context->fontMetrics = std::move(decoded);
-            ++m_context->fontMetricsEpoch;   // invalide les mises en page dependantes de la police
-            m_logger->info("Metriques de police recues: base={}px, {} glyphes",
-                           m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
-        });
+        m_io->subscribe("ui:drawer:toggle", [this](const Message& msg) { onUiDrawerToggle(msg); });
+        m_io->subscribe("ui:drawer:set", [this](const Message& msg) { onUiDrawerSet(msg); });
 
-        // QUOI : réponse du service presse-papiers à une demande de collage.
-        // POURQUOI : l'UIModule est délibérément SDL-free, or le presse-papiers EST une ressource
-        //   SDL. Il ne peut donc pas le lire lui-même : il demande (`input:clipboard:get`) et le
-        //   propriétaire de SDL — InputModule — répond ici. Conséquence assumée : le collage a UNE
-        //   FRAME DE LATENCE. C'est le prix du découplage, invisible à l'œil humain, et préférable à
-        //   faire rentrer SDL dans l'UIModule pour économiser 16 ms.
-        // COMMENT : on met le texte de côté ; `updateUI` l'insère dans le champ focalisé au prochain
-        //   passage. On ne l'insère pas ici : ce handler s'exécute pendant le drain IIO, hors de la
-        //   phase de mise à jour, et muter l'arbre de widgets à ce moment-là violerait le même
-        //   invariant que les autres handlers (cf. handleWindowInteraction).
-        m_io->subscribe("input:clipboard:text", [this](const Message& msg) {
-            if (!msg.data) return;
-            m_pendingPaste = msg.data->getString("text", "");
-            m_hasPendingPaste = true;
-        });
+        m_io->subscribe("ui:modal:open", [this](const Message& msg) { onUiModalOpen(msg); });
+        m_io->subscribe("ui:modal:close", [this](const Message& msg) { onUiModalClose(msg); });
 
-        m_io->subscribe("ui:load", [this](const Message& msg) {
-            std::string layoutPath = msg.data->getString("path", "");
-            if (!layoutPath.empty()) {
-                loadLayout(layoutPath);
-            }
-        });
+        m_io->subscribe("ui:set_visible", [this](const Message& msg) { onUiSetVisible(msg); });
 
-        // Viewport resize → reflow the UI (UI framework slice 1.1).
-        // QUOI : met à jour la taille d'écran connue puis relayoute tout l'arbre depuis la racine.
-        // POURQUOI : aucun signal de resize n'existait — screenWidth/Height étaient figés au config.
-        //   Le HOST (qui possède la fenêtre SDL) publie ui:resize {width,height} sur un
-        //   SDL_WINDOWEVENT_RESIZED ; l'UIModule reste découplé de SDL et ne fait que consommer.
-        // COMMENT : on n'écrase une dimension que si elle est fournie/positive (payload partiel
-        //   toléré), puis relayoutRoot() résout le % de la racine contre le nouveau viewport.
-        m_io->subscribe("ui:resize", [this](const Message& msg) {
-            const float w = static_cast<float>(msg.data->getDouble("width", 0.0));
-            const float h = static_cast<float>(msg.data->getDouble("height", 0.0));
-            if (w > 0.0f) m_context->screenWidth = w;
-            if (h > 0.0f) m_context->screenHeight = h;
-            relayoutRoot();
-        });
+        m_io->subscribe("ui:set_position", [this](const Message& msg) { onUiSetPosition(msg); });
 
-        // Edge drawer open/close (slice 5b). toggle flips it; set forces a state. The drawer
-        // animates the slide itself; closing purges its entries when fully off-screen.
-        m_io->subscribe("ui:drawer:toggle", [this](const Message& msg) {
-            if (!m_root) return;
-            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
-                if (w->getType() == "drawer") {
-                    UIDrawer* d = static_cast<UIDrawer*>(w);
-                    d->setOpen(!d->isOpen());
-                }
-            }
-        });
-        m_io->subscribe("ui:drawer:set", [this](const Message& msg) {
-            if (!m_root) return;
-            const bool open = msg.data->getBool("open", true);
-            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
-                if (w->getType() == "drawer") {
-                    static_cast<UIDrawer*>(w)->setOpen(open);
-                }
-            }
-        });
+        m_io->subscribe("ui:radial:set_items", [this](const Message& msg) { onUiRadialSetItems(msg); });
 
-        // Modal dialog open/close (slice 5a). Open raises it to the front (on top of everything);
-        // close hides it + purges its entries + notifies the game.
-        m_io->subscribe("ui:modal:open", [this](const Message& msg) {
-            if (!m_root) return;
-            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
-                if (w->getType() == "modal") { w->visible = true; w->bringToFront(); }
-            }
-        });
-        m_io->subscribe("ui:modal:close", [this](const Message& msg) {
-            if (!m_root) return;
-            if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
-                if (w->getType() == "modal" && w->visible) {
-                    w->visible = false;
-                    if (m_renderer) w->releaseRenderEntries(*m_renderer);
-                    auto ev = std::make_unique<JsonDataNode>("closed");
-                    ev->setString("id", w->id);
-                    m_io->publish("ui:modal:closed", std::move(ev));
-                }
-            }
-        });
+        m_io->subscribe("ui:list:set_items", [this](const Message& msg) { onUiListSetItems(msg); });
 
-        m_io->subscribe("ui:set_visible", [this](const Message& msg) {
-            std::string widgetId = msg.data->getString("id", "");
-            bool visible = msg.data->getBool("visible", true);
-            if (m_root) {
-                if (UIWidget* widget = m_root->findById(widgetId)) {
-                    const bool wasVisible = widget->visible;
-                    widget->visible = visible;
-                    // Hiding it: purge its retained render entries so they don't linger ("ghost rects").
-                    // A hidden widget stops calling render(), so without this its last :add entries stay
-                    // on screen. Re-showing re-registers + re-publishes on the next render().
-                    if (wasVisible && !visible && m_renderer) {
-                        widget->releaseRenderEntries(*m_renderer);
-                    } else if (!wasVisible && visible) {
-                        // Revealing a widget that was hidden at LAYOUT time: the layout skips invisible
-                        // children (they get no size/position), so a %-sized / anchored widget (e.g. a
-                        // centered 62%-wide window) would otherwise show at (0,0) size 0. Re-run the root
-                        // layout now so its %/anchor resolve before it renders.
-                        relayoutRoot();
-                    }
-                }
-            }
-        });
+        m_io->subscribe("ui:list:set_groups", [this](const Message& msg) { onUiListSetGroups(msg); });
 
-        // Reposition a widget at runtime (e.g. pop the action wheel centered on the cursor). For the
-        // radial, x/y are its CENTRE; for rect widgets, the top-left. markGeometryDirty -> re-render.
-        m_io->subscribe("ui:set_position", [this](const Message& msg) {
-            std::string widgetId = msg.data->getString("id", "");
-            if (m_root) {
-                if (UIWidget* widget = m_root->findById(widgetId)) {
-                    widget->x = static_cast<float>(msg.data->getDouble("x", widget->x));
-                    widget->y = static_cast<float>(msg.data->getDouble("y", widget->y));
-                    // Optional SIZE — omitted keys keep the current width/height (so an x/y-only move is
-                    // unchanged). Lets a host animate a widget's size at runtime (e.g. show a 9-slice frame
-                    // staying continuous as the box grows/shrinks) without a layout reload.
-                    widget->width  = static_cast<float>(msg.data->getDouble("width",  widget->width));
-                    widget->height = static_cast<float>(msg.data->getDouble("height", widget->height));
-                    // absX/absY (what render() uses) are computed at LOAD, not per frame — recompute
-                    // them from the parent chain now, or the widget would render at its OLD position.
-                    widget->computeAbsolutePosition();
-                    widget->markGeometryDirty();
-                }
-            }
-        });
+        m_io->subscribe("ui:list:set_tree", [this](const Message& msg) { onUiListSetTree(msg); });
 
-        // Reconfigure a radial wheel's item COUNT at runtime (demo: prove the pie cuts into any N). The
-        // geometry is general — sector = 2*pi/N + arbitrary wedge angles — so 2..8 (or more) all tile.
-        // Generates `count` generic items; releaseRenderEntries() resets so render() re-registers with
-        // the new count. (A game sets real items via the layout JSON; an items[] payload is a follow-on.)
-        m_io->subscribe("ui:radial:set_items", [this](const Message& msg) {
-            if (!msg.data || !m_root) return;
-            const std::string id = msg.data->getString("id", "");
-            const int count = msg.data->getInt("count", 0);
-            UIWidget* w = m_root->findById(id);
-            if (w && w->getType() == "radial" && count > 0) {
-                UIRadial* radial = static_cast<UIRadial*>(w);
-                radial->items.clear();
-                for (int i = 0; i < count; ++i) {
-                    RadialItem item;
-                    item.action = "wheel:opt" + std::to_string(i);
-                    item.text   = std::to_string(i + 1);
-                    radial->items.push_back(std::move(item));
-                }
-                if (m_renderer) radial->releaseRenderEntries(*m_renderer);   // re-register with the new N
-            }
-        });
+        m_io->subscribe("ui:data", [this](const Message& msg) { onUiData(msg); });
 
-        // Repopulate a ship list at runtime: ui:list:set_items {id, items:[{id,label,subtitle?,icon?}]}.
-        // The game pushes its current fleet; the list rebuilds its rows. No pool release needed — the list
-        // is VIRTUALIZED, so its recycled row-slots are simply remapped (rewritten or hidden) on the next
-        // render; setItems just swaps the data + resets scroll/selection.
-        m_io->subscribe("ui:list:set_items", [this](const Message& msg) {
-            if (!msg.data || !m_root) return;
-            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
-            if (w && w->getType() == "list") {
-                static_cast<UIList*>(w)->setItems(UIList::parseItems(*msg.data));
-            }
-        });
+        m_io->subscribe("ui:data:set", [this](const Message& msg) { onUiDataSet(msg); });
 
-        // Repopulate a list as GROUPED warship wings at runtime: ui:list:set_groups {id, groups:[...]}.
-        // Same virtualized recycle as set_items — no pool release. (json-backed payload, see UI_TOPICS.)
-        m_io->subscribe("ui:list:set_groups", [this](const Message& msg) {
-            if (!msg.data || !m_root) return;
-            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
-            if (w && w->getType() == "list") {
-                static_cast<UIList*>(w)->setGroups(UIList::parseGroups(*msg.data));
-            }
-        });
+        m_io->subscribe("ui:data:merge", [this](const Message& msg) { onUiDataMerge(msg); });
 
-        // Repopulate a list as an N-LEVEL TREE at runtime: ui:list:set_tree {id, nodes:[{...,children?}]}
-        // (slice 5d). Same virtualized recycle as set_items/set_groups — no pool release.
-        m_io->subscribe("ui:list:set_tree", [this](const Message& msg) {
-            if (!msg.data || !m_root) return;
-            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
-            if (w && w->getType() == "list") {
-                static_cast<UIList*>(w)->setTree(UIList::parseTree(*msg.data));
-            }
-        });
+        m_io->subscribe("ui:list:select", [this](const Message& msg) { onUiListSelect(msg); });
 
-        // JSON-UI data context: ui:data {<the model>}. The game pushes its view-model; the whole payload
-        // BECOMES the root data context, and every {{path}} binding re-resolves against it (the inbound
-        // half of the data-driven loop — no imperative set_text needed). Reactivity = re-resolve on push.
-        m_io->subscribe("ui:data", [this](const Message& msg) {
-            if (!msg.data) return;
-            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
-                const auto& incoming = jn->getJsonData();
-                // Modele IDENTIQUE -> il n'y a rien a faire, et surtout rien a defaire.
-                //
-                // POURQUOI ici, en plus de la garde par repeteur : republier le meme modele est le
-                // geste normal d'un HUD (il pousse son etat chaque frame, qu'il ait bouge ou non).
-                // Sortir ici epargne aussi la RE-RESOLUTION de tous les bindings -- chacun resolvant
-                // son chemin TROIS fois (interpolate + resolveNumber + resolveBool) dont deux
-                // resultats jetes, cf. P2 de l'audit. La garde par repeteur seule laisserait ce
-                // travail-la se faire pour rien.
-                if (incoming == m_uiData) return;
-                m_uiData = incoming;
-            }
-            ++m_dataVersion;
-            refreshDataDriven();
-        });
-
-        // Partial update — set ONE deep path: ui:data:set {path, value}. The game updates a single field
-        // (e.g. a ship's hp) without re-sending the whole model; only the bindings re-resolve.
-        //
-        // NB : pas de comparaison avant/apres ici, contrairement a `ui:data`. Detecter un patch sans
-        // effet exigerait de COPIER tout le modele pour le comparer ensuite -- un cout nouveau a
-        // chaque appel, pour attraper un cas qui n'existe pas : un `set`/`merge` est par construction
-        // l'intention de changer quelque chose. Le cas pathologique mesure etait la republication du
-        // modele ENTIER, qu'un HUD fait par frame ; c'est celui-la qui est garde.
-        m_io->subscribe("ui:data:set", [this](const Message& msg) {
-            if (!msg.data) return;
-            const std::string path = msg.data->getString("path", "");
-            if (path.empty()) return;
-            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
-                const auto& j = jn->getJsonData();
-                if (j.contains("value")) {
-                    uibind::setAtPath(m_uiData, path, j["value"]);
-                    ++m_dataVersion;
-                    refreshDataDriven();
-                }
-            }
-        });
-
-        // Partial update — deep MERGE a patch object: ui:data:merge {<partial>}. RFC 7386 semantics
-        // (provided keys override deeply; a null value deletes a key). Update many fields without a full push.
-        m_io->subscribe("ui:data:merge", [this](const Message& msg) {
-            if (!msg.data) return;
-            if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
-                m_uiData.merge_patch(jn->getJsonData());
-                ++m_dataVersion;
-                refreshDataDriven();
-            }
-        });
-
-        // Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
-        // it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
-        m_io->subscribe("ui:list:select", [this](const Message& msg) {
-            if (!msg.data || !m_root) return;
-            UIWidget* w = m_root->findById(msg.data->getString("id", ""));
-            if (w && w->getType() == "list") {
-                static_cast<UIList*>(w)->setSelectedIndex(msg.data->getInt("index", -1));
-            }
-        });
-
-        m_io->subscribe("ui:set_text", [this](const Message& msg) {
-            // Timestamp on receive
-            auto now = std::chrono::high_resolution_clock::now();
-            auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-
-            std::string widgetId = msg.data->getString("id", "");
-            std::string text = msg.data->getString("text", "");
-
-            // Extract original timestamp if present
-            double t0 = msg.data->getDouble("_timestamp_publish", 0);
-            if (t0 > 0) {
-                double latency = (micros - t0) / 1000.0; // Convert to milliseconds
-                m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs (latency from T0: {:.2f} ms)", micros, latency);
-            } else {
-                m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs", micros);
-            }
-
-            if (m_root) {
-                if (UIWidget* widget = m_root->findById(widgetId)) {
-                    // Only labels support text updates
-                    if (widget->getType() == "label") {
-                        UILabel* label = static_cast<UILabel*>(widget);
-                        label->text = text;
-                        m_logger->info("Updated text for label '{}': '{}'", widgetId, text);
-                    } else {
-                        m_logger->warn("Widget '{}' is not a label, cannot set text", widgetId);
-                    }
-                }
-            }
-        });
+        m_io->subscribe("ui:set_text", [this](const Message& msg) { onUiSetText(msg); });
     }
 
     m_logger->info("UIModule initialized");
 }
+
+void UIModule::onInputMouseButton(const Message& msg) {
+        bool pressed = msg.data->getBool("pressed", false);
+        m_context->mouseButton = msg.data->getInt("button", 0);   // 0 = left, 1 = right
+        if (pressed && !m_context->mouseDown) {
+            m_context->mousePressed = true;
+        }
+        if (!pressed && m_context->mouseDown) {
+            m_context->mouseReleased = true;
+        }
+        m_context->mouseDown = pressed;
+}
+
+// Legacy single-topic keyboard path (kept for the visual showcases, which still
+// publish "input:keyboard" {keyCode, char}).
+void UIModule::onInputKeyboard(const Message& msg) {
+        m_context->keyPressed = true;
+        m_context->keyCode = msg.data->getInt("keyCode", 0);
+        m_context->keyChar = static_cast<char>(msg.data->getInt("char", 0));
+}
+
+// FIX #5: the real InputModule publishes input:keyboard:text {text} (typed
+// characters) and input:keyboard:key {scancode, pressed, ...} (special keys) —
+// NOT "input:keyboard". UIModule subscribed only the legacy topic, so keyboard
+// input from the real pipeline never reached the UI. Subscribe the real topics.
+void UIModule::onInputKeyboardText(const Message& msg) {
+        std::string text = msg.data->getString("text", "");
+        if (!text.empty()) {
+            m_context->keyPressed = true;
+            m_context->keyCode = 0;
+            // FIX #5/C2 : on transmet la chaîne ENTIÈRE (commit IME / coller / UTF-8
+            // multi-octets), pas seulement le 1er octet. keyChar garde le 1er octet
+            // pour la compat (reset du blink, chemin legacy).
+            m_context->keyText = text;
+            m_context->keyChar = static_cast<char>(static_cast<unsigned char>(text[0]));
+        }
+}
+
+void UIModule::onInputKeyboardKey(const Message& msg) {
+        if (msg.data->getBool("pressed", true)) {
+            // FIX #5-suite : on ne traite ici que les touches d'ÉDITION (backspace,
+            // entrée, suppr, flèches, home/end), traduites du scancode SDL vers le
+            // dialecte UITextInput. Les caractères imprimables arrivent par
+            // input:keyboard:text (ci-dessus) — on NE lève PAS keyPressed pour eux,
+            // sinon le scancode brut écraserait keyChar (déjà posé par :text) avec
+            // un no-op et le caractère serait perdu.
+            // Les modificateurs voyagent DÉJÀ dans ce payload (InputConverter.cpp) ; on les
+            // relaie enfin. Maj distingue « déplacer le curseur » de « étendre la sélection »,
+            // Ctrl porte les raccourcis d'édition.
+            const bool shift = msg.data->getBool("shift", false);
+            const bool ctrl  = msg.data->getBool("ctrl", false);
+            const int scancode = msg.data->getInt("scancode", 0);
+
+            int editKey = sdlScancodeToEditKey(scancode);
+
+            // QUOI : avec Ctrl enfoncé, une LETTRE devient elle aussi un événement d'édition.
+            // POURQUOI : SDL n'émet pas de SDL_TEXTINPUT pour une touche modifiée par Ctrl — un
+            //   Ctrl+A n'arrivait donc par AUCUN des deux chemins (ni :text, ni :key, puisque 'A'
+            //   n'est pas une touche d'édition). Les raccourcis étaient structurellement
+            //   inatteignables, indépendamment du `bool ctrl = false` du site d'appel.
+            // COMMENT : SDL_SCANCODE_A..Z sont contigus (4..29) — on les ramène en minuscules,
+            //   dialecte attendu par onKeyInput. Sans Ctrl, on ne touche à rien : les caractères
+            //   imprimables continuent d'arriver par input:keyboard:text (sinon le scancode brut
+            //   écraserait keyChar et le caractère serait perdu — cf. FIX #5-suite).
+            int shortcutChar = 0;
+            if (ctrl && scancode >= 4 && scancode <= 29) {
+                shortcutChar = 'a' + (scancode - 4);
+            }
+
+            if (editKey != 0 || shortcutChar != 0) {
+                m_context->keyPressed = true;
+                m_context->keyCode = editKey;  // 0 pour un raccourci pur (Ctrl+lettre)
+                m_context->keyChar = static_cast<char>(shortcutChar);
+                m_context->keyShift = shift;
+                m_context->keyCtrl = ctrl;
+                m_context->keyAlt = msg.data->getBool("alt", false);
+            }
+        }
+}
+
+// QUOI : réception de la table d'avances de la police, poussée par le renderer.
+// POURQUOI : tout ce qui touche au curseur d'un champ de saisie (position, surlignage de
+//   sélection, clic -> index) est un calcul de largeur de texte. L'UIModule ne connaît pas la
+//   police ; le renderer la POUSSE plutôt que de répondre à des requêtes, parce que placer un
+//   curseur doit se faire dans la frame même du clic — un aller-retour serait asynchrone.
+// COMMENT : décodage de la chaîne dense (IIO ne transporte que le JSON propre du nœud). Une
+//   charge utile illisible rend une table vide, donc on retombe sur le repli monospace :
+//   dégradé mais cohérent, jamais un curseur placé au hasard.
+void UIModule::onRenderFontMetrics(const Message& msg) {
+        if (!msg.data || !m_context) return;
+        text::MetricsWire wire;
+        wire.baseSize = static_cast<float>(msg.data->getDouble("baseSize", 8.0));
+        wire.lineHeight = static_cast<float>(msg.data->getDouble("lineHeight", 8.0));
+        wire.firstCodepoint = static_cast<uint32_t>(msg.data->getInt("firstCodepoint", 32));
+        wire.advances = msg.data->getString("advances", "");
+
+        text::Metrics decoded = text::decodeDense(wire);
+        if (decoded.empty()) {
+            m_logger->warn("render:font:metrics illisible — on garde la mesure monospace");
+            return;
+        }
+        m_context->fontMetrics = std::move(decoded);
+        ++m_context->fontMetricsEpoch;   // invalide les mises en page dependantes de la police
+        m_logger->info("Metriques de police recues: base={}px, {} glyphes",
+                       m_context->fontMetrics.baseSize, m_context->fontMetrics.advances.size());
+}
+
+// QUOI : réponse du service presse-papiers à une demande de collage.
+// POURQUOI : l'UIModule est délibérément SDL-free, or le presse-papiers EST une ressource
+//   SDL. Il ne peut donc pas le lire lui-même : il demande (`input:clipboard:get`) et le
+//   propriétaire de SDL — InputModule — répond ici. Conséquence assumée : le collage a UNE
+//   FRAME DE LATENCE. C'est le prix du découplage, invisible à l'œil humain, et préférable à
+//   faire rentrer SDL dans l'UIModule pour économiser 16 ms.
+// COMMENT : on met le texte de côté ; `updateUI` l'insère dans le champ focalisé au prochain
+//   passage. On ne l'insère pas ici : ce handler s'exécute pendant le drain IIO, hors de la
+//   phase de mise à jour, et muter l'arbre de widgets à ce moment-là violerait le même
+//   invariant que les autres handlers (cf. handleWindowInteraction).
+void UIModule::onInputClipboardText(const Message& msg) {
+        if (!msg.data) return;
+        m_pendingPaste = msg.data->getString("text", "");
+        m_hasPendingPaste = true;
+}
+
+void UIModule::onUiLoad(const Message& msg) {
+        std::string layoutPath = msg.data->getString("path", "");
+        if (!layoutPath.empty()) {
+            loadLayout(layoutPath);
+        }
+}
+
+// Viewport resize → reflow the UI (UI framework slice 1.1).
+// QUOI : met à jour la taille d'écran connue puis relayoute tout l'arbre depuis la racine.
+// POURQUOI : aucun signal de resize n'existait — screenWidth/Height étaient figés au config.
+//   Le HOST (qui possède la fenêtre SDL) publie ui:resize {width,height} sur un
+//   SDL_WINDOWEVENT_RESIZED ; l'UIModule reste découplé de SDL et ne fait que consommer.
+// COMMENT : on n'écrase une dimension que si elle est fournie/positive (payload partiel
+//   toléré), puis relayoutRoot() résout le % de la racine contre le nouveau viewport.
+void UIModule::onUiResize(const Message& msg) {
+        const float w = static_cast<float>(msg.data->getDouble("width", 0.0));
+        const float h = static_cast<float>(msg.data->getDouble("height", 0.0));
+        if (w > 0.0f) m_context->screenWidth = w;
+        if (h > 0.0f) m_context->screenHeight = h;
+        relayoutRoot();
+}
+
+// Edge drawer open/close (slice 5b). toggle flips it; set forces a state. The drawer
+// animates the slide itself; closing purges its entries when fully off-screen.
+void UIModule::onUiDrawerToggle(const Message& msg) {
+        if (!m_root) return;
+        if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+            if (w->getType() == "drawer") {
+                UIDrawer* d = static_cast<UIDrawer*>(w);
+                d->setOpen(!d->isOpen());
+            }
+        }
+}
+
+void UIModule::onUiDrawerSet(const Message& msg) {
+        if (!m_root) return;
+        const bool open = msg.data->getBool("open", true);
+        if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+            if (w->getType() == "drawer") {
+                static_cast<UIDrawer*>(w)->setOpen(open);
+            }
+        }
+}
+
+// Modal dialog open/close (slice 5a). Open raises it to the front (on top of everything);
+// close hides it + purges its entries + notifies the game.
+void UIModule::onUiModalOpen(const Message& msg) {
+        if (!m_root) return;
+        if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+            if (w->getType() == "modal") { w->visible = true; w->bringToFront(); }
+        }
+}
+
+void UIModule::onUiModalClose(const Message& msg) {
+        if (!m_root) return;
+        if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
+            if (w->getType() == "modal" && w->visible) {
+                w->visible = false;
+                if (m_renderer) w->releaseRenderEntries(*m_renderer);
+                auto ev = std::make_unique<JsonDataNode>("closed");
+                ev->setString("id", w->id);
+                m_io->publish("ui:modal:closed", std::move(ev));
+            }
+        }
+}
+
+void UIModule::onUiSetVisible(const Message& msg) {
+        std::string widgetId = msg.data->getString("id", "");
+        bool visible = msg.data->getBool("visible", true);
+        if (m_root) {
+            if (UIWidget* widget = m_root->findById(widgetId)) {
+                const bool wasVisible = widget->visible;
+                widget->visible = visible;
+                // Hiding it: purge its retained render entries so they don't linger ("ghost rects").
+                // A hidden widget stops calling render(), so without this its last :add entries stay
+                // on screen. Re-showing re-registers + re-publishes on the next render().
+                if (wasVisible && !visible && m_renderer) {
+                    widget->releaseRenderEntries(*m_renderer);
+                } else if (!wasVisible && visible) {
+                    // Revealing a widget that was hidden at LAYOUT time: the layout skips invisible
+                    // children (they get no size/position), so a %-sized / anchored widget (e.g. a
+                    // centered 62%-wide window) would otherwise show at (0,0) size 0. Re-run the root
+                    // layout now so its %/anchor resolve before it renders.
+                    relayoutRoot();
+                }
+            }
+        }
+}
+
+// Reposition a widget at runtime (e.g. pop the action wheel centered on the cursor). For the
+// radial, x/y are its CENTRE; for rect widgets, the top-left. markGeometryDirty -> re-render.
+void UIModule::onUiSetPosition(const Message& msg) {
+        std::string widgetId = msg.data->getString("id", "");
+        if (m_root) {
+            if (UIWidget* widget = m_root->findById(widgetId)) {
+                widget->x = static_cast<float>(msg.data->getDouble("x", widget->x));
+                widget->y = static_cast<float>(msg.data->getDouble("y", widget->y));
+                // Optional SIZE — omitted keys keep the current width/height (so an x/y-only move is
+                // unchanged). Lets a host animate a widget's size at runtime (e.g. show a 9-slice frame
+                // staying continuous as the box grows/shrinks) without a layout reload.
+                widget->width  = static_cast<float>(msg.data->getDouble("width",  widget->width));
+                widget->height = static_cast<float>(msg.data->getDouble("height", widget->height));
+                // absX/absY (what render() uses) are computed at LOAD, not per frame — recompute
+                // them from the parent chain now, or the widget would render at its OLD position.
+                widget->computeAbsolutePosition();
+                widget->markGeometryDirty();
+            }
+        }
+}
+
+// Reconfigure a radial wheel's item COUNT at runtime (demo: prove the pie cuts into any N). The
+// geometry is general — sector = 2*pi/N + arbitrary wedge angles — so 2..8 (or more) all tile.
+// Generates `count` generic items; releaseRenderEntries() resets so render() re-registers with
+// the new count. (A game sets real items via the layout JSON; an items[] payload is a follow-on.)
+void UIModule::onUiRadialSetItems(const Message& msg) {
+        if (!msg.data || !m_root) return;
+        const std::string id = msg.data->getString("id", "");
+        const int count = msg.data->getInt("count", 0);
+        UIWidget* w = m_root->findById(id);
+        if (w && w->getType() == "radial" && count > 0) {
+            UIRadial* radial = static_cast<UIRadial*>(w);
+            radial->items.clear();
+            for (int i = 0; i < count; ++i) {
+                RadialItem item;
+                item.action = "wheel:opt" + std::to_string(i);
+                item.text   = std::to_string(i + 1);
+                radial->items.push_back(std::move(item));
+            }
+            if (m_renderer) radial->releaseRenderEntries(*m_renderer);   // re-register with the new N
+        }
+}
+
+// Repopulate a ship list at runtime: ui:list:set_items {id, items:[{id,label,subtitle?,icon?}]}.
+// The game pushes its current fleet; the list rebuilds its rows. No pool release needed — the list
+// is VIRTUALIZED, so its recycled row-slots are simply remapped (rewritten or hidden) on the next
+// render; setItems just swaps the data + resets scroll/selection.
+void UIModule::onUiListSetItems(const Message& msg) {
+        if (!msg.data || !m_root) return;
+        UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+        if (w && w->getType() == "list") {
+            static_cast<UIList*>(w)->setItems(UIList::parseItems(*msg.data));
+        }
+}
+
+// Repopulate a list as GROUPED warship wings at runtime: ui:list:set_groups {id, groups:[...]}.
+// Same virtualized recycle as set_items — no pool release. (json-backed payload, see UI_TOPICS.)
+void UIModule::onUiListSetGroups(const Message& msg) {
+        if (!msg.data || !m_root) return;
+        UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+        if (w && w->getType() == "list") {
+            static_cast<UIList*>(w)->setGroups(UIList::parseGroups(*msg.data));
+        }
+}
+
+// Repopulate a list as an N-LEVEL TREE at runtime: ui:list:set_tree {id, nodes:[{...,children?}]}
+// (slice 5d). Same virtualized recycle as set_items/set_groups — no pool release.
+void UIModule::onUiListSetTree(const Message& msg) {
+        if (!msg.data || !m_root) return;
+        UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+        if (w && w->getType() == "list") {
+            static_cast<UIList*>(w)->setTree(UIList::parseTree(*msg.data));
+        }
+}
+
+// JSON-UI data context: ui:data {<the model>}. The game pushes its view-model; the whole payload
+// BECOMES the root data context, and every {{path}} binding re-resolves against it (the inbound
+// half of the data-driven loop — no imperative set_text needed). Reactivity = re-resolve on push.
+void UIModule::onUiData(const Message& msg) {
+        if (!msg.data) return;
+        if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
+            const auto& incoming = jn->getJsonData();
+            // Modele IDENTIQUE -> il n'y a rien a faire, et surtout rien a defaire.
+            //
+            // POURQUOI ici, en plus de la garde par repeteur : republier le meme modele est le
+            // geste normal d'un HUD (il pousse son etat chaque frame, qu'il ait bouge ou non).
+            // Sortir ici epargne aussi la RE-RESOLUTION de tous les bindings -- chacun resolvant
+            // son chemin TROIS fois (interpolate + resolveNumber + resolveBool) dont deux
+            // resultats jetes, cf. P2 de l'audit. La garde par repeteur seule laisserait ce
+            // travail-la se faire pour rien.
+            if (incoming == m_uiData) return;
+            m_uiData = incoming;
+        }
+        ++m_dataVersion;
+        refreshDataDriven();
+}
+
+// Partial update — set ONE deep path: ui:data:set {path, value}. The game updates a single field
+// (e.g. a ship's hp) without re-sending the whole model; only the bindings re-resolve.
+//
+// NB : pas de comparaison avant/apres ici, contrairement a `ui:data`. Detecter un patch sans
+// effet exigerait de COPIER tout le modele pour le comparer ensuite -- un cout nouveau a
+// chaque appel, pour attraper un cas qui n'existe pas : un `set`/`merge` est par construction
+// l'intention de changer quelque chose. Le cas pathologique mesure etait la republication du
+// modele ENTIER, qu'un HUD fait par frame ; c'est celui-la qui est garde.
+void UIModule::onUiDataSet(const Message& msg) {
+        if (!msg.data) return;
+        const std::string path = msg.data->getString("path", "");
+        if (path.empty()) return;
+        if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
+            const auto& j = jn->getJsonData();
+            if (j.contains("value")) {
+                uibind::setAtPath(m_uiData, path, j["value"]);
+                ++m_dataVersion;
+                refreshDataDriven();
+            }
+        }
+}
+
+// Partial update — deep MERGE a patch object: ui:data:merge {<partial>}. RFC 7386 semantics
+// (provided keys override deeply; a null value deletes a key). Update many fields without a full push.
+void UIModule::onUiDataMerge(const Message& msg) {
+        if (!msg.data) return;
+        if (auto* jn = dynamic_cast<const JsonDataNode*>(msg.data.get())) {
+            m_uiData.merge_patch(jn->getJsonData());
+            ++m_dataVersion;
+            refreshDataDriven();
+        }
+}
+
+// Programmatic selection: ui:list:select {id, index} (e.g. pre-select a ship). Sets state only —
+// it does NOT re-emit ui:list:selected (that topic is the USER's click, to avoid feedback loops).
+void UIModule::onUiListSelect(const Message& msg) {
+        if (!msg.data || !m_root) return;
+        UIWidget* w = m_root->findById(msg.data->getString("id", ""));
+        if (w && w->getType() == "list") {
+            static_cast<UIList*>(w)->setSelectedIndex(msg.data->getInt("index", -1));
+        }
+}
+
+void UIModule::onUiSetText(const Message& msg) {
+        // Timestamp on receive
+        auto now = std::chrono::high_resolution_clock::now();
+        auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+
+        std::string widgetId = msg.data->getString("id", "");
+        std::string text = msg.data->getString("text", "");
+
+        // Extract original timestamp if present
+        double t0 = msg.data->getDouble("_timestamp_publish", 0);
+        if (t0 > 0) {
+            double latency = (micros - t0) / 1000.0; // Convert to milliseconds
+            m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs (latency from T0: {:.2f} ms)", micros, latency);
+        } else {
+            m_logger->info("⏱️ [T3] UIModule received ui:set_text at {} µs", micros);
+        }
+
+        if (m_root) {
+            if (UIWidget* widget = m_root->findById(widgetId)) {
+                // Only labels support text updates
+                if (widget->getType() == "label") {
+                    UILabel* label = static_cast<UILabel*>(widget);
+                    label->text = text;
+                    m_logger->info("Updated text for label '{}': '{}'", widgetId, text);
+                } else {
+                    m_logger->warn("Widget '{}' is not a label, cannot set text", widgetId);
+                }
+            }
+        }
+}
+
 
 void UIModule::process(const IDataNode& input) {
     float deltaTime = static_cast<float>(input.getDouble("deltaTime", 0.016));

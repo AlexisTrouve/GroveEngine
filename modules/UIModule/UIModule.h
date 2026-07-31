@@ -40,6 +40,44 @@ public:
     bool isIdle() const override { return true; }
 
 private:
+
+    // ------------------------------------------------------------------------
+    // HANDLERS DE TOPICS — un par sujet IIO consomme par le module.
+    // ------------------------------------------------------------------------
+    // QUOI     : le corps de chaque abonnement de setConfiguration, sorti en methode.
+    // POURQUOI : 25 abonnements y etaient ecrits en lambdas inline, soit ~300 lignes de
+    //            logique de sujet noyant la sequence de configuration. Avec autant de
+    //            sujets, la TABLE (quel topic -> quel traitement) est l information la
+    //            plus utile du bloc, et c est precisement celle qu on ne voyait plus.
+    // COMMENT  : chaque abonnement garde sa POSITION EXACTE — on extrait le CORPS,
+    //            jamais l appel, donc l ordre d enregistrement est inchange. Toutes les
+    //            lambdas ne capturaient que `this` (verifie), d ou une extraction sans
+    //            changement de capture. Nom derive mecaniquement du sujet.
+    //            ⚠️ input:mouse:move et input:mouse:wheel restent en ligne : 3-4 lignes,
+    //            les extraire allongerait sans clarifier.
+    void onInputMouseButton(const Message& msg);    // input:mouse:button
+    void onInputKeyboard(const Message& msg);       // input:keyboard
+    void onInputKeyboardText(const Message& msg);   // input:keyboard:text
+    void onInputKeyboardKey(const Message& msg);    // input:keyboard:key
+    void onRenderFontMetrics(const Message& msg);   // render:font:metrics
+    void onInputClipboardText(const Message& msg);  // input:clipboard:text
+    void onUiLoad(const Message& msg);              // ui:load
+    void onUiResize(const Message& msg);            // ui:resize
+    void onUiDrawerToggle(const Message& msg);      // ui:drawer:toggle
+    void onUiDrawerSet(const Message& msg);         // ui:drawer:set
+    void onUiModalOpen(const Message& msg);         // ui:modal:open
+    void onUiModalClose(const Message& msg);        // ui:modal:close
+    void onUiSetVisible(const Message& msg);        // ui:set_visible
+    void onUiSetPosition(const Message& msg);       // ui:set_position
+    void onUiRadialSetItems(const Message& msg);    // ui:radial:set_items
+    void onUiListSetItems(const Message& msg);      // ui:list:set_items
+    void onUiListSetGroups(const Message& msg);     // ui:list:set_groups
+    void onUiListSetTree(const Message& msg);       // ui:list:set_tree
+    void onUiData(const Message& msg);              // ui:data
+    void onUiDataSet(const Message& msg);           // ui:data:set
+    void onUiDataMerge(const Message& msg);         // ui:data:merge
+    void onUiListSelect(const Message& msg);        // ui:list:select
+    void onUiSetText(const Message& msg);           // ui:set_text
     IIO* m_io = nullptr;
     std::shared_ptr<spdlog::logger> m_logger;
 
