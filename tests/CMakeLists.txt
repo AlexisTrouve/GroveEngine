@@ -2073,6 +2073,29 @@ if(GROVE_BUILD_BGFX_RENDERER)
                 )
             endif()
 
+            # ⚠️ RTTI INTER-DSO — nécessaire sur ELF, inutile sur Windows.
+            # QUOI     : lier explicitement la cible InputModule sur non-Windows.
+            # POURQUOI : le test fait `dynamic_cast<grove::InputModule*>` sur un module
+            #            chargé DYNAMIQUEMENT (il lui faut feedEvent(), propre à
+            #            InputModule et absent de l'interface IModule — le cast n'est
+            #            donc pas gratuit, on ne peut pas simplement le retirer).
+            #            Sous ELF, le typeinfo de grove::InputModule vit dans le .so et
+            #            non dans l'exécutable : sans ce lien l'édition de liens échoue
+            #            sur « undefined reference to typeinfo for grove::InputModule ».
+            #            Windows résout ce cas autrement et construit déjà la cible —
+            #            on n'y touche pas, pour ne pas risquer une régression là où
+            #            rien n'est cassé.
+            # COMMENT  : on lie la MÊME bibliothèque partagée que celle chargée à
+            #            l'exécution. Le chargeur reconnaît le fichier déjà mappé, donc
+            #            il n'y a pas deux copies — et le typeinfo devient identique des
+            #            deux côtés, ce qui rend le dynamic_cast plus sûr, pas moins.
+            #            ⚠️ Ne PAS remplacer par InputModule_static : le lien passerait
+            #            au vert en changeant ce que le test exerce (il ne testerait plus
+            #            le chargement dynamique). Un vert obtenu ainsi masque le défaut.
+            if(NOT WIN32)
+                target_link_libraries(test_30_input_module PRIVATE InputModule)
+            endif()
+
             # Not added to CTest (requires display and user interaction)
             message(STATUS "Visual test 'test_30_input_module' enabled (run manually)")
         endif()
