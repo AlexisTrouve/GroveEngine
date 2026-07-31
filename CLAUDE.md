@@ -118,6 +118,33 @@ Pièges à connaître avant de s'en servir :
 
 Détail complet, mesures et pièges : **[docs/design/build-speed.md](docs/design/build-speed.md)**.
 
+### CI — un push sur `master` déclenche une validation automatique
+
+`.gitea/workflows/build.yml` : à chaque push sur `master` (et sur déclenchement manuel), le serveur
+construit le moteur, lance la suite, puis vérifie que la **cible Windows** compile en
+cross-compilation. Ce n'est pas une brique à monter — Gitea tourne sur ce même serveur et son runner
+`act-runner-global` expose le label `host:host`, donc le job s'exécute directement sur la machine et
+hérite du ccache partagé.
+
+**Le CI et `remote-build.sh` sont complémentaires, pas redondants** : le script construit ton arbre
+de travail **même non commité**, à la demande ; le CI vérifie ce qui est **poussé**, tout seul, avec
+un historique.
+
+⚠️ **Trois tests sont exclus, par LABEL et non par nom** — le label porte la raison :
+`platform-windows` (le reporter de crash est du SEH Windows), `timing-sensitive`
+(`MemoryLeakHunter` passe en 161 s contre son propre plafond de 180 et déborde sous charge),
+`known-fail-linux` (`RaceConditionHunter` segfaute sous Linux, non diagnostiqué), plus `gpu`
+(le serveur n'a pas de GPU utilisable). Les laisser rendrait le CI rouge en permanence — et un rouge
+permanent ne se lit plus. **Reprendre l'un d'eux = retirer son label de la ligne `-LE`**, à un seul
+endroit. Ces labels sont déclarés en fin de `tests/CMakeLists.txt`.
+
+⚠️ Le job prend **le même `flock`** que `remote-build.sh` (`~/grovefarm/.build.lock`) : une seule
+file d'attente quelle que soit la porte d'entrée, parce que le serveur n'a que 8 threads **et**
+héberge la prod.
+
+**Portée : `groveengine` uniquement.** drifterra / DAOS / fractax ne sont pas câblés tant que leurs
+propres défauts bloquent leur build (voir `docs/design/build-speed.md` §6 et §12).
+
 ### Debug vs Shipping build (`GROVE_DEBUG`)
 **Debug and prod are ONE engine, two builds — NOT two engine classes.** `DebugEngine` IS the engine (its threaded/pool hosting, authoritative clock, asset streaming and save/load are the prod core). The `GROVE_DEBUG` CMake flag (default **ON**; `include/grove/BuildConfig.h` → `GROVE_DEBUG` macro + `constexpr grove::kDebugBuild` + `GROVE_DEBUG_ONLY(...)`) gates only the **debug skin**, compiled OUT of a shipping build (`-DGROVE_DEBUG=OFF`):
 - **Stripped in shipping**: `step()`'s per-frame logging + frame-timing; `getDetailedStatus()` (→ minimal marker node); `dumpModuleState`/`dumpAllModulesState`/`stepSingleFrame` (→ no-op, symbols kept).
