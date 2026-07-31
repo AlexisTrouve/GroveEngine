@@ -1,8 +1,11 @@
 # Handoff — session du 31 juillet 2026 : CI, ferme bloquée, dette P3
 
-> **État à la sortie** : `master` = **`91e409e`**, arbre propre, poussé sur gitea **et** github
-> (mêmes SHAs). Aucun force push. **CI verte** (189/189 + cross-compilation Windows). Un seul
-> worktree, un seul checkout.
+> **État à la sortie** : `master` = **le commit qui porte ce document** (`da677e2` au moment de
+> l'écrire), arbre propre, poussé sur gitea **et** github (mêmes SHAs). Aucun force push.
+> **CI verte** (189/189 + cross-compilation Windows). Un seul worktree, un seul checkout.
+>
+> *Formulé ainsi parce qu'un handoff qui grave un SHA se périme au commit suivant — le sien. Celui
+> d'hier annonçait un état antérieur d'un commit à sa propre existence.*
 
 Ce document garde ce qui n'est dans aucun doc de chantier : ce que la journée a **appris**, et les
 erreurs commises en la faisant. Le détail technique est dans
