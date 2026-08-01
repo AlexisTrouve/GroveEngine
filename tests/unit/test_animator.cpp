@@ -174,3 +174,163 @@ TEST_CASE("Animator: un état non bouclé TERMINÉ se rejoue quand on le redeman
     anim.update(0.20f, h);
     REQUIRE_THAT(h.local(0).x, WithinAbs(20.0f, 0.01f));   // ...et le coup rejoue depuis le début
 }
+
+// ============================================================================
+// Tranche A2 — fondu croisé.
+//
+// Le mélange se fait sur une pose FIGÉE à l'instant de la transition (snapshot blending) : le
+// sortant ne s'anime plus pendant le fondu. C'est le compromis assumé, et il achète l'exactitude
+// du cas ré-entrant (un play() pendant un fondu, la situation NORMALE d'un jeu de plateforme).
+// Justification complète dans docs/design/anim-state-machine.md.
+// ============================================================================
+
+namespace {
+// Un clip qui tient une valeur CONSTANTE — sert de cible de fondu dont la pose ne dépend pas du
+// temps, ce qui rend l'oracle du mélange exact et indépendant de l'avancement de l'entrant.
+Clip makeConstant(Property prop, float value, float duration = 1.0f) {
+    Clip c;
+    c.duration = duration;
+    Track t;
+    t.nodeId = 0;
+    t.property = prop;
+    t.keys = { Keyframe{0.0f, value, Easing::Linear}, Keyframe{duration, value, Easing::Linear} };
+    c.tracks.push_back(t);
+    return c;
+}
+} // namespace
+
+TEST_CASE("Animator: à mi-fondu, la pose est à mi-chemin", "[anim][animator][fade]") {
+    Clip walk = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 200.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.50f, h);
+    REQUIRE_THAT(h.local(0).x, WithinAbs(50.0f, 0.01f));   // la pose de départ du fondu
+
+    anim.play("idle", 0.40f);      // fondu de 0.4 s
+    anim.update(0.20f, h);         // à la moitié -> poids 0.5 (linéaire)
+
+    // 50 (pose figée du sortant) -> 200 (entrant constant), à 50 % = 125.
+    REQUIRE_THAT(h.local(0).x, WithinAbs(125.0f, 0.01f));
+    REQUIRE(anim.isFading());
+}
+
+// ⚠️ LE cas qui justifie la tranche. Une rotation est un flottant brut : l'interpoler linéairement
+// de 3.0 vers -3.0 traverse ZÉRO, et le membre fait presque un tour complet dans le mauvais sens
+// pendant toute la durée du fondu. Il faut l'ARC LE PLUS COURT (ici : passer par ±π, 0.28 rad de
+// chemin au lieu de 6.0).
+//
+// ⚠️ Le réglage est choisi POUR discriminer : avec des angles « propres » (0 -> π/2) les deux
+// implémentations donnent le MÊME résultat et le test ne prouverait rien. C'est exactement le
+// piège documenté dans known-annoyances -- ici on straddle volontairement le passage à ±π.
+TEST_CASE("Animator: le fondu d'une rotation prend l'arc le plus court", "[anim][animator][fade]") {
+    Clip left  = makeConstant(Property::Rotation,  3.0f);
+    Clip right = makeConstant(Property::Rotation, -3.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("left", &left);
+    anim.addState("right", &right);
+
+    anim.play("left");
+    anim.update(0.10f, h);
+    REQUIRE_THAT(h.local(0).rotation, WithinAbs(3.0f, 0.01f));
+
+    anim.play("right", 1.0f);
+    anim.update(0.50f, h);         // mi-fondu
+
+    // Arc court : delta = -6.0 rad ramené dans [-π, π) = +0.2832 ; à 50 % -> 3.0 + 0.1416 ≈ π.
+    // Un lerp naïf donnerait 0.0 -- soit le membre à l'horizontale au lieu de pointer vers l'arrière.
+    REQUIRE_THAT(h.local(0).rotation, WithinAbs(3.1416f, 0.01f));
+}
+
+TEST_CASE("Animator: un fondu terminé laisse l'entrant PUR", "[anim][animator][fade]") {
+    Clip walk = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 200.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.50f, h);
+    anim.play("idle", 0.20f);
+    anim.update(0.50f, h);         // bien au-delà de la durée du fondu
+
+    REQUIRE_FALSE(anim.isFading());
+    REQUIRE_THAT(h.local(0).x, WithinAbs(200.0f, 0.01f));   // plus aucune trace du sortant
+}
+
+TEST_CASE("Animator: un fondu de durée 0 est une coupe franche", "[anim][animator][fade]") {
+    Clip walk = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 200.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.50f, h);
+    anim.play("idle", 0.0f);       // chemin explicite, PAS une division par zéro
+    anim.update(0.01f, h);
+
+    REQUIRE_FALSE(anim.isFading());
+    REQUIRE_THAT(h.local(0).x, WithinAbs(200.0f, 0.01f));
+}
+
+// NON-RÉGRESSION A1 : sans durée précisée et sans défaut posé, on garde la coupe franche.
+// Tout le code écrit contre A1 doit continuer à se comporter à l'identique.
+TEST_CASE("Animator: sans fondu demandé, le comportement A1 est inchangé", "[anim][animator][fade]") {
+    Clip walk = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 200.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.50f, h);
+    anim.play("idle");             // aucune durée -> coupe franche, comme en A1
+    anim.update(0.01f, h);
+
+    REQUIRE_FALSE(anim.isFading());
+    REQUIRE_THAT(h.local(0).x, WithinAbs(200.0f, 0.01f));
+}
+
+// ⚠️ LE cas ré-entrant, et la raison du snapshot blending. Dans un jeu de plateforme, changer
+// d'état PENDANT un fondu est la situation normale (marche -> saut -> chute en trois frames).
+// Si le nouveau fondu repartait du clip entrant plutôt que de la pose réellement affichée, le
+// personnage SAUTERAIT à l'instant du second play -- un à-coup d'autant plus gros que le premier
+// fondu était peu avancé.
+TEST_CASE("Animator: changer d'état PENDANT un fondu ne provoque aucun à-coup", "[anim][animator][fade]") {
+    Clip walk = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 200.0f);
+    Clip fall = makeConstant(Property::TranslationX, -50.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+    anim.addState("fall", &fall);
+
+    anim.play("walk");
+    anim.update(0.50f, h);
+    anim.play("idle", 0.40f);
+    anim.update(0.10f, h);                       // fondu au quart -> 50 + (200-50)*0.25 = 87.5
+    const float displayed = h.local(0).x;
+    REQUIRE_THAT(displayed, WithinAbs(87.5f, 0.01f));
+
+    // Second basculement en plein fondu. Au tout début du nouveau fondu (poids 0), la pose doit
+    // valoir EXACTEMENT ce qui était affiché -- c'est la définition de « pas d'à-coup ».
+    anim.play("fall", 0.40f);
+    anim.update(0.0f, h);
+    REQUIRE_THAT(h.local(0).x, WithinAbs(displayed, 0.01f));
+}
