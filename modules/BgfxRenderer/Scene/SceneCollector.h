@@ -240,6 +240,9 @@ private:
     void parseTextAdd(const IDataNode& data);
     void parseTextUpdate(const IDataNode& data);
     void parseTextRemove(const IDataNode& data);
+    // Lecteur de couches PARTAGÉ par l'add et l'update : c'est ce partage qui empêche les deux
+    // chemins de diverger (cf. le commentaire à sa définition).
+    void readTilemapLayers(const IDataNode& data, RetainedTilemap& rt);
     void parseTilemapAdd(const IDataNode& data);
     void parseTilemapUpdate(const IDataNode& data);
     void parseTilemapRemove(const IDataNode& data);

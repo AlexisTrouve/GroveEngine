@@ -3706,3 +3706,128 @@ TEST_CASE("SceneCollector - retenu : un update sans UV garde la sous-rect de l'a
     REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.25f, 0.001f));
     REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.75f, 0.001f));
 }
+
+// ============================================================================
+// AUDIT des autres `:update` retenus (2026-08-01).
+//
+// POURQUOI : le 31/07, `render:sprite:update` s'est révélé jeter trois champs en silence. Rien ne
+// disait que les AUTRES primitives retenues n'avaient pas le même défaut — même auteur, même motif,
+// même angle mort de test. L'audit a comparé, pour chacune, ce que le publisher envoie à ce que le
+// parser lit.
+//
+// CE QU'IL A TROUVÉ, et la cause commune : les primitives de la famille MATIÈRE (occluder, fog,
+// filter, nebula) passent par un lecteur de champs PARTAGÉ entre add et update
+// (`readFogFields`/`readFilterFields`/`readNebulaFields`) — elles ne PEUVENT pas diverger. Les deux
+// qui recopient la liste des champs à la main, sprite et text, sont exactement les deux qui ont
+// dérivé. Ce n'est pas une coïncidence, c'est le mécanisme.
+// ============================================================================
+
+// ⚠️ Un libellé ne pouvait pas être VIDÉ. `parseTextUpdate` faisait `if (!newText.empty())`, donc
+// publier `text:""` pour effacer un texte ne faisait rien et l'ancien restait à l'écran.
+// Atteignable depuis l'UI : `UIRenderer::publishTextUpdate` transmet la chaîne telle quelle, donc
+// un libellé lié à une donnée qui devient vide (message d'erreur qui disparaît, champ qu'on efface)
+// gardait sa valeur précédente.
+TEST_CASE("SceneCollector - retenu : `text:\"\"` EFFACE le libellé", "[scene_collector][retained][text]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("t");
+    add->setInt("renderId", 5);
+    add->setString("text", "Erreur de saisie");
+    add->setDouble("x", 10.0); add->setDouble("y", 20.0);
+    fx.ioPublisher->publish("render:text:add", std::move(add));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.textCount == 1);
+        REQUIRE(std::string(p.texts[0].text) == "Erreur de saisie");
+    }
+    fx.collector.clear();
+
+    auto up = std::make_unique<JsonDataNode>("t");
+    up->setInt("renderId", 5);
+    up->setString("text", "");            // le jeu efface son message
+    fx.ioPublisher->publish("render:text:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.textCount == 1);
+    // « Vidé » se représente par une chaîne ABSENTE, pas par une chaîne vide : finalize n'alloue
+    // rien pour une chaîne vide et `TextPass` saute une commande dont `text` est nul (l.137). La
+    // commande reste donc dans le paquet — le widget existe toujours — mais ne dessine plus rien.
+    // C'était déjà la représentation des textes ÉPHÉMÈRES vides ; le retenu la rejoint.
+    REQUIRE(p.texts[0].text == nullptr);
+}
+
+// `fontId` était lu par l'add et pas par l'update : un texte retenu ne pouvait pas changer de police.
+// Même classe que les trois champs perdus du sprite, en plus petit.
+TEST_CASE("SceneCollector - retenu : `:update` honore fontId", "[scene_collector][retained][text]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto add = std::make_unique<JsonDataNode>("t");
+    add->setInt("renderId", 6);
+    add->setString("text", "abc");
+    add->setInt("fontId", 0);
+    fx.ioPublisher->publish("render:text:add", std::move(add));
+    fx.pump();
+    fx.collector.finalize(allocator);
+    fx.collector.clear();
+
+    auto up = std::make_unique<JsonDataNode>("t");
+    up->setInt("renderId", 6);
+    up->setString("text", "abc");
+    up->setInt("fontId", 2);
+    fx.ioPublisher->publish("render:text:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.textCount == 1);
+    REQUIRE(p.texts[0].fontId == 2);
+}
+
+// ⚠️ LE plus grave des trois. Un chunk MULTI-COUCHES ne pouvait pas être mis à jour du tout.
+// `parseTilemapAdd` remplit `layerTiles` (ce que `finalize` dessine quand il est non vide, l.475),
+// mais `parseTilemapUpdate` n'écrit que `rt.tiles` — le champ hérité mono-couche. Un jeu qui pousse
+// de nouvelles tuiles voyait donc l'ancienne carte, sans erreur ni avertissement : la donnée était
+// bien reçue et bien stockée, simplement pas dans le champ que le rendu lit.
+TEST_CASE("SceneCollector - retenu : `:update` d'un chunk MULTI-COUCHES atteint le rendu",
+          "[scene_collector][retained][tilemap]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Un chunk 2x2 a deux couches : terrain (id 1 partout) + un decor (id 7 en haut a gauche).
+    auto add = std::make_unique<JsonDataNode>("tm", nlohmann::json{
+        {"id", 3}, {"width", 2}, {"height", 2}, {"tileW", 1}, {"tileH", 1},
+        {"layers", nlohmann::json::array({
+            nlohmann::json{ {"tileData", "1,1,1,1"}, {"textureId", 0} },
+            nlohmann::json{ {"tileData", "7,0,0,0"}, {"textureId", 0} }
+        })}
+    });
+    fx.ioPublisher->publish("render:tilemap:add", std::move(add));
+    fx.pump();
+    {
+        FramePacket p = fx.collector.finalize(allocator);
+        REQUIRE(p.tilemapCount == 1);
+        REQUIRE(p.tilemaps[0].layerCount == 2);
+        REQUIRE(p.tilemaps[0].layers[1].tiles[0] == 7);
+    }
+    fx.collector.clear();
+
+    // Le decor bouge : meme carte, tuile 7 deplacee en bas a droite.
+    auto up = std::make_unique<JsonDataNode>("tm", nlohmann::json{
+        {"id", 3},
+        {"layers", nlohmann::json::array({
+            nlohmann::json{ {"tileData", "1,1,1,1"}, {"textureId", 0} },
+            nlohmann::json{ {"tileData", "0,0,0,7"}, {"textureId", 0} }
+        })}
+    });
+    fx.ioPublisher->publish("render:tilemap:update", std::move(up));
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.tilemapCount == 1);
+    REQUIRE(p.tilemaps[0].layerCount == 2);
+    REQUIRE(p.tilemaps[0].layers[1].tiles[0] == 0);   // le decor a quitte le coin haut-gauche...
+    REQUIRE(p.tilemaps[0].layers[1].tiles[3] == 7);   // ...et se trouve en bas a droite
+}

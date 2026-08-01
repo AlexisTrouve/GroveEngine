@@ -948,6 +948,35 @@ void SceneCollector::parseTilemap(const IDataNode& data) {
     m_tilemaps.push_back(chunk);
 }
 
+// Multi-couches (stratégie A) : un tableau "layers" de {tileData/tiles, textureId?}, lu PAR INDEX
+// (l'ordre est l'ordre de composition, 0 = base). La couche 0 alimente aussi le chemin hérité
+// mono-grille `tiles`/textureId/LOD. Absent -> on ne touche à rien (un chunk mono-couche existant
+// reste mono-couche, et un update qui ne parle pas de couches ne les efface pas).
+//
+// ⚠️ PARTAGÉ entre l'add et l'update, et c'est le fond de l'affaire. L'update recopiait sa propre
+// liste de champs et ne remplissait QUE `rt.tiles` — or `finalize` dessine `layerTiles` dès qu'il
+// est non vide. Un jeu qui mettait à jour un chunk multi-couches voyait donc l'ancienne carte, sans
+// erreur ni avertissement : la donnée était reçue et stockée, simplement pas dans le champ que le
+// rendu lit. Les primitives de la famille MATIÈRE (fog/filter/nebula) n'ont jamais eu ce défaut
+// parce qu'elles partagent un lecteur depuis le premier jour. C'est le mécanisme, pas la chance.
+void SceneCollector::readTilemapLayers(const IDataNode& data, RetainedTilemap& rt) {
+    IDataNode* layersNode = const_cast<IDataNode&>(data).getChildReadOnly("layers");
+    if (!layersNode) return;
+
+    rt.layerTiles.clear();
+    rt.layerTexIds.clear();
+    for (int i = 0; ; ++i) {
+        IDataNode* L = layersNode->getChildReadOnly(std::to_string(i));
+        if (!L) break;
+        rt.layerTiles.push_back(parseTileArray(*L));
+        rt.layerTexIds.push_back(static_cast<uint16_t>(L->getInt("textureId", 0)));
+    }
+    if (!rt.layerTiles.empty()) {
+        rt.tiles = rt.layerTiles[0];              // couche 0 = la grille héritée
+        rt.chunk.textureId = rt.layerTexIds[0];
+    }
+}
+
 void SceneCollector::parseTilemapAdd(const IDataNode& data) {
     const uint32_t id = static_cast<uint32_t>(data.getInt("id", 0));
     if (id == 0) {
@@ -959,21 +988,7 @@ void SceneCollector::parseTilemapAdd(const IDataNode& data) {
     rt.chunk.dirty = true;            // upload on the next finalize
     rt.tiles = parseTileArray(data);
     rt.fog = parseFogData(data);      // optional per-tile visibility (empty = no fog)
-    // Multi-layer (Strategy A): a "layers" array of {tileData/tiles, textureId?}, read BY INDEX (order =
-    // compositing order, 0 = base). layer 0 also drives the legacy `tiles`/textureId/LOD path.
-    IDataNode* layersNode = const_cast<IDataNode&>(data).getChildReadOnly("layers");
-    if (layersNode) {
-        for (int i = 0; ; ++i) {
-            IDataNode* L = layersNode->getChildReadOnly(std::to_string(i));
-            if (!L) break;
-            rt.layerTiles.push_back(parseTileArray(*L));
-            rt.layerTexIds.push_back(static_cast<uint16_t>(L->getInt("textureId", 0)));
-        }
-    }
-    if (!rt.layerTiles.empty()) {
-        rt.tiles = rt.layerTiles[0];              // layer 0 = the legacy single grid
-        rt.chunk.textureId = rt.layerTexIds[0];
-    }
+    readTilemapLayers(data, rt);
     rt.chunk.tiles = nullptr;         // pointers fixed in finalize
     rt.chunk.tileCount = rt.tiles.size();
     m_retainedTilemaps[id] = std::move(rt);
@@ -1027,7 +1042,11 @@ void SceneCollector::parseTilemapUpdate(const IDataNode& data) {
         rt.chunk.dirty = true;
     } else {
         // FULL replace (same geometry — to change dims, remove + add). dirtyW=0 => full upload.
-        rt.tiles = parseTileArray(data);
+        // Les couches d'abord : readTilemapLayers réécrit `rt.tiles` depuis la couche 0 quand un
+        // bloc "layers" est fourni, et ne touche à rien quand il est absent — un chunk mono-couche
+        // garde donc exactement l'ancien comportement.
+        readTilemapLayers(data, rt);
+        if (!data.hasProperty("layers")) rt.tiles = parseTileArray(data);
         std::vector<uint8_t> f = parseFogData(data);
         if (!f.empty()) rt.fog = std::move(f);   // replace fog only if provided
         rt.chunk.tileCount = rt.tiles.size();
@@ -1930,6 +1949,7 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     TextCommand& text = it->second;
     text.x = static_cast<float>(data.getDouble("x", text.x));
     text.y = static_cast<float>(data.getDouble("y", text.y));
+    text.fontId = static_cast<uint16_t>(data.getInt("fontId", text.fontId));   // l'add le lisait, pas l'update
     text.fontSize = static_cast<uint16_t>(data.getInt("fontSize", text.fontSize));
     text.color = static_cast<uint32_t>(data.getInt("color", text.color));
     text.layer = static_cast<uint16_t>(data.getInt("layer", text.layer));
@@ -1942,10 +1962,16 @@ void SceneCollector::parseTextUpdate(const IDataNode& data) {
     text.align = static_cast<uint8_t>(data.getInt("align", text.align));   // keep current when omitted
     text.bold  = data.getBool("bold", text.bold != 0) ? 1 : 0;
 
-    // Update text string if provided (into the SAME bucket's string map).
-    std::string newText = data.getString("text", "");
-    if (!newText.empty()) {
-        targetStr[renderId] = newText;
+    // Chaîne : on teste la PRÉSENCE du champ, pas si la valeur est vide.
+    //
+    // ⚠️ L'ancien test `if (!newText.empty())` rendait un libellé IMPOSSIBLE À EFFACER : publier
+    // `text:""` ne faisait rien et l'ancienne chaîne restait à l'écran. Atteignable depuis l'UI —
+    // `UIRenderer::publishTextUpdate` transmet la chaîne telle quelle, donc un libellé lié à une
+    // donnée qui devient vide (message d'erreur qui disparaît, champ qu'on efface) gardait sa
+    // valeur précédente. Confondre « absent » et « vide » est le même piège que confondre « omis »
+    // et « remis à zéro » plus haut : c'est la PRÉSENCE de la clé qui porte l'intention.
+    if (data.hasProperty("text")) {
+        targetStr[renderId] = data.getString("text", "");
     }
 }
 
