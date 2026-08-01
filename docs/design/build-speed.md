@@ -361,6 +361,16 @@ ne pouvait le révéler, et le workflow paraissait vert en validant **la moitié
 | tests **lancés** | **103** | **189** |
 | verdict | — | **189/189 verts, ~95 s de `ctest`** |
 
+> 📌 **Dette ouverte — le verdict se lit encore à la main.** Savoir si un push est passé exige
+> d'aller ouvrir `/var/lib/gitea/data/actions_log/<org>/<repo>/<n>/<id>.log` sur le serveur (`sudo` ;
+> l'API `/actions/runs` répond **403** avec le jeton du vault). Décision d'Alexi (2026-07-31) :
+> **ne pas bricoler un guetteur de plus** — le système de notification passera par un **webhook**,
+> monté quand le travail sera sur **Melodicode**, et il servira alors tous les projets. Rien à faire
+> ici d'ici là. Pièges déjà payés, à ne pas refaire dans le webhook : borner sur un horodatage
+> **postérieur au dernier log existant** (une fenêtre glissante capte le run PRÉCÉDENT), et guetter
+> `Job failed` **autant que** `Job succeeded` — un guetteur muet sur un plantage est indiscernable
+> d'un job qui tourne encore. Suivi : tâche ProjectMind `d9117302`.
+
 Les 86 tests regagnés sont les E2E de l'UI, le renderer **headless** (SceneCollector,
 PipelineHeadless, MockRHIDevice), FX, dialogue et vidéo. **SoundManager reste dehors** : il exige
 SDL2_mixer sur la chaîne du serveur, et l'inclure aurait mélangé « le module ne compile pas ici » avec
