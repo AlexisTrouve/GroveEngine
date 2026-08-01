@@ -1,6 +1,9 @@
 # Transitions d'animation — `grove::anim::Animator`
 
-> **Statut** : 📋 PLAN (2026-08-01). Demande d'Alexi après cartographie des manques réels.
+> **Statut** : ✅ **LIVRÉ** (A1→A4, 2026-08-01) — 20 cas dans `AnimatorUnit`, famille anim 7/7.
+> Ce document reste le « pourquoi » et garde les **écarts au plan** (§7) ; le « quoi » vit dans
+> `include/grove/anim/Animator.h` et le DEVELOPER_GUIDE §*Animation*.
+> Plan initial : Alexi, après cartographie des manques réels.
 > **Origine** : `grove::anim` a `Clip`, `AnimationPlayer` et huit courbes d'easing — et **aucun
 > moyen d'enchaîner deux clips**. DAOS coud en ce moment marche / chute / grimpe / rattrapage à la
 > main (`plan_character_ecs.md`, commits `d13084f`/`7827c20`).
@@ -161,3 +164,69 @@ DAOS coud **aussi** de la logique : « si la chute dépasse tant, rattraper au m
 eux, et c'est voulu — l'`Animator` leur enlève la couture des poses, pas la décision. Si après
 livraison ils cousent encore autant, c'est que le manque était ailleurs et il faudra le remesurer
 plutôt que d'élargir ce système.
+
+---
+
+## 7. Écarts au plan — ce que la construction a corrigé
+
+*Consignés parce qu'un plan qu'on relit sans ses écarts se lit comme s'il avait eu raison partout.*
+
+### 7.1 Le fondu ne marche PAS comme le §3 le décrivait
+
+Le §3 posait une recette où **les deux clips avancent** pendant le fondu (« 1. clipSortant->apply(tSortant) »).
+**Ce n'est pas ce qui est livré.** Le sortant est une **pose figée** (snapshot blending) : le mélange
+part de ce qui était réellement à l'écran à la dernière frame.
+
+Ce n'est pas un renoncement en cours de route — c'est le **§4 du même document qui a tranché contre
+le §3**. Il exigeait qu'un `play()` pendant un fondu reparte de « sa pose mélangée à l'instant du
+basculement ». Avec deux lecteurs qui avancent, cette pose n'existe nulle part : il aurait fallu la
+matérialiser dans un tampon… c'est-à-dire faire du snapshot blending pour ce seul cas, et maintenir
+**deux mécanismes** de fondu. En figeant toujours, il n'y en a qu'un, et le cas dur devient exact.
+
+Le prix, mesurable et assumé : le sortant ne s'anime plus pendant le fondu. Sur 0,1–0,2 s c'est
+imperceptible ; l'à-coup ré-entrant, lui, se voit — et dans un jeu de plateforme il arrive à chaque
+enchaînement rapide.
+
+> **Ce que ça apprend** : deux sections d'un même plan peuvent être individuellement raisonnables et
+> mutuellement incompatibles. Ça ne se voit qu'à l'implémentation, et c'est une bonne raison d'écrire
+> le plan **avant** sans le croire **pendant**.
+
+⚠️ Conséquence sur le raisonnement du §3 (« un nœud que seul le clip A pilote ») : il portait sur la
+recette à deux lecteurs. Avec une pose figée le résultat est le même — un nœud que l'entrant ne
+touche pas garde la valeur de la frame précédente, donc mélange une valeur vers elle-même — mais par
+un autre chemin. La conclusion tient, la démonstration du §3 non.
+
+### 7.2 Deux trous que le plan n'avait pas vus
+
+- **Un état non bouclé TERMINÉ devait rester rejouable.** Ma première version d'A1 court-circuitait
+  sur `nom == courant`, ce qui rendait un coup d'épée fini **impossible à relancer**. L'invariant
+  correct est « ne jamais rembobiner une anim **en cours** ». Sur un état bouclé les deux
+  formulations coïncident — c'est ce qui rend la nuance invisible, et pourquoi elle a survécu à
+  l'écriture du plan **et** à la première passe de tests. Trouvée en relisant ma propre correction.
+- **L'ordre de l'enchaînement `Once`** dans `update()` : il doit venir **après** la mémorisation de
+  la pose, sinon le fondu vers la cible part de la frame précédente. Décalage d'une frame, invisible
+  en test unitaire. Le plan ne disait rien de l'ordre.
+
+### 7.3 Ce qui a tenu exactement
+
+La **frontière** du §1 (couture au moteur, décision au jeu) n'a jamais eu à bouger pendant les quatre
+tranches — y compris quand `Once` a introduit une bascule *automatique*, qui est le point où un
+système d'anim commence habituellement à décider. Elle a tenu parce qu'un `Once` décrit le CLIP
+(« il ne boucle pas et il mène là »), jamais une condition de jeu.
+
+L'API esquissée au §4 est livrée telle quelle (`addState`, `play(name, fade?)`, `Once{...}`,
+`setDefaultFade`), à un ajout près : `setFadeEasing`.
+
+### 7.4 Comment le rouge a été obtenu, tranche par tranche
+
+Parce que « test rouge d'abord » ne veut pas dire la même chose selon ce qu'on écrit :
+
+| | Rouge obtenu par | Ce qu'il a montré |
+|---|---|---|
+| **A1** | l'implémentation **naïve** de `play()` | 5 au lieu de 50 : le perso figé sur sa 1re image |
+| **A2** | **sabotage** (impl et tests écrits ensemble) | lerp naïf → 0.0 au lieu de π ; mélange coupé → 200 au lieu de 125 |
+| **A3** | la **donnée posée sans être câblée** | les deux bascules tombent, le reste passe |
+
+A2 est le cas faible des trois : un rouge fabriqué après coup prouve que le test **discrimine**, pas
+qu'il a guidé l'écriture. D'où le protocole appliqué — `grep` de contrôle avant de croire le rouge,
+restauration **et reconstruction** avant de croire le vert (c'est la seconde moitié qui piège).

@@ -1310,6 +1310,59 @@ rig.update();             // composes every node's WORLD transform (one pass)
   reuse one clip's keyframes with tiny per-instance state; one `rig.update()` composes a whole
   rig. For purely code-driven motion you can skip Clip/Player and set node locals directly.
 
+### 1bis. Named states with cross-fade — `Animator`
+
+`AnimationPlayer` plays **one** clip. `Animator` is the layer above: named states, and a
+**cross-fade** when you switch between them, so a character going from `walk` to `fall` doesn't
+snap between two poses.
+
+```cpp
+#include "grove/anim/Animator.h"
+using namespace grove::anim;
+
+Animator anim;
+anim.setDefaultFade(0.15f);                          // seconds; 0 (the default) = hard cut
+anim.addState("idle",   &clipIdle);                  // loops
+anim.addState("walk",   &clipWalk);
+anim.addState("attack", &clipAttack, Once{"idle"});  // plays once, then returns to idle by itself
+
+// each frame — call play() every frame, that is the intended usage:
+anim.play(grounded ? "walk" : "fall");
+anim.update(dt, rig);
+rig.update();
+```
+
+**`play()` is idempotent.** Calling `play("walk")` on the state that is *already running* does
+nothing — you publish a STATE, not a transition. This is what lets you call it unconditionally
+every frame, which is how the calling code stays readable. A one-shot that has **finished** does
+restart when you ask for it again (re-attacking works); the rule is "never rewind an animation
+that is still *running*", not "never rewind the current name".
+
+| Call | Meaning |
+|---|---|
+| `play("x")` | switch with the default fade |
+| `play("x", 0.30f)` | switch with this fade, overriding the default |
+| `play("x", 0.0f)` | force a **hard cut** even when a default fade is set |
+| `setFadeEasing(Easing::InOutCubic)` | curve of the blend (linear by default) |
+| `current()` / `isFading()` / `finished()` | observation |
+
+**What the engine does NOT do here, on purpose**: there are no conditions, no predicates, no
+transition rules. Your game decides *when* to call `play("fall")`; the engine only owns the
+**seam**. Same line as `scene:goto {node}` in DialogueModule and the fixed behavior library in
+FxModule — so there is no blend tree, no additive layers, no per-limb masks.
+
+**Two things worth knowing before you rely on it:**
+
+- **Rotations blend along the shortest arc.** Fading a limb from `3.0` rad to `-3.0` rad takes the
+  0.28 rad path through ±π, not the 6.0 rad path through zero. A plain lerp would spin the limb
+  almost a full turn the wrong way for the whole fade — and only when the two angles straddle ±π,
+  which is why it is easy to miss.
+- **The outgoing pose is FROZEN during a fade** (snapshot blending): the blend starts from what was
+  actually on screen last frame, not from the outgoing clip still advancing. Cost: the outgoing
+  animation holds still for the fade — imperceptible at the usual 0.1–0.2 s. Gain: switching state
+  *during* a fade (walk → jump → fall in three frames, the normal case in a platformer) produces
+  **no pop at all**, whatever the first fade had reached.
+
 ### 2. Frame-by-frame / flipbook — `SpriteSheet` + `Flipbook`
 
 Cycling which atlas cell is shown (explosions, walk cycles, effects). `SpriteSheet` maps a
