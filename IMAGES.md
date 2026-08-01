@@ -188,6 +188,33 @@ demandes » (murs / filtres / brouillard), l'ouverture ou la clôture d'un devbl
 
 ### Animé
 
+#### `blog/animator_fade.gif`
+**Ce qu'un fondu d'animation apporte, montré par la version qui ne l'a pas (2026-08-01).** *(Deux
+pantins filaires côte à côte, rouge à gauche et vert à droite, rigés par la même hiérarchie et
+animés par les mêmes clips. Ils parcourent la même séquence — repos, marche, attaque, retour au
+repos, saut, chute — pilotée par les mêmes appels aux mêmes instants. Le seul écart : le rouge a
+`setDefaultFade(0)`, le vert `setDefaultFade(0.18)`. Le libellé sous chaque pantin nomme son état
+courant ; « > fondu en cours » s'affiche à droite pendant les transitions.)*
+
+**Ce que ça prouve, et qu'aucune assertion numérique ne rend jugeable** : le rouge CLAQUE d'une pose
+à l'autre — le plus visible à l'entrée de l'attaque, où le bras se téléporte au-dessus de la tête —
+là où le vert y glisse. C'est la comparaison « quelle image aurait donné la version fausse ? » rendue
+littérale : les deux implémentations tournent côte à côte sur les mêmes données, donc l'écart ne peut
+venir que du fondu. Le retour au repos après l'attaque n'est déclenché par personne : c'est l'état
+`Once{"idle"}` qui enchaîne seul à la dernière image du clip.
+
+À utiliser pour : un article sur `grove::anim::Animator` ou les transitions d'animation ; un article
+sur la méthode de preuve (montrer un correctif en faisant tourner l'ancien comportement à côté
+plutôt qu'en l'affirmant) ; un article sur ce que le moteur laisse au jeu — la démo ne contient
+aucune condition, le script appelle `play(nom)` et rien d'autre.
+
+⚠️ Ce que ce GIF ne montre PAS : l'arc le plus court sur les rotations. Le rendre visible exigerait
+de faire tourner à côté une implémentation délibérément fausse ; il est verrouillé numériquement
+(`AnimatorUnit [fade]`). Ne pas l'utiliser pour illustrer ce point.
+
+Régénérable : `./build/tests/capture_animator_demo.exe build/animator_frames` puis
+`tools/make_animator_gif.sh build/animator_frames blog/animator_fade.gif`.
+
 #### `blog/13_light_sweep.gif`
 **Les ombres SUIVENT la lampe — les trois matières à l'œuvre en même temps (2026-07-29).** *(Une
 lampe monte et descend le long du mur de gauche ; à travers deux ouvertures teintées, un faisceau

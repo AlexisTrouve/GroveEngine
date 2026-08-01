@@ -3780,6 +3780,28 @@ if(WIN32 AND GROVE_BUILD_BGFX_RENDERER AND GROVE_BUILD_UI_MODULE AND SDL2_AVAILA
     endif()
     message(STATUS "From-disk map-viewer capture tool 'capture_mapview_from_disk' enabled")
 
+    # Animator capture: deux pantins identiques, coupe franche a gauche / fondu croise a droite, meme
+    # script d'etats. Sort une sequence de PNG que tools/make_animator_gif.sh assemble en GIF. Ce que
+    # AnimatorUnit prouve numeriquement, ceci le rend JUGEABLE -- une couture d'anim se juge a l'oeil.
+    add_executable(capture_animator_demo visual/capture_animator_demo.cpp)
+    target_include_directories(capture_animator_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules
+        ${CMAKE_SOURCE_DIR}/modules/BgfxRenderer
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/visual
+    )
+    target_link_libraries(capture_animator_demo PRIVATE
+        SDL2::SDL2
+        GroveEngine::impl
+        BgfxRenderer_static
+        spdlog::spdlog
+    )
+    if(GROVE_SDL2_DLL)
+        add_custom_command(TARGET capture_animator_demo POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GROVE_SDL2_DLL}" "$<TARGET_FILE_DIR:capture_animator_demo>")
+    endif()
+    message(STATUS "Animator capture 'capture_animator_demo' enabled")
+
     # Ship-inspector capture: proves sprites-as-UI (SVG->PNG part textures) + data-driven part blocks.
     add_executable(capture_ship_inspector visual/capture_ship_inspector.cpp)
     target_include_directories(capture_ship_inspector PRIVATE
