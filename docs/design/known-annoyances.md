@@ -168,6 +168,52 @@ de bout en bout, et trois « preuves » par coupe l'avaient confirmé.
 **Règle** : avant d'attribuer une corruption de tas à un changement, vérifier que la variante *saine*
 **échoue encore APRÈS reconstruction**. Sinon on ne mesure que l'effet de reconstruire.
 
+### 3ter. Le `0xC0000374` qui SURVIT à la reconstruction — par salves, victime tournante (2026-08-01)
+
+⚠️ **Tout ce qui précède décrit le cas où l'artefact périmé explique la corruption. Il existe un
+second cas, et il ne s'explique pas comme ça.** Ne pas les confondre : le premier se guérit en
+reconstruisant, le second non.
+
+Mesuré le 01/08 sur un build **à jour** (`ninja: no work to do`) :
+
+| | Résultat |
+|---|---|
+| `AtlasPackerGpu` seul (ctest, ×3) | ✅ vert |
+| `AtlasPackerGpu` seul (binaire, ×6, **depuis `build/tests`**) | ✅ vert |
+| Tête du jeu GPU, tests 193→199 | ✅ 7/7 |
+| Jeu GPU complet, 5 passes **d'affilée** | ❌ **5/5 sur `AtlasPackerGpu`**, `0xC0000374` |
+| Jeu GPU complet, 2 passes **30 min plus tard** | ✅ 17/17 |
+
+**La victime tourne** : `AssetTopicsGpu` le matin même, `AtlasPackerGpu` l'après-midi, plus les
+quatre du §3bis. Ce n'est donc pas « tel test est fragile », c'est **une corruption de tas au
+teardown du renderer qui frappe le test GPU qui passe par là**.
+
+**Et ça vient par SALVES** — c'est l'indice le plus utile du lot. Une fois installé, l'échec se
+répète en série ; puis il disparaît sans que rien n'ait été reconstruit. Ça oriente vers un **état
+externe persistant qui se dégrade puis se rétablit** (pilote GPU, mémoire allouée par le pilote),
+pas vers une course interne au processus — qui, elle, donnerait des échecs dispersés.
+
+⚠️ **`NineSliceGpu` n'y est pour rien.** Il a porté l'étiquette « intermittence résiduelle » pendant
+des jours ; mesuré : **0 échec sur 12** lancé seul, et **vert dans les trois exécutions de suite
+complète enregistrées**. L'étiquette ne venait que d'une **seule observation**, consignée dans un
+handoff puis relue comme un fait établi.
+
+**Deux erreurs de mesure commises en établissant ça**, gardées parce qu'elles se referont :
+
+- **Cinq passes dans la MÊME fenêtre de quatre minutes ne sont pas cinq échantillons.** Elles
+  partagent l'état transitoire qui cause la panne — j'en ai conclu « déterministe », et 30 minutes
+  plus tard c'était vert. *Répéter dans une fenêtre ne teste pas ce que répéter à travers des
+  fenêtres teste.*
+- **Mauvais répertoire courant** : le test lit `"../../assets/..."`, donc il faut le lancer depuis
+  `build/tests` (ce que fait ctest), pas depuis `build/`. Six faux échecs `rc=1` — et `rc=1` (une
+  assertion) n'est PAS `0xC0000374` (une corruption) : la différence de code de sortie disait déjà
+  que je ne regardais pas la même panne.
+
+**Geste suivant si on veut la cause** : une campagne longue et détachée — boucler le jeu GPU pendant
+une heure en horodatant chaque salve, pour voir si elle corrèle avec la charge, la thermique, ou un
+nombre cumulé de créations/destructions de device. Pas une session interactive : le phénomène a une
+constante de temps de l'ordre de la dizaine de minutes.
+
 ## 3. ⚠️ NE JAMAIS bâtir pendant que la suite tourne
 
 **`ProductionHotReload` et `RaceConditionHunter` sont eux-mêmes clients du système de build** :

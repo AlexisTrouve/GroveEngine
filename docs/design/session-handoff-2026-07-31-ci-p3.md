@@ -59,10 +59,20 @@ révéler, ni blocs jumeaux à factoriser : aucune répétition, et de l'état q
 étapes. Si elle est reprise, ça commence par une analyse de la **circulation d'état**, pas par un
 découpage. Détail : [audit-perf-mess-2026-07-29.md §P3](audit-perf-mess-2026-07-29.md).
 
-**3. L'intermittence résiduelle** — `NineSliceGpu` : rouge en suite complète, vert 3/3 lancé seul.
-→ *Geste suivant* : session dédiée, `tests/helpers/CrashBacktrace.h`, boucler jusqu'à capture d'une
-trace réelle. ⚠️ **Ne pas confondre avec le cas 1** — c'est l'erreur que cette session a corrigée :
-`ChaosMonkey` était rangé là à tort, et il n'a rien d'intermittent.
+**3. ~~L'intermittence résiduelle — `NineSliceGpu`~~ → RE-MESURÉ LE 01/08, l'étiquette était fausse.**
+
+> Ce point disait « `NineSliceGpu` : rouge en suite complète, vert 3/3 lancé seul ». **Les deux
+> moitiés sont fausses.** Mesuré : **0 échec sur 12** lancé seul, et **vert dans les trois exécutions
+> de suite complète enregistrées**. L'étiquette ne venait que d'une **seule observation**, écrite ici
+> même puis relue comme un fait établi — l'exemple parfait de la ligne de dette qui devient vraie à
+> force d'être recopiée.
+>
+> **Le vrai objet** : une corruption de tas (`0xC0000374`) au teardown du renderer, qui frappe **par
+> salves** le test GPU qui passe par là — la victime tourne (`AssetTopicsGpu`, `AtlasPackerGpu`, plus
+> quatre autres). Elle **survit à la reconstruction**, donc ce n'est pas l'artefact périmé du §3bis.
+> → *Geste suivant* : une campagne **longue et détachée** (boucler le jeu GPU une heure en horodatant
+> les salves), pas une session interactive — la constante de temps est de l'ordre de la dizaine de
+> minutes. Caractérisation complète : [known-annoyances.md §3ter](known-annoyances.md).
 
 *(Hors périmètre, en attente d'arbitrage matériel : les 16 tests `[gpu]` restent hors CI et n'y
 entreront que sur une ferme **Windows** à GPU. Le rendu **headless**, lui, est couvert.)*
@@ -238,8 +248,10 @@ de l'état qui circule entre les étapes. Elle ressemble aux quatre autres **par
 **Les 16 tests `[gpu]`** — seul trou de couverture CI restant, et il est étroit. N'arrivera que sur
 une ferme **Windows** à GPU.
 
-**L'intermittence résiduelle** — `NineSliceGpu` a bien le profil (rouge en suite, vert 3/3 seul).
-Toujours non diagnostiquée.
+~~**L'intermittence résiduelle** — `NineSliceGpu` a bien le profil (rouge en suite, vert 3/3 seul).~~
+⚠️ **Faux, re-mesuré le 01/08** : `NineSliceGpu` est innocent (0/12 seul, vert dans les 3 suites
+enregistrées). Le vrai objet est une corruption de tas au teardown GPU, **par salves, victime
+tournante**. Cf. le §0 ci-dessus et [known-annoyances.md §3ter](known-annoyances.md).
 
 ---
 
