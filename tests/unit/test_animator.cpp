@@ -334,3 +334,128 @@ TEST_CASE("Animator: changer d'état PENDANT un fondu ne provoque aucun à-coup"
     anim.update(0.0f, h);
     REQUIRE_THAT(h.local(0).x, WithinAbs(displayed, 0.01f));
 }
+
+// ============================================================================
+// Tranche A3 — `Once{"cible"}` : un état joué UNE fois qui bascule tout seul.
+//
+// L'archétype universel : attaque -> idle, atterrissage -> idle, porte qui s'ouvre -> ouverte.
+// C'est une propriété de l'ANIMATION (« ce clip ne boucle pas et il mène là »), pas une décision
+// de gameplay — d'où sa place ici et pas chez le jeu. La frontière du §1 du plan tient : le jeu
+// dit toujours QUAND attaquer, le moteur ne fait qu'enchaîner ce qui suit la dernière image.
+// ============================================================================
+
+TEST_CASE("Animator: un état Once bascule sur sa cible quand le clip finit", "[anim][animator][once]") {
+    Clip attack = makeConstant(Property::TranslationX, 300.0f, 0.5f);   // 0.5 s
+    Clip idle   = makeConstant(Property::TranslationX, 10.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("attack", &attack, Once{"idle"});
+    anim.addState("idle", &idle);
+
+    anim.play("attack");
+    anim.update(0.30f, h);
+    REQUIRE(anim.current() == "attack");        // pas encore fini : on ne bascule PAS
+
+    anim.update(0.30f, h);                      // 0.6 s > 0.5 s : le clip est allé au bout
+    REQUIRE(anim.current() == "idle");
+}
+
+TEST_CASE("Animator: un état Once ne boucle pas", "[anim][animator][once]") {
+    Clip ramp = makeRamp(0.0f, 100.0f, 1.0f);
+    Clip idle = makeConstant(Property::TranslationX, 10.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("land", &ramp, Once{"idle"});
+    anim.addState("idle", &idle);
+
+    anim.play("land");
+    anim.update(0.90f, h);
+    // Un état bouclé serait revenu vers 0 après 1 s ; celui-ci doit finir sa rampe, pas la reprendre.
+    REQUIRE_THAT(h.local(0).x, WithinAbs(90.0f, 0.01f));
+    REQUIRE(anim.current() == "land");
+}
+
+// La bascule automatique doit emprunter le MÊME fondu que les autres : sans ça, l'enchaînement
+// attaque -> idle serait la seule transition du système à produire une coupe franche, et on aurait
+// résolu la couture partout sauf là où elle se voit le plus.
+TEST_CASE("Animator: la bascule d'un Once passe par le fondu par défaut", "[anim][animator][once]") {
+    Clip attack = makeConstant(Property::TranslationX, 300.0f, 0.5f);
+    Clip idle   = makeConstant(Property::TranslationX, 10.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.setDefaultFade(0.20f);
+    anim.addState("attack", &attack, Once{"idle"});
+    anim.addState("idle", &idle);
+
+    anim.play("attack", 0.0f);          // entrée franche pour isoler la SORTIE
+    anim.update(0.60f, h);              // le clip finit -> bascule vers idle
+    REQUIRE(anim.current() == "idle");
+    REQUIRE(anim.isFading());
+
+    // À mi-fondu : 300 (dernière image de l'attaque) -> 10 (idle), soit 155.
+    anim.update(0.10f, h);
+    REQUIRE_THAT(h.local(0).x, WithinAbs(155.0f, 0.01f));
+}
+
+TEST_CASE("Animator: setDefaultFade s'applique à un play() sans durée", "[anim][animator][once]") {
+    Clip walk = makeConstant(Property::TranslationX, 100.0f);
+    Clip idle = makeConstant(Property::TranslationX, 0.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.setDefaultFade(0.20f);
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.10f, h);
+    REQUIRE_THAT(h.local(0).x, WithinAbs(100.0f, 0.01f));
+
+    anim.play("idle");                  // aucune durée -> le défaut posé, pas 0
+    anim.update(0.10f, h);
+    REQUIRE(anim.isFading());
+    REQUIRE_THAT(h.local(0).x, WithinAbs(50.0f, 0.01f));   // mi-chemin 100 -> 0
+}
+
+// NON-RÉGRESSION : sans setDefaultFade, un play() sans durée reste une coupe franche. C'est ce qui
+// garantit que tout le code écrit contre A1/A2 ne change pas de comportement en silence.
+TEST_CASE("Animator: sans defaultFade posé, play() sans durée reste franc", "[anim][animator][once]") {
+    Clip walk = makeConstant(Property::TranslationX, 100.0f);
+    Clip idle = makeConstant(Property::TranslationX, 0.0f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("walk", &walk);
+    anim.addState("idle", &idle);
+
+    anim.play("walk");
+    anim.update(0.10f, h);
+    anim.play("idle");
+    anim.update(0.01f, h);
+
+    REQUIRE_FALSE(anim.isFading());
+    REQUIRE_THAT(h.local(0).x, WithinAbs(0.0f, 0.01f));
+}
+
+// Fail-soft, comme play() sur un nom inconnu : une cible qui n'existe pas fige l'état sur sa
+// dernière image plutôt que de vider l'animateur. Un perso figé se voit et se corrige ; un
+// animateur vidé ou un crash sur une faute de frappe, non.
+TEST_CASE("Animator: un Once vers une cible inconnue fige sans casser", "[anim][animator][once]") {
+    Clip attack = makeConstant(Property::TranslationX, 300.0f, 0.5f);
+    Hierarchy h = makeOneNode();
+
+    Animator anim;
+    anim.addState("attack", &attack, Once{"idel"});     // faute de frappe volontaire
+
+    anim.play("attack");
+    anim.update(0.60f, h);
+    REQUIRE(anim.current() == "attack");
+    REQUIRE(anim.finished());
+
+    anim.update(0.60f, h);                              // et ça ne s'emballe pas au tour suivant
+    REQUIRE(anim.current() == "attack");
+    REQUIRE_THAT(h.local(0).x, WithinAbs(300.0f, 0.01f));
+}

@@ -69,14 +69,34 @@ inline Transform2D blendLocal(const Transform2D& from, const Transform2D& to, fl
 
 } // namespace detail
 
+// Un état joué UNE fois, qui enchaîne tout seul sur `next` à sa dernière image.
+//
+// POURQUOI un type dédié plutôt qu'un booléen de plus sur addState : `Once{"idle"}` se lit au site
+// d'appel, là où `addState("attack", &clip, false, "idle")` oblige à aller chercher ce que `false`
+// veut dire. C'est une propriété de l'ANIMATION (« ce clip ne boucle pas et il mène là »), pas une
+// décision de gameplay : le jeu dit toujours QUAND attaquer, le moteur ne fait qu'enchaîner ce qui
+// suit la dernière image. La frontière tenue par cette classe n'en est pas entamée.
+struct Once {
+    std::string next;
+};
+
 class Animator {
 public:
     // Déclare un état. Le clip n'est PAS possédé — il doit survivre à l'Animator (même contrat
     // que AnimationPlayer : une donnée immuable partagée par des milliers d'instances animées).
     // Re-déclarer un nom écrase sa définition, ce qui rend une table reconstructible à chaud.
     void addState(const std::string& name, const Clip* clip, bool loop = true) {
-        m_states[name] = State{clip, loop};
+        m_states[name] = State{clip, loop, std::string{}};
     }
+
+    // Surcharge `Once` : joue une fois puis enchaîne sur la cible, avec le fondu par défaut.
+    void addState(const std::string& name, const Clip* clip, Once once) {
+        m_states[name] = State{clip, false, once.next};
+    }
+
+    // Fondu utilisé par un play() qui n'en précise pas, et par les enchaînements `Once`.
+    // Défaut 0 = coupe franche : tout code écrit avant cette tranche est inchangé.
+    void setDefaultFade(float seconds) { m_defaultFade = seconds; }
 
     // Bascule sur un état. Nom inconnu -> ignoré, l'état courant survit (fail-soft : une faute de
     // frappe dans un nom d'anim ne doit ni jeter ni vider l'état — un perso qui garde son
@@ -97,11 +117,15 @@ public:
     //
     // `fade` (secondes) : 0 = coupe franche (défaut, comportement A1 bit pour bit). Le fondu part
     // de la pose RÉELLEMENT AFFICHÉE à la dernière frame — pas du clip sortant. Voir §m_fromPose.
-    void play(const std::string& name, float fade = 0.0f) {
+    // `fade < 0` (le défaut) = « prends le fondu par défaut » ; une valeur explicite l'emporte,
+    // 0 compris — un jeu peut donc forcer une coupe franche malgré un défaut posé.
+    void play(const std::string& name, float fade = -1.0f) {
         if (name == m_current && m_player.isPlaying()) return;   // en cours : ne PAS rembobiner
 
         auto it = m_states.find(name);
         if (it == m_states.end()) return;
+
+        if (fade < 0.0f) fade = m_defaultFade;
 
         // Le fondu part de ce qui est à l'écran. Sans pose affichée (aucun update() encore), il
         // n'y a rien d'où partir : coupe franche. Chemin explicite, jamais une division par zéro.
@@ -159,12 +183,29 @@ public:
         }
 
         capturePose(hierarchy);
+
+        // Enchaînement `Once` — APRÈS capturePose(), et l'ordre est le fond du sujet : le fondu
+        // vers la cible doit partir de la DERNIÈRE IMAGE de l'état qui vient de finir, laquelle
+        // n'est connue qu'une fois la pose écrite et mémorisée. Enchaîner plus haut ferait démarrer
+        // le fondu depuis la pose de la frame PRÉCÉDENTE — un décalage d'une frame, invisible en
+        // test unitaire et sensible à l'œil sur un enchaînement rapide.
+        //
+        // Cible inconnue -> play() ne fait rien : l'état reste figé sur sa dernière image (fail-soft
+        // comme ailleurs). On retente au tour suivant, ce qui coûte une recherche de table sur un
+        // état déjà terminé — pas une boucle, pas une allocation.
+        if (!m_current.empty() && !m_player.isPlaying()) {
+            auto it = m_states.find(m_current);
+            if (it != m_states.end() && !it->second.next.empty()) {
+                play(it->second.next);      // fondu par défaut
+            }
+        }
     }
 
 private:
     struct State {
         const Clip* clip = nullptr;
         bool loop = true;
+        std::string next;     // non vide = état Once : où aller à la dernière image
     };
 
     // Recopie la pose écrite cette frame. POURQUOI cette copie plutôt qu'un second AnimationPlayer
@@ -192,6 +233,7 @@ private:
     float m_fadeElapsed = 0.0f;
     float m_fadeDuration = 0.0f;
     Easing m_fadeEasing = Easing::Linear;
+    float m_defaultFade = 0.0f;   // 0 = coupe franche (comportement historique)
 };
 
 } // namespace anim
