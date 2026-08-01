@@ -669,6 +669,14 @@ target_include_directories(test_animation_player PRIVATE
 target_link_libraries(test_animation_player PRIVATE Catch2::Catch2WithMain)
 grove_add_test(AnimationPlayerUnit test_animation_player ${CMAKE_CURRENT_BINARY_DIR})
 
+# Animation system tranche A1: Animator (etats nommes). Header-only, std-only.
+add_executable(test_animator unit/test_animator.cpp)
+target_include_directories(test_animator PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_animator PRIVATE Catch2::Catch2WithMain)
+grove_add_test(AnimatorUnit test_animator ${CMAKE_CURRENT_BINARY_DIR})
+
 # Animation system flipbook slice F-a: SpriteSheet UV grid (grove::anim). Header-only, std-only.
 add_executable(test_sprite_sheet unit/test_sprite_sheet.cpp)
 target_include_directories(test_sprite_sheet PRIVATE
