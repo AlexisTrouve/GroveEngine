@@ -209,6 +209,36 @@ handoff puis relue comme un fait établi.
   assertion) n'est PAS `0xC0000374` (une corruption) : la différence de code de sortie disait déjà
   que je ne regardais pas la même panne.
 
+⚠️ **UN BISECT DÉSIGNE UN COUPABLE FAUX — vécu le 02/08, et c'est le piège le plus cher du lot.**
+
+Chaîne de mesures obtenue en une heure, toutes exactes :
+
+| Mesure | Résultat |
+|---|---|
+| `NineSliceGpu` à HEAD | ❌ 4/4 |
+| à HEAD, changement du jour retiré | ❌ 3/3 |
+| au commit précédent le travail du jour | ✅ 3/3 |
+| ⟹ un seul commit de production entre les deux | *« c'est lui »* |
+| le commit accusé, re-testé directement | ✅ 3/3 |
+| HEAD, re-testé 20 min plus tard | ✅ **4/4** |
+
+**La salve s'est arrêtée entre deux points de mesure. Le bisect ne mesurait pas le code, il mesurait
+l'horloge.** Et il produisait une chaîne de preuve impeccable en désignant un innocent — ici un
+refactor dont le binaire accusé **ne liait même pas le module modifié**.
+
+C'est une aggravation du §3bis : là, chaque coupe reconstruisait et la reconstruction guérissait, donc
+au moins la cause était dans le protocole. Ici **rien dans le protocole ne rattrape** — la seule
+question qui a sauvé la mise est celle du §2quater : *mon code est-il seulement DANS ce binaire ?*
+
+> **Règle** : devant un `0xC0000374`, **ne jamais bisecter**. Établir d'abord si le défaut est une
+> salve (re-tester le MÊME binaire à 20 minutes d'intervalle). Un bisect sur un phénomène
+> intermittent est une machine à fabriquer des faux coupables.
+
+**Victimes observées le 02/08, toutes dans la même journée** : `AssetTopicsGpu` (matin, puis à
+nouveau le soir), `AtlasPackerGpu` (après-midi, 5/5 dans une fenêtre), `NineSliceGpu` (4/4 seul, puis
+vert 4/4 vingt minutes après), `UIDemoGpu`. Quatre noms, aucun stable — et à un moment, `NineSliceGpu`
+passait pendant que deux autres échouaient.
+
 **Geste suivant si on veut la cause** : une campagne longue et détachée — boucler le jeu GPU pendant
 une heure en horodatant chaque salve, pour voir si elle corrèle avec la charge, la thermique, ou un
 nombre cumulé de créations/destructions de device. Pas une session interactive : le phénomène a une
