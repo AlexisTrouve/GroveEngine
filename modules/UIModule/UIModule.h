@@ -159,6 +159,15 @@ private:
     // Update UI state
     void updateUI(float deltaTime);
 
+    // Traduit un clic deja resolu en evenements IIO, selon le type du widget. Sorti d'updateUI
+    // (etape 3/3 du chantier P3) : ces ~190 lignes n'interagissaient avec aucune phase voisine.
+    // Reste cote MODULE a dessein -- aucun widget ne nomme un topic (cf. sa definition).
+    void dispatchWidgetClick(UIWidget* clickedWidget);
+
+    // Cache un widget ET purge ses entrees retenues -- un seul geste, parce que les separer laisse
+    // des fantomes a l'ecran (le renderer est retenu). Trois sites l'ecrivaient a la main.
+    void hideAndRelease(UIWidget* widget);
+
     // In-app window interaction (slice 3b-2): raise-on-click + title-bar drag + close button. Runs
     // once per frame on the topmost window under the cursor, before the child-update pass.
     void handleWindowInteraction();

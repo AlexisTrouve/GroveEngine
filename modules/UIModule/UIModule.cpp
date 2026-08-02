@@ -352,12 +352,25 @@ void UIModule::onUiModalOpen(const Message& msg) {
         }
 }
 
+// QUOI : cache un widget ET purge ses entrees de rendu retenues, en un seul geste.
+//
+// POURQUOI un helper pour DEUX lignes : l'argument n'est pas la longueur, c'est la CORRECTION.
+// Le renderer est RETENU -- une entree vit jusqu'a son `:remove`. Cacher sans purger laisse donc
+// des rects et du texte fantomes a l'ecran, un widget invisible qui continue de se dessiner. C'est
+// exactement la classe de bug que verrouille IT_067, et les deux lignes etaient recopiees a TROIS
+// endroits : la roue radiale, le modal ferme par clic exterieur, et `ui:modal:close`. Un quatrieme
+// site qui n'aurait recopie que la premiere aurait rouvert le defaut en silence.
+void UIModule::hideAndRelease(UIWidget* widget) {
+    if (!widget) return;
+    widget->visible = false;
+    if (m_renderer) widget->releaseRenderEntries(*m_renderer);
+}
+
 void UIModule::onUiModalClose(const Message& msg) {
         if (!m_root) return;
         if (UIWidget* w = m_root->findById(msg.data->getString("id", ""))) {
             if (w->getType() == "modal" && w->visible) {
-                w->visible = false;
-                if (m_renderer) w->releaseRenderEntries(*m_renderer);
+                hideAndRelease(w);
                 auto ev = std::make_unique<JsonDataNode>("closed");
                 ev->setString("id", w->id);
                 m_io->publish("ui:modal:closed", std::move(ev));
@@ -816,6 +829,213 @@ void UIModule::fireWidgetEvent(UIWidget* w, const std::string& signal) {
     m_io->publish(it->second.eventName, std::move(payload));
 }
 
+// QUOI : traduit un clic RESOLU (le widget sous le curseur, deja determine par dispatchMouseButton)
+//   en evenements IIO, selon le type du widget.
+//
+// POURQUOI c'est une fonction a part : ces ~190 lignes formaient le ventre d'updateUI et n'ont
+//   AUCUNE interaction avec les phases qui l'entourent -- elles lisent un widget deja resolu et
+//   publient. Les sortir rend visible ce qu'updateUI est vraiment : un pipeline de phases.
+//
+// ⚠️ POURQUOI ca reste dans le MODULE et pas dans les widgets. Aucun widget de ce module ne nomme
+//   un topic IIO -- invariant verifie sur tout modules/UIModule/Widgets/. Le partage des roles est
+//   constant : le widget repond a une QUESTION (`acceptsFocus`, `handleMouseWheel`, `submitsOn`),
+//   le module possede le vocabulaire du bus. Deplacer la publication cote widget casserait ca pour
+//   six topics differents aux charges differentes -- les branches ci-dessous ne sont PAS des corps
+//   jumeaux, contrairement aux trois blocs qu'on a deja factorises dans updateUI.
+void UIModule::dispatchWidgetClick(UIWidget* clickedWidget) {
+    if (!clickedWidget || !m_io) return;
+        // Publish click event
+        auto clickEvent = std::make_unique<JsonDataNode>("click");
+        clickEvent->setString("widgetId", clickedWidget->id);
+        clickEvent->setDouble("x", m_context->mouseX);
+        clickEvent->setDouble("y", m_context->mouseY);
+        m_io->publish("ui:click", std::move(clickEvent));
+
+        // Declarative events: publish the widget's bound event with {{}}-resolved args, on the real click
+        // (release). Right button fires "rightClick", left fires "click" — so a widget can do both (e.g. a
+        // fleet icon: left-click selects, right-click opens the inspector).
+        if (m_context->mouseReleased) fireWidgetEvent(clickedWidget, m_context->mouseButton == 1 ? "rightClick" : "click");
+
+        // Publish type-specific events
+        std::string widgetType = clickedWidget->getType();
+
+        m_logger->info("🖱️ Widget clicked: id='{}', type='{}', mousePressed={}",
+            clickedWidget->id, widgetType, m_context->mousePressed);
+
+        // Handle focus for text inputs
+        // ---------------- FOCUS CLAVIER ----------------
+        //
+        // QUOI     : un clic donne le focus au widget cliquable au clavier, et le retire au
+        //            precedent.
+        // POURQUOI : ce bloc etait ecrit DEUX FOIS -- une branche `textinput`, une branche
+        //            `textarea` -- pour un corps identique au type pres. Un troisieme widget
+        //            focusable aurait exige une troisieme copie.
+        // COMMENT  : `acceptsFocus()` remplace l'enumeration des types, `loseFocus()`/
+        //            `gainFocus()` sont appeles a travers l'interface. La publication reste ici :
+        //            un widget n'a pas d'IIO (cf. UI_ARCHITECTURE.md).
+        //
+        // ⚠️ CORRECTION DE COMPORTEMENT au passage. L'ancienne branche `textinput` ne retirait le
+        //    focus au precedent QUE s'il etait lui aussi un `textinput` -- elle ignorait le cas
+        //    `textarea`, que la branche jumelle traitait pourtant. Cliquer d'une zone multiligne
+        //    vers un champ laissait donc la zone focalisee en interne (curseur et bordure de
+        //    focus toujours dessines), alors que les touches partaient ailleurs. Unifier le
+        //    corps supprime l'asymetrie : c'etait un defaut de la duplication elle-meme.
+        if (clickedWidget->acceptsFocus() && m_context->mousePressed) {
+            if (!m_context->focusedWidgetId.empty() &&
+                m_context->focusedWidgetId != clickedWidget->id) {
+                if (UIWidget* prev = m_root->findById(m_context->focusedWidgetId)) {
+                    prev->loseFocus();
+                }
+                auto lost = std::make_unique<JsonDataNode>("focus_lost");
+                lost->setString("widgetId", m_context->focusedWidgetId);
+                m_io->publish("ui:focus_lost", std::move(lost));
+            }
+
+            clickedWidget->gainFocus();
+            m_context->setFocus(clickedWidget->id);
+
+            auto gained = std::make_unique<JsonDataNode>("focus_gained");
+            gained->setString("widgetId", clickedWidget->id);
+            m_io->publish("ui:focus_gained", std::move(gained));
+
+            m_logger->info("Widget '{}' gained keyboard focus", clickedWidget->id);
+        }
+        else if (widgetType == "button") {
+            // Publish action event if button has onClick
+            UIButton* btn = static_cast<UIButton*>(clickedWidget);
+            if (!btn->onClick.empty() && m_context->mouseReleased) {
+                auto actionEvent = std::make_unique<JsonDataNode>("action");
+                actionEvent->setString("action", btn->onClick);
+                actionEvent->setString("widgetId", btn->id);
+                m_io->publish("ui:action", std::move(actionEvent));
+                m_logger->info("Button '{}' clicked, action: {}", btn->id, btn->onClick);
+            }
+        }
+        else if (widgetType == "slider") {
+            // QUOI : on n'émet PAS ui:value_changed ici — on marque seulement le
+            //   début du drag sur le front "press".
+            // POURQUOI : émettre uniquement dans cette branche (fronts press/release)
+            //   ratait toutes les valeurs intermédiaires du drag, et même la valeur
+            //   finale quand le release tombait hors containsPoint (audit H2).
+            //   L'émission est désormais centralisée après le pass update() (voir
+            //   plus bas), donc elle couvre aussi chaque frame de drag-move.
+            // COMMENT : on retient l'id ; m_lastDragValue = NaN force l'émission de
+            //   la valeur initiale au premier passage post-update.
+            if (m_context->mousePressed) {
+                UISlider* slider = static_cast<UISlider*>(clickedWidget);
+                m_draggingSliderId = slider->id;
+                m_lastDragValue = std::numeric_limits<float>::quiet_NaN();
+            }
+        }
+        else if (widgetType == "checkbox") {
+            // Publish value_changed event for checkbox
+            UICheckbox* checkbox = static_cast<UICheckbox*>(clickedWidget);
+            if (m_context->mouseReleased) {  // Only on click release
+                auto valueEvent = std::make_unique<JsonDataNode>("value");
+                valueEvent->setString("widgetId", checkbox->id);
+                valueEvent->setBool("checked", checkbox->checked);
+                m_io->publish("ui:value_changed", std::move(valueEvent));
+
+                // Publish onChange action if specified
+                if (!checkbox->onChange.empty()) {
+                    auto actionEvent = std::make_unique<JsonDataNode>("action");
+                    actionEvent->setString("action", checkbox->onChange);
+                    actionEvent->setString("widgetId", checkbox->id);
+                    actionEvent->setBool("checked", checkbox->checked);
+                    m_io->publish("ui:action", std::move(actionEvent));
+                }
+
+                m_logger->info("Checkbox '{}' toggled to {}", checkbox->id, checkbox->checked);
+            }
+        }
+        else if (widgetType == "radial") {
+            // Roue d'action : un release sur la roue CONFIRME le segment sous le
+            // pointeur (publie ui:action + l'index), ou ANNULE si relâché dans la
+            // dead-zone centrale (selectedAction() == "").
+            // POURQUOI on émet sur ui:action (topic existant) : les jeux consomment
+            //   déjà ce topic pour les boutons -> zéro nouveau contrat à câbler.
+            // AUTO-CLOSE : on se cache à la sélection (la roue est un menu modal). C'est
+            //   sûr maintenant que releaseRenderEntries() purge les entrées retained du
+            //   widget caché (plus de rects fantômes — l'ancienne limitation est levée).
+            UIRadial* radial = static_cast<UIRadial*>(clickedWidget);
+            if (m_context->mouseReleased) {
+                std::string action = radial->selectedAction();
+                if (!action.empty()) {
+                    auto actionEvent = std::make_unique<JsonDataNode>("action");
+                    actionEvent->setString("action", action);
+                    actionEvent->setString("widgetId", radial->id);
+                    actionEvent->setInt("index", radial->selectedIndex());
+                    m_io->publish("ui:action", std::move(actionEvent));
+                    m_logger->info("Radial '{}' selected '{}' (index {})",
+                                   radial->id, action, radial->selectedIndex());
+                }
+                // Close the wheel on ANY release (selection OR dead-zone cancel) and purge its
+                // retained entries so nothing lingers. A modal action-wheel closes after one pick.
+                hideAndRelease(radial);
+            }
+        }
+        else if (widgetType == "tabs") {
+            // A press in the tab bar switches the active page + notifies the game.
+            UITabs* tabs = static_cast<UITabs*>(clickedWidget);
+            if (m_context->mousePressed && tabs->pointInTabBar(m_context->mouseX, m_context->mouseY)) {
+                int idx = tabs->tabAt(m_context->mouseX);
+                if (idx >= 0 && idx != tabs->activeIndex()) {
+                    tabs->setActiveIndex(idx);
+                    auto tabEvent = std::make_unique<JsonDataNode>("tab");
+                    tabEvent->setString("widgetId", tabs->id);
+                    tabEvent->setInt("index", idx);
+                    m_io->publish("ui:tab:changed", std::move(tabEvent));
+                }
+            }
+        }
+        else if (widgetType == "modal") {
+            // Click on the dim, outside the dialog -> close the modal (common modal UX).
+            UIModal* modal = static_cast<UIModal*>(clickedWidget);
+            if (m_context->mousePressed && !modal->pointInDialog(m_context->mouseX, m_context->mouseY)) {
+                hideAndRelease(modal);
+                auto closeEvent = std::make_unique<JsonDataNode>("closed");
+                closeEvent->setString("id", modal->id);
+                m_io->publish("ui:modal:closed", std::move(closeEvent));
+            }
+        }
+        else if (widgetType == "list") {
+            // A press resolves the row under the cursor (scroll-aware). A HEADER row toggles its
+            // group's collapse (ui:list:group:toggled); an ITEM row selects it (ui:list:selected,
+            // carrying its groupId). rowAt returns -1 on empty gaps/out-of-range -> nothing happens.
+            UIList* list = static_cast<UIList*>(clickedWidget);
+            // Select/toggle on RELEASE, and only if the press didn't turn into a scroll-drag (the list
+            // owns scrolling: scrollbar-thumb drag + content drag-to-scroll, driven in its update()).
+            if (m_context->mouseReleased && !list->suppressClick()) {
+                int row = list->rowAt(m_context->mouseY);
+                const ListRow* r = (row >= 0) ? list->rowPtr(row) : nullptr;
+                if (r && r->isHeader) {
+                    // COPY the group id BEFORE toggleGroup() — it calls rebuildRows() which clears
+                    // m_rows, so `r` (a pointer INTO m_rows) dangles right after. (Use-after-free
+                    // otherwise: the event would carry a freed/empty groupId.)
+                    const std::string gid = r->groupId;
+                    bool collapsed = list->toggleGroup(gid);
+                    auto ev = std::make_unique<JsonDataNode>("toggled");
+                    ev->setString("id", list->id);
+                    ev->setString("groupId", gid);
+                    ev->setBool("collapsed", collapsed);
+                    m_io->publish("ui:list:group:toggled", std::move(ev));
+                } else if (r) {
+                    // Snapshot the row's fields before mutating (setSelectedIndex doesn't rebuild today,
+                    // but copying keeps this robust if it ever does).
+                    const std::string gid = r->groupId, iid = r->itemId;
+                    const int itemIdx = r->itemIndex;
+                    list->setSelectedIndex(row);
+                    auto sel = std::make_unique<JsonDataNode>("selected");
+                    sel->setString("id", list->id);
+                    sel->setString("groupId", gid);     // "" for a flat (ungrouped) list
+                    sel->setInt("index", itemIdx);      // index WITHIN the group (flat: global)
+                    sel->setString("itemId", iid);
+                    m_io->publish("ui:list:selected", std::move(sel));
+                }
+            }
+        }
+}
+
 void UIModule::updateUI(float deltaTime) {
     if (!m_root) return;
 
@@ -865,200 +1085,7 @@ void UIModule::updateUI(float deltaTime) {
             m_context->mousePressed
         );
 
-        if (clickedWidget && m_io) {
-            // Publish click event
-            auto clickEvent = std::make_unique<JsonDataNode>("click");
-            clickEvent->setString("widgetId", clickedWidget->id);
-            clickEvent->setDouble("x", m_context->mouseX);
-            clickEvent->setDouble("y", m_context->mouseY);
-            m_io->publish("ui:click", std::move(clickEvent));
-
-            // Declarative events: publish the widget's bound event with {{}}-resolved args, on the real click
-            // (release). Right button fires "rightClick", left fires "click" — so a widget can do both (e.g. a
-            // fleet icon: left-click selects, right-click opens the inspector).
-            if (m_context->mouseReleased) fireWidgetEvent(clickedWidget, m_context->mouseButton == 1 ? "rightClick" : "click");
-
-            // Publish type-specific events
-            std::string widgetType = clickedWidget->getType();
-
-            m_logger->info("🖱️ Widget clicked: id='{}', type='{}', mousePressed={}",
-                clickedWidget->id, widgetType, m_context->mousePressed);
-
-            // Handle focus for text inputs
-            // ---------------- FOCUS CLAVIER ----------------
-            //
-            // QUOI     : un clic donne le focus au widget cliquable au clavier, et le retire au
-            //            precedent.
-            // POURQUOI : ce bloc etait ecrit DEUX FOIS -- une branche `textinput`, une branche
-            //            `textarea` -- pour un corps identique au type pres. Un troisieme widget
-            //            focusable aurait exige une troisieme copie.
-            // COMMENT  : `acceptsFocus()` remplace l'enumeration des types, `loseFocus()`/
-            //            `gainFocus()` sont appeles a travers l'interface. La publication reste ici :
-            //            un widget n'a pas d'IIO (cf. UI_ARCHITECTURE.md).
-            //
-            // ⚠️ CORRECTION DE COMPORTEMENT au passage. L'ancienne branche `textinput` ne retirait le
-            //    focus au precedent QUE s'il etait lui aussi un `textinput` -- elle ignorait le cas
-            //    `textarea`, que la branche jumelle traitait pourtant. Cliquer d'une zone multiligne
-            //    vers un champ laissait donc la zone focalisee en interne (curseur et bordure de
-            //    focus toujours dessines), alors que les touches partaient ailleurs. Unifier le
-            //    corps supprime l'asymetrie : c'etait un defaut de la duplication elle-meme.
-            if (clickedWidget->acceptsFocus() && m_context->mousePressed) {
-                if (!m_context->focusedWidgetId.empty() &&
-                    m_context->focusedWidgetId != clickedWidget->id) {
-                    if (UIWidget* prev = m_root->findById(m_context->focusedWidgetId)) {
-                        prev->loseFocus();
-                    }
-                    auto lost = std::make_unique<JsonDataNode>("focus_lost");
-                    lost->setString("widgetId", m_context->focusedWidgetId);
-                    m_io->publish("ui:focus_lost", std::move(lost));
-                }
-
-                clickedWidget->gainFocus();
-                m_context->setFocus(clickedWidget->id);
-
-                auto gained = std::make_unique<JsonDataNode>("focus_gained");
-                gained->setString("widgetId", clickedWidget->id);
-                m_io->publish("ui:focus_gained", std::move(gained));
-
-                m_logger->info("Widget '{}' gained keyboard focus", clickedWidget->id);
-            }
-            else if (widgetType == "button") {
-                // Publish action event if button has onClick
-                UIButton* btn = static_cast<UIButton*>(clickedWidget);
-                if (!btn->onClick.empty() && m_context->mouseReleased) {
-                    auto actionEvent = std::make_unique<JsonDataNode>("action");
-                    actionEvent->setString("action", btn->onClick);
-                    actionEvent->setString("widgetId", btn->id);
-                    m_io->publish("ui:action", std::move(actionEvent));
-                    m_logger->info("Button '{}' clicked, action: {}", btn->id, btn->onClick);
-                }
-            }
-            else if (widgetType == "slider") {
-                // QUOI : on n'émet PAS ui:value_changed ici — on marque seulement le
-                //   début du drag sur le front "press".
-                // POURQUOI : émettre uniquement dans cette branche (fronts press/release)
-                //   ratait toutes les valeurs intermédiaires du drag, et même la valeur
-                //   finale quand le release tombait hors containsPoint (audit H2).
-                //   L'émission est désormais centralisée après le pass update() (voir
-                //   plus bas), donc elle couvre aussi chaque frame de drag-move.
-                // COMMENT : on retient l'id ; m_lastDragValue = NaN force l'émission de
-                //   la valeur initiale au premier passage post-update.
-                if (m_context->mousePressed) {
-                    UISlider* slider = static_cast<UISlider*>(clickedWidget);
-                    m_draggingSliderId = slider->id;
-                    m_lastDragValue = std::numeric_limits<float>::quiet_NaN();
-                }
-            }
-            else if (widgetType == "checkbox") {
-                // Publish value_changed event for checkbox
-                UICheckbox* checkbox = static_cast<UICheckbox*>(clickedWidget);
-                if (m_context->mouseReleased) {  // Only on click release
-                    auto valueEvent = std::make_unique<JsonDataNode>("value");
-                    valueEvent->setString("widgetId", checkbox->id);
-                    valueEvent->setBool("checked", checkbox->checked);
-                    m_io->publish("ui:value_changed", std::move(valueEvent));
-
-                    // Publish onChange action if specified
-                    if (!checkbox->onChange.empty()) {
-                        auto actionEvent = std::make_unique<JsonDataNode>("action");
-                        actionEvent->setString("action", checkbox->onChange);
-                        actionEvent->setString("widgetId", checkbox->id);
-                        actionEvent->setBool("checked", checkbox->checked);
-                        m_io->publish("ui:action", std::move(actionEvent));
-                    }
-
-                    m_logger->info("Checkbox '{}' toggled to {}", checkbox->id, checkbox->checked);
-                }
-            }
-            else if (widgetType == "radial") {
-                // Roue d'action : un release sur la roue CONFIRME le segment sous le
-                // pointeur (publie ui:action + l'index), ou ANNULE si relâché dans la
-                // dead-zone centrale (selectedAction() == "").
-                // POURQUOI on émet sur ui:action (topic existant) : les jeux consomment
-                //   déjà ce topic pour les boutons -> zéro nouveau contrat à câbler.
-                // AUTO-CLOSE : on se cache à la sélection (la roue est un menu modal). C'est
-                //   sûr maintenant que releaseRenderEntries() purge les entrées retained du
-                //   widget caché (plus de rects fantômes — l'ancienne limitation est levée).
-                UIRadial* radial = static_cast<UIRadial*>(clickedWidget);
-                if (m_context->mouseReleased) {
-                    std::string action = radial->selectedAction();
-                    if (!action.empty()) {
-                        auto actionEvent = std::make_unique<JsonDataNode>("action");
-                        actionEvent->setString("action", action);
-                        actionEvent->setString("widgetId", radial->id);
-                        actionEvent->setInt("index", radial->selectedIndex());
-                        m_io->publish("ui:action", std::move(actionEvent));
-                        m_logger->info("Radial '{}' selected '{}' (index {})",
-                                       radial->id, action, radial->selectedIndex());
-                    }
-                    // Close the wheel on ANY release (selection OR dead-zone cancel) and purge its
-                    // retained entries so nothing lingers. A modal action-wheel closes after one pick.
-                    radial->visible = false;
-                    if (m_renderer) radial->releaseRenderEntries(*m_renderer);
-                }
-            }
-            else if (widgetType == "tabs") {
-                // A press in the tab bar switches the active page + notifies the game.
-                UITabs* tabs = static_cast<UITabs*>(clickedWidget);
-                if (m_context->mousePressed && tabs->pointInTabBar(m_context->mouseX, m_context->mouseY)) {
-                    int idx = tabs->tabAt(m_context->mouseX);
-                    if (idx >= 0 && idx != tabs->activeIndex()) {
-                        tabs->setActiveIndex(idx);
-                        auto tabEvent = std::make_unique<JsonDataNode>("tab");
-                        tabEvent->setString("widgetId", tabs->id);
-                        tabEvent->setInt("index", idx);
-                        m_io->publish("ui:tab:changed", std::move(tabEvent));
-                    }
-                }
-            }
-            else if (widgetType == "modal") {
-                // Click on the dim, outside the dialog -> close the modal (common modal UX).
-                UIModal* modal = static_cast<UIModal*>(clickedWidget);
-                if (m_context->mousePressed && !modal->pointInDialog(m_context->mouseX, m_context->mouseY)) {
-                    modal->visible = false;
-                    if (m_renderer) modal->releaseRenderEntries(*m_renderer);
-                    auto closeEvent = std::make_unique<JsonDataNode>("closed");
-                    closeEvent->setString("id", modal->id);
-                    m_io->publish("ui:modal:closed", std::move(closeEvent));
-                }
-            }
-            else if (widgetType == "list") {
-                // A press resolves the row under the cursor (scroll-aware). A HEADER row toggles its
-                // group's collapse (ui:list:group:toggled); an ITEM row selects it (ui:list:selected,
-                // carrying its groupId). rowAt returns -1 on empty gaps/out-of-range -> nothing happens.
-                UIList* list = static_cast<UIList*>(clickedWidget);
-                // Select/toggle on RELEASE, and only if the press didn't turn into a scroll-drag (the list
-                // owns scrolling: scrollbar-thumb drag + content drag-to-scroll, driven in its update()).
-                if (m_context->mouseReleased && !list->suppressClick()) {
-                    int row = list->rowAt(m_context->mouseY);
-                    const ListRow* r = (row >= 0) ? list->rowPtr(row) : nullptr;
-                    if (r && r->isHeader) {
-                        // COPY the group id BEFORE toggleGroup() — it calls rebuildRows() which clears
-                        // m_rows, so `r` (a pointer INTO m_rows) dangles right after. (Use-after-free
-                        // otherwise: the event would carry a freed/empty groupId.)
-                        const std::string gid = r->groupId;
-                        bool collapsed = list->toggleGroup(gid);
-                        auto ev = std::make_unique<JsonDataNode>("toggled");
-                        ev->setString("id", list->id);
-                        ev->setString("groupId", gid);
-                        ev->setBool("collapsed", collapsed);
-                        m_io->publish("ui:list:group:toggled", std::move(ev));
-                    } else if (r) {
-                        // Snapshot the row's fields before mutating (setSelectedIndex doesn't rebuild today,
-                        // but copying keeps this robust if it ever does).
-                        const std::string gid = r->groupId, iid = r->itemId;
-                        const int itemIdx = r->itemIndex;
-                        list->setSelectedIndex(row);
-                        auto sel = std::make_unique<JsonDataNode>("selected");
-                        sel->setString("id", list->id);
-                        sel->setString("groupId", gid);     // "" for a flat (ungrouped) list
-                        sel->setInt("index", itemIdx);      // index WITHIN the group (flat: global)
-                        sel->setString("itemId", iid);
-                        m_io->publish("ui:list:selected", std::move(sel));
-                    }
-                }
-            }
-        }
+        dispatchWidgetClick(clickedWidget);
     }
 
     // COLLAGE EN ATTENTE — la réponse du presse-papiers est arrivée pendant le drain IIO ; on
