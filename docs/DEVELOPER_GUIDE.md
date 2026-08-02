@@ -1924,7 +1924,7 @@ The field **name carries the anchor** — you never guess or read `SceneCollecto
 | `render:sprite` `blend` | `"alpha"` (default) / `"additive"` | Optional. Additive makes overlapping sprites BRIGHTEN — a glowing stretched quad, which neither alpha sprites nor square particles could draw. Absent = historical behaviour bit for bit. |
 | `render:rect` | `{x, y, w, h, color, layer, space?}` | Filled colored quad, top-left coords. A **layered** sprite-pass quad (honors `layer`, drawn before text) — use for HUD backgrounds. Unlike `render:debug:rect` (always-on-top, unlayered debug overlay). `space:"screen"` → HUD overlay |
 | `render:sector` | `{cx, cy, r0, r1, a0, a1, color, layer, space?}` | Filled **ring-sector / pie wedge** (centre cx,cy; inner/outer radius r0/r1, r0=0 = a full pie slice; angles a0..a1 in radians, screen y-down). Drawn as coloured triangles (SectorPass). Reusable for radial menus, cooldown rings, gauges. `space:"screen"` → HUD |
-| `render:sprite:batch` | `{sprites: [array]}` | Render sprite batch (optimized) |
+| `render:sprite:batch` | `{stride?, +blob "spriteData"}` **or** `{sprites: [array]}` | Many sprites in ONE message. **Fast path = the packed float blob**: `stride` 8 (default) = `x,y,scaleX,scaleY,rotation,textureId,layer,colorBits`; **`stride` 12 adds `u0,v0,u1,v1` = an ATLAS sub-rect**. Zero node per sprite. The `{sprites:[...]}` child-node form is a FALLBACK — it still allocates one node each. Unknown stride or non-multiple byte length = rejected + logged. See *Bulk sprites* |
 
 #### Asset streaming & runtime textures
 
@@ -2532,6 +2532,52 @@ for (auto& enemy : enemies) {
 batch->setChild("sprites", std::move(sprites));
 io->publish("render:sprite:batch", std::move(batch));  // 1 IIO message
 ```
+
+> ⚠️ **The form above is the FALLBACK, not the fast path.** It saves the per-sprite IIO *message* but
+> still builds one `JsonDataNode` per sprite — and that allocation is the actual cost. For real
+> throughput use the **packed blob** below.
+
+##### The packed blob — the actual fast path
+
+One binary blob, **zero node per sprite**, an `O(N)` `memcpy` into the frame. Floats, tightly packed,
+`stride` values per sprite:
+
+| `stride` | Layout |
+|---|---|
+| **8** (default, omit the field) | `x, y, scaleX, scaleY, rotation, textureId, layer, colorBits` |
+| **12** | the eight above **+ `u0, v0, u1, v1`** — an **atlas sub-rect** |
+
+```cpp
+std::vector<float> packed;                       // stride 12: sprite i at packed[i*12]
+for (const auto& piece : pieces) {
+    uint32_t rgba = piece.color;                 // 0xRRGGBBAA
+    float colorBits; std::memcpy(&colorBits, &rgba, sizeof(float));   // BITS, not a numeric cast
+    packed.insert(packed.end(), {
+        piece.cx, piece.cy, piece.w, piece.h, piece.rotation,
+        static_cast<float>(piece.textureId), static_cast<float>(piece.layer), colorBits,
+        piece.u0, piece.v0, piece.u1, piece.v1                        // the atlas sub-rect
+    });
+}
+auto n = std::make_unique<JsonDataNode>("b");
+n->setInt("stride", 12);                         // omit ⇒ 8 ⇒ full-quad UVs (historical behaviour)
+n->setBlob("spriteData", reinterpret_cast<const uint8_t*>(packed.data()),
+           packed.size() * sizeof(float));
+io->publish("render:sprite:batch", std::move(n));
+```
+
+- **`cx, cy` = CENTRE**, like every sprite topic. `colorBits` is the `uint32` **reinterpreted** as a
+  float — a numeric cast silently mangles it.
+- **A flip needs no field**: a flip *is* a UV swap, so publish `u0 > u1` yourself. It composes with
+  `rotation` exactly like `flipX` does on the single-sprite path.
+- **An unknown `stride`, or a blob whose byte length isn't a multiple of it, is REJECTED** (one-shot
+  log, batch dropped). Reading a stride-12 blob as stride 8 does not yield "fewer sprites" — it
+  yields *garbage quads at random positions*, which is far harder to diagnose than nothing at all.
+- ⚠️ **No `asset` id here.** A blob can't carry strings, so streamed assets must be resolved to a
+  numeric `textureId` + explicit UVs by the game. If you need the asset path at bulk scale, say so —
+  it isn't built because nobody has asked.
+- Even faster, but **static-link only**: `BgfxRendererModule::submitSpriteBatch(SpriteInstance*, n)`
+  bypasses IIO entirely (~100k sprites/frame at 60 fps). The blob path is what a module gets without
+  linking the renderer.
 
 #### Low-Frequency Subscriptions
 
