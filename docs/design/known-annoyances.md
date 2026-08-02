@@ -239,6 +239,48 @@ nouveau le soir), `AtlasPackerGpu` (après-midi, 5/5 dans une fenêtre), `NineSl
 vert 4/4 vingt minutes après), `UIDemoGpu`. Quatre noms, aucun stable — et à un moment, `NineSliceGpu`
 passait pendant que deux autres échouaient.
 
+### La campagne — 177 passes, et la salve est PROUVÉE (2026-08-02, soir)
+
+`tools/gpu-burst-campaign.sh` : une heure de boucle sur le jeu GPU, une ligne par passe, avec la
+télémétrie NVIDIA avant/après (température, utilisation, horloge SM, **pstate, puissance**).
+
+**177 passes, 44 échecs, 6 victimes différentes.** Et la carte temporelle ne laisse aucun doute —
+une passe par caractère, `X` = au moins un échec :
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX..XX..............XXXXXXXXXX
+............................................................
+.........................................................
+```
+
+**Les 44 échecs sont tous dans les 60 premières passes (~20 min). Puis 117 passes consécutives
+propres, 40 minutes durant.** La salve n'est plus une hypothèse : elle a une forme.
+
+#### Ce que la campagne ÉLIMINE
+
+| Hypothèse | Verdict |
+|---|---|
+| **Enveloppe électrique / pstate** | ❌ **éliminée** — `P3`, ~21 W, 2250 MHz, **plates sur toute l'heure**. La victime a changé plusieurs fois sans qu'un seul paramètre électrique bouge. |
+| **Seuil thermique** | ❌ **éliminée** — le bucket le **plus chaud** (58-59 °C) a le taux d'échec le plus **bas** (17 %), et l'amplitude totale est de 11 °C. |
+| **Tirage au sort par passe** | ❌ **éliminée** — 117 propres d'affilée n'arrivent pas par hasard à 25 % de taux global. |
+
+#### Ce qu'elle laisse
+
+⚠️ **Hypothèse, une seule campagne, non confirmée** : la fenêtre en échec est celle qui **suivait
+immédiatement une heure de builds, de suites complètes, de bancs et de captures**. Le régime
+s'assainit ensuite et ne rechute plus tant que la charge reste monotone. Ça colle aux observations
+de la journée — les salves du matin suivaient des builds, celles de l'après-midi des bancs.
+
+**Conséquence pratique, elle, immédiatement utilisable** : *ne pas juger un résultat de test GPU
+juste après une activité de build intense.* Laisser la machine décanter ~20 minutes, ou relancer.
+
+#### Ce qui reste ouvert
+
+La **nature** de l'état résiduel (ressource pilote non libérée ? file de commandes ? mémoire
+fragmentée côté driver ?) et **pourquoi il choisit telle victime**. Une seconde campagne, lancée sur
+une machine au repos depuis une heure, dirait si la fenêtre initiale disparaît — c'est le test qui
+confirmerait ou tuerait l'hypothèse.
+
 **Geste suivant si on veut la cause** : une campagne longue et détachée — boucler le jeu GPU pendant
 une heure en horodatant chaque salve, pour voir si elle corrèle avec la charge, la thermique, ou un
 nombre cumulé de créations/destructions de device. Pas une session interactive : le phénomène a une
