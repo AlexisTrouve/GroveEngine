@@ -1,7 +1,8 @@
 # La non-linéarité d'éclairage — plan de diagnostic
 
-> **Statut** : 📋 PLAN (2026-08-02). C'est un plan de **diagnostic**, pas d'optimisation — et cette
-> distinction est le cœur du document.
+> **Statut** : ✅ **RÉSOLU (2026-08-02) — la non-linéarité n'existe pas.** C'était le chronomètre GPU
+> du banc, pas le moteur. Verdict et méthode en **§6** ; le reste du document est conservé tel qu'il a
+> été écrit AVANT la mesure, parce que le plan a tenu et que c'est ça qui est réutilisable.
 >
 > **Contrainte de cadrage** : aucun consommateur n'éclaire quoi que ce soit (mesuré le 02/08 —
 > Drifterra, DAOS et Fractax publient 11 à 15 topics `render:*` chacun, aucun `render:ambient`). Le
@@ -130,3 +131,72 @@ construire revient à Alexi.
   de preuve impeccable.
 - ⚠️ **Mesurer plusieurs fois dans la MÊME fenêtre de quelques minutes n'est pas mesurer plusieurs
   fois** : les répétitions partagent l'état transitoire de la machine. Espacer, ou l'écrire.
+
+
+---
+
+## 6. VERDICT — l'instrument, pas le moteur
+
+### L'étape 1 a éliminé le CPU, et révélé une impossibilité
+
+| Lampes (r=60) | cover | wall ms | gpu ms | cpu ms |
+|---|---|---|---|---|
+| 256 | 3,74 | 1,13 | 0,18 | 0,17 |
+| 1024 | 14,97 | 3,93 | 0,33 | 0,56 |
+| 4096 | 59,89 | **14,18** | **31,80** | 1,72 |
+
+Deux lectures, immédiates :
+
+- **(a) est mort.** Le CPU total plafonne à 1,72 ms — il ne peut pas produire un effet de 26 ms. Le
+  banc ne mesurait pas sa propre publication. Et (b), l'encodage des `submit` étant lui aussi du CPU
+  bgfx, tombe avec.
+- **En temps d'horloge, il n'y a AUCUNE non-linéarité** : 256→1024 = ×3,5 ; 1024→4096 = ×3,6, pour
+  ×4 lampes à chaque fois. Le ×80 n'existe que dans `gpu ms`.
+
+⚠️ Et cette colonne annonçait **31,80 ms de GPU dans une frame de 14,18 ms** — physiquement
+impossible. Le vrai sujet n'était plus « quelle couche coûte », mais **« à quel instrument se fier »**.
+
+### L'étape 2 a tranché : rendre l'horloge murale dépendante du GPU
+
+Sans vsync, bgfx n'attend pas le GPU à `frame()` — le CPU empile des frames d'avance, donc `wall`
+mesure le **débit de soumission**, pas le coût d'une frame. D'où le drapeau **`--vsync`** ajouté au
+banc : `frame()` bloque alors sur le present, et `wall` devient la vraie période d'affichage.
+
+| Ligne | gpu ms | wall ms (vsync) | Lecture |
+|---|---|---|---|
+| 4096 petites lampes | **37,31** | **15,82** | UNE période — le mur **contredit** le chronomètre |
+| 256 lampes + murs | 21,6 / 27,2 / 27,3 | **20,3 / 25,7 / 23,5** | dépasse la période — le mur **suit** le chronomètre |
+
+**C'est le contrôle qui donne sa valeur au résultat** : la même méthode, sur des lignes dont le coût
+GPU est réel, montre l'horloge murale s'étirer au-delà de la période et coller au chronomètre. La
+méthode discrimine donc — et elle dit que les 37 ms des 4096 lampes ne sont pas là.
+
+### Ce qui est acquis, et ce qui ne l'est pas
+
+✅ **Il n'y a pas de défaut moteur.** 4096 lampes de rayon 60 tiennent dans une frame à 60 Hz. Le
+modèle de coût du banc (proportionnel aux viewports couverts) n'a jamais été mis en défaut.
+
+✅ **`CLAUDE.md` accusait la mauvaise couche** — « semble lié aux draw-calls » désignait le renderer
+pour un artefact d'instrument. Corrigé.
+
+❌ **On ne sait pas POURQUOI le chronomètre GPU se trompe** au-delà de ~1000 appels de dessin. C'est
+désormais une question sur `bgfx::getStats()`, pas sur le moteur — et sans portée pratique, donc
+laissée ouverte plutôt que chassée.
+
+⚠️ **Anomalie mineure, signalée plutôt que tue** : sous vsync, deux lignes ressortent *sous* la
+période (11,30 et 12,05 ms). Une frame ne peut pas être plus courte que le present qui la borne. La
+mesure murale n'inclut donc pas toujours le blocage complet — ça n'entame pas la conclusion, puisque
+le contrôle montre qu'elle capte le coût réel quand il existe, mais ça interdit de lire ces deux
+valeurs comme des durées.
+
+### La leçon
+
+> **Deux instruments qui se contredisent ne se départagent pas en choisissant le plus précis, mais en
+> en construisant un troisième qui les couvre.** Ici : forcer la synchronisation pour que l'horloge
+> murale devienne dépendante du GPU. Cinq lignes de code, et une ligne de documentation fausse depuis
+> des semaines.
+
+> **Et : une hypothèse obtenue par ÉLIMINATION n'est pas une mesure.** « Ce n'est pas du fill rate,
+> donc c'est sans doute les draw-calls » a été relu comme un fait pendant des semaines — assez pour
+> devenir un candidat de chantier. Le premier geste aurait dû être de relire les colonnes que le banc
+> imprimait déjà.

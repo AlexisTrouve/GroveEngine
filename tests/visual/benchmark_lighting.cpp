@@ -83,6 +83,20 @@ double clippedArea(double cx, double cy, double r) {
     return (x1 - x0) * (y1 - y0);
 }
 
+// ⚠️ DIAGNOSTIC (2026-08-02) — `--vsync` rend l'horloge MURALE dependante du GPU.
+//
+// Sans vsync, bgfx n'attend pas le GPU a frame() : le CPU empile des frames d'avance, donc `wall`
+// mesure le DEBIT DE SOUMISSION, pas le cout d'une frame. C'est ce qui a produit une contradiction
+// impossible dans la sortie du 02/08 -- `gpu ms` 31.80 dans une frame `wall ms` de 14.18.
+//
+// Avec vsync, frame() bloque jusqu'au present : `wall` devient la vraie periode d'affichage, donc
+// un multiple de 16.6 ms. Le discriminant est grossier mais net -- 31 ms de GPU reel donne ~33 ms
+// (deux periodes), 14 ms en donne ~16.6 (une seule).
+//
+// Le commentaire d'origine disait "vsync would clamp every row to 16.6 ms and measure nothing".
+// C'est vrai pour MESURER un cout, faux pour VERIFIER un instrument : ici c'est le palier qu'on lit.
+static bool g_vsync = false;
+
 class Bench {
 public:
     bool init(SDL_Window* win) {
@@ -97,7 +111,7 @@ public:
         cfg.setDouble("nativeWindowHandle", double(reinterpret_cast<uintptr_t>(wmi.info.win.window)));
         cfg.setInt("windowWidth", VIEW_W);
         cfg.setInt("windowHeight", VIEW_H);
-        cfg.setBool("vsync", false);   // vsync would clamp every row to 16.6 ms and measure nothing
+        cfg.setBool("vsync", g_vsync);   // cf. g_vsync : off pour mesurer, on pour verifier l'instrument
         m_renderer->setConfiguration(cfg, m_rIO.get(), nullptr);
         return m_renderer->getDevice() != nullptr;
     }
@@ -223,7 +237,8 @@ void printRow(const Row& r) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--vsync") g_vsync = true;
     // ⚠️ set_level ne touche que le logger PAR DEFAUT et ceux crees ensuite. IntraIOManager a le
     // sien, cree avant : sans apply_all il crache des dizaines de milliers de lignes pendant la
     // mesure, ce qui la fausse autant que ca la noie.
@@ -240,8 +255,8 @@ int main() {
     if (!b.init(win)) { std::printf("no GPU device\n"); SDL_DestroyWindow(win); SDL_Quit(); return 2; }
 
     bool quit = false;
-    std::printf("=== BANC DE LAMPES — %dx%d, vsync off, %d frames mesurees par ligne ===\n",
-                VIEW_W, VIEW_H, MEAS_FRAMES);
+    std::printf("=== BANC DE LAMPES -- %dx%d, vsync %s, %d frames mesurees par ligne ===\n",
+                VIEW_W, VIEW_H, g_vsync ? "ON (verification d'instrument)" : "off", MEAS_FRAMES);
     std::fflush(stdout);
 
     printHeader("--- REFERENCE ---", "    Ce que coute le pipeline eclaire sans une seule lampe.");
