@@ -84,3 +84,92 @@ TEST_CASE("IT_029: clicking a tab switches the active page (UI slice 5c)", "[int
 
     uiModule->shutdown();
 }
+
+// ============================================================================
+// Étape 2 du chantier updateUI (2026-08-01) — renforcer AVANT de déplacer.
+//
+// La branche `tabs` de la chaîne `else if (widgetType == ...)` d'updateUI ne tenait que sur le cas
+// nominal ci-dessus. Or elle porte TROIS gardes, et un refactor qui en perdrait un ne rougirait
+// nulle part : `mousePressed` (agir au front d'appui, pas au relâchement), `pointInTabBar` (un clic
+// dans le CONTENU ne change pas d'onglet) et `idx != activeIndex` (recliquer l'onglet actif ne
+// republie rien).
+//
+// Chaque garde perdu donne un défaut réel et discret : un double-événement par clic, un onglet qui
+// change quand on clique une page, ou une rafale d'événements identiques que le jeu doit filtrer.
+// ============================================================================
+
+TEST_CASE("IT_029b: les trois gardes de la branche onglets", "[integration][ui][e2e][tabs]") {
+    auto& mgr = IntraIOManager::getInstance();
+    auto hostPub  = mgr.createInstance("tabg_host");
+    auto uiIO     = mgr.createInstance("tabg_ui");
+    auto observer = mgr.createInstance("tabg_observer");
+
+    ModuleLoader uiLoader;
+    std::string uiPath = "../modules/libUIModule.so";
+#ifdef _WIN32
+    uiPath = "../modules/libUIModule.dll";
+#endif
+    std::unique_ptr<IModule> uiModule;
+    REQUIRE_NOTHROW(uiModule = uiLoader.load(uiPath, "tabg_ui"));
+    REQUIRE(uiModule != nullptr);
+
+    JsonDataNode cfg("config");
+    cfg.setInt("windowWidth", 800);
+    cfg.setInt("windowHeight", 600);
+    cfg.setString("layoutFile", "../../assets/ui/test_e2e_tabs.json");
+    cfg.setInt("baseLayer", 1000);
+    REQUIRE_NOTHROW(uiModule->setConfiguration(cfg, uiIO.get(), nullptr));
+
+    // On COMPTE les événements au lieu de retenir le dernier : un garde perdu se manifeste par un
+    // événement DE TROP, pas par une mauvaise valeur. Retenir le dernier index l'aurait raté.
+    int tabEvents = 0, lastIndex = -1;
+    observer->subscribe("ui:tab:changed", [&](const Message& m) {
+        ++tabEvents; lastIndex = m.data->getInt("index", -1);
+    });
+
+    auto pump = [&] {
+        JsonDataNode input("input");
+        input.setDouble("deltaTime", 0.016);
+        uiModule->process(input);
+        while (observer->hasMessages() > 0) observer->pullAndDispatch();
+    };
+    auto sendMove = [&](double x, double y) {
+        auto d = std::make_unique<JsonDataNode>("d"); d->setDouble("x", x); d->setDouble("y", y);
+        hostPub->publish("input:mouse:move", std::move(d));
+    };
+    auto sendButton = [&](bool pressed) {
+        auto d = std::make_unique<JsonDataNode>("d"); d->setInt("button", 0); d->setBool("pressed", pressed);
+        hostPub->publish("input:mouse:button", std::move(d));
+    };
+    auto click = [&](double x, double y) { sendMove(x, y); pump(); sendButton(true); pump(); sendButton(false); pump(); };
+
+    pump();  // settle
+    // Géométrie de la fixture : onglets en (100,100) 300x200, barre haute de 30 px.
+    // Barre = y ∈ [100,130] ; onglet 0 = x ∈ [100,250], onglet 1 = x ∈ [250,400] ; contenu = y > 130.
+
+    // GARDE 1 — un clic complet sur un autre onglet donne EXACTEMENT un événement.
+    // Sans le garde `mousePressed`, le relâchement en produirait un second.
+    tabEvents = 0;
+    click(300, 115);
+    INFO("apres un clic sur l'onglet 1 : " << tabEvents << " evenement(s)");
+    REQUIRE(tabEvents == 1);
+    REQUIRE(lastIndex == 1);
+
+    // GARDE 2 — recliquer l'onglet DÉJÀ actif ne republie rien.
+    // Sans `idx != activeIndex`, chaque clic renverrait le même index : un jeu qui recharge une page
+    // sur cet événement rechargerait à chaque clic.
+    tabEvents = 0;
+    click(300, 115);
+    INFO("re-clic sur l'onglet actif : " << tabEvents << " evenement(s)");
+    REQUIRE(tabEvents == 0);
+
+    // GARDE 3 — un clic dans le CONTENU ne change pas d'onglet.
+    // Sans `pointInTabBar`, `tabAt(x)` répondrait pour une abscisse quelconque et cliquer la page
+    // ferait sauter l'onglet — le pire des trois, parce qu'il se déclenche en usage normal.
+    tabEvents = 0;
+    click(160, 200);          // bien en-dessous de la barre
+    INFO("clic dans le contenu : " << tabEvents << " evenement(s)");
+    REQUIRE(tabEvents == 0);
+
+    uiModule->shutdown();
+}
