@@ -30,6 +30,7 @@
 #include <cstring>
 #include <cstdint>
 #include <vector>
+#include <array>
 
 using namespace grove;
 using Catch::Matchers::WithinAbs;
@@ -3830,4 +3831,141 @@ TEST_CASE("SceneCollector - retenu : `:update` d'un chunk MULTI-COUCHES atteint 
     REQUIRE(p.tilemaps[0].layerCount == 2);
     REQUIRE(p.tilemaps[0].layers[1].tiles[0] == 0);   // le decor a quitte le coin haut-gauche...
     REQUIRE(p.tilemaps[0].layers[1].tiles[3] == 7);   // ...et se trouve en bas a droite
+}
+
+// ============================================================================
+// `render:sprite:batch` — le chemin bulk IIO ne savait pas dessiner un ATLAS.
+//
+// POURQUOI : le format packé codait les UV en dur sur le quad entier
+// (`sp.u0 = 0; sp.v0 = 0; sp.u1 = 1; sp.v1 = 1;`), donc TOUT jeu ayant de vrais assets en était
+// exclu — une sous-rect d'atlas, une pièce de paper-doll, un tileset partagé : impossible. Le
+// chemin rapide ne servait qu'aux quads pleine texture et aux aplats teintés, c'est-à-dire à des
+// cas de démo. `submitSpriteBatch` (l'API C++) porte des SpriteInstance complètes et n'a jamais eu
+// ce trou : il était spécifique à la version IIO, la seule utilisable sans liaison statique.
+//
+// LE FORMAT : un champ `stride` À CÔTÉ du blob, absent = 8 = l'ancien comportement bit pour bit.
+// Pas d'en-tête magique dans le blob — un jeu qui écrit des flottants ne doit pas avoir à en
+// fabriquer un. `stride 12` ajoute u0,v0,u1,v1 après les huit historiques.
+//
+// ⚠️ Le FLIP ne demande aucun champ : un flip EST un échange d'UV, donc le publisher échange u0/u1
+// dans ses propres données. La fonctionnalité vient gratuitement avec les UV.
+// ============================================================================
+
+namespace {
+// Empaquette des sprites au format demandé. `uvs` vide -> stride 8 (format historique).
+std::vector<float> packBatch(const std::vector<std::array<float, 8>>& base,
+                             const std::vector<std::array<float, 4>>& uvs) {
+    const size_t stride = uvs.empty() ? 8u : 12u;
+    std::vector<float> out(base.size() * stride);
+    for (size_t i = 0; i < base.size(); ++i) {
+        float* d = out.data() + i * stride;
+        for (size_t k = 0; k < 8; ++k) d[k] = base[i][k];
+        if (!uvs.empty()) for (size_t k = 0; k < 4; ++k) d[8 + k] = uvs[i][k];
+    }
+    return out;
+}
+
+// Un sprite « de base » : x, y, scaleX, scaleY, rotation, textureId, layer, colorBits.
+std::array<float, 8> baseSprite(float x, float y, float texId) {
+    uint32_t white = 0xFFFFFFFFu;
+    float colorBits; std::memcpy(&colorBits, &white, sizeof(float));
+    return { x, y, 32.0f, 32.0f, 0.0f, texId, 0.0f, colorBits };
+}
+
+void publishBatch(RetainedFixture& fx, const std::vector<float>& packed, int stride) {
+    auto n = std::make_unique<JsonDataNode>("b");
+    if (stride > 0) n->setInt("stride", stride);
+    n->setBlob("spriteData", reinterpret_cast<const uint8_t*>(packed.data()),
+               packed.size() * sizeof(float));
+    fx.ioPublisher->publish("render:sprite:batch", std::move(n));
+}
+} // namespace
+
+TEST_CASE("SceneCollector - batch stride 12 : les UV d'atlas arrivent au paquet",
+          "[scene_collector][bulk][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    // Deux pièces d'un même atlas : moitié gauche, moitié droite.
+    auto packed = packBatch({ baseSprite(10.0f, 20.0f, 7.0f), baseSprite(50.0f, 20.0f, 7.0f) },
+                            { {0.0f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 1.0f, 1.0f} });
+    publishBatch(fx, packed, 12);
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 2);
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.5f, 0.001f));
+    REQUIRE_THAT(p.sprites[1].u0, WithinAbs(0.5f, 0.001f));
+    REQUIRE_THAT(p.sprites[1].u1, WithinAbs(1.0f, 0.001f));
+    // Les huit champs historiques restent lus au même endroit.
+    REQUIRE_THAT(p.sprites[1].x, WithinAbs(50.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[1].textureId, WithinAbs(7.0f, 0.01f));
+}
+
+// Le flip SANS champ dédié : le publisher échange u0/u1 lui-même. C'est ce qui rend inutile
+// d'ajouter un drapeau au format — et ça vaut d'être verrouillé, sinon quelqu'un l'ajoutera.
+TEST_CASE("SceneCollector - batch : un flip s'exprime en echangeant u0/u1",
+          "[scene_collector][bulk][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto packed = packBatch({ baseSprite(0.0f, 0.0f, 3.0f) }, { {0.75f, 0.0f, 0.25f, 1.0f} });
+    publishBatch(fx, packed, 12);
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.75f, 0.001f));   // u0 > u1 : le quad est miroité
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(0.25f, 0.001f));
+}
+
+// NON-RÉGRESSION — sans `stride`, l'ancien format donne exactement l'ancien résultat : UV pleines.
+// C'est ce qui garantit qu'aucun publisher existant ne change de comportement.
+TEST_CASE("SceneCollector - batch sans stride : format 8 inchange, UV pleines",
+          "[scene_collector][bulk][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto packed = packBatch({ baseSprite(11.0f, 22.0f, 5.0f) }, {});
+    publishBatch(fx, packed, 0);          // aucun champ stride publié
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 1);
+    REQUIRE_THAT(p.sprites[0].x, WithinAbs(11.0f, 0.01f));
+    REQUIRE_THAT(p.sprites[0].u0, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(p.sprites[0].u1, WithinAbs(1.0f, 0.001f));
+}
+
+// ⚠️ Un stride inconnu est REJETÉ, pas devine. Le lire comme 8 ou 12 produirait des sprites en
+// bouillie a des positions aleatoires — un ecran de dechets est plus difficile a diagnostiquer
+// qu'un ecran vide, et bien plus qu'un log.
+TEST_CASE("SceneCollector - batch : un stride inconnu ne produit RIEN",
+          "[scene_collector][bulk][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto packed = packBatch({ baseSprite(1.0f, 2.0f, 1.0f) }, {});
+    publishBatch(fx, packed, 9);          // ni 8 ni 12
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 0);
+}
+
+// Un blob dont la taille n'est pas un multiple du stride est TRONQUÉ, donc suspect. L'ancien code
+// l'avalait en silence par division entière ; on refuse, pour la même raison que ci-dessus.
+TEST_CASE("SceneCollector - batch : une taille non multiple du stride est refusee",
+          "[scene_collector][bulk][batch]") {
+    RetainedFixture fx;
+    FrameAllocator allocator;
+
+    auto packed = packBatch({ baseSprite(1.0f, 2.0f, 1.0f), baseSprite(3.0f, 4.0f, 1.0f) }, {});
+    packed.pop_back();                    // un flottant en moins : 15 au lieu de 16
+    publishBatch(fx, packed, 8);
+    fx.pump();
+
+    FramePacket p = fx.collector.finalize(allocator);
+    REQUIRE(p.spriteCount == 0);
 }

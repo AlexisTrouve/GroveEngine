@@ -844,17 +844,56 @@ void SceneCollector::parseSpriteBatch(const IDataNode& data) {
         bytes = reinterpret_cast<const uint8_t*>(legacy.data()); byteLen = legacy.size();
     }
     if (byteLen > 0) {
-        constexpr size_t STRIDE = 8;
-        const size_t count = byteLen / (STRIDE * sizeof(float));
-        std::vector<float> f(count * STRIDE);                       // ALIGNED copy (blob not guaranteed 4-byte aligned)
-        std::memcpy(f.data(), bytes, count * STRIDE * sizeof(float));
+        // STRIDE — porté par un champ JSON À CÔTÉ du blob, absent = 8 = le format historique, bit
+        // pour bit. Pas d'en-tête magique dans le blob : un jeu qui écrit des flottants ne doit pas
+        // avoir à en fabriquer un, et un en-tête se désynchronise du contenu.
+        //   8  : x, y, scaleX, scaleY, rotation, textureId, layer, colorBits
+        //   12 : + u0, v0, u1, v1  -> une SOUS-RECT D'ATLAS.
+        //
+        // POURQUOI 12 existe : le format ne savait dessiner qu'un quad PLEINE TEXTURE (les UV
+        // étaient codées en dur ici), donc tout jeu ayant de vrais assets était exclu du chemin
+        // rapide — atlas, pièce de paper-doll, tileset partagé. C'était spécifique à la version
+        // IIO : `submitSpriteBatch` (l'API C++) porte des SpriteInstance complètes et n'a jamais eu
+        // ce trou. Le seul chemin bulk utilisable SANS liaison statique était donc le seul inutile
+        // à un vrai jeu.
+        //
+        // ⚠️ Le FLIP n'a pas de champ, et n'en aura pas : un flip EST un échange d'UV, donc le
+        // publisher échange u0/u1 dans ses propres données. Il vient gratuitement avec le stride 12.
+        const size_t stride = static_cast<size_t>(data.getInt("stride", 8));
+        static bool warnedStride = false;
+        if (stride != 8 && stride != 12) {
+            // ⚠️ REJET, jamais une supposition. Lire un blob avec le mauvais stride ne produit pas
+            // « moins de sprites » mais des sprites en BOUILLIE, à des positions aléatoires
+            // (mesuré : un blob de 2 sprites en 12 lu en 8 donne 3 quads faux). Un écran de déchets
+            // se diagnostique bien plus mal qu'un écran vide, et infiniment plus mal qu'un log.
+            if (!warnedStride) {
+                warnedStride = true;
+                spdlog::warn("render:sprite:batch: stride {} inconnu (8 ou 12 attendus) -- lot ignore", stride);
+            }
+            return;
+        }
+        if (byteLen % (stride * sizeof(float)) != 0) {
+            // Taille non multiple = blob tronqué. L'ancien code l'avalait en silence par division
+            // entière, en perdant la queue ; on refuse pour la même raison que ci-dessus.
+            if (!warnedStride) {
+                warnedStride = true;
+                spdlog::warn("render:sprite:batch: {} octets n'est pas un multiple du stride {} -- lot ignore",
+                             byteLen, stride);
+            }
+            return;
+        }
+        const size_t count = byteLen / (stride * sizeof(float));
+        std::vector<float> f(count * stride);                       // ALIGNED copy (blob not guaranteed 4-byte aligned)
+        std::memcpy(f.data(), bytes, count * stride * sizeof(float));
         auto& bucket = isScreenSpace(data) ? m_hudSprites : m_sprites;
         bucket.reserve(bucket.size() + count);
         for (size_t i = 0; i < count; ++i) {
-            const float* s = f.data() + i * STRIDE;
+            const float* s = f.data() + i * stride;
             SpriteInstance sp;
             sp.x = s[0]; sp.y = s[1]; sp.scaleX = s[2]; sp.scaleY = s[3];
-            sp.rotation = s[4]; sp.u0 = 0.0f; sp.v0 = 0.0f; sp.u1 = 1.0f; sp.v1 = 1.0f;
+            sp.rotation = s[4];
+            if (stride >= 12) { sp.u0 = s[8]; sp.v0 = s[9]; sp.u1 = s[10]; sp.v1 = s[11]; }
+            else              { sp.u0 = 0.0f; sp.v0 = 0.0f; sp.u1 = 1.0f; sp.v1 = 1.0f; }
             sp.textureId = s[5]; sp.layer = s[6]; sp.padding0 = 0.0f;
             sp.reserved[0] = sp.reserved[1] = sp.reserved[2] = sp.reserved[3] = 0.0f;
             uint32_t color; std::memcpy(&color, &s[7], sizeof(uint32_t));   // bits, pas cast numérique
