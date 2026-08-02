@@ -14,6 +14,7 @@
 | `master` | **9 commits non poussés** au moment d'écrire — vérifier `git log origin/master..HEAD` |
 | Suite | **211/212**, mesurée en fin de session : un seul rouge, `ChaosMonkey` (581 s) |
 | Dette P3 | ✅ **CLOSE** — cinq fonctions sur cinq |
+| ⚠️ En attente de TOI | deux livraisons écrites et non transmises — voir « Ce qui pourrit si on ne fait rien » |
 
 Le run du matin donnait **212/212** — `ChaosMonkey` passait. Celui du soir non. **Aucune ligne de
 code n'a bougé de son côté entre les deux** : c'est le budget d'horloge absolu qui bascule avec la
@@ -26,10 +27,17 @@ poste, pas le code. Lire le **nom** et la **raison**, jamais le compte —
 
 ### Ce qui est ouvert, avec le geste suivant
 
-**1. Salves de `0xC0000374` sur les tests GPU.** Victime tournante — quatre noms différents vus dans
-la seule journée du 02/08. **Survit à la reconstruction.**
-→ *Geste* : campagne **longue et détachée** (une heure de boucle horodatée), pas une session
-interactive. ⚠️ **Ne JAMAIS bisecter dessus** avant d'avoir établi que ce n'est pas une salve : ça
+**1. Salves de `0xC0000374` — ✅ CAMPAGNE FAITE le soir même, trois hypothèses éliminées.**
+177 passes, 44 échecs, 6 victimes. **Tous les échecs dans les 20 premières minutes, puis 117 passes
+propres d'affilée** : la salve a une forme mesurée. Éliminés : l'enveloppe électrique (P3, 21 W,
+plates toute l'heure), le seuil thermique (le bucket le plus CHAUD a le taux le plus BAS), le tirage
+par passe. Reste une **hypothèse d'une seule campagne** : la fenêtre en échec suivait une heure de
+builds/suites/bancs, et le régime s'assainit quand la charge devient monotone.
+→ *Geste suivant* : **relancer `tools/gpu-burst-campaign.sh` sur une machine au repos depuis une
+heure.** Si la fenêtre initiale disparaît, l'hypothèse est confirmée et la dette se referme. Données
+brutes de référence : `gpu-burst-campaign-2026-08-02.tsv` — la prochaine campagne s'y compare.
+→ *Utilisable tout de suite* : **ne pas juger un test GPU juste après une activité de build intense.**
+⚠️ **Ne JAMAIS bisecter sur un `0xC0000374`** avant d'avoir établi que ce n'est pas une salve — ça
 fabrique un faux coupable avec une chaîne de preuve impeccable (vécu le 02/08, §3ter).
 
 **2. Budgets d'horloge absolus** — `ChaosMonkey` et `ErrorRecovery`. Ta décision, pas du travail.
@@ -42,6 +50,22 @@ lignes. Prouvé **antérieur** au travail du jour (rendu différentiel), jamais 
 
 **4. `grove::anim::blendAngle` à sortir de `detail`** — deux minutes, besoin **mesuré** (DAOS en a
 besoin pour son fondu de pose, cf. `DAOS/docs/groveengine_retour.md`).
+
+### ⚠️ Ce qui pourrit si on ne fait rien
+
+Deux documents sont **écrits, vérifiés, et personne chez le destinataire ne sait qu'ils existent** :
+
+- **DAOS** — `DAOS/docs/groveengine_retour.md`, deux commits **locaux non poussés** : le retour du
+  moteur (leur wishlist servie à 100 %, leur contournement `scaleX` obsolète, le mode retenu ouvert)
+  et l'audit (leur logique de pose écrite 11 fois avec des branches divergentes).
+- **Drifterra** — `drifterra/docs/audit_graphique_2026-08-02.md`, **non commité**, 705 lignes. Trois
+  trouvailles vérifiées de mon côté : leur éclairage est allumé sans lampes (donc le bloom est à
+  ~5 lignes), un faux diagnostic moteur gravé dans leur code depuis longtemps (le blend alpha
+  fonctionne, leurs couleurs sont juste opaques), et leurs scènes de colonie qui ne dessinent que des
+  rectangles alors que l'art existe.
+
+⚠️ **Leurs sessions sont actives.** Plus on attend, plus le risque d'un conflit ou d'un travail
+refait grandit. C'est le seul point de la journée qui se dégrade tout seul.
 
 ### Les pièges qui coûtent le plus
 
